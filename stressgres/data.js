@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766774481960,
+  "lastUpdate": 1766775354392,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35702,6 +35702,60 @@ window.BENCHMARK_DATA = {
             "value": 16.859418261854355,
             "unit": "median tps",
             "extra": "avg tps: 16.66982057077434, max tps: 21.084625611794134, count: 55827"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "350b85e060654dfccd1fbd5ac67984b8162c1921",
+          "message": "fix: race condition in parallel index scan initialization (#3773)\n\n## Ticket(s) Closed\n\n- Closes #3750\n\n## What\n\nFixed a race condition in parallel index scans where workers could\nattempt to read segment data before the leader had fully initialized the\nshared parallel scan state.\n\n## Why\n\nIn PostgreSQL's parallel index scan mechanism, `aminitparallelscan` is\ncalled to initialize the shared parallel state, followed by `amrescan`\nbeing called by both the leader and workers. The original implementation\nof `aminitparallelscan` only initialized the mutex, leaving the\n`nsegments` field at its default zero-initialized value.\n\nWorkers, upon starting, would call `segments()` or `checkout_segment()`\nto get their assigned segments. If a worker accessed `nsegments` before\nthe leader's `amrescan` had completed initialization, the worker would\nsee `nsegments = 0` and return zero results.\n\n## How\n\nThe fix introduces a synchronization mechanism using PostgreSQL's\n`ConditionVariable`:\n\n1. **Sentinel Value**: A `PARALLEL_STATE_UNINITIALIZED` constant\n(`usize::MAX`) marks uninitialized state.\n2. **Phase 1 (`create`)**: Called by `aminitparallelscan`. Initializes\nthe mutex and condition variable, sets `nsegments =\nPARALLEL_STATE_UNINITIALIZED`.\n3. **Phase 2 (`populate`)**: Called by the leader's `amrescan`.\nPopulates segment data, sets `nsegments` to actual count, and broadcasts\non the condition variable to wake waiting workers.\n4. **Worker Waiting**: Workers call `wait_for_initialization()` which\nsleeps on the condition variable until `nsegments` is initialized.\n\n## Tests\n\nAdded `issue-3750-repro.sql` regression test. Though, it doesn't\nreproduce the issue. It's a race and wasn't able to reproduce it.",
+          "timestamp": "2025-12-26T09:53:45-08:00",
+          "tree_id": "9e4853f91357af92326e7c73719e720747e64b10",
+          "url": "https://github.com/paradedb/paradedb/commit/350b85e060654dfccd1fbd5ac67984b8162c1921"
+        },
+        "date": 1766775351130,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.11006641085888,
+            "unit": "median tps",
+            "extra": "avg tps: 32.841699129056515, max tps: 35.8000970500465, count: 55540"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.3233346707309,
+            "unit": "median tps",
+            "extra": "avg tps: 265.9037164356311, max tps: 2797.655187740738, count: 55540"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1948.2442947342229,
+            "unit": "median tps",
+            "extra": "avg tps: 1941.4965245015305, max tps: 2369.177786720693, count: 55540"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.34222014381788,
+            "unit": "median tps",
+            "extra": "avg tps: 196.2562786661522, max tps: 1766.6415796551873, count: 111080"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.19660924512195,
+            "unit": "median tps",
+            "extra": "avg tps: 16.316877347034442, max tps: 21.242062252901047, count: 55540"
           }
         ]
       }

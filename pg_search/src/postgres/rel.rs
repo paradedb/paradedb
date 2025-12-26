@@ -212,6 +212,12 @@ impl PgSearchRelation {
         self.0.as_ref().unwrap().5.get()
     }
 
+    /// Returns false if in the middle of a `REINDEX CONCURRENTLY`
+    /// and the index is not yet ready to serve queries
+    pub fn is_valid(&self) -> bool {
+        unsafe { (*(*self.as_ptr()).rd_index).indisvalid }
+    }
+
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {
         // SAFETY: self.0 is always Some
         unsafe { self.0.as_ref().unwrap_unchecked().2 }

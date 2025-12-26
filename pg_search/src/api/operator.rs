@@ -31,7 +31,9 @@ use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
+use crate::api::tokenizers::{
+    try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
+};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -396,11 +398,9 @@ pub unsafe fn field_name_from_node(
                     let field_name = if type_is_tokenizer(pg_sys::exprType(
                         indexed_expression.cast(),
                     )) {
+                        let oid = pg_sys::exprType(indexed_expression.cast());
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let typmod =
-                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
-
-                        typmod.alias().map(FieldName::from).or_else(|| {
+                        try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })

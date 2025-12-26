@@ -34,8 +34,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
-    UnicodeWordsTypmod,
+    AliasTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod,
+    UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -65,6 +65,17 @@ pub fn type_can_be_tokenized(oid: pg_sys::Oid) -> bool {
     ]
     .contains(&oid)
 }
+// given an oid and typmod, return the alias name if it is an alias, otherwise return None
+#[inline]
+pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
+    if type_is_alias(oid) {
+        AliasTypmod::try_from(typmod).ok()?.alias()
+    } else if type_is_tokenizer(oid) {
+        UncheckedTypmod::try_from(typmod).ok()?.alias()
+    } else {
+        None
+    }
+}
 
 pub fn search_field_config_from_type(
     oid: pg_sys::Oid,
@@ -86,7 +97,10 @@ pub fn search_field_config_from_type(
         ),
         #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
-        "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+        "jieba" => SearchTokenizer::Jieba {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "ngram" => SearchTokenizer::Ngram {
             min_gram: 0,
             max_gram: 0,
@@ -190,12 +204,23 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLindera(filters)
         | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters)
-        | SearchTokenizer::Jieba(filters) => {
+        | SearchTokenizer::KoreanLindera(filters) => {
+            // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::Jieba {
+            chinese_convert,
+            filters,
+        } => {
+            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *filters = jieba_typmod.filters;
+            *chinese_convert = jieba_typmod.chinese_convert;
         }
 
         #[cfg(feature = "icu")]
@@ -207,6 +232,10 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         }
 
         SearchTokenizer::UnicodeWords {
+            remove_emojis,
+            filters,
+        }
+        | SearchTokenizer::UnicodeWordsDeprecated {
             remove_emojis,
             filters,
         } => {

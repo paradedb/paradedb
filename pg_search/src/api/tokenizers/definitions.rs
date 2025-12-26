@@ -328,7 +328,10 @@ pub(crate) mod pdb {
 
     define_tokenizer_type!(
         Jieba,
-        SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+        SearchTokenizer::Jieba {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         tokenize_jieba,
         json_to_jieba,
         jsonb_to_jieba,

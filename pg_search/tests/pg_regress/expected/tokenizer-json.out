@@ -7,12 +7,12 @@ CREATE TABLE index_json(
 INSERT INTO index_json (j, jb) VALUES ('{"key1": "value1"}', '{"key2": "value2"}');
 CREATE INDEX idxindex_json ON index_json USING bm25 (id, j, jb) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |      tokenizer      |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+---------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                     |          | 
- id   | I64        | f      | t       | t    | f          |             |                     |          | 
- j    | JsonObject | f      | t       | f    | f          | t           | remove_emojis:false | position | 
- jb   | JsonObject | f      | t       | f    | f          | t           | remove_emojis:false | position | 
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id   | I64        | f      | t       | t    | f          |             |                                  |          | 
+ j    | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ jb   | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
 (4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';

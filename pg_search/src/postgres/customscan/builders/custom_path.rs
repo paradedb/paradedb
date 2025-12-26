@@ -40,31 +40,27 @@ impl OrderByStyle {
         unsafe {
             let pathkey = self.pathkey();
             assert!(!pathkey.is_null());
+            let nulls_first = (*pathkey).pk_nulls_first;
 
             #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-            {
-                match (*pathkey).pk_strategy as u32 {
-                    pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-                    pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-                    value => panic!("unrecognized sort strategy number: {value}"),
-                }
-            }
+            let is_asc = match (*pathkey).pk_strategy as u32 {
+                pg_sys::BTLessStrategyNumber => true,
+                pg_sys::BTGreaterStrategyNumber => false,
+                value => panic!("unrecognized sort strategy number: {value}"),
+            };
             #[cfg(feature = "pg18")]
-            {
-                match (*pathkey).pk_cmptype {
-                    pg_sys::CompareType::COMPARE_LT => SortDirection::Asc,
-                    pg_sys::CompareType::COMPARE_GT => SortDirection::Desc,
-                    value => panic!("unrecognized compare type: {value}"),
-                }
-            }
-        }
-    }
+            let is_asc = match (*pathkey).pk_cmptype {
+                pg_sys::CompareType::COMPARE_LT => true,
+                pg_sys::CompareType::COMPARE_GT => false,
+                value => panic!("unrecognized compare type: {value}"),
+            };
 
-    pub fn nulls_first(&self) -> bool {
-        unsafe {
-            let pathkey = self.pathkey();
-            assert!(!pathkey.is_null());
-            (*pathkey).pk_nulls_first
+            match (is_asc, nulls_first) {
+                (true, true) => SortDirection::AscNullsFirst,
+                (true, false) => SortDirection::AscNullsLast,
+                (false, true) => SortDirection::DescNullsFirst,
+                (false, false) => SortDirection::DescNullsLast,
+            }
         }
     }
 
@@ -88,7 +84,6 @@ impl From<&OrderByStyle> for OrderByInfo {
         OrderByInfo {
             feature,
             direction: value.direction(),
-            nulls_first: value.nulls_first(),
         }
     }
 }

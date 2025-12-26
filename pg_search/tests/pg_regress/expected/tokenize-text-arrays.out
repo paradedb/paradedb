@@ -12,11 +12,11 @@ CREATE TABLE index_text_array(
 INSERT INTO index_text_array (arr) VALUES (ARRAY['red', 'blue', 'blue green']), (ARRAY['blue green']);
 CREATE INDEX idxindex_text_array ON index_text_array USING bm25 (id, arr) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxindex_text_array') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |      tokenizer      |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+---------------------+----------+------------
- arr  | Str        | f      | t       | f    | t          |             | remove_emojis:false | position | 
- ctid | U64        | f      | t       | t    | f          |             |                     |          | 
- id   | I64        | f      | t       | t    | f          |             |                     |          | 
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ arr  | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id   | I64        | f      | t       | t    | f          |             |                                  |          | 
 (3 rows)
 
 SELECT * FROM index_text_array WHERE arr === 'red';

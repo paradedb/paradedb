@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766772647664,
+  "lastUpdate": 1766773550438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16852,6 +16852,42 @@ window.BENCHMARK_DATA = {
             "value": 5.331149834467329,
             "unit": "median tps",
             "extra": "avg tps: 4.801494127945033, max tps: 5.973550426583464, count: 57353"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "350b85e060654dfccd1fbd5ac67984b8162c1921",
+          "message": "fix: race condition in parallel index scan initialization (#3773)\n\n## Ticket(s) Closed\n\n- Closes #3750\n\n## What\n\nFixed a race condition in parallel index scans where workers could\nattempt to read segment data before the leader had fully initialized the\nshared parallel scan state.\n\n## Why\n\nIn PostgreSQL's parallel index scan mechanism, `aminitparallelscan` is\ncalled to initialize the shared parallel state, followed by `amrescan`\nbeing called by both the leader and workers. The original implementation\nof `aminitparallelscan` only initialized the mutex, leaving the\n`nsegments` field at its default zero-initialized value.\n\nWorkers, upon starting, would call `segments()` or `checkout_segment()`\nto get their assigned segments. If a worker accessed `nsegments` before\nthe leader's `amrescan` had completed initialization, the worker would\nsee `nsegments = 0` and return zero results.\n\n## How\n\nThe fix introduces a synchronization mechanism using PostgreSQL's\n`ConditionVariable`:\n\n1. **Sentinel Value**: A `PARALLEL_STATE_UNINITIALIZED` constant\n(`usize::MAX`) marks uninitialized state.\n2. **Phase 1 (`create`)**: Called by `aminitparallelscan`. Initializes\nthe mutex and condition variable, sets `nsegments =\nPARALLEL_STATE_UNINITIALIZED`.\n3. **Phase 2 (`populate`)**: Called by the leader's `amrescan`.\nPopulates segment data, sets `nsegments` to actual count, and broadcasts\non the condition variable to wake waiting workers.\n4. **Worker Waiting**: Workers call `wait_for_initialization()` which\nsleeps on the condition variable until `nsegments` is initialized.\n\n## Tests\n\nAdded `issue-3750-repro.sql` regression test. Though, it doesn't\nreproduce the issue. It's a race and wasn't able to reproduce it.",
+          "timestamp": "2025-12-26T09:53:45-08:00",
+          "tree_id": "9e4853f91357af92326e7c73719e720747e64b10",
+          "url": "https://github.com/paradedb/paradedb/commit/350b85e060654dfccd1fbd5ac67984b8162c1921"
+        },
+        "date": 1766773547236,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.128439700504837,
+            "unit": "median tps",
+            "extra": "avg tps: 6.9542017333261645, max tps: 10.504336733184982, count: 57729"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.311123987034403,
+            "unit": "median tps",
+            "extra": "avg tps: 4.768810836095733, max tps: 5.938403822886714, count: 57729"
           }
         ]
       }

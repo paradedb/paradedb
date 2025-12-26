@@ -387,12 +387,6 @@ const WORKER_METRICS_MAX_COUNT: usize = 256;
 /// Workers must wait until this changes before reading segment data.
 const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 
-/// Timeout in seconds for workers waiting for the leader to initialize parallel state.
-const PARALLEL_INIT_TIMEOUT_SECS: u64 = 60;
-
-/// Sleep duration in microseconds between checks when waiting for initialization.
-const PARALLEL_INIT_SLEEP_MICROS: u64 = 100;
-
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
@@ -400,6 +394,10 @@ pub struct ParallelScanState {
     /// Workers sleep on this CV instead of busy-waiting, and are woken
     /// when the last worker calls `aggregation_append()`.
     aggregation_cv: ConditionVariable,
+    /// Condition variable for efficient waiting in `wait_for_initialization()`.
+    /// Workers sleep on this CV instead of busy-waiting, and are woken
+    /// when the leader calls `populate()`.
+    init_cv: ConditionVariable,
     remaining_segments: usize,
     /// Number of segments in the index. Set to PARALLEL_STATE_UNINITIALIZED until the leader
     /// initializes the parallel state. Workers must wait for this to be set before reading
@@ -422,6 +420,7 @@ impl ParallelScanState {
     fn create_and_populate(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
         self.aggregation_cv.init();
+        self.init_cv.init();
         self.populate(args.segment_readers, &args.query, args.with_aggregates);
     }
 
@@ -432,6 +431,9 @@ impl ParallelScanState {
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
+
+        // Wake up any workers waiting in `wait_for_initialization()`.
+        self.init_cv.broadcast();
     }
 
     /// Phase 1: Create the mutex but mark state as uninitialized.
@@ -439,6 +441,7 @@ impl ParallelScanState {
     /// The leader will later call `populate` to set up the segment data.
     pub fn create(&mut self) {
         self.mutex.init();
+        self.init_cv.init();
         // Mark as uninitialized so workers know to wait for the leader
         self.nsegments = PARALLEL_STATE_UNINITIALIZED;
     }
@@ -665,28 +668,26 @@ impl ParallelScanState {
     /// Wait until the leader has initialized the parallel state.
     /// Workers call this before reading segment data.
     fn wait_for_initialization(&mut self) {
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(PARALLEL_INIT_TIMEOUT_SECS);
-
         loop {
+            // Check for interrupts to allow query cancellation
+            pgrx::check_for_interrupts!();
+
+            // Re-arm the condition variable on every iteration.
+            // After ConditionVariableSleep returns (spurious wake, interrupt, or broadcast),
+            // we're removed from the wait queue. We must re-prepare before sleeping again.
+            self.init_cv.prepare_to_sleep();
+
+            // See whether the state has been initialized: if not, keep waiting.
             {
                 let _mutex = self.acquire_mutex();
                 if self.nsegments != PARALLEL_STATE_UNINITIALIZED {
                     // Leader has initialized the state
+                    ConditionVariable::cancel_sleep();
                     return;
                 }
             }
 
-            // Check for interrupts to allow query cancellation
-            pgrx::check_for_interrupts!();
-
-            if std::time::Instant::now() >= deadline {
-                pgrx::error!("Timeout waiting for parallel scan leader to initialize segment data");
-            }
-
-            // TODO: Use another synchronization primitive to avoid busy-waiting.
-            // https://github.com/paradedb/paradedb/issues/3489
-            std::thread::sleep(std::time::Duration::from_micros(PARALLEL_INIT_SLEEP_MICROS));
+            self.init_cv.sleep();
         }
     }
 

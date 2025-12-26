@@ -24,7 +24,7 @@ use tantivy::index::SegmentId;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
-    (*state).init_mutex();
+    (*state).create();
 }
 
 #[pg_guard]
@@ -110,7 +110,7 @@ pub unsafe fn maybe_init_parallel_scan(
         // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
         // our shared memory information.  The mutex was already initialized, directly, in
         // `aminitparallelscan()`
-        state.init_without_mutex(searcher.segment_readers(), &[], false);
+        state.populate(searcher.segment_readers(), &[], false);
     }
     Some(worker_number)
 }

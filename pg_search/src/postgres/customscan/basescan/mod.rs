@@ -1380,6 +1380,93 @@ impl CustomScan for BaseScan {
 /// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
+///
+/// Validates whether a query that should use TopN scan is actually using it.
+///
+/// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
+/// that uses ParadeDB's search operators is using the TopN execution method. If TopN was
+/// expected but not chosen, it logs a warning with diagnostic information to help developers
+/// identify performance issues.
+///
+/// # Performance Note
+/// This function has minimal overhead as it returns early when the GUC is disabled.
+fn validate_topn_expectation(
+    privdata: &PrivateData,
+    topn_pathkey_info: &PathKeyInfo,
+    chosen_method: &ExecMethodType,
+) {
+    // Fast path: if validation is disabled, return immediately
+    if !crate::gucs::check_topn_scan() {
+        return;
+    }
+
+    // Check if this query should be using TopN
+    let has_limit = privdata.limit().is_some();
+    let has_search_query = privdata.query().is_some();
+    let no_group_by = privdata.window_aggregates().is_empty();
+
+    // TopN is expected when we have: LIMIT + search query + no GROUP BY
+    let should_use_topn = has_limit && has_search_query && no_group_by;
+
+    // Check if we actually got TopN
+    let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
+
+    // If there's a mismatch, emit a warning with diagnostic information
+    if should_use_topn && !is_using_topn {
+        let limit = privdata.limit().unwrap();
+        let method_name = match chosen_method {
+            ExecMethodType::Normal => "Normal",
+            ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+            ExecMethodType::TopN { .. } => "TopN",
+        };
+
+        let reason = match topn_pathkey_info {
+            PathKeyInfo::Unusable => {
+                if let Some(orderby) = privdata.maybe_orderby_info() {
+                    if orderby.len() > MAX_TOPN_FEATURES {
+                        format!(
+                            "ORDER BY has {} columns but TopN supports maximum {}",
+                            orderby.len(),
+                            MAX_TOPN_FEATURES
+                        )
+                    } else {
+                        "ORDER BY columns cannot be pushed down to the index".to_string()
+                    }
+                } else {
+                    "pathkeys are unusable".to_string()
+                }
+            }
+            PathKeyInfo::UsablePrefix(matched) => {
+                format!(
+                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                    matched.len(),
+                    privdata.maybe_orderby_info().as_ref().map_or(0, |o| o.len())
+                )
+            }
+            PathKeyInfo::None => {
+                // This case should normally use TopN with no ordering
+                "unknown reason (no pathkeys but should still use TopN)".to_string()
+            }
+            PathKeyInfo::UsableAll(_) => {
+                "unknown reason (pathkeys are usable)".to_string()
+            }
+        };
+
+        pgrx::warning!(
+            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+             Reason: {}. \
+             This may cause poor performance on large datasets. \
+             Consider: (1) ensuring ORDER BY columns are indexed with fast=true, \
+             (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), \
+             or (3) reducing ORDER BY columns to {} or fewer.",
+            limit,
+            method_name,
+            reason,
+            MAX_TOPN_FEATURES
+        );
+    }
+}
+
 fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
@@ -1407,15 +1494,20 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
     }
 
     // Otherwise, see if we can use a fast fields method.
-    if fast_fields::is_mixed_fast_field_capable(privdata) {
-        return ExecMethodType::FastFieldMixed {
+    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
+        ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-        };
-    }
+        }
+    } else {
+        // Else, fall back to normal execution
+        ExecMethodType::Normal
+    };
 
-    // Else, fall back to normal execution
-    ExecMethodType::Normal
+    // Validate TopN expectations before returning
+    validate_topn_expectation(privdata, topn_pathkey_info, &chosen);
+
+    chosen
 }
 
 ///

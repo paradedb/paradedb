@@ -4,7 +4,7 @@
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:326
 -- pg_search::api::tokenizers::definitions::pdb::alias_out_safe
-CREATE OR REPLACE FUNCTION pdb."alias_out_safe"(
+CREATE  FUNCTION pdb."alias_out_safe"(
 	"input" pdb.alias /* pg_search::api::tokenizers::definitions::pdb::Alias */
 ) RETURNS cstring /* alloc::ffi::c_str::CString */
 IMMUTABLE STRICT PARALLEL SAFE

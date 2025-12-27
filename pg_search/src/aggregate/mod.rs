@@ -697,11 +697,9 @@ pub mod mvcc_collector {
 
         fn collect_block(&mut self, docs: &[DocId]) {
             // Get the ctids for these docs.
-            if self.ctids_buffer.len() < docs.len() {
-                self.ctids_buffer.resize(docs.len(), None);
-            }
-            self.ctid_ff
-                .as_u64s(docs, &mut self.ctids_buffer[..docs.len()]);
+            let mut docs_vec = docs.to_vec();
+            self.ctids_buffer.clear();
+            self.ctid_ff.as_u64s(&mut docs_vec, &mut self.ctids_buffer);
 
             // Determine which ctids are visible.
             self.filtered_buffer.clear();

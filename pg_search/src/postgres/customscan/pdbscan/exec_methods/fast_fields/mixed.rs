@@ -40,6 +40,7 @@ use arrow_array::ArrayRef;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
+use tantivy::columnar::ValueRange;
 use tantivy::DocAddress;
 use tantivy::SegmentOrdinal;
 
@@ -57,8 +58,7 @@ macro_rules! fetch_ff_column {
             $(
                 FFType::$ff_type(col) => {
                     let mut column_results = Vec::with_capacity($ids.len());
-                    column_results.resize($ids.len(), None);
-                    col.first_vals(&$ids, &mut column_results);
+                    col.first_vals_in_value_range(&mut $ids, &mut column_results, ValueRange::All);
                     let mut builder = $builder::with_capacity($ids.len());
                     for maybe_val in column_results {
                         if let Some(val) = maybe_val {
@@ -74,7 +74,6 @@ macro_rules! fetch_ff_column {
         }
     };
 }
-
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
 ///
 /// This execution state is designed to handle two scenarios that previous implementations
@@ -181,18 +180,17 @@ impl MixedFastFieldExecState {
     /// If our SearchResults iterator contains entries, take one batch, and construct a new
     /// `joined_results` value which will lazily join them.
     fn try_join_batch(&mut self) -> bool {
-        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
+        let Some((segment_ord, scores, mut ids)) = self.try_get_batch_ids() else {
             return false;
         };
 
         // Batch lookup the ctids.
         let ctids: Vec<u64> = {
             let mut ctids = Vec::with_capacity(ids.len());
-            ctids.resize(ids.len(), None);
             self.inner
                 .ffhelper
                 .ctid(segment_ord)
-                .as_u64s(&ids, &mut ctids);
+                .as_u64s(&mut ids, &mut ctids);
             ctids
                 .into_iter()
                 .map(|ctid| ctid.expect("All docs must have ctids"))
@@ -210,8 +208,11 @@ impl MixedFastFieldExecState {
                     FFType::Text(str_column) => {
                         // Get the term ordinals.
                         let mut term_ords = Vec::with_capacity(ids.len());
-                        term_ords.resize(ids.len(), None);
-                        str_column.ords().first_vals(&ids, &mut term_ords);
+                        str_column.ords().first_vals_in_value_range(
+                            &mut ids,
+                            &mut term_ords,
+                            ValueRange::All,
+                        );
                         Some(ords_to_string_array(
                             str_column.clone(),
                             term_ords

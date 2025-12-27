@@ -301,13 +301,15 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     "CREATE EXTENSION IF NOT EXISTS citus".execute(&mut conn);
 
     // Create table and distribute it FIRST
+    // Note: Citus requires PRIMARY KEY to include the distribution column
     r#"
     CREATE TABLE articles (
-        id SERIAL PRIMARY KEY,
-        author_id INT,
+        id SERIAL,
+        author_id INT NOT NULL,
         title TEXT,
         body TEXT,
-        published_date DATE
+        published_date DATE,
+        PRIMARY KEY (author_id, id)
     );
 
     INSERT INTO articles (author_id, title, body, published_date) VALUES
@@ -388,10 +390,10 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     "DROP TABLE authors CASCADE".execute(&mut conn);
 }
 
-/// Test Citus columnar tables with pg_search (Wharton's use case)
-/// Tests that catalog queries like \dx work and columnar tables don't interfere
+/// Test catalog queries and metadata with both Citus and pg_search installed (Wharton's use case)
+/// Tests that catalog queries like \dx, \di work correctly when both extensions are loaded
 #[rstest]
-fn citus_columnar_tables_compatibility(mut conn: PgConnection) {
+fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
     // Check if Citus is in shared_preload_libraries
     let preload_libs: Vec<(String,)> = "SHOW shared_preload_libraries".fetch(&mut conn);
     let preload_str = &preload_libs[0].0;
@@ -417,26 +419,28 @@ fn citus_columnar_tables_compatibility(mut conn: PgConnection) {
         "Should have at least pg_search extension installed"
     );
 
-    // Create a columnar table (Citus columnar storage)
+    // Create a regular table with BM25 index (not columnar, as Citus columnar doesn't support BM25)
+    // This tests that catalog queries work when both extensions are installed
     r#"
     CREATE TABLE events (
-        event_id BIGSERIAL,
+        event_id SERIAL,
+        user_id INT NOT NULL,
         event_time TIMESTAMP,
-        user_id INT,
         event_type TEXT,
-        event_data TEXT
-    ) USING columnar;
+        event_data TEXT,
+        PRIMARY KEY (user_id, event_id)
+    );
 
-    INSERT INTO events (event_time, user_id, event_type, event_data) VALUES
-        ('2024-01-01 10:00:00', 1, 'login', 'User logged in successfully'),
-        ('2024-01-01 10:05:00', 1, 'search', 'Searched for PostgreSQL tutorials'),
-        ('2024-01-01 10:10:00', 2, 'login', 'User logged in successfully'),
-        ('2024-01-01 10:15:00', 2, 'purchase', 'Purchased PostgreSQL book'),
-        ('2024-01-01 10:20:00', 3, 'search', 'Searched for database optimization');
+    INSERT INTO events (user_id, event_time, event_type, event_data) VALUES
+        (1, '2024-01-01 10:00:00', 'login', 'User logged in successfully'),
+        (1, '2024-01-01 10:05:00', 'search', 'Searched for PostgreSQL tutorials'),
+        (2, '2024-01-01 10:10:00', 'login', 'User logged in successfully'),
+        (2, '2024-01-01 10:15:00', 'purchase', 'Purchased PostgreSQL book'),
+        (3, '2024-01-01 10:20:00', 'search', 'Searched for database optimization');
     "#
     .execute(&mut conn);
 
-    // Create BM25 index on columnar table
+    // Create BM25 index on regular table
     r#"
     CREATE INDEX events_search_idx ON events 
     USING bm25 (event_id, event_type, event_data) 
@@ -444,8 +448,11 @@ fn citus_columnar_tables_compatibility(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Test search on columnar table
-    let rows: Vec<(i64, String)> = r#"
+    // Distribute the table
+    "SELECT create_distributed_table('events', 'user_id')".execute(&mut conn);
+
+    // Test search on distributed table
+    let rows: Vec<(i32, String)> = r#"
         SELECT event_id, event_type FROM events
         WHERE event_data @@@ 'PostgreSQL'
         ORDER BY event_id
@@ -457,13 +464,9 @@ fn citus_columnar_tables_compatibility(mut conn: PgConnection) {
         vec![(2, "search".to_string()), (4, "purchase".to_string())]
     );
 
-    // Test that we can query pg_class for both regular and columnar tables
-    let table_info: Vec<(String, String)> = r#"
-        SELECT relname, 
-               CASE 
-                   WHEN relam = 0 THEN 'special'
-                   ELSE 'regular'
-               END as access_method
+    // Test that we can query pg_class
+    let table_info: Vec<(String,)> = r#"
+        SELECT relname
         FROM pg_class 
         WHERE relname = 'events' AND relkind = 'r'
     "#
@@ -482,6 +485,18 @@ fn citus_columnar_tables_compatibility(mut conn: PgConnection) {
     assert!(
         indexes.iter().any(|(name,)| name.contains("search_idx")),
         "Should find the BM25 search index"
+    );
+
+    // Test listing extensions (similar to \dx)
+    let ext_count: Vec<(i64,)> = r#"
+        SELECT COUNT(*) FROM pg_extension 
+        WHERE extname IN ('citus', 'pg_search')
+    "#
+    .fetch(&mut conn);
+
+    assert!(
+        ext_count[0].0 >= 1,
+        "Should find at least pg_search extension"
     );
 
     "DROP TABLE events CASCADE".execute(&mut conn);

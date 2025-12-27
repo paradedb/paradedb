@@ -138,8 +138,33 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
-      - name: Add pg_search to shared_preload_libraries (<17 only)
-        if: matrix.pg_version < 17
+      # Needed for Citus compatibility tests
+      # Note: Citus doesn't support ARM architecture
+      # Only enabling for PG 14-16 with Citus 12.1 (proven stable)
+      # PG 17-18: Citus support is experimental/unstable, skipping for now
+      - name: Install Citus 12.1 (system, PG 14-16)
+        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
+        run: |
+          curl https://install.citusdata.com/community/deb.sh | sudo bash
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-12.1
+
+      - name: Install Citus 12.1 (pgrx, PG 14-16)
+        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
+        run: |
+          sudo apt-get install -y libcurl4-openssl-dev
+          git clone --branch v12.1.5 https://github.com/citusdata/citus.git
+          cd citus/
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+
+      - name: Add extensions to shared_preload_libraries (with Citus)
+        if: matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
+
+      - name: Add extensions to shared_preload_libraries (without Citus)
+        if: matrix.arch != 'amd64' || matrix.pg_version < 14 || matrix.pg_version > 16
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

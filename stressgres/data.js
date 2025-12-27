@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766815839852,
+  "lastUpdate": 1766815844103,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -58282,6 +58282,186 @@ window.BENCHMARK_DATA = {
             "value": 30.453125,
             "unit": "median mem",
             "extra": "avg mem: 29.79343678431117, max mem: 30.703125, count: 53707"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da96714674712e910ebf995a6c1f13fe5163149a",
+          "message": "fix: Citus compatibility (#3814)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nFixes a critical bug where `pg_search` broke Citus's distributed query\nexecution on distributed tables.\n\n## Why\n\nWhen both `pg_search` and Citus were loaded via\n`shared_preload_libraries`, queries like this would fail:\n\n```sql\nSELECT * FROM distributed_table \nWHERE id IN (SELECT id FROM another_table LIMIT 10)\n```\n\nError: `Query could not find the intermediate result file \"3_1\"`\n\nThe root cause was improper planner hook chaining. `pg_search`\nregistered a planner hook to handle window function replacement, but had\n`PREV_PLANNER_HOOK` declared in two different scopes. This meant the\nhook that should have called Citus's planner was referencing an\nuninitialized variable instead of the actual previous hook.\n\n## How\n\n**Code Fix:**\n- Moved `PREV_PLANNER_HOOK` static variable to module level in\n`hook.rs`, ensuring both `register_window_aggregate_hook()` and\n`paradedb_planner_hook()` reference the same variable\n- This allows proper hook chaining: PostgreSQL → pg_search → Citus →\nstandard planner\n\n**Testing:**\n- Added Rust integration tests that verify hook chaining with Citus\n- Tests create distributed tables with BM25 indexes and run queries\n- EXPLAIN plan verification ensures both ParadeDB Custom Scan and Citus\ndistributed execution are present\n- Tests skip gracefully when Citus is not installed\n\n**CI:**\n- Added Citus installation to test workflow\n- Configured `shared_preload_libraries = 'citus,pg_search'` to catch\nhook chaining issues\n\n## Tests\n\nTwo new Rust tests in `citus_compatibility.rs`:\n\n1. **`citus_distributed_tables_with_subquery_limit`** - Tests the exact\npattern that was broken (subqueries with LIMIT on distributed tables\nwith pg_search operators), includes EXPLAIN plan verification\n2. **`citus_without_search_operators`** - Verifies hook chaining works\neven when pg_search isn't actively processing the query\n\nBoth tests automatically skip if Citus is not installed, making them\nsafe for all environments.",
+          "timestamp": "2025-12-26T20:54:31-08:00",
+          "tree_id": "ff17b0e975acde97277115c0ba6b883bb1405099",
+          "url": "https://github.com/paradedb/paradedb/commit/da96714674712e910ebf995a6c1f13fe5163149a"
+        },
+        "date": 1766815841104,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976337449126155, max cpu: 9.248554, count: 53714"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 47.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.52824980742916, max mem: 53.46875, count: 53714"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.130336326977433, max cpu: 4.5757866, count: 53714"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.992614166581337, max mem: 29.96875, count: 53714"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.116132706047601, max cpu: 18.443804, count: 53714"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 49.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.52566820917266, max mem: 55.70703125, count: 53714"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.936546827387728, max cpu: 9.248554, count: 53714"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 47.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.053404664054064, max mem: 52.92578125, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.698304624733793, max cpu: 9.195402, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.97138970403433, max mem: 36.19140625, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1118,
+            "unit": "median pages",
+            "extra": "avg pages: 1116.9499199463828, max pages: 1840.0, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.734375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.726171249581116, max relation_size:MB: 14.375, count: 53714"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.487526529396433, max segment_count: 16.0, count: 53714"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.534690280433426, max cpu: 4.6065254, count: 53714"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.922160801885916, max mem: 27.97265625, count: 53714"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.360476407253935, max cpu: 4.6153846, count: 53714"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 27.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.936785349838964, max mem: 27.94140625, count: 53714"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.753108171859919, max cpu: 13.872832, count: 53714"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.52433519426965, max mem: 51.39453125, count: 53714"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000013782168711253118, max replication_lag:MB: 0.06926727294921875, count: 53714"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.124502729237727, max cpu: 9.266409, count: 107428"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 46.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.23565638148341, max mem: 52.5546875, count: 107428"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.520732108298473, max cpu: 4.610951, count: 53714"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.733294261621737, max mem: 30.7578125, count: 53714"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.460225599018317, max cpu: 4.6021094, count: 53714"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.75101710564285, max mem: 30.5078125, count: 53714"
           }
         ]
       }

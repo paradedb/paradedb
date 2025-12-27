@@ -1440,16 +1440,17 @@ fn validate_topn_expectation(
                 format!(
                     "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
                     matched.len(),
-                    privdata.maybe_orderby_info().as_ref().map_or(0, |o| o.len())
+                    privdata
+                        .maybe_orderby_info()
+                        .as_ref()
+                        .map_or(0, |o| o.len()),
                 )
             }
             PathKeyInfo::None => {
                 // This case should normally use TopN with no ordering
                 "unknown reason (no pathkeys but should still use TopN)".to_string()
             }
-            PathKeyInfo::UsableAll(_) => {
-                "unknown reason (pathkeys are usable)".to_string()
-            }
+            PathKeyInfo::UsableAll(_) => "unknown reason (pathkeys are usable)".to_string(),
         };
 
         pgrx::warning!(

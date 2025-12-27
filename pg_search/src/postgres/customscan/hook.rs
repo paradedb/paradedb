@@ -229,6 +229,11 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     }
 }
 
+/// Static variable to store the previous planner hook (e.g., from Citus or other extensions)
+/// This MUST be outside both register_window_aggregate_hook() and paradedb_planner_hook()
+/// so they both reference the same variable for proper hook chaining.
+static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+
 /// Register a global planner hook to intercept and modify queries before planning.
 /// This is called once during extension initialization and affects all queries.
 ///
@@ -254,8 +259,6 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ///    of the planning process sees our placeholder functions as regular function
 ///    calls that get projected through the plan tree.
 pub unsafe fn register_window_aggregate_hook() {
-    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
-
     PREV_PLANNER_HOOK = pg_sys::planner_hook;
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
@@ -455,8 +458,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         }
     }
 
-    // Call the previous planner hook or standard planner
-    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+    // Call the previous planner hook (e.g., Citus) or standard planner
+    // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
     if let Some(prev_hook) = PREV_PLANNER_HOOK {
         prev_hook(parse, query_string, cursor_options, bound_params)
     } else {

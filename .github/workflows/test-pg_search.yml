@@ -156,6 +156,7 @@ jobs:
       - name: Install Citus 12.1 (pgrx, PG 14-16)
         if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
         run: |
+          sudo apt-get install -y libcurl4-openssl-dev
           git clone --branch v12.1.5 https://github.com/citusdata/citus.git
           cd citus/
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
@@ -165,6 +166,7 @@ jobs:
       - name: Install Citus 13.0 (pgrx, PG 17)
         if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version == 17
         run: |
+          sudo apt-get install -y libcurl4-openssl-dev
           git clone --branch v13.0.0 https://github.com/citusdata/citus.git
           cd citus/
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure

@@ -139,15 +139,22 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
       # Needed for Citus compatibility tests
-      # Note: Citus 12.1 only supports PG <= 17, and doesn't support ARM
-      - name: Install Citus (system)
-        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version <= 17
+      # Note: Citus doesn't support ARM architecture
+      # Citus 12 for PG 14-16, Citus 13 for PG 17-18
+      - name: Install Citus 12 (system, PG 14-16)
+        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
         run: |
           curl https://install.citusdata.com/community/deb.sh | sudo bash
-          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-12.1
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-12
 
-      - name: Install Citus (pgrx)
-        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version <= 17
+      - name: Install Citus 13 (system, PG 17-18)
+        if: matrix.pg_impl == 'system' && matrix.arch == 'amd64' && matrix.pg_version >= 17
+        run: |
+          curl https://install.citusdata.com/community/deb.sh | sudo bash
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-13
+
+      - name: Install Citus 12 (pgrx, PG 14-16)
+        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 16
         run: |
           git clone --branch v12.1.5 https://github.com/citusdata/citus.git
           cd citus/
@@ -155,13 +162,22 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
+      - name: Install Citus 13 (pgrx, PG 17-18)
+        if: matrix.pg_impl == 'pgrx' && matrix.arch == 'amd64' && matrix.pg_version >= 17
+        run: |
+          git clone --branch v13.0.0 https://github.com/citusdata/citus.git
+          cd citus/
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+
       - name: Add extensions to shared_preload_libraries (with Citus)
-        if: matrix.arch == 'amd64' && matrix.pg_version <= 17
+        if: matrix.arch == 'amd64' && matrix.pg_version >= 14
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
 
       - name: Add extensions to shared_preload_libraries (without Citus)
-        if: matrix.arch != 'amd64' || matrix.pg_version > 17
+        if: matrix.arch != 'amd64' || matrix.pg_version < 14
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

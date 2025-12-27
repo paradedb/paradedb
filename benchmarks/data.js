@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766812958854,
+  "lastUpdate": 1766814947268,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -39620,6 +39620,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 26612.358500000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da96714674712e910ebf995a6c1f13fe5163149a",
+          "message": "fix: Citus compatibility (#3814)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nFixes a critical bug where `pg_search` broke Citus's distributed query\nexecution on distributed tables.\n\n## Why\n\nWhen both `pg_search` and Citus were loaded via\n`shared_preload_libraries`, queries like this would fail:\n\n```sql\nSELECT * FROM distributed_table \nWHERE id IN (SELECT id FROM another_table LIMIT 10)\n```\n\nError: `Query could not find the intermediate result file \"3_1\"`\n\nThe root cause was improper planner hook chaining. `pg_search`\nregistered a planner hook to handle window function replacement, but had\n`PREV_PLANNER_HOOK` declared in two different scopes. This meant the\nhook that should have called Citus's planner was referencing an\nuninitialized variable instead of the actual previous hook.\n\n## How\n\n**Code Fix:**\n- Moved `PREV_PLANNER_HOOK` static variable to module level in\n`hook.rs`, ensuring both `register_window_aggregate_hook()` and\n`paradedb_planner_hook()` reference the same variable\n- This allows proper hook chaining: PostgreSQL → pg_search → Citus →\nstandard planner\n\n**Testing:**\n- Added Rust integration tests that verify hook chaining with Citus\n- Tests create distributed tables with BM25 indexes and run queries\n- EXPLAIN plan verification ensures both ParadeDB Custom Scan and Citus\ndistributed execution are present\n- Tests skip gracefully when Citus is not installed\n\n**CI:**\n- Added Citus installation to test workflow\n- Configured `shared_preload_libraries = 'citus,pg_search'` to catch\nhook chaining issues\n\n## Tests\n\nTwo new Rust tests in `citus_compatibility.rs`:\n\n1. **`citus_distributed_tables_with_subquery_limit`** - Tests the exact\npattern that was broken (subqueries with LIMIT on distributed tables\nwith pg_search operators), includes EXPLAIN plan verification\n2. **`citus_without_search_operators`** - Verifies hook chaining works\neven when pg_search isn't actively processing the query\n\nBoth tests automatically skip if Citus is not installed, making them\nsafe for all environments.",
+          "timestamp": "2025-12-26T20:54:31-08:00",
+          "tree_id": "ff17b0e975acde97277115c0ba6b883bb1405099",
+          "url": "https://github.com/paradedb/paradedb/commit/da96714674712e910ebf995a6c1f13fe5163149a"
+        },
+        "date": 1766814944182,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1199.146,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 491.24699999999996,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1540.8075,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 520.5074999999999,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 520.4985,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1279.424,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 26560.1795,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 26633.982,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 27879.0515,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

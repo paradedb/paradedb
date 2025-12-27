@@ -138,10 +138,25 @@ jobs:
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
           PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
 
-      - name: Add pg_search to shared_preload_libraries (<17 only)
-        if: matrix.pg_version < 17
+      # Needed for Citus compatibility tests
+      - name: Install Citus (system)
+        if: matrix.pg_impl == 'system'
+        run: |
+          curl https://install.citusdata.com/community/deb.sh | sudo bash
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }}-citus-12.1
+
+      - name: Install Citus (pgrx)
+        if: matrix.pg_impl == 'pgrx'
+        run: |
+          git clone --branch v12.1.5 https://github.com/citusdata/citus.git
+          cd citus/
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config ./configure
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make -j
+          PG_CONFIG=~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config make install -j
+
+      - name: Add citus and pg_search to shared_preload_libraries (<17 only)
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
 
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'

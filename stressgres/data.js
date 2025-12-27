@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766814108651,
+  "lastUpdate": 1766814969386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36188,6 +36188,60 @@ window.BENCHMARK_DATA = {
             "value": 16.19660924512195,
             "unit": "median tps",
             "extra": "avg tps: 16.316877347034442, max tps: 21.242062252901047, count: 55540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da96714674712e910ebf995a6c1f13fe5163149a",
+          "message": "fix: Citus compatibility (#3814)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nFixes a critical bug where `pg_search` broke Citus's distributed query\nexecution on distributed tables.\n\n## Why\n\nWhen both `pg_search` and Citus were loaded via\n`shared_preload_libraries`, queries like this would fail:\n\n```sql\nSELECT * FROM distributed_table \nWHERE id IN (SELECT id FROM another_table LIMIT 10)\n```\n\nError: `Query could not find the intermediate result file \"3_1\"`\n\nThe root cause was improper planner hook chaining. `pg_search`\nregistered a planner hook to handle window function replacement, but had\n`PREV_PLANNER_HOOK` declared in two different scopes. This meant the\nhook that should have called Citus's planner was referencing an\nuninitialized variable instead of the actual previous hook.\n\n## How\n\n**Code Fix:**\n- Moved `PREV_PLANNER_HOOK` static variable to module level in\n`hook.rs`, ensuring both `register_window_aggregate_hook()` and\n`paradedb_planner_hook()` reference the same variable\n- This allows proper hook chaining: PostgreSQL → pg_search → Citus →\nstandard planner\n\n**Testing:**\n- Added Rust integration tests that verify hook chaining with Citus\n- Tests create distributed tables with BM25 indexes and run queries\n- EXPLAIN plan verification ensures both ParadeDB Custom Scan and Citus\ndistributed execution are present\n- Tests skip gracefully when Citus is not installed\n\n**CI:**\n- Added Citus installation to test workflow\n- Configured `shared_preload_libraries = 'citus,pg_search'` to catch\nhook chaining issues\n\n## Tests\n\nTwo new Rust tests in `citus_compatibility.rs`:\n\n1. **`citus_distributed_tables_with_subquery_limit`** - Tests the exact\npattern that was broken (subqueries with LIMIT on distributed tables\nwith pg_search operators), includes EXPLAIN plan verification\n2. **`citus_without_search_operators`** - Verifies hook chaining works\neven when pg_search isn't actively processing the query\n\nBoth tests automatically skip if Citus is not installed, making them\nsafe for all environments.",
+          "timestamp": "2025-12-26T20:54:31-08:00",
+          "tree_id": "ff17b0e975acde97277115c0ba6b883bb1405099",
+          "url": "https://github.com/paradedb/paradedb/commit/da96714674712e910ebf995a6c1f13fe5163149a"
+        },
+        "date": 1766814966250,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.748525087636125,
+            "unit": "median tps",
+            "extra": "avg tps: 33.54249515581245, max tps: 35.532110500666846, count: 55474"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.47254769526666,
+            "unit": "median tps",
+            "extra": "avg tps: 259.8375639175176, max tps: 2830.244928138194, count: 55474"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1950.5819532718974,
+            "unit": "median tps",
+            "extra": "avg tps: 1935.5090756755244, max tps: 2277.4353407966023, count: 55474"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.02816088977272,
+            "unit": "median tps",
+            "extra": "avg tps: 200.24113349059394, max tps: 1732.0488129422492, count: 110948"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.59057383779689,
+            "unit": "median tps",
+            "extra": "avg tps: 15.623582923913299, max tps: 19.312034643936194, count: 55474"
           }
         ]
       }

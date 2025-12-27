@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1766814104385,
+  "lastUpdate": 1766814108651,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32206,6 +32206,108 @@ window.BENCHMARK_DATA = {
             "value": 160.12890625,
             "unit": "median mem",
             "extra": "avg mem: 180.5384462680491, max mem: 220.51171875, count: 56651"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da96714674712e910ebf995a6c1f13fe5163149a",
+          "message": "fix: Citus compatibility (#3814)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nFixes a critical bug where `pg_search` broke Citus's distributed query\nexecution on distributed tables.\n\n## Why\n\nWhen both `pg_search` and Citus were loaded via\n`shared_preload_libraries`, queries like this would fail:\n\n```sql\nSELECT * FROM distributed_table \nWHERE id IN (SELECT id FROM another_table LIMIT 10)\n```\n\nError: `Query could not find the intermediate result file \"3_1\"`\n\nThe root cause was improper planner hook chaining. `pg_search`\nregistered a planner hook to handle window function replacement, but had\n`PREV_PLANNER_HOOK` declared in two different scopes. This meant the\nhook that should have called Citus's planner was referencing an\nuninitialized variable instead of the actual previous hook.\n\n## How\n\n**Code Fix:**\n- Moved `PREV_PLANNER_HOOK` static variable to module level in\n`hook.rs`, ensuring both `register_window_aggregate_hook()` and\n`paradedb_planner_hook()` reference the same variable\n- This allows proper hook chaining: PostgreSQL → pg_search → Citus →\nstandard planner\n\n**Testing:**\n- Added Rust integration tests that verify hook chaining with Citus\n- Tests create distributed tables with BM25 indexes and run queries\n- EXPLAIN plan verification ensures both ParadeDB Custom Scan and Citus\ndistributed execution are present\n- Tests skip gracefully when Citus is not installed\n\n**CI:**\n- Added Citus installation to test workflow\n- Configured `shared_preload_libraries = 'citus,pg_search'` to catch\nhook chaining issues\n\n## Tests\n\nTwo new Rust tests in `citus_compatibility.rs`:\n\n1. **`citus_distributed_tables_with_subquery_limit`** - Tests the exact\npattern that was broken (subqueries with LIMIT on distributed tables\nwith pg_search operators), includes EXPLAIN plan verification\n2. **`citus_without_search_operators`** - Verifies hook chaining works\neven when pg_search isn't actively processing the query\n\nBoth tests automatically skip if Citus is not installed, making them\nsafe for all environments.",
+          "timestamp": "2025-12-26T20:54:31-08:00",
+          "tree_id": "ff17b0e975acde97277115c0ba6b883bb1405099",
+          "url": "https://github.com/paradedb/paradedb/commit/da96714674712e910ebf995a6c1f13fe5163149a"
+        },
+        "date": 1766814105569,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07698440822111978, max background_merging: 2.0, count: 56440"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7223677334072205, max cpu: 9.836065, count: 56440"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.52706628443923, max mem: 24.54296875, count: 56440"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.996888509734628, max cpu: 11.276429, count: 56440"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.21701911044914, max mem: 165.66796875, count: 56440"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67434,
+            "unit": "median block_count",
+            "extra": "avg block_count: 67344.14707654146, max block_count: 67434.0, count: 56440"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.54383416017009, max segment_count: 55.0, count: 56440"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6263489553383295, max cpu: 9.467456, count: 56440"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 116.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 107.07085199714298, max mem: 133.85546875, count: 56440"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.747874157315826, max cpu: 9.628887, count: 56440"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.95647368887313, max mem: 165.234375, count: 56440"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.03197576066396, max cpu: 33.73494, count: 56440"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 178.29438002469436, max mem: 220.53515625, count: 56440"
           }
         ]
       }

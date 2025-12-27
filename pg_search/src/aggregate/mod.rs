@@ -621,7 +621,7 @@ fn set_missing_on_terms(
 pub mod mvcc_collector {
     use parking_lot::Mutex;
     use std::sync::Arc;
-    use tantivy::collector::{Collector, SegmentCollector};
+    use tantivy::collector::{Collector, ComparableDoc, SegmentCollector};
 
     use crate::aggregate::vischeck::TSVisibilityChecker;
     use crate::index::fast_fields_helper::FFType;
@@ -679,7 +679,7 @@ pub mod mvcc_collector {
         inner: SC,
         lock: Arc<Mutex<TSVisibilityChecker>>,
         ctid_ff: FFType,
-        ctids_buffer: Vec<Option<u64>>,
+        ctids_buffer: Vec<ComparableDoc<Option<u64>, DocId>>,
         filtered_buffer: Vec<u32>,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
@@ -697,15 +697,14 @@ pub mod mvcc_collector {
 
         fn collect_block(&mut self, docs: &[DocId]) {
             // Get the ctids for these docs.
-            let mut docs_vec = docs.to_vec();
             self.ctids_buffer.clear();
-            self.ctid_ff.as_u64s(&mut docs_vec, &mut self.ctids_buffer);
+            self.ctid_ff.as_u64s(docs, &mut self.ctids_buffer);
 
             // Determine which ctids are visible.
             self.filtered_buffer.clear();
             let mut vischeck = self.lock.lock();
-            for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
-                let ctid = ctid.expect("ctid should be present");
+            for (doc, ctid_doc) in docs.iter().zip(self.ctids_buffer.iter()) {
+                let ctid = ctid_doc.sort_key.expect("ctid should be present");
                 if vischeck.is_visible(ctid) {
                     self.filtered_buffer.push(*doc);
                 }

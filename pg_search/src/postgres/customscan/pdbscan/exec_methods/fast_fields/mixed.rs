@@ -40,8 +40,10 @@ use arrow_array::ArrayRef;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
+use tantivy::collector::ComparableDoc;
 use tantivy::columnar::ValueRange;
 use tantivy::DocAddress;
+use tantivy::DocId;
 use tantivy::SegmentOrdinal;
 
 /// The number of rows to batch materialize in memory while iterating over a result set.
@@ -58,10 +60,10 @@ macro_rules! fetch_ff_column {
             $(
                 FFType::$ff_type(col) => {
                     let mut column_results = Vec::with_capacity($ids.len());
-                    col.first_vals_in_value_range(&mut $ids, &mut column_results, ValueRange::All);
+                    col.first_vals_in_value_range(&$ids, &mut column_results, ValueRange::All);
                     let mut builder = $builder::with_capacity($ids.len());
                     for maybe_val in column_results {
-                        if let Some(val) = maybe_val {
+                        if let Some(val) = maybe_val.sort_key {
                             builder.append_value($conversion(val));
                         } else {
                             builder.append_null();
@@ -180,20 +182,20 @@ impl MixedFastFieldExecState {
     /// If our SearchResults iterator contains entries, take one batch, and construct a new
     /// `joined_results` value which will lazily join them.
     fn try_join_batch(&mut self) -> bool {
-        let Some((segment_ord, scores, mut ids)) = self.try_get_batch_ids() else {
+        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
             return false;
         };
 
         // Batch lookup the ctids.
         let ctids: Vec<u64> = {
-            let mut ctids = Vec::with_capacity(ids.len());
+            let mut ctids: Vec<ComparableDoc<Option<u64>, DocId>> = Vec::with_capacity(ids.len());
             self.inner
                 .ffhelper
                 .ctid(segment_ord)
-                .as_u64s(&mut ids, &mut ctids);
+                .as_u64s(&ids, &mut ctids);
             ctids
                 .into_iter()
-                .map(|ctid| ctid.expect("All docs must have ctids"))
+                .map(|ctid| ctid.sort_key.expect("All docs must have ctids"))
                 .collect()
         };
 
@@ -209,7 +211,7 @@ impl MixedFastFieldExecState {
                         // Get the term ordinals.
                         let mut term_ords = Vec::with_capacity(ids.len());
                         str_column.ords().first_vals_in_value_range(
-                            &mut ids,
+                            &ids,
                             &mut term_ords,
                             ValueRange::All,
                         );
@@ -217,7 +219,7 @@ impl MixedFastFieldExecState {
                             str_column.clone(),
                             term_ords
                                 .into_iter()
-                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
+                                .map(|maybe_ord| maybe_ord.sort_key.unwrap_or(NULL_TERM_ORDINAL)),
                         ))
                     }
                     FFType::Junk => None,

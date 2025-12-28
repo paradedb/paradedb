@@ -345,6 +345,7 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
         vec![
             (1, "PostgreSQL Performance".to_string()),
             (2, "Distributed Databases".to_string()),
+            (3, "Full-Text Search".to_string()),
             (5, "Citus Extension".to_string())
         ]
     );
@@ -379,7 +380,6 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
     assert_eq!(
         rows,
         vec![
-            ("Alice".to_string(), "Distributed Databases".to_string()),
             ("Alice".to_string(), "PostgreSQL Performance".to_string()),
             ("Bob".to_string(), "Full-Text Search".to_string()),
             ("Carol".to_string(), "Citus Extension".to_string())

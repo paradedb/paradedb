@@ -1,7 +1,8 @@
 # workflows/test-pg_search-antithesis.yml
 #
 # Test pg_search (Antithesis)
-# Build the current commit as a Docker image, push it to Antithesis, and trigger an Antithesis test run.
+# Build the current commit of pg_search and Stressgrs as Docker images, push them to
+# Antithesis, and trigger an Antithesis test run.
 
 name: Test pg_search (Antithesis)
 
@@ -100,6 +101,32 @@ jobs:
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
           labels: ${{ steps.extract-config-metadata.outputs.labels }}
+
+      - name: Extract Stressgres Metadata
+        id: extract-stressgres-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
+          tags: |
+            type=sha
+            type=raw,value=${{ github.event.inputs.release_version }}
+            type=raw,value=v${{ github.event.inputs.release_version }}
+            type=raw,value=antithesis-latest
+
+      # Antithesis only supports x86_64 instruction set
+      # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
+      - name: Build and Push Stressgres Docker Image to Antithesis Registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          build-args: |
+            RELEASE_TAG=v${{ github.event.inputs.release_version }}
+            COMMIT_SHA=${{ github.sha }}
+          platforms: linux/amd64
+          file: docker/Dockerfile.stressgres
+          push: true
+          tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}
+          labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}
 
       # antithesis.duration is in minutes
       - name: Trigger Antithesis Test

@@ -11,20 +11,37 @@ canonical: https://docs.paradedb.com/deploy/third-party-extensions
   from ParadeDB.
 </Note>
 
-Postgres has a rich ecosystem of extensions. To keep the size of the ParadeDB Dockerfile small, only the ParadeDB extension — `pg_search` — and a limited set of third party extensions are included:
+Postgres has a rich ecosystem of extensions. ParadeDB is designed to work alongside other PostgreSQL extensions for a complete data platform.
 
-- `pg_search` for full text search
-- `pgvector` for vector search
-- `postgis` for geospatial search
-- `pg_ivm` for incremental materialized views
-- `pg_cron` for cron jobs
+## Pre-installed Extensions
+
+To keep the ParadeDB Docker image size manageable, the following extensions are pre-installed:
+
+- **`pg_search`** — Full-text and hybrid search with BM25
+- **`pgvector`** — Vector similarity search
+- **`postgis`** — Geospatial queries and indexing
+- **`pg_ivm`** — Incremental materialized views
+- **`pg_cron`** — Scheduled jobs and background tasks
 
 <Note>
   `pg_cron` is configured on the default `postgres` database and cannot be
   changed.
 </Note>
 
-However, additional Postgres extensions can be installed inside existing ParadeDB Docker and Kubernetes deployments.
+## Compatible Extensions
+
+ParadeDB has been tested with and supports the following popular extensions:
+
+- **[Citus](/deploy/citus)** — Distributed PostgreSQL for horizontal scaling
+- **`pg_partman`** — Automated partition management
+- **`pg_stat_statements`** — Query performance monitoring
+- **`postgres_fdw`** — Foreign data wrappers for federated queries
+
+<Note>
+  If you encounter any issues with extension compatibility, please [open an
+  issue](https://github.com/paradedb/paradedb/issues) or reach out to our
+  [community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw).
+</Note>
 
 ## Installing Third Party Extensions
 

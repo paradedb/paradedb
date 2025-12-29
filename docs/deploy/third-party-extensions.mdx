@@ -32,7 +32,7 @@ To keep the ParadeDB Docker image size manageable, the following extensions are 
 
 ParadeDB has been tested with and supports the following popular extensions:
 
-- **[Citus](https://github.com/citusdata/citus)** — Distributed PostgreSQL for horizontal scaling (see [detailed guide](#distributed-search-with-citus) below)
+- **[Citus](/deploy/citus)** — Distributed PostgreSQL for horizontal scaling
 - **`pg_partman`** — Automated partition management
 - **`pg_stat_statements`** — Query performance monitoring
 - **`postgres_fdw`** — Foreign data wrappers for federated queries
@@ -115,66 +115,3 @@ CREATE EXTENSION pg_partman;
 `pg_partman` is now ready to use!
 
 Note that this is a simple example of installing `pg_partman`. The full list of settings and optional dependencies can be found in the [official installation instructions](https://github.com/pgpartman/pg_partman?tab=readme-ov-file#installation).
-
-## Distributed Search with Citus
-
-[Citus](https://github.com/citusdata/citus) transforms PostgreSQL into a distributed database with horizontal sharding. ParadeDB is fully compatible with Citus, enabling distributed full-text search across sharded tables.
-
-### What's Supported
-
-- **BM25 indexes on distributed tables** — Create search indexes after distributing tables with `create_distributed_table()`
-- **Distributed queries with search operators** — Use the `@@@` search operator in queries across sharded tables
-- **Subqueries with LIMIT** — Complex queries with subqueries and LIMIT clauses work correctly
-- **JOIN queries** — Search with JOINs across distributed tables
-
-### Installation
-
-Both `citus` and `pg_search` must be added to `shared_preload_libraries` in the correct order:
-
-```bash
-# Install Citus first
-curl https://install.citusdata.com/community/deb.sh | sudo bash
-apt-get install -y postgresql-17-citus-13.0
-
-# Add both extensions to shared_preload_libraries
-sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf
-
-# Restart PostgreSQL
-# Then create extensions in your database
-```
-
-```sql
-CREATE EXTENSION citus;
-CREATE EXTENSION pg_search;
-
--- Distribute a table
-CREATE TABLE articles (
-    id SERIAL,
-    author_id INT NOT NULL,
-    title TEXT,
-    body TEXT,
-    PRIMARY KEY (author_id, id)
-);
-
-SELECT create_distributed_table('articles', 'author_id');
-
--- Create a BM25 index on the distributed table
-CREATE INDEX articles_search_idx ON articles
-USING bm25 (id, title, body)
-WITH (key_field='id');
-
--- Search across shards
-SELECT id, title FROM articles
-WHERE body @@@ 'PostgreSQL OR distributed'
-ORDER BY id;
-```
-
-### Known Limitations
-
-- ❌ **Citus columnar tables** — BM25 indexes cannot be created on Citus columnar tables due to columnar storage limitations. However, you can use regular distributed tables with BM25 indexes alongside columnar tables for analytics.
-- ⚠️ **Architecture support** — Citus does not support ARM architecture or PostgreSQL 18 yet. See [Citus compatibility matrix](https://docs.citusdata.com/en/stable/installation/multi_node_rhel.html) for details.
-
-<Note>
-  The order in `shared_preload_libraries` matters. Always list `citus` before
-  `pg_search` to ensure proper planner hook chaining.
-</Note>

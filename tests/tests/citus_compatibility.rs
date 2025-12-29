@@ -350,6 +350,30 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
         ]
     );
 
+    // Verify EXPLAIN plan shows ParadeDB scan on sharded BM25 index
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT id, title FROM articles
+        WHERE body @@@ 'PostgreSQL OR sharding'
+        ORDER BY id
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Sharded BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan for sharded BM25 index"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed"),
+        "EXPLAIN plan should contain Citus distributed query nodes"
+    );
+
     // Test search with join across distributed tables
     r#"
     CREATE TABLE authors (
@@ -384,6 +408,32 @@ fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
             ("Bob".to_string(), "Full-Text Search".to_string()),
             ("Carol".to_string(), "Citus Extension".to_string())
         ]
+    );
+
+    // Verify EXPLAIN plan for JOIN query with BM25 search on distributed tables
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT a.name, ar.title
+        FROM authors a
+        JOIN articles ar ON a.id = ar.author_id
+        WHERE ar.body @@@ 'PostgreSQL'
+        ORDER BY a.name, ar.title
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Distributed JOIN with BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan for BM25 search in JOIN"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed") || plan_str.contains("Join"),
+        "EXPLAIN plan should contain Citus distributed JOIN execution"
     );
 
     "DROP TABLE articles CASCADE".execute(&mut conn);
@@ -462,6 +512,30 @@ fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
     assert_eq!(
         rows,
         vec![(2, "search".to_string()), (4, "purchase".to_string())]
+    );
+
+    // Verify EXPLAIN plan shows BM25 search on distributed table
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT event_id, event_type FROM events
+        WHERE event_data @@@ 'PostgreSQL'
+        ORDER BY event_id
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Catalog compatibility BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed"),
+        "EXPLAIN plan should contain Citus distributed query nodes"
     );
 
     // Test that we can query pg_class

@@ -69,7 +69,54 @@ INSERT INTO articles (author_id, title, body) VALUES
 SELECT id, title FROM articles
 WHERE body @@@ 'PostgreSQL OR distributed'
 ORDER BY id;
+
+-- Results:
+--  id |         title
+-- ----+------------------------
+--   1 | PostgreSQL Performance
+--   3 | Full-Text Search
 ```
+
+### Verify Distributed Execution
+
+You can verify that both ParadeDB and Citus are working together by examining the query plan:
+
+```sql
+EXPLAIN (VERBOSE)
+SELECT id, title FROM articles
+WHERE body @@@ 'PostgreSQL OR distributed'
+ORDER BY id;
+```
+
+The plan should show:
+
+1. **Citus Adaptive Custom Scan** — Coordinating distributed query execution across shards
+2. **ParadeDB Scan** — Using the BM25 index within each shard
+3. **Task Count: 32** — Query distributed across 32 shards (default Citus shard count)
+
+<Accordion title="Example EXPLAIN Output">
+
+```
+Sort  (cost=11041.82..11291.82 rows=100000 width=36)
+  Sort Key: remote_scan.id
+  ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=36)
+        Task Count: 32
+        Tasks Shown: One of 32
+        ->  Task
+              Query: SELECT id, title FROM articles WHERE body @@@ 'PostgreSQL OR distributed'
+              Node: host=localhost port=5432 dbname=citus_demo
+              ->  Custom Scan (ParadeDB Scan) on articles_102008  (cost=10.00..10.01 rows=1 width=36)
+                    Index: articles_search_idx_102008
+                    Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL OR distributed"}}
+```
+
+Key indicators of successful integration:
+
+- `Custom Scan (Citus Adaptive)` shows Citus is distributing the query
+- `Custom Scan (ParadeDB Scan)` shows BM25 index is being used on each shard
+- `Task Count: 32` shows parallel execution across shards
+
+</Accordion>
 
 ## Distributed JOINs with Search
 
@@ -91,7 +138,56 @@ FROM authors a
 JOIN articles ar ON a.id = ar.author_id
 WHERE ar.body @@@ 'PostgreSQL'
 ORDER BY a.name;
+
+-- Results:
+--  name  |         title
+-- -------+------------------------
+--  Alice | PostgreSQL Performance
+--  Bob   | Full-Text Search
 ```
+
+### Verify Distributed JOIN Execution
+
+Check the execution plan for distributed JOINs with search:
+
+```sql
+EXPLAIN (VERBOSE)
+SELECT a.name, ar.title
+FROM authors a
+JOIN articles ar ON a.id = ar.author_id
+WHERE ar.body @@@ 'PostgreSQL'
+ORDER BY a.name;
+```
+
+<Accordion title="Example EXPLAIN Output for JOIN">
+
+```
+Sort  (cost=12067.32..12317.32 rows=100000 width=64)
+  Sort Key: remote_scan.name
+  ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=64)
+        Task Count: 32
+        Tasks Shown: One of 32
+        ->  Task
+              Query: SELECT a.name, ar.title FROM authors a JOIN articles ar
+                     ON a.id = ar.author_id WHERE ar.body @@@ 'PostgreSQL'
+              Node: host=localhost port=5432 dbname=citus_demo
+              ->  Nested Loop  (cost=10.15..18.20 rows=1 width=64)
+                    Join Filter: (a.id = ar.author_id)
+                    ->  Custom Scan (ParadeDB Scan) on articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
+                          Index: articles_search_idx_102008
+                          Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL"}}
+                    ->  Index Scan using authors_pkey_102040 on authors_102040 a  (cost=0.15..8.17 rows=1 width=36)
+                          Index Cond: (id = ar.author_id)
+```
+
+Key indicators:
+
+- `Nested Loop` shows efficient JOIN execution on each shard
+- `Custom Scan (ParadeDB Scan)` on the outer side of the JOIN uses BM25 for filtering
+- `Index Scan` on authors table uses the primary key for lookups
+- JOINs execute **locally on each shard** for optimal performance
+
+</Accordion>
 
 ## Known Limitations
 

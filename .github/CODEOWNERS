@@ -6,6 +6,7 @@
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @philippemnoel @rebasedming @stuhood
 /pg_search/                                                    @rebasedming @stuhood @mdashti
-/scripts/                                                      @philippemnoel @rebasedming @stuhood @mdashti
+/scripts/                                                      @rebasedming @stuhood @mdashti
+/stressgres/                                                   @rebasedming @stuhood
 /tests/                                                        @rebasedming @stuhood @mdashti
 /tokenizers/                                                   @rebasedming @stuhood

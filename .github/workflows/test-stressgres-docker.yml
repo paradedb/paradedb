@@ -1,0 +1,72 @@
+# workflows/test-docker.yml
+#
+# Test (Docker)
+# Test building and running the Stressgres Docker Image.
+
+name: Test (Docker)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+    paths:
+      - ".github/workflows/test-docker.yml"
+      - "docker/**"
+      - "src/**"
+      - "Cargo.toml"
+  workflow_dispatch:
+
+concurrency:
+  group: test-docker-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-docker:
+    name: Test Stressgres Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Build Stressgres Docker Image
+        run: |
+          docker build \
+            -f docker/Dockerfile \
+            --build-arg RELEASE_TAG=0.0.0 \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
+            -t paradedb/stressgres:0.0.0 \
+            .
+
+      - name: Run the Stressgres Docker Image
+        run: |
+          docker run -d \
+            --name stressgres \
+            paradedb/stressgres:0.0.0
+
+      - name: Check that the Stressgres Docker Image Runs Properly
+        run: |
+          CONTAINER_ID=$(docker ps -aq --filter "name=stressgres")
+          CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
+          echo "Stressgres container ID: $CONTAINER_ID"
+          echo "Container status: $CONTAINER_STATUS"
+
+          echo ""
+          echo "Sleeping 60 seconds to give Stressgres the time to compile..."
+          sleep 60
+
+          echo ""
+          echo "Printing logs for the Sterssgres Docker container..."
+          docker logs $CONTAINER_ID
+
+          # Fail the run if the container failed to start
+          if [ "$CONTAINER_STATUS" = "exited" ]; then
+            echo "Error: Container failed to start properly"
+            exit 1
+          fi

@@ -1,0 +1,65 @@
+[setup]
+title = "setup"
+sql = """
+create extension pg_search;
+drop table if exists test;
+create table test
+(
+    id       serial8 not null primary key,
+    message  text,
+    country  text,
+    severity int
+);
+CREATE INDEX idxtest ON test USING bm25 (id, message, country, severity) WITH (key_field = 'id');
+
+INSERT INTO test (message) SELECT 'find me' FROM generate_series(1, 100);
+
+CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
+CREATE SUBSCRIPTION stressgres_sub CONNECTION '@PRIMARY_CONNSTR@' PUBLICATION stressgres_pub;
+
+"""
+
+[teardown]
+sql = """
+-- DROP TABLE test CASCADE;
+-- DROP EXTENSION pg_search CASCADE;
+"""
+
+[monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["index_size:MB", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('idxtest')                                   AS index_size,
+    (SELECT COUNT(*)::bigint FROM paradedb.index_info('idxtest')) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Merge Info"
+sql = "SELECT pid, xmin, array_length(array_agg(segno), 1) || ' segments' as merging_segments FROM paradedb.merge_info('idxtest') GROUP BY 1, 2 ORDER BY 2 desc;"
+
+
+[[jobs]]
+refresh_ms = 0
+log_tps = true
+title = "INSERT 1k rows"
+sql = """
+INSERT INTO test (message, country, severity)
+SELECT
+    'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Extra padding text to reach limit.1234567890',
+    (ARRAY['United States', 'Canada', 'Mexico', 'UK', 'Germany'])[floor(random() * 5 + 1)],
+    (floor(random() * 10) + 1)::int
+FROM generate_series(1, 1000) AS gs;
+"""
+
+[[jobs]]
+refresh_ms = 100
+log_tps = true
+title = "Find 100 Needles"
+sql = """
+SELECT count(*) FROM test WHERE message @@@ '"find me"'
+"""

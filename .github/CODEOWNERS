@@ -5,8 +5,8 @@
 /benchmarks/                                                   @philippemnoel @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @philippemnoel @rebasedming @stuhood
-/pg_search/                                                    @rebasedming @stuhood @mdashti
-/scripts/                                                      @rebasedming @stuhood @mdashti
-/stressgres/                                                   @rebasedming @stuhood
-/tests/                                                        @rebasedming @stuhood @mdashti
-/tokenizers/                                                   @rebasedming @stuhood
+/pg_search/                                                    @philippemnoel @rebasedming @stuhood @mdashti
+/scripts/                                                      @philippemnoel @rebasedming @stuhood @mdashti
+/stressgres/                                                   @philippemnoel @rebasedming @stuhood
+/tests/                                                        @philippemnoel @rebasedming @stuhood @mdashti
+/tokenizers/                                                   @philippemnoel @rebasedming @stuhood

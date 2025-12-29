@@ -1,0 +1,182 @@
+[setup]
+title = "setup"
+sql = """
+DROP EXTENSION IF EXISTS pg_search CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    severity INTEGER
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+INSERT INTO test (message, severity) VALUES ('beer a', 4);
+INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+INSERT INTO test (message, severity) VALUES ('wine a', 6);
+INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
+INSERT INTO test (message, severity) VALUES ('beer wine a', 2);
+INSERT INTO test (message, severity) VALUES ('beer cheese a', 3);
+INSERT INTO test (message, severity) VALUES ('beer a', 4);
+INSERT INTO test (message, severity) VALUES ('wine cheese a', 5);
+INSERT INTO test (message, severity) VALUES ('wine a', 6);
+INSERT INTO test (message, severity) VALUES ('cheese a', 7);
+
+-- INSERT INTO test (message) SELECT 'space fillter ' || x FROM generate_series(1, 10000000) x;
+
+CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+"""
+
+[teardown]
+sql = """
+-- DROP TABLE test CASCADE;
+-- DROP EXTENSION pg_search CASCADE;
+"""
+
+[monitor]
+refresh_ms = 100
+title = "Index Info Monitor"
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY num_deleted DESC, num_docs DESC, byte_size DESC, segno ASC;
+"""
+
+[[jobs]]
+refresh_ms = 5
+log_columns = [ "segment_count", "index_size:MB"]
+title = "Postgres Index Size"
+sql = """
+SELECT count(*) FILTER (WHERE visible)         AS segment_count,
+       count(*) FILTER (WHERE recyclable)      AS recyclable,
+       pg_relation_size('idxtest') / 8192      AS pages,
+       pg_relation_size('idxtest')             AS index_size,
+       pg_size_pretty(pg_relation_size('idxtest')),
+       paradedb.is_merging('idxtest')
+FROM paradedb.index_info('idxtest', true);
+"""
+[[jobs]]
+refresh_ms = 5
+log_columns = [ "index_size:MB"]
+title = "Tantivy Index Size"
+sql = """
+SELECT sum(byte_size) AS index_size FROM paradedb.index_info('idxtest', true);
+"""
+
+[[jobs]]
+refresh_ms = 5
+log_tps = true
+log_columns = [ "count" ]
+title = "Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+"""
+sql = """
+select assert(count(*), 8), count(*) from (select * from test where message @@@ 'beer' order by severity LIMIT 8);
+"""
+
+
+#[[jobs]]
+#refresh_ms = 5
+#title = "Parallel Custom Scan"
+#on_connect = """
+#SET enable_indexonlyscan to OFF;
+#SET enable_indexscan to OFF;
+#SET debug_parallel_query TO ON;
+#"""
+#sql = """
+#SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+#"""
+#assert = "8"
+
+
+[[jobs]]
+refresh_ms = 5
+log_tps = true
+log_columns = [ "count" ]
+title = "Index Only Scan"
+on_connect = """
+set max_parallel_workers = 0;
+set paradedb.enable_custom_scan to off;
+"""
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
+"""
+
+[[jobs]]
+refresh_ms = 1
+log_tps = true
+log_columns = [ "count" ]
+atomic_connection = true
+title = "Update 1..9"
+cancel_keycode = 'U'
+sql = """
+UPDATE test SET severity = (floor(random() * 10) + 1)::int WHERE id < 10;
+"""
+
+[[jobs]]
+refresh_ms = 1
+log_tps = true
+atomic_connection = true
+title = "Update 10,11"
+cancel_keycode = 'U'
+sql = """
+BEGIN;
+UPDATE test SET severity = (floor(random() * 10) + 1)::int WHERE id < 10;
+ABORT;
+"""
+
+[[jobs]]
+refresh_ms = 1
+log_tps = true
+atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 1
+
+atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 1
+log_tps = true
+pause_keycode = 'd'
+cancel_keycode = 'D'
+atomic_connection = true
+title = "Delete values"
+sql = """
+DELETE FROM test WHERE id > 14;
+"""
+
+[[jobs]]
+refresh_ms = 100
+log_tps = true
+cancel_keycode = 'V'
+title = "Vacuum"
+sql = "VACUUM (parallel 32, index_cleanup on) test"

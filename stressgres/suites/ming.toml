@@ -1,0 +1,272 @@
+[[server]]
+name = "Publisher"
+[server.style.Automatic]
+postgresql_conf = "Publisher"
+
+[server.setup]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    amount SERIAL,
+    old_message TEXT
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO test (message)
+SELECT message FROM (
+  SELECT unnest(ARRAY[
+    'beer wine cheese a',
+    'beer wine a',
+    'beer cheese a',
+    'beer a',
+    'wine cheese a',
+    'wine a',
+    'cheese a',
+    'beer wine cheese a',
+    'beer wine a',
+    'beer cheese a',
+    'beer a',
+    'wine cheese a',
+    'wine a',
+    'cheese a'
+  ]) as message
+) t
+CROSS JOIN generate_series(1, 1000);
+
+DROP PUBLICATION IF EXISTS stressgres_pub;
+CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
+"""
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+sql = """
+SELECT
+  pid,
+  pg_size_pretty(pg_wal_lsn_diff(sent_lsn, replay_lsn)) AS replication_lag,
+  application_name::text,
+  state::text
+FROM pg_stat_replication;
+"""
+
+[[server]]
+name = "Subscriber"
+[server.style.Automatic]
+postgresql_conf = "Subscriber"
+
+[server.setup]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    amount SERIAL,
+    old_message TEXT
+) WITH (autovacuum_enabled = false);
+
+INSERT INTO test (message)
+SELECT message FROM (
+  SELECT unnest(ARRAY[
+    'beer wine cheese a',
+    'beer wine a',
+    'beer cheese a',
+    'beer a',
+    'wine cheese a',
+    'wine a',
+    'cheese a',
+    'beer wine cheese a',
+    'beer wine a',
+    'beer cheese a',
+    'beer a',
+    'wine cheese a',
+    'wine a',
+    'cheese a'
+  ]) as message
+) t
+CROSS JOIN generate_series(1, 1000);
+
+DROP SUBSCRIPTION IF EXISTS stressgres_sub;
+CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub WITH (copy_data = false);
+
+CREATE INDEX idxtest ON test USING bm25(id, message, amount) WITH (key_field = 'id');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+"""
+
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+title = "Index Info Monitor"
+destination = "Subscriber"
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+[[server]]
+name = "WalReceiver"
+[server.style.Automatic]
+postgresql_conf = "WalReceiver"
+
+[server.setup]
+sql = ""
+
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Size Info"
+sql = """
+SELECT count(*) FILTER (WHERE visible)         AS visible,
+       count(*) FILTER (WHERE recyclable)      AS recyclable,
+       pg_relation_size('idxtest') / 8192      AS pages,
+       pg_relation_size('idxtest'),
+       pg_size_pretty(pg_relation_size('idxtest'))
+FROM paradedb.index_info('idxtest', true);
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+"""
+sql = """
+SELECT count(*) FROM test where id @@@ 'message:beer';
+"""
+assert = "8000"
+destinations = ["Subscriber"]
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Custom Scan 1"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET debug_parallel_query TO ON;
+"""
+sql = """
+SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+"""
+assert = "8000"
+destinations = ["Subscriber", "WalReceiver"]
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Custom Scan 2"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET debug_parallel_query TO ON;
+"""
+sql = """
+SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+"""
+#assert = "8000"
+destinations = ["WalReceiver"]
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Only Scan"
+destination = "Subscriber"
+on_connect = """
+set max_parallel_workers = 0;
+set paradedb.enable_custom_scan to off;
+"""
+sql = """
+SELECT count(*) FROM test where id @@@ 'message:wine';
+"""
+assert = "8000"
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 5
+sql = "select paradedb.wal_pause_counter();"
+destinations = ["WalReceiver"]
+
+[[jobs]]
+refresh_ms = 5
+window_height = 10
+title = "Find by ctid"
+sql = """
+select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id;
+"""
+destinations = ["Subscriber"]
+
+[[jobs]]
+refresh_ms = 25
+#atomic_connection = false
+title = "Update 1..9"
+cancel_keycode = 'U'
+sql = """
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id < 1000;
+"""
+
+[[jobs]]
+refresh_ms = 25
+#atomic_connection = false
+title = "Update 10,11"
+cancel_keycode = 'U'
+sql = """
+BEGIN;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id IN (1001, 1002);
+ABORT;
+"""
+
+[[jobs]]
+refresh_ms = 25
+#atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 25
+#atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 1000
+cancel_keycode = 'V'
+title = "Vacuum"
+sql = "VACUUM (parallel 32, index_cleanup on) test"
+destinations = ["Subscriber"]

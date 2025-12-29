@@ -1,0 +1,97 @@
+[setup_primary]
+title = "setup"
+sql = """
+create extension if not exists pg_search;
+drop table if exists test;
+create table test
+(
+    id       serial8 not null primary key,
+    message  text,
+    country  text,
+    severity int
+);
+CREATE INDEX idxtest ON test USING bm25 (id, message, country, severity) WITH (key_field = 'id');
+
+INSERT INTO test (message) SELECT 'find me' FROM generate_series(1, 100);
+
+"""
+
+[teardown]
+sql = """
+-- DROP TABLE test CASCADE;
+-- DROP EXTENSION pg_search CASCADE;
+"""
+
+[monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["index_size:MB", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('idxtest')                                   AS index_size,
+    (SELECT COUNT(*)::bigint FROM paradedb.index_info('idxtest')) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Merge Info"
+log_columns = ["concurrent_merges", "total_possibly_mergeable_segments"]
+sql = "SELECT count(distinct pid) as concurrent_merges, count(*) total_possibly_mergeable_segments FROM paradedb.merge_info('idxtest');"
+
+
+[[jobs]]
+refresh_ms = 100
+title = "Merging Status"
+window_height = 10
+sql = "SELECT pid, xmin, array_length(array_agg(segno), 1) || ' segments' as merging_segments FROM paradedb.merge_info('idxtest') GROUP BY 1, 2 ORDER BY 2 desc;"
+
+
+[[jobs]]
+refresh_ms = 0
+log_tps = true
+title = "INSERT 1k rows of up to 1000 words"
+sql = """
+INSERT INTO test (message, country, severity)
+SELECT
+    paradedb.random_words( (1 + random()* 1000)::int ),
+    (ARRAY['United States', 'Canada', 'Mexico', 'UK', 'Germany'])[floor(random() * 5 + 1)],
+    (floor(random() * 10) + 1)::int
+FROM generate_series(1, 1000) AS gs;
+"""
+
+[[jobs]]
+refresh_ms = 0
+log_tps = true
+title = "INSERT 10 rows of up to 10 words"
+sql = """
+INSERT INTO test (message, country, severity)
+SELECT
+    paradedb.random_words( (1 + random()* 10)::int ),
+    (ARRAY['United States', 'Canada', 'Mexico', 'UK', 'Germany'])[floor(random() * 5 + 1)],
+    (floor(random() * 10) + 1)::int
+FROM generate_series(1, 10) AS gs;
+"""
+
+
+[[jobs]]
+refresh_ms = 0
+log_tps = true
+title = "INSERT 1 row of up to 800 words"
+sql = """
+INSERT INTO test (message, country, severity)
+SELECT
+    paradedb.random_words( (1 + random()* 800)::int ),
+    (ARRAY['United States', 'Canada', 'Mexico', 'UK', 'Germany'])[floor(random() * 5 + 1)],
+    (floor(random() * 10) + 1)::int
+FROM generate_series(1, 1) AS gs;
+"""
+
+[[jobs]]
+refresh_ms = 0
+log_tps = true
+title = "SELECT 100"
+sql = """
+SELECT count(*) FROM test WHERE message @@@ '"find me"'
+"""

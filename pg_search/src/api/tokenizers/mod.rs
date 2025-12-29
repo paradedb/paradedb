@@ -294,7 +294,7 @@ impl<T: DatumWrapper> CowString for T {
             let varlena = self.as_datum().cast_mut_ptr::<pg_sys::varlena>();
             let detoasted = pg_sys::pg_detoast_datum(varlena);
 
-            let s = convert_varlena_to_str_memoized(varlena);
+            let s = convert_varlena_to_str_memoized(detoasted);
             if std::ptr::eq(detoasted, varlena) {
                 // wasn't toasted, can do zero-copy
                 Cow::Borrowed(s)
@@ -310,6 +310,7 @@ impl<T: DatumWrapper> CowString for T {
 
 struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
     pub datum: pg_sys::Datum,
+    pub typoid: pg_sys::Oid,
     __marker: PhantomData<(Type, SqlName)>,
 }
 
@@ -339,13 +340,14 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> FromDatum for GenericTypeWrappe
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
-        _typoid: pg_sys::Oid,
+        typoid: pg_sys::Oid,
     ) -> Option<Self> {
         if is_null {
             None
         } else {
             Some(Self {
                 datum,
+                typoid,
                 __marker: PhantomData,
             })
         }
@@ -373,9 +375,10 @@ unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> BoxRet
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> GenericTypeWrapper<Type, SqlName> {
-    fn new(datum: pg_sys::Datum) -> Self {
+    fn new(datum: pg_sys::Datum, typoid: pg_sys::Oid) -> Self {
         Self {
             datum,
+            typoid,
             __marker: PhantomData,
         }
     }

@@ -43,6 +43,24 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
 DROP TABLE ints;
 
+-- Issue 3760: abs() indexed expression should not accept bare i - j predicate
+DROP TABLE IF EXISTS ints;
+CREATE TABLE ints (id SERIAL PRIMARY KEY, i integer, j integer);
+INSERT INTO ints (i, j) VALUES (1, 2), (2, 3), (3, 4);
+CREATE INDEX idx_ints ON ints USING bm25 (id, ((abs(i-j))::pdb.alias('another_name'))) with (key_field = 'id');
+
+-- This should NOT use the indexed abs() expression (uses heap_filter instead)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all();
+SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all() ORDER BY id;
+
+-- This SHOULD use the indexed abs() expression (uses term query)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM ints WHERE abs(i - j) = 1 AND id @@@ pdb.all();
+SELECT * FROM ints WHERE abs(i - j) = 1 AND id @@@ pdb.all() ORDER BY id;
+
+DROP TABLE ints;
+
 -- Verify that text/json types cannot be cast to pdb.alias
 DO $$
 DECLARE

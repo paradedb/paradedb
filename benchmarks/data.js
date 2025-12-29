@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767039624428,
+  "lastUpdate": 1767041686315,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -40040,6 +40040,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 27879.0515,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "829f1866514e6da0523852fdca4736ca91336333",
+          "message": "fix: segfault when casting non-text types to `pdb.alias` (#3813)\n\n# Ticket(s) Closed\n\n- Closes #3738\n\n## What\n\nFixes a segfault that occurred when casting non-text types (integers,\ndates, booleans, arrays, etc.) to `pdb.alias` and then displaying them\nwith `SELECT`.\n\n## Why\n\nSince `pdb.alias` is defined as `LIKE = text`, PostgreSQL expects text\noutput. When non-text types were cast to `pdb.alias`, they weren't being\nconverted to text for display, causing the output function to receive\nraw binary data (e.g., the integer `1` instead of the string `\"1\"`).\nThis resulted in segfaults when PostgreSQL tried to display the result.\n\nAdditionally, array types like `timestamp with time zone[]` were failing\nduring index creation with \"ERROR: cache lookup failed for type 1\".\n\n## How\n\n**Core Solution**: Wrap datums with type metadata in a custom\n`AliasDatumWithType` structure that stores both the original datum and\nits type OID. This allows the output function to convert any type to\ntext correctly.\n\n**Key Implementation Details**:\n- Added `AliasDatumWithType` varlena structure with magic number\n`0x414C0053` (\"AL\\0S\" with embedded null byte)\n- The null byte in the magic ensures PostgreSQL text can never\naccidentally match (UTF8 text cannot contain `\\0`)\n- Created `alias_out_safe` output function that unwraps the datum and\ncalls the appropriate type's output function\n- Updated all `cast_alias!` invocations to wrap datums with type\ninformation\n- Fixed indexing by unwrapping alias datums before passing to Tantivy\n- Added `pg_type` field to `CategorizedFieldData` for reliable type\ndetection using `type_is_alias()`\n\nThe magic number approach eliminates pointer heuristics and makes false\npositives cryptographically impossible.\n\n## Tests\n\n- Added regression test `alias_direct_select.sql`, which covers all\nsupported types\n- Added edge case tests for text that matches wrapper size (16 chars =\n20 bytes with header)\n- All existing tests pass",
+          "timestamp": "2025-12-29T11:53:20-08:00",
+          "tree_id": "286163d7399c37110ff561be0822573976132a13",
+          "url": "https://github.com/paradedb/paradedb/commit/829f1866514e6da0523852fdca4736ca91336333"
+        },
+        "date": 1767041683224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1222.891,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 490.38149999999996,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1479.106,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 531.941,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 517.568,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1290.5325,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 31492.681,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 31604.4625,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 31826.0635,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767042537527,
+  "lastUpdate": 1767042541913,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -59104,6 +59104,186 @@ window.BENCHMARK_DATA = {
             "value": 30.40625,
             "unit": "median mem",
             "extra": "avg mem: 29.75101710564285, max mem: 30.5078125, count: 53714"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "829f1866514e6da0523852fdca4736ca91336333",
+          "message": "fix: segfault when casting non-text types to `pdb.alias` (#3813)\n\n# Ticket(s) Closed\n\n- Closes #3738\n\n## What\n\nFixes a segfault that occurred when casting non-text types (integers,\ndates, booleans, arrays, etc.) to `pdb.alias` and then displaying them\nwith `SELECT`.\n\n## Why\n\nSince `pdb.alias` is defined as `LIKE = text`, PostgreSQL expects text\noutput. When non-text types were cast to `pdb.alias`, they weren't being\nconverted to text for display, causing the output function to receive\nraw binary data (e.g., the integer `1` instead of the string `\"1\"`).\nThis resulted in segfaults when PostgreSQL tried to display the result.\n\nAdditionally, array types like `timestamp with time zone[]` were failing\nduring index creation with \"ERROR: cache lookup failed for type 1\".\n\n## How\n\n**Core Solution**: Wrap datums with type metadata in a custom\n`AliasDatumWithType` structure that stores both the original datum and\nits type OID. This allows the output function to convert any type to\ntext correctly.\n\n**Key Implementation Details**:\n- Added `AliasDatumWithType` varlena structure with magic number\n`0x414C0053` (\"AL\\0S\" with embedded null byte)\n- The null byte in the magic ensures PostgreSQL text can never\naccidentally match (UTF8 text cannot contain `\\0`)\n- Created `alias_out_safe` output function that unwraps the datum and\ncalls the appropriate type's output function\n- Updated all `cast_alias!` invocations to wrap datums with type\ninformation\n- Fixed indexing by unwrapping alias datums before passing to Tantivy\n- Added `pg_type` field to `CategorizedFieldData` for reliable type\ndetection using `type_is_alias()`\n\nThe magic number approach eliminates pointer heuristics and makes false\npositives cryptographically impossible.\n\n## Tests\n\n- Added regression test `alias_direct_select.sql`, which covers all\nsupported types\n- Added edge case tests for text that matches wrapper size (16 chars =\n20 bytes with header)\n- All existing tests pass",
+          "timestamp": "2025-12-29T11:53:20-08:00",
+          "tree_id": "286163d7399c37110ff561be0822573976132a13",
+          "url": "https://github.com/paradedb/paradedb/commit/829f1866514e6da0523852fdca4736ca91336333"
+        },
+        "date": 1767042538809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9730589892157155, max cpu: 9.266409, count: 53706"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 47.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.28177935775332, max mem: 53.23828125, count: 53706"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4261201240723, max cpu: 4.5933013, count: 53706"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.659913245843107, max mem: 31.0546875, count: 53706"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.861819996155992, max cpu: 18.373205, count: 53706"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 49.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.66804904829069, max mem: 55.875, count: 53706"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.915217191216334, max cpu: 13.793103, count: 53706"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 47.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.56358824549399, max mem: 53.484375, count: 53706"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6370503554681495, max cpu: 9.213051, count: 53706"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.82726266618255, max mem: 36.00390625, count: 53706"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1107,
+            "unit": "median pages",
+            "extra": "avg pages: 1116.7277585372212, max pages: 1849.0, count: 53706"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6484375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.724435831773917, max relation_size:MB: 14.4453125, count: 53706"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.12244441961792, max segment_count: 15.0, count: 53706"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.7674196241525015, max cpu: 4.562738, count: 53706"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.87913885320076, max mem: 27.9765625, count: 53706"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.453150996272356, max cpu: 4.6021094, count: 53706"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 27.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.95659782833855, max mem: 28.1171875, count: 53706"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.733735886563384, max cpu: 13.899614, count: 53706"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.08816905059491, max mem: 50.9921875, count: 53706"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002367035776961606, max replication_lag:MB: 0.1708831787109375, count: 53706"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.07564158151873, max cpu: 13.779904, count: 107412"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.69978116533767, max mem: 51.703125, count: 107412"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.26735323378382, max cpu: 4.597701, count: 53706"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.92765734973746, max mem: 30.6640625, count: 53706"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.377527221361544, max cpu: 4.624277, count: 53706"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.234809876340634, max mem: 31.30078125, count: 53706"
           }
         ]
       }

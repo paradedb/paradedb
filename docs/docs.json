@@ -306,6 +306,7 @@
                   "deploy/enterprise",
                   "deploy/upgrading",
                   "deploy/third-party-extensions",
+                  "deploy/citus",
                   {
                     "group": "Continuous Integration",
                     "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]

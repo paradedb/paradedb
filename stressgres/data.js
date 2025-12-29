@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767039027361,
+  "lastUpdate": 1767039908438,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17296,6 +17296,42 @@ window.BENCHMARK_DATA = {
             "value": 5.293725128188388,
             "unit": "median tps",
             "extra": "avg tps: 4.753246532490136, max tps: 5.916195619384411, count: 57906"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "829f1866514e6da0523852fdca4736ca91336333",
+          "message": "fix: segfault when casting non-text types to `pdb.alias` (#3813)\n\n# Ticket(s) Closed\n\n- Closes #3738\n\n## What\n\nFixes a segfault that occurred when casting non-text types (integers,\ndates, booleans, arrays, etc.) to `pdb.alias` and then displaying them\nwith `SELECT`.\n\n## Why\n\nSince `pdb.alias` is defined as `LIKE = text`, PostgreSQL expects text\noutput. When non-text types were cast to `pdb.alias`, they weren't being\nconverted to text for display, causing the output function to receive\nraw binary data (e.g., the integer `1` instead of the string `\"1\"`).\nThis resulted in segfaults when PostgreSQL tried to display the result.\n\nAdditionally, array types like `timestamp with time zone[]` were failing\nduring index creation with \"ERROR: cache lookup failed for type 1\".\n\n## How\n\n**Core Solution**: Wrap datums with type metadata in a custom\n`AliasDatumWithType` structure that stores both the original datum and\nits type OID. This allows the output function to convert any type to\ntext correctly.\n\n**Key Implementation Details**:\n- Added `AliasDatumWithType` varlena structure with magic number\n`0x414C0053` (\"AL\\0S\" with embedded null byte)\n- The null byte in the magic ensures PostgreSQL text can never\naccidentally match (UTF8 text cannot contain `\\0`)\n- Created `alias_out_safe` output function that unwraps the datum and\ncalls the appropriate type's output function\n- Updated all `cast_alias!` invocations to wrap datums with type\ninformation\n- Fixed indexing by unwrapping alias datums before passing to Tantivy\n- Added `pg_type` field to `CategorizedFieldData` for reliable type\ndetection using `type_is_alias()`\n\nThe magic number approach eliminates pointer heuristics and makes false\npositives cryptographically impossible.\n\n## Tests\n\n- Added regression test `alias_direct_select.sql`, which covers all\nsupported types\n- Added edge case tests for text that matches wrapper size (16 chars =\n20 bytes with header)\n- All existing tests pass",
+          "timestamp": "2025-12-29T11:53:20-08:00",
+          "tree_id": "286163d7399c37110ff561be0822573976132a13",
+          "url": "https://github.com/paradedb/paradedb/commit/829f1866514e6da0523852fdca4736ca91336333"
+        },
+        "date": 1767039905327,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.684798058196627,
+            "unit": "median tps",
+            "extra": "avg tps: 6.539933676267731, max tps: 10.029651130101607, count: 57890"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.389132776545619,
+            "unit": "median tps",
+            "extra": "avg tps: 4.832554191177546, max tps: 6.005500644164621, count: 57890"
           }
         ]
       }

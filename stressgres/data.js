@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767040819783,
+  "lastUpdate": 1767041665401,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36674,6 +36674,60 @@ window.BENCHMARK_DATA = {
             "value": 15.59057383779689,
             "unit": "median tps",
             "extra": "avg tps: 15.623582923913299, max tps: 19.312034643936194, count: 55474"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "829f1866514e6da0523852fdca4736ca91336333",
+          "message": "fix: segfault when casting non-text types to `pdb.alias` (#3813)\n\n# Ticket(s) Closed\n\n- Closes #3738\n\n## What\n\nFixes a segfault that occurred when casting non-text types (integers,\ndates, booleans, arrays, etc.) to `pdb.alias` and then displaying them\nwith `SELECT`.\n\n## Why\n\nSince `pdb.alias` is defined as `LIKE = text`, PostgreSQL expects text\noutput. When non-text types were cast to `pdb.alias`, they weren't being\nconverted to text for display, causing the output function to receive\nraw binary data (e.g., the integer `1` instead of the string `\"1\"`).\nThis resulted in segfaults when PostgreSQL tried to display the result.\n\nAdditionally, array types like `timestamp with time zone[]` were failing\nduring index creation with \"ERROR: cache lookup failed for type 1\".\n\n## How\n\n**Core Solution**: Wrap datums with type metadata in a custom\n`AliasDatumWithType` structure that stores both the original datum and\nits type OID. This allows the output function to convert any type to\ntext correctly.\n\n**Key Implementation Details**:\n- Added `AliasDatumWithType` varlena structure with magic number\n`0x414C0053` (\"AL\\0S\" with embedded null byte)\n- The null byte in the magic ensures PostgreSQL text can never\naccidentally match (UTF8 text cannot contain `\\0`)\n- Created `alias_out_safe` output function that unwraps the datum and\ncalls the appropriate type's output function\n- Updated all `cast_alias!` invocations to wrap datums with type\ninformation\n- Fixed indexing by unwrapping alias datums before passing to Tantivy\n- Added `pg_type` field to `CategorizedFieldData` for reliable type\ndetection using `type_is_alias()`\n\nThe magic number approach eliminates pointer heuristics and makes false\npositives cryptographically impossible.\n\n## Tests\n\n- Added regression test `alias_direct_select.sql`, which covers all\nsupported types\n- Added edge case tests for text that matches wrapper size (16 chars =\n20 bytes with header)\n- All existing tests pass",
+          "timestamp": "2025-12-29T11:53:20-08:00",
+          "tree_id": "286163d7399c37110ff561be0822573976132a13",
+          "url": "https://github.com/paradedb/paradedb/commit/829f1866514e6da0523852fdca4736ca91336333"
+        },
+        "date": 1767041662216,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.431341616034054,
+            "unit": "median tps",
+            "extra": "avg tps: 31.154168294152665, max tps: 34.25365052000581, count: 55512"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.8857648238111,
+            "unit": "median tps",
+            "extra": "avg tps: 274.4676154537391, max tps: 2772.8543186759202, count: 55512"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1998.7134094158378,
+            "unit": "median tps",
+            "extra": "avg tps: 1989.261380182277, max tps: 2209.3735907248915, count: 55512"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 171.6181028352064,
+            "unit": "median tps",
+            "extra": "avg tps: 205.11677061801802, max tps: 1697.8015794795729, count: 111024"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.00561999841933,
+            "unit": "median tps",
+            "extra": "avg tps: 14.091742804221457, max tps: 19.152357637030377, count: 55512"
           }
         ]
       }

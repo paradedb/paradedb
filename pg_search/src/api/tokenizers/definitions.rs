@@ -44,12 +44,37 @@ pub(crate) mod pdb {
 
     /// Internal structure to store both the datum and its original type OID
     /// This allows the output function to properly convert any type to text
+    ///
+    /// # IMPORTANT: Lifetime and Memory Safety Assumptions
+    ///
+    /// This structure stores a raw `pg_sys::Datum` value. For pass-by-value types (integers,
+    /// booleans, etc.), the datum contains the actual value and is safe to copy. However, for
+    /// varlena types (text, arrays, etc.), the datum is a **pointer** to memory that may be:
+    ///
+    /// - In a temporary memory context that could be freed
+    /// - TOASTed data whose detoasted copy could be freed
+    /// - Part of a tuple that gets freed after a function returns
+    ///
+    /// **Current Assumption**: We assume the input datum's lifetime extends beyond the wrapper's
+    /// lifetime. This holds true for:
+    /// - Index expressions: the datum comes from heap tuples during index build/insert
+    /// - Query execution: datums are in memory contexts that outlive the expression evaluation
+    ///
+    /// **Potential Issue**: If a wrapper is created with a datum from a temporary context and
+    /// then used after that context is destroyed, we'll have a dangling pointer leading to:
+    /// - Use-after-free bugs
+    /// - Segfaults when the output function tries to dereference the datum
+    /// - Heap corruption if the freed memory is reused
+    ///
+    /// **TODO**: Consider using `pg_sys::datumCopy()` for varlena types to ensure we own the
+    /// data, along with proper cleanup when the wrapper is freed. This would make the wrapper
+    /// fully self-contained and safe regardless of the input datum's lifetime.
     #[repr(C)]
     pub struct AliasDatumWithType {
         vl_len_: i32,               // varlena header
         magic: u32,                 // magic number to identify wrapped datums
         typoid: pg_sys::Oid,        // original type OID
-        datum_value: pg_sys::Datum, // the actual datum value
+        datum_value: pg_sys::Datum, // the actual datum value (RAW POINTER for varlena types!)
     }
 
     // Magic number: "AL\0S" - includes a null byte to ensure no valid text string can match

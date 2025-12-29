@@ -110,12 +110,6 @@ Sort  (cost=11041.82..11291.82 rows=100000 width=36)
                     Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL OR distributed"}}
 ```
 
-Key indicators of successful integration:
-
-- `Custom Scan (Citus Adaptive)` shows Citus is distributing the query
-- `Custom Scan (ParadeDB Scan)` shows BM25 index is being used on each shard
-- `Task Count: 32` shows parallel execution across shards
-
 </Accordion>
 
 ## Distributed JOINs with Search
@@ -191,8 +185,7 @@ Key indicators:
 
 ## Known Limitations
 
-- ❌ **Citus columnar tables** — BM25 indexes cannot be created on Citus columnar tables due to columnar storage limitations. However, you can use regular distributed tables with BM25 indexes alongside columnar tables for analytics.
-- ⚠️ **Architecture support** — Citus does not support ARM architecture or PostgreSQL 18 yet. See [Citus compatibility matrix](https://docs.citusdata.com/en/stable/installation/multi_node_rhel.html) for details.
+- ❌ **Citus columnar tables** — BM25 indexes and other PostgreSQL indexes (like GiST, GIN) cannot be created on Citus columnar tables due to limitations in Citus's columnar storage implementation. However, you can use regular distributed tables with BM25 indexes alongside columnar tables for analytics.
 
 ## Performance Considerations
 
@@ -202,4 +195,4 @@ When using ParadeDB with Citus:
 - **Search queries** execute in parallel across shards and results are merged by the coordinator
 - **Distribution column** should be chosen based on your query patterns to minimize cross-shard operations
 
-For more guidance on optimizing distributed search workloads, please [reach out to us](mailto:support@paradedb.com).
+For more guidance on optimizing distributed search workloads, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via [email](mailto:support@paradedb.com).

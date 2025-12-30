@@ -33,7 +33,7 @@ refresh_ms = 10
 title = "Write Host Monitor"
 log_columns = ["table_count", "row_count"]
 sql = """
-SELECT 
+SELECT
     (SELECT count(*) FROM information_schema.tables WHERE table_name = 'test') as table_count,
     (SELECT count(*) FROM test) as row_count
 """

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767042541913,
+  "lastUpdate": 1767072552295,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5204,6 +5204,72 @@ window.BENCHMARK_DATA = {
             "value": 219.1191675119772,
             "unit": "median tps",
             "extra": "avg tps: 301.8605123590287, max tps: 854.2678796131534, count: 55250"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e03ef8769b4796dcb51ddfed8ad58e6203e92526",
+          "message": "fix: prevent false index matches for FuncExpr in expression matching (#3760) (#3820)\n\n## Summary\n\nFixes #3760\n\n### The Problem\n\nIn `field_name_from_node`, when unwrapping the indexed expression to\nmatch against the WHERE clause, we unwrapped ANY `FuncExpr` with a\nsingle argument instead of checking if it's a `pdb.alias` cast function\nfirst.\n\n**Example:**\n- Index on: `(abs(i-j))::pdb.alias('another_name')`\n- Query: `WHERE i - j = 1`\n\nThe old code would unwrap the indexed expression multiple times in the\nloop:\n1. `(abs(i-j))::pdb.alias('another_name')` -> unwrap -> `abs(i-j)`\n2. `abs(i-j)` -> unwrap -> `i-j` (incorrectly unwrapped `abs()` too!)\n\nThis caused `i - j = 1` to incorrectly match the index on `abs(i-j)`.\n\n### The Fix\n\nAdded a guard to only unwrap `FuncExpr` nodes that return `pdb.alias`\ntype:\n\n```rust\nif let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {\n    if type_is_alias((*func).funcresulttype) {  // Only unwrap pdb.alias casts\n        let args = PgList::<pg_sys::Node>::from_pg((*func).args);\n        if args.len() == 1 {\n            // unwrap...\n        }\n    }\n}\n```\n\nNow:\n1. `(abs(i-j))::pdb.alias('another_name')` -> returns `pdb.alias` ->\nunwrap -> `abs(i-j)`\n2. `abs(i-j)` -> returns `integer` (not `pdb.alias`) -> STOP\n\n## Test plan\n\nAdded regression test to `alias_non_text.sql`",
+          "timestamp": "2025-12-30T10:42:12+05:30",
+          "tree_id": "e173ef6e5db3dbc93fcd4742698e1d048981a1e3",
+          "url": "https://github.com/paradedb/paradedb/commit/e03ef8769b4796dcb51ddfed8ad58e6203e92526"
+        },
+        "date": 1767072549082,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 572.8917356423665,
+            "unit": "median tps",
+            "extra": "avg tps: 573.759079302523, max tps: 629.7705288695162, count: 55320"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3161.9351208969756,
+            "unit": "median tps",
+            "extra": "avg tps: 3141.8167650107703, max tps: 3182.85027306977, count: 55320"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 558.3564451553959,
+            "unit": "median tps",
+            "extra": "avg tps: 559.7810619551633, max tps: 685.47435831695, count: 55320"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 453.42747093493796,
+            "unit": "median tps",
+            "extra": "avg tps: 457.11971771639605, max tps: 518.5512856782325, count: 55320"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3369.380523896819,
+            "unit": "median tps",
+            "extra": "avg tps: 3351.444452635139, max tps: 3399.1206303493304, count: 110640"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2175.6786839982387,
+            "unit": "median tps",
+            "extra": "avg tps: 2156.2838338138454, max tps: 2187.23179814488, count: 55320"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 127.62920086133512,
+            "unit": "median tps",
+            "extra": "avg tps: 170.53548180417525, max tps: 470.8225229119055, count: 55320"
           }
         ]
       }

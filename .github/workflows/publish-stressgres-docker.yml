@@ -1,8 +1,7 @@
 # workflows/publish-stressgres-docker.yml
 #
 # Publish Stressgres (Docker)
-# Publish Stressgres as a Docker image to Docker Hub. Stable
-# releases publish Docker images with appropriate version tags.
+# Publish Stressgres as a Docker image to Docker Hub.
 
 name: Publish Stressgres (Docker)
 
@@ -61,7 +60,7 @@ jobs:
           build-args: |
             RELEASE_TAG=v${{ github.event.inputs.release_version }}
           platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
+          file: docker/Dockerfile.stressgres
           push: true
           sbom: true
           provenance: mode=max

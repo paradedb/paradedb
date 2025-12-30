@@ -38,17 +38,14 @@ jobs:
       - name: Build Stressgres Docker Image
         run: |
           docker build \
-            -f docker/Dockerfile \
+            -f docker/Dockerfile.stressgres \
             --build-arg RELEASE_TAG=0.0.0 \
             --build-arg COMMIT_SHA=${{ github.sha }} \
             -t paradedb/stressgres:0.0.0 \
             .
 
       - name: Run the Stressgres Docker Image
-        run: |
-          docker run -d \
-            --name stressgres \
-            paradedb/stressgres:0.0.0
+        run: docker run -d --name stressgres aradedb/stressgres:0.0.0
 
       - name: Check that the Stressgres Docker Image Runs Properly
         run: |

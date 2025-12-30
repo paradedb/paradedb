@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set +x
+set -Eeuo pipefail
 
 PGVER=18.1
 EXTENSION=pg_search
@@ -24,7 +24,6 @@ if [ "$4" != "" ]; then
   LOGFILE="$4"
 fi
 
-set -x
 cd "${MANIFESTDIR}" || exit
 cargo pgrx install --profile prof --manifest-path "${MANIFEST}" --package ${EXTENSION} --features=icu --pg-config ${PGRX_HOME}/${PGVER}/pgrx-install/bin/pg_config || exit $?
 

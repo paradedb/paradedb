@@ -30,5 +30,3 @@ toml = "0.8.23"
 url = "2.5.7"
 postgres-openssl = "0.5.2"
 openssl = "0.10.75"
-
-[workspace]

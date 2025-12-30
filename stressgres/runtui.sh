@@ -12,8 +12,8 @@ SUITE="$2"
 HERE=$(pwd)
 
 if [ "$2" = "" ]; then
-	echo "usage: runtui.sh <crate-name> <suite.toml>"
-	exit 1
+  echo "usage: runtui.sh <crate-name> <suite.toml>"
+  exit 1
 fi
 
 set -x

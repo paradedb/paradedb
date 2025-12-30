@@ -13,15 +13,15 @@ TIMEOUT="$3"
 HERE=$(pwd)
 
 if [ "$2" = "" ] || [ "$3" = "" ]; then
-	echo "usage: runheadless.sh <crate-name> <suite.toml> <timeout_ms> [logfile]"
-	exit 1
+  echo "usage: runheadless.sh <crate-name> <suite.toml> <timeout_ms> [logfile]"
+  exit 1
 fi
 
 LOGFILE=$(basename -- "${SUITE}")
 LOGFILE="${LOGFILE%.*}.log"
 
 if [ "$4" != "" ]; then
-	LOGFILE="$4"
+  LOGFILE="$4"
 fi
 
 set -x

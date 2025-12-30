@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767073160857,
+  "lastUpdate": 1767075214772,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -40460,6 +40460,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 31826.0635,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e03ef8769b4796dcb51ddfed8ad58e6203e92526",
+          "message": "fix: prevent false index matches for FuncExpr in expression matching (#3760) (#3820)\n\n## Summary\n\nFixes #3760\n\n### The Problem\n\nIn `field_name_from_node`, when unwrapping the indexed expression to\nmatch against the WHERE clause, we unwrapped ANY `FuncExpr` with a\nsingle argument instead of checking if it's a `pdb.alias` cast function\nfirst.\n\n**Example:**\n- Index on: `(abs(i-j))::pdb.alias('another_name')`\n- Query: `WHERE i - j = 1`\n\nThe old code would unwrap the indexed expression multiple times in the\nloop:\n1. `(abs(i-j))::pdb.alias('another_name')` -> unwrap -> `abs(i-j)`\n2. `abs(i-j)` -> unwrap -> `i-j` (incorrectly unwrapped `abs()` too!)\n\nThis caused `i - j = 1` to incorrectly match the index on `abs(i-j)`.\n\n### The Fix\n\nAdded a guard to only unwrap `FuncExpr` nodes that return `pdb.alias`\ntype:\n\n```rust\nif let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {\n    if type_is_alias((*func).funcresulttype) {  // Only unwrap pdb.alias casts\n        let args = PgList::<pg_sys::Node>::from_pg((*func).args);\n        if args.len() == 1 {\n            // unwrap...\n        }\n    }\n}\n```\n\nNow:\n1. `(abs(i-j))::pdb.alias('another_name')` -> returns `pdb.alias` ->\nunwrap -> `abs(i-j)`\n2. `abs(i-j)` -> returns `integer` (not `pdb.alias`) -> STOP\n\n## Test plan\n\nAdded regression test to `alias_non_text.sql`",
+          "timestamp": "2025-12-30T10:42:12+05:30",
+          "tree_id": "e173ef6e5db3dbc93fcd4742698e1d048981a1e3",
+          "url": "https://github.com/paradedb/paradedb/commit/e03ef8769b4796dcb51ddfed8ad58e6203e92526"
+        },
+        "date": 1767075208026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1191.3944999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 478.508,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1535.374,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 520.386,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 500.4185,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1261.8600000000001,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 32196.088499999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 32465.61,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 32702.8735,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

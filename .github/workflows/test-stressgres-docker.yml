@@ -1,4 +1,4 @@
-# workflows/test-docker.yml
+# workflows/test-stressgres-docker.yml
 #
 # Test (Docker)
 # Test building and running the Stressgres Docker Image.
@@ -18,11 +18,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-docker-${{ github.head_ref || github.ref }}
+  group: test-stressgres-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-docker:
+  test-stressgres-docker:
     name: Test Stressgres Docker Image
     runs-on: ubuntu-latest
 

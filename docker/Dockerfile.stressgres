@@ -41,7 +41,7 @@ COPY --chown=app:app . .
 
 # Configure Antithesis test singletons
 RUN mkdir -p /opt/antithesis/test/v1/quickstart
-COPY suites/antithesis/ /opt/antithesis/test/v1/quickstart/
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/quickstart/
 
 # Switch to app user
 USER app
@@ -52,7 +52,7 @@ ENV PGCLIENTENCODING=UTF8
 
 # Prefetch deps and build Stressgres while we have Internet. This Docker image
 # will be run in an air-gapped environment in Antithesis
-RUN cargo fetch --locked --manifest-path /home/app/Cargo.toml && \
-    cargo build --release --manifest-path /home/app/Cargo.toml
+RUN cargo fetch --locked --manifest-path /home/app/stressgres/Cargo.toml && \
+    cargo build --release --manifest-path /home/app/stressgres/Cargo.toml
 
 CMD ["sleep", "infinity"]

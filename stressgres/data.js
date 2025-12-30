@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767075208192,
+  "lastUpdate": 1767076068485,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -48362,6 +48362,54 @@ window.BENCHMARK_DATA = {
             "value": 109.24235634501967,
             "unit": "median tps",
             "extra": "avg tps: 106.76312629122536, max tps: 156.3940675619244, count: 107412"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e03ef8769b4796dcb51ddfed8ad58e6203e92526",
+          "message": "fix: prevent false index matches for FuncExpr in expression matching (#3760) (#3820)\n\n## Summary\n\nFixes #3760\n\n### The Problem\n\nIn `field_name_from_node`, when unwrapping the indexed expression to\nmatch against the WHERE clause, we unwrapped ANY `FuncExpr` with a\nsingle argument instead of checking if it's a `pdb.alias` cast function\nfirst.\n\n**Example:**\n- Index on: `(abs(i-j))::pdb.alias('another_name')`\n- Query: `WHERE i - j = 1`\n\nThe old code would unwrap the indexed expression multiple times in the\nloop:\n1. `(abs(i-j))::pdb.alias('another_name')` -> unwrap -> `abs(i-j)`\n2. `abs(i-j)` -> unwrap -> `i-j` (incorrectly unwrapped `abs()` too!)\n\nThis caused `i - j = 1` to incorrectly match the index on `abs(i-j)`.\n\n### The Fix\n\nAdded a guard to only unwrap `FuncExpr` nodes that return `pdb.alias`\ntype:\n\n```rust\nif let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {\n    if type_is_alias((*func).funcresulttype) {  // Only unwrap pdb.alias casts\n        let args = PgList::<pg_sys::Node>::from_pg((*func).args);\n        if args.len() == 1 {\n            // unwrap...\n        }\n    }\n}\n```\n\nNow:\n1. `(abs(i-j))::pdb.alias('another_name')` -> returns `pdb.alias` ->\nunwrap -> `abs(i-j)`\n2. `abs(i-j)` -> returns `integer` (not `pdb.alias`) -> STOP\n\n## Test plan\n\nAdded regression test to `alias_non_text.sql`",
+          "timestamp": "2025-12-30T10:42:12+05:30",
+          "tree_id": "e173ef6e5db3dbc93fcd4742698e1d048981a1e3",
+          "url": "https://github.com/paradedb/paradedb/commit/e03ef8769b4796dcb51ddfed8ad58e6203e92526"
+        },
+        "date": 1767076065228,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 535.990022001937,
+            "unit": "median tps",
+            "extra": "avg tps: 536.0283458026025, max tps: 680.512029565072, count: 53697"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 622.655797451824,
+            "unit": "median tps",
+            "extra": "avg tps: 624.3237504000923, max tps: 817.5916285157973, count: 53697"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.0792938110951,
+            "unit": "median tps",
+            "extra": "avg tps: 85.25024001101927, max tps: 92.31177365005402, count: 53697"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 106.65621465768396,
+            "unit": "median tps",
+            "extra": "avg tps: 105.2174327970484, max tps: 133.77408863325314, count: 107394"
           }
         ]
       }

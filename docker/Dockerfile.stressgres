@@ -52,7 +52,7 @@ ENV PGCLIENTENCODING=UTF8
 
 # Prefetch deps and build Stressgres while we have Internet. This Docker image
 # will be run in an air-gapped environment in Antithesis
-RUN cargo fetch --locked --manifest-path /home/app/Cargo.toml && \
+RUN cargo fetch --offline --manifest-path /home/app/Cargo.toml && \
     cargo build --release --manifest-path /home/app/Cargo.toml
 
 CMD ["sleep", "infinity"]

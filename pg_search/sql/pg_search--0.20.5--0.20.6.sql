@@ -15,3 +15,21 @@ AS 'MODULE_PATHNAME', 'alias_out_safe_wrapper';
 CREATE OR REPLACE FUNCTION pdb.alias_out(pdb.alias) RETURNS cstring
 AS 'MODULE_PATHNAME', 'alias_out_safe_wrapper'
 LANGUAGE c IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OR REPLACE FUNCTION "pdb"."snippet_positions"(
+    "field" anyelement,
+    "limit" INT DEFAULT NULL,
+    "offset" INT DEFAULT NULL
+) RETURNS integer[]  -- Note: PostgreSQL doesn't distinguish integer[] from integer[][] at the type level
+STABLE PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
+
+CREATE OR REPLACE FUNCTION "paradedb"."snippet_positions"(
+    "field" anyelement,
+    "limit" INT DEFAULT NULL,
+    "offset" INT DEFAULT NULL
+) RETURNS integer[]
+STABLE PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'paradedb_snippet_positions_from_relation_wrapper';

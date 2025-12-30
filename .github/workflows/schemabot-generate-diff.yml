@@ -109,26 +109,48 @@ jobs:
 
       - name: Generate Schema Diffs
         run: |
-          # Run pg-schema-diff and capture its exit code
+          # Show schema sizes for diagnostics
+          echo "Schema file sizes:"
+          echo "  Old schema: $(wc -l < ~/old.sql) lines, $(wc -c < ~/old.sql) bytes"
+          echo "  New schema: $(wc -l < ~/this.sql) lines, $(wc -c < ~/this.sql) bytes"
+          echo
+
+          # Run pg-schema-diff with increased stack size to handle large schemas
           set +e  # Temporarily disable exit on error
-          pg-schema-diff diff ~/old.sql ~/this.sql 2>&1 | grep -v "^$" > ~/diff.sql
+          RUST_MIN_STACK=8388608 pg-schema-diff diff ~/old.sql ~/this.sql 2>&1 | grep -v "^$" > ~/diff.sql
           PG_SCHEMA_DIFF_EXIT=$?
           set -e  # Re-enable exit on error
 
           # Check if pg-schema-diff crashed or had an error
           if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
-            echo "❌ ERROR: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
+            echo "⚠️  WARNING: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
             echo "Output:"
             cat ~/diff.sql
-            exit 1
+            echo
+            echo "Falling back to traditional diff..."
+
+            # Use traditional diff as fallback
+            if diff ~/old.sql ~/this.sql > /dev/null 2>&1; then
+              echo "✅ No schema differences detected (via diff)"
+              > ~/diff.sql  # Empty the diff file
+            else
+              echo "⚠️  Schema differences detected via traditional diff"
+              echo "Please manually review the changes in the full diff output below"
+              # Create a simple marker file to indicate changes were detected
+              echo "-- Schema changes detected. Please review the full diff below." > ~/diff.sql
+            fi
           fi
 
           # Generate a traditional diff for informational purposes (exit code doesn't matter)
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
 
           # Show the schema diff
-          echo "Schema diff generated successfully:"
-          cat ~/diff.sql
+          if [ -s ~/diff.sql ]; then
+            echo "Schema diff:"
+            cat ~/diff.sql
+          else
+            echo "✅ No schema differences detected"
+          fi
 
       - name: Check Schema Diff and Validate Migration
         id: check_schema_diff
@@ -138,6 +160,27 @@ jobs:
             echo "SCHEMA DIFFERENCE DETECTED"
             echo "=========================================="
             echo
+
+            # Check if this is a fallback diff (pg-schema-diff failed)
+            if grep -q "^-- Schema changes detected" ~/diff.sql; then
+              echo "⚠️  Note: pg-schema-diff tool failed, using traditional diff for comparison"
+              echo
+              echo "--- BEGIN FULL SCHEMA DIFF ---"
+              cat ~/diff.patch
+              echo "--- END FULL SCHEMA DIFF ---"
+              echo
+              echo "❌ ERROR: Schema difference detected, but unable to generate upgrade script."
+              echo
+              echo "Please manually review the diff above and update the migration file accordingly."
+              echo "This may indicate that the schemas are too complex for pg-schema-diff to analyze."
+              echo
+              echo "Consider:"
+              echo "  1. Reviewing the diff output above"
+              echo "  2. Manually creating the necessary migration SQL"
+              echo "  3. Ensuring the migration file contains all schema changes"
+              exit 1
+            fi
+
             echo "A suggested upgrade.sql script follows. Please review it carefully as SchemaBot is not infallible."
             echo
             echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"

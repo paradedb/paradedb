@@ -51,10 +51,10 @@ SELECT
 FROM snippet_type_test 
 WHERE content @@@ 'test'
 ORDER BY id;
- id |      positions       | actual_type 
-----+----------------------+-------------
-  1 | {"{10,14}"}          | integer[]
-  2 | {"{8,12}","{27,31}"} | integer[]
+ id |    positions     | actual_type 
+----+------------------+-------------
+  1 | {{10,14}}        | integer[]
+  2 | {{8,12},{27,31}} | integer[]
 (2 rows)
 
 -- Test that we can treat it as a 2D array
@@ -68,10 +68,10 @@ SELECT
 FROM snippet_type_test 
 WHERE content @@@ 'test'
 ORDER BY id;
- id |      positions       | num_positions | inner_dimension 
-----+----------------------+---------------+-----------------
-  1 | {"{10,14}"}          |             1 |                
-  2 | {"{8,12}","{27,31}"} |             2 |                
+ id |    positions     | num_positions | inner_dimension 
+----+------------------+---------------+-----------------
+  1 | {{10,14}}        |             1 |               2
+  2 | {{8,12},{27,31}} |             2 |               2
 (2 rows)
 
 -- Cleanup

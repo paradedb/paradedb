@@ -113,74 +113,75 @@ jobs:
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
           cat ~/diff.sql
 
-      - name: Generate Commit Message
-        id: generate_commit_message
+      - name: Check Schema Diff and Validate Migration
+        id: check_schema_diff
         run: |
           if test -s ~/diff.sql; then
-            echo "Generating GitHub comment message"
-            {
-              echo 'A schema difference was detected.'
-              echo
-              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-              echo
-              echo '```sql'
-              cat ~/diff.sql
-              echo '```'
+            echo "=========================================="
+            echo "SCHEMA DIFFERENCE DETECTED"
+            echo "=========================================="
+            echo
+            echo "A suggested upgrade.sql script follows. Please review it carefully as SchemaBot is not infallible."
+            echo
+            echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"
+            cat ~/diff.sql
+            echo "--- END SUGGESTED UPGRADE SCRIPT ---"
+            echo
+            echo "=========================================="
+            echo "FULL SCHEMA DIFF"
+            echo "=========================================="
+            cat ~/diff.patch
+            echo
+            echo "=========================================="
 
-              #
-              # Include the full schema diff, for informational purposes
-              #
+            # Find the most recent migration file for pg_search
+            MIGRATION_FILE=$(ls -t pg_search/sql/pg_search--*.sql 2>/dev/null | head -n 1)
 
-              echo
-              echo '<details>'
-              echo '<summary>The full diff between both schemas is:</summary>'
-              echo
-              echo '```diff'
-              cat ~/diff.patch
-              echo '```'
-              echo '</details>'
-            } >> commit-message.md
+            if [ -z "$MIGRATION_FILE" ]; then
+              echo "❌ ERROR: Schema changed but no migration file found in pg_search/sql/"
+              echo "Please create a migration file (e.g., pg_search--X.Y.Z--X.Y.Z+1.sql) with the schema changes."
+              exit 1
+            fi
 
-            # Set a flag to indicate a schema difference was detected
-            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
+            echo "Found migration file: $MIGRATION_FILE"
+            echo
+            echo "Checking if migration file contains the necessary schema changes..."
+
+            # Check if migration file appears to contain the relevant changes
+            # We look for key identifiers from the diff in the migration file
+            DIFF_FUNCTIONS=$(grep -oP "(?<=FUNCTION )[\w.\"]+\.[\w\"]+(?=\()" ~/diff.sql | sort -u || true)
+            MIGRATION_MISSING=""
+
+            if [ -n "$DIFF_FUNCTIONS" ]; then
+              echo "Functions affected by schema change:"
+              echo "$DIFF_FUNCTIONS"
+              echo
+
+              # Check if each function appears in the migration file
+              while IFS= read -r func; do
+                # Remove quotes and extract just the function name
+                func_name=$(echo "$func" | sed 's/"//g' | awk -F. '{print $NF}')
+                if ! grep -qi "$func_name" "$MIGRATION_FILE"; then
+                  MIGRATION_MISSING="${MIGRATION_MISSING}  - $func\n"
+                fi
+              done <<< "$DIFF_FUNCTIONS"
+            fi
+
+            if [ -n "$MIGRATION_MISSING" ]; then
+              echo "❌ ERROR: Migration file is missing changes for the following functions:"
+              echo -e "$MIGRATION_MISSING"
+              echo
+              echo "The migration file at $MIGRATION_FILE needs to be updated."
+              echo "Please add the suggested upgrade script shown above to your migration file."
+              exit 1
+            else
+              echo "✅ Migration file appears to contain the necessary schema changes"
+              echo
+              echo "⚠️  Please manually verify that the migration file:"
+              echo "   $MIGRATION_FILE"
+              echo "   correctly implements all changes shown in the suggested upgrade script."
+            fi
           else
-            echo "No schema difference detected"
+            echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi
-
-      - name: Attach Schema Diff to PR
-        uses: actions/github-script@v8
-        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
-        with:
-          script: |
-            const fs = require('fs');
-            const commit_message = fs.readFileSync('commit-message.md', 'utf8');
-
-            const comments = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
-
-            const botComment = comments.data.find(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('A schema difference was detected.')
-            );
-
-            const body = `${commit_message}`;
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                comment_id: botComment.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body
-              });
-            }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767072552295,
+  "lastUpdate": 1767072557203,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14742,6 +14742,126 @@ window.BENCHMARK_DATA = {
             "value": 50.30859375,
             "unit": "median mem",
             "extra": "avg mem: 49.57517328902715, max mem: 62.078125, count: 55250"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e03ef8769b4796dcb51ddfed8ad58e6203e92526",
+          "message": "fix: prevent false index matches for FuncExpr in expression matching (#3760) (#3820)\n\n## Summary\n\nFixes #3760\n\n### The Problem\n\nIn `field_name_from_node`, when unwrapping the indexed expression to\nmatch against the WHERE clause, we unwrapped ANY `FuncExpr` with a\nsingle argument instead of checking if it's a `pdb.alias` cast function\nfirst.\n\n**Example:**\n- Index on: `(abs(i-j))::pdb.alias('another_name')`\n- Query: `WHERE i - j = 1`\n\nThe old code would unwrap the indexed expression multiple times in the\nloop:\n1. `(abs(i-j))::pdb.alias('another_name')` -> unwrap -> `abs(i-j)`\n2. `abs(i-j)` -> unwrap -> `i-j` (incorrectly unwrapped `abs()` too!)\n\nThis caused `i - j = 1` to incorrectly match the index on `abs(i-j)`.\n\n### The Fix\n\nAdded a guard to only unwrap `FuncExpr` nodes that return `pdb.alias`\ntype:\n\n```rust\nif let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {\n    if type_is_alias((*func).funcresulttype) {  // Only unwrap pdb.alias casts\n        let args = PgList::<pg_sys::Node>::from_pg((*func).args);\n        if args.len() == 1 {\n            // unwrap...\n        }\n    }\n}\n```\n\nNow:\n1. `(abs(i-j))::pdb.alias('another_name')` -> returns `pdb.alias` ->\nunwrap -> `abs(i-j)`\n2. `abs(i-j)` -> returns `integer` (not `pdb.alias`) -> STOP\n\n## Test plan\n\nAdded regression test to `alias_non_text.sql`",
+          "timestamp": "2025-12-30T10:42:12+05:30",
+          "tree_id": "e173ef6e5db3dbc93fcd4742698e1d048981a1e3",
+          "url": "https://github.com/paradedb/paradedb/commit/e03ef8769b4796dcb51ddfed8ad58e6203e92526"
+        },
+        "date": 1767072554030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.486067098888731, max cpu: 19.238478, count: 55320"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.927894522776576, max mem: 67.45703125, count: 55320"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.566954393631904, max cpu: 9.476802, count: 55320"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.518444532944685, max mem: 35.859375, count: 55320"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4517448152191905, max cpu: 19.315895, count: 55320"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.20297523217191, max mem: 67.7421875, count: 55320"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.52202180364935, max cpu: 9.4395275, count: 55320"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.35017236363431, max mem: 67.31640625, count: 55320"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.598120056735257, max cpu: 9.486166, count: 110640"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.4927049439624, max mem: 56.37890625, count: 110640"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1718,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1711.2648770788142, max block_count: 3013.0, count: 55320"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.032501807664497, max segment_count: 16.0, count: 55320"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.620875251324046, max cpu: 9.29332, count: 55320"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.282864187906725, max mem: 59.06640625, count: 55320"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.183003777564191, max cpu: 4.733728, count: 55320"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.16798407278109, max mem: 62.2578125, count: 55320"
           }
         ]
       }

@@ -57,7 +57,7 @@ CREATE TABLE test (
     severity INT
 );
 CREATE SUBSCRIPTION test_subscription CONNECTION '@WriteHost_CONNSTR@' PUBLICATION test_replication;
-select pg_sleep(5); 
+select pg_sleep(5);
 CREATE INDEX idxtest ON test USING bm25 (id, message, country, severity) WITH (key_field = 'id');
 """
 

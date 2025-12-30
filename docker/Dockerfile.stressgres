@@ -36,7 +36,7 @@ RUN useradd --create-home --shell /bin/bash app
 # Set working directory
 WORKDIR /home/app
 
-# Copy the entire Stressgres source code
+# Copy the entire paradedb/paradedb source code
 COPY --chown=app:app . .
 
 # Configure Antithesis test singletons

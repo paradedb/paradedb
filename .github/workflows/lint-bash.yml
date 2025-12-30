@@ -42,13 +42,16 @@ jobs:
           fi
           shopt -u globstar nullglob
 
-      - name: Check Bash Scripts for "#!/bin/bash"
+      - name: Check Bash Scripts for "#!/bin/bash" or "#!/usr/bin/env bash" Shebang
         run: |
           while read -r file
           do
             if [[ "$(head -c 11 "$file")" = "#!/bin/bash" ]]
             then
               echo "[#!/bin/bash -> Present] $file"
+            elif [[ "$(head -c 18 "$file")" = "#!/usr/bin/env bash" ]]
+            then
+              echo "[#!/usr/bin/env bash -> Present] $file"
             else
               echo "[#!/bin/bash -> NOT FOUND] $file" && exit 1
             fi

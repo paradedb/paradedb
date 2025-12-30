@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767074346633,
+  "lastUpdate": 1767075203275,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37160,6 +37160,60 @@ window.BENCHMARK_DATA = {
             "value": 14.00561999841933,
             "unit": "median tps",
             "extra": "avg tps: 14.091742804221457, max tps: 19.152357637030377, count: 55512"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e03ef8769b4796dcb51ddfed8ad58e6203e92526",
+          "message": "fix: prevent false index matches for FuncExpr in expression matching (#3760) (#3820)\n\n## Summary\n\nFixes #3760\n\n### The Problem\n\nIn `field_name_from_node`, when unwrapping the indexed expression to\nmatch against the WHERE clause, we unwrapped ANY `FuncExpr` with a\nsingle argument instead of checking if it's a `pdb.alias` cast function\nfirst.\n\n**Example:**\n- Index on: `(abs(i-j))::pdb.alias('another_name')`\n- Query: `WHERE i - j = 1`\n\nThe old code would unwrap the indexed expression multiple times in the\nloop:\n1. `(abs(i-j))::pdb.alias('another_name')` -> unwrap -> `abs(i-j)`\n2. `abs(i-j)` -> unwrap -> `i-j` (incorrectly unwrapped `abs()` too!)\n\nThis caused `i - j = 1` to incorrectly match the index on `abs(i-j)`.\n\n### The Fix\n\nAdded a guard to only unwrap `FuncExpr` nodes that return `pdb.alias`\ntype:\n\n```rust\nif let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {\n    if type_is_alias((*func).funcresulttype) {  // Only unwrap pdb.alias casts\n        let args = PgList::<pg_sys::Node>::from_pg((*func).args);\n        if args.len() == 1 {\n            // unwrap...\n        }\n    }\n}\n```\n\nNow:\n1. `(abs(i-j))::pdb.alias('another_name')` -> returns `pdb.alias` ->\nunwrap -> `abs(i-j)`\n2. `abs(i-j)` -> returns `integer` (not `pdb.alias`) -> STOP\n\n## Test plan\n\nAdded regression test to `alias_non_text.sql`",
+          "timestamp": "2025-12-30T10:42:12+05:30",
+          "tree_id": "e173ef6e5db3dbc93fcd4742698e1d048981a1e3",
+          "url": "https://github.com/paradedb/paradedb/commit/e03ef8769b4796dcb51ddfed8ad58e6203e92526"
+        },
+        "date": 1767075199993,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.95939328221847,
+            "unit": "median tps",
+            "extra": "avg tps: 29.97756118569437, max tps: 34.85444872424271, count: 55360"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 128.02309268123116,
+            "unit": "median tps",
+            "extra": "avg tps: 165.27574202762722, max tps: 2712.9449142022027, count: 55360"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2023.6771958935788,
+            "unit": "median tps",
+            "extra": "avg tps: 2011.5532344838618, max tps: 2199.2241253034567, count: 55360"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.36232655017093,
+            "unit": "median tps",
+            "extra": "avg tps: 155.96303291329545, max tps: 1686.1217967238085, count: 110720"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.423106959242906,
+            "unit": "median tps",
+            "extra": "avg tps: 15.46198975115201, max tps: 20.14902216795419, count: 55360"
           }
         ]
       }

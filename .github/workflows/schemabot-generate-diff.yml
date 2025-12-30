@@ -109,8 +109,25 @@ jobs:
 
       - name: Generate Schema Diffs
         run: |
-          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1) || true
+          # Run pg-schema-diff and capture its exit code
+          set +e  # Temporarily disable exit on error
+          pg-schema-diff diff ~/old.sql ~/this.sql 2>&1 | grep -v "^$" > ~/diff.sql
+          PG_SCHEMA_DIFF_EXIT=$?
+          set -e  # Re-enable exit on error
+
+          # Check if pg-schema-diff crashed or had an error
+          if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
+            echo "❌ ERROR: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
+            echo "Output:"
+            cat ~/diff.sql
+            exit 1
+          fi
+
+          # Generate a traditional diff for informational purposes (exit code doesn't matter)
           (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
+
+          # Show the schema diff
+          echo "Schema diff generated successfully:"
           cat ~/diff.sql
 
       - name: Check Schema Diff and Validate Migration

@@ -226,10 +226,10 @@ pub mod pdb {
                     2, // ndims (2D array)
                     dims.as_ptr() as *mut i32,
                     lbs.as_ptr() as *mut i32,
-                    pg_sys::INT4OID,            // element type OID (integer)
-                    4,                          // typlen (int4 is 4 bytes)
-                    true,                       // typbyval (int4 is passed by value)
-                    pg_sys::TYPALIGN_INT as i8, // typalign
+                    pg_sys::INT4OID, // element type OID (integer)
+                    4,               // typlen (int4 is 4 bytes)
+                    true,            // typbyval (int4 is passed by value)
+                    pg_sys::TYPALIGN_INT.try_into().unwrap(), // typalign (char type, architecture-specific)
                 );
 
                 Some(pg_sys::Datum::from(array_datum))

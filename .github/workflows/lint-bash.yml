@@ -49,9 +49,6 @@ jobs:
             if [[ "$(head -c 11 "$file")" = "#!/bin/bash" ]]
             then
               echo "[#!/bin/bash -> Present] $file"
-            elif [[ "$(head -c 18 "$file")" = "#!/usr/bin/env bash" ]]
-            then
-              echo "[#!/usr/bin/env bash -> Present] $file"
             else
               echo "[#!/bin/bash -> NOT FOUND] $file" && exit 1
             fi

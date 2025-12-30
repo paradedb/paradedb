@@ -21,7 +21,7 @@ LOGFILE=$(basename -- "${SUITE}")
 LOGFILE="${LOGFILE%.*}.log"
 
 if [ "$4" != "" ]; then
-  LOGFILE="$4"
+	LOGFILE="$4"
 fi
 
 set -x

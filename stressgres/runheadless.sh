@@ -25,10 +25,10 @@ if [ "$4" != "" ]; then
 fi
 
 cd "${MANIFESTDIR}" || exit
-cargo pgrx install --profile prof --manifest-path "${MANIFEST}" --package ${EXTENSION} --features=icu --pg-config ${PGRX_HOME}/${PGVER}/pgrx-install/bin/pg_config || exit $?
+cargo pgrx install --profile prof --manifest-path "${MANIFEST}" --package "${EXTENSION}" --features=icu --pg-config ${PGRX_HOME}/${PGVER}/pgrx-install/bin/pg_config || exit $?
 
 cd "${HERE}" || exit
 pwd
-cargo run --release headless "${SUITE}" --log-file="${LOGFILE}" --runtime ${TIMEOUT}
+cargo run --release headless "${SUITE}" --log-file="${LOGFILE}" --runtime "${TIMEOUT}"
 
 cargo run --release -- graph "${LOGFILE}" "${LOGFILE}".png && open "${LOGFILE}".png

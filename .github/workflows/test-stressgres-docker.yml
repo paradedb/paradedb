@@ -11,10 +11,9 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/test-docker.yml"
-      - "docker/**"
-      - "src/**"
-      - "Cargo.toml"
+      - ".github/workflows/test-stressgres-docker.yml"
+      - "docker/Dockerfile.stressgres"
+      - "stressgres/src/**"
   workflow_dispatch:
 
 concurrency:
@@ -45,7 +44,7 @@ jobs:
             .
 
       - name: Run the Stressgres Docker Image
-        run: docker run -d --name stressgres aradedb/stressgres:0.0.0
+        run: docker run -d --name stressgres paradedb/stressgres:0.0.0
 
       - name: Check that the Stressgres Docker Image Runs Properly
         run: |

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767195102645,
+  "lastUpdate": 1767195990048,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17740,6 +17740,42 @@ window.BENCHMARK_DATA = {
             "value": 5.424821183707854,
             "unit": "median tps",
             "extra": "avg tps: 4.885798277145804, max tps: 6.105462854167958, count: 57751"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd1d175b804ce659d23d55f6a37347c93acc350f",
+          "message": "chore: Update Copyright to 2026 (#3832)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n^\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2025-12-31T10:14:38-05:00",
+          "tree_id": "54518b8094cedb6d0744eccedb15eb2aa94b4b39",
+          "url": "https://github.com/paradedb/paradedb/commit/cd1d175b804ce659d23d55f6a37347c93acc350f"
+        },
+        "date": 1767195986857,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.716589716522199,
+            "unit": "median tps",
+            "extra": "avg tps: 6.58389808374896, max tps: 10.057446329119168, count: 57752"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.41355156781212,
+            "unit": "median tps",
+            "extra": "avg tps: 4.867433229414001, max tps: 6.067236386188018, count: 57752"
           }
         ]
       }

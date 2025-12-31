@@ -116,7 +116,7 @@ ORDER BY byte_size DESC;
 refresh_ms = 5
 title = "Index Size Info"
 destination = "Subscriber"
-log_columns = [ "pages", "relation_size:MB", "unmerged_size:MB", "segment_count" ]
+log_columns = ["pages", "relation_size:MB", "unmerged_size:MB", "segment_count"]
 log_tps = false
 sql = """
 SELECT count(*) FILTER (WHERE visible)         AS visible,
@@ -140,7 +140,7 @@ SET max_parallel_workers = 32;
 """
 sql = "SELECT * FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
 assert = "11"
-destinations = [ "Subscriber" ]
+destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5

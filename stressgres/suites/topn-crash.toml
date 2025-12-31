@@ -62,7 +62,7 @@ ORDER BY num_deleted DESC, num_docs DESC, byte_size DESC, segno ASC;
 
 [[jobs]]
 refresh_ms = 5
-log_columns = [ "segment_count", "index_size:MB"]
+log_columns = ["segment_count", "index_size:MB"]
 title = "Postgres Index Size"
 sql = """
 SELECT count(*) FILTER (WHERE visible)         AS segment_count,
@@ -75,7 +75,7 @@ FROM paradedb.index_info('idxtest', true);
 """
 [[jobs]]
 refresh_ms = 5
-log_columns = [ "index_size:MB"]
+log_columns = ["index_size:MB"]
 title = "Tantivy Index Size"
 sql = """
 SELECT sum(byte_size) AS index_size FROM paradedb.index_info('idxtest', true);
@@ -84,7 +84,7 @@ SELECT sum(byte_size) AS index_size FROM paradedb.index_info('idxtest', true);
 [[jobs]]
 refresh_ms = 5
 log_tps = true
-log_columns = [ "count" ]
+log_columns = ["count"]
 title = "Custom Scan"
 on_connect = """
 SET enable_indexonlyscan to OFF;
@@ -112,7 +112,7 @@ select assert(count(*), 8), count(*) from (select * from test where message @@@ 
 [[jobs]]
 refresh_ms = 5
 log_tps = true
-log_columns = [ "count" ]
+log_columns = ["count"]
 title = "Index Only Scan"
 on_connect = """
 set max_parallel_workers = 0;
@@ -125,7 +125,7 @@ SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
 [[jobs]]
 refresh_ms = 1
 log_tps = true
-log_columns = [ "count" ]
+log_columns = ["count"]
 atomic_connection = true
 title = "Update 1..9"
 cancel_keycode = 'U'

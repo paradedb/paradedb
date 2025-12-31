@@ -49,8 +49,6 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          build-args: |
-            RELEASE_TAG=v${{ github.event.inputs.release_version }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile.stressgres
           push: true

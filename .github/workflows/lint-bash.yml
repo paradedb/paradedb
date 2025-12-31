@@ -42,7 +42,7 @@ jobs:
           fi
           shopt -u globstar nullglob
 
-      - name: Check Bash Scripts for "#!/bin/bash" or "#!/usr/bin/env bash" Shebang
+      - name: Check Bash Scripts for "#!/bin/bash"
         run: |
           while read -r file
           do

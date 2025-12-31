@@ -123,9 +123,6 @@ jobs:
             exit 1
           fi
 
-          # Generate a traditional diff for informational purposes (exit code doesn't matter)
-          (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
-
           # Show the schema diff
           echo "Schema diff generated successfully:"
           cat ~/diff.sql
@@ -143,11 +140,6 @@ jobs:
             echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"
             cat ~/diff.sql
             echo "--- END SUGGESTED UPGRADE SCRIPT ---"
-            echo
-            echo "=========================================="
-            echo "FULL SCHEMA DIFF"
-            echo "=========================================="
-            cat ~/diff.patch
             echo
             echo "=========================================="
             # Find the most recent migration file for pg_search

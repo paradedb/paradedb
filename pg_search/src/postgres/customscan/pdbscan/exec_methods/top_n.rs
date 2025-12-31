@@ -330,7 +330,6 @@ impl ExecMethod for TopNScanExecState {
 
         let agg_limits = AggregationLimitsGuard::new(
             Some(gucs::adjust_work_mem().get().try_into().unwrap()),
-            // TODO: configure?
             Some(bucket_limit),
         );
 

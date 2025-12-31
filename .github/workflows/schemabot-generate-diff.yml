@@ -110,8 +110,9 @@ jobs:
       - name: Generate Schema Diffs
         run: |
           # Run pg-schema-diff and capture its exit code
+          # Note: Only capture stdout (the actual diff), stderr goes to terminal for debugging
           set +e  # Temporarily disable exit on error
-          pg-schema-diff diff ~/old.sql ~/this.sql 2>&1 | grep -v "^$" > ~/diff.sql
+          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql 2>&1
           PG_SCHEMA_DIFF_EXIT=$?
           set -e  # Re-enable exit on error
 

@@ -154,37 +154,17 @@ jobs:
 
             echo "Found migration file: $MIGRATION_FILE"
             echo
-            echo "Checking if migration file contains the exact schema changes..."
+            echo "Checking if migration file contains the exact schema diff as a contiguous block..."
 
-            # Normalize both files for comparison (remove empty lines and comments)
-            grep -v '^[[:space:]]*$' ~/diff.sql | grep -v '^--' > ~/diff_normalized.sql || true
-            grep -v '^[[:space:]]*$' "$MIGRATION_FILE" | grep -v '^--' | grep -v '^\\echo' > ~/migration_normalized.sql || true
-
-            # Check if every non-empty line from diff exists in the migration file
-            MISSING_LINES=""
-            while IFS= read -r line; do
-              # Skip empty lines
-              if [ -z "$line" ]; then
-                continue
-              fi
-
-              # Check if this line exists in the migration file
-              if ! grep -Fq "$line" ~/migration_normalized.sql; then
-                MISSING_LINES="${MISSING_LINES}${line}\n"
-              fi
-            done < ~/diff_normalized.sql
-
-            if [ -n "$MISSING_LINES" ]; then
-              echo "❌ ERROR: Migration file is missing the following lines from the diff:"
-              echo "=========================================="
-              echo -e "$MISSING_LINES"
-              echo "=========================================="
+            # Check if the entire diff content exists as a contiguous sequence in the migration file
+            if ! grep -Fzo "$(cat ~/diff.sql)" "$MIGRATION_FILE" > /dev/null 2>&1; then
+              echo "❌ ERROR: Migration file does not contain the exact schema diff as a contiguous block."
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."
-              echo "Please ensure it contains all the changes shown in the suggested upgrade script above."
+              echo "Please copy the entire suggested upgrade script shown above into your migration file as-is."
               exit 1
             else
-              echo "✅ Migration file contains all the necessary schema changes"
+              echo "✅ Migration file contains the exact schema diff in the correct sequence"
             fi
           else
             echo "✅ No schema difference detected"

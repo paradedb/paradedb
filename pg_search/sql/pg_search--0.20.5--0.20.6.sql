@@ -18,9 +18,11 @@ LANGUAGE c IMMUTABLE STRICT PARALLEL SAFE;
 
 DROP FUNCTION IF EXISTS snippet_positions(field anyelement, "limit" pg_catalog.int4, "offset" pg_catalog.int4);
 /* </end connected objects> */
+
 /* <begin connected objects> */
 -- pg_search/src/postgres/customscan/pdbscan/projections/snippet.rs:341
 -- pg_search::postgres::customscan::pdbscan::projections::snippet::paradedb_snippet_positions_from_relation
+
 CREATE OR REPLACE FUNCTION "paradedb"."snippet_positions"(
     "field" anyelement,
     "limit" INT DEFAULT NULL,

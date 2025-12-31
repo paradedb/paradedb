@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -323,22 +323,21 @@ impl AggregateCSClause {
     /// Returns set of field names where the sentinel should use MIN values
     /// (i.e., NULLs should sort FIRST in the final output)
     ///
-    /// The logic accounts for both the NULLS FIRST/LAST setting and the sort direction:
-    /// - For ASC: MIN sentinel → appears first, MAX sentinel → appears last
-    /// - For DESC: MAX sentinel → appears first (reversed), MIN sentinel → appears last (reversed)
+    /// We need a MIN sentinel (treating NULL as -Infinity) when:
+    /// 1. Sort is ASC and we want NULLs FIRST (-Infinity < any value).
+    /// 2. Sort is DESC and we want NULLs LAST (any value > -Infinity, so -Infinity comes last in DESC).
     ///
-    /// So we need MIN sentinel when: (nulls_first && ASC) || (!nulls_first && DESC)
-    /// Which simplifies to: nulls_first == (direction == ASC)
+    /// Conversely, we use a MAX sentinel (treating NULL as +Infinity) when:
+    /// 1. Sort is ASC and we want NULLs LAST (any value < +Infinity).
+    /// 2. Sort is DESC and we want NULLs FIRST (+Infinity > any value, so +Infinity comes first in DESC).
     pub fn use_min_sentinel_fields(&self) -> HashSet<String> {
         use crate::api::{OrderByFeature, SortDirection};
         self.orderby
             .orderby_info()
             .iter()
-            .filter(|info| {
-                let is_asc = matches!(info.direction, SortDirection::Asc);
-                // Use MIN sentinel when nulls should appear first in final output
-                // accounting for direction reversal
-                info.nulls_first == is_asc
+            .filter(|info| match info.direction {
+                SortDirection::AscNullsFirst | SortDirection::DescNullsLast => true,
+                SortDirection::AscNullsLast | SortDirection::DescNullsFirst => false,
             })
             .filter_map(|info| match &info.feature {
                 OrderByFeature::Field(name) => Some(name.to_string()),

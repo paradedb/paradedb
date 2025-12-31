@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -18,10 +18,12 @@
 use std::convert::identity;
 use std::sync::Arc;
 
+use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
+use crate::nodecast;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
@@ -109,6 +111,9 @@ pub struct MixedFastFieldExecState {
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
+
+    /// Const values extracted from the target list to be projected into the slot
+    const_values: HashMap<usize, (pg_sys::Datum, bool)>,
 }
 
 impl MixedFastFieldExecState {
@@ -136,6 +141,7 @@ impl MixedFastFieldExecState {
             search_results: None,
             batch: Batch::default(),
             num_visible: 0,
+            const_values: HashMap::default(),
         }
     }
 
@@ -253,6 +259,23 @@ impl ExecMethod for MixedFastFieldExecState {
     fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
         // Initialize the inner FastFieldExecState
         self.inner.init(state, cstate);
+
+        unsafe {
+            let targetlist = (*(*cstate).ss.ps.plan).targetlist;
+            let len = pg_sys::list_length(targetlist);
+            self.const_values.clear();
+            self.const_values.reserve(len as usize);
+
+            for i in 0..len {
+                let tle = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
+                if !tle.is_null() && !(*tle).expr.is_null() {
+                    if let Some(expr) = nodecast!(Const, T_Const, (*tle).expr) {
+                        self.const_values
+                            .insert(i as usize, ((*expr).constvalue, (*expr).constisnull));
+                    }
+                }
+            }
+        }
 
         // Reset mixed field specific state
         self.search_results = None;
@@ -374,6 +397,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         debug_assert!(natts == which_fast_fields.len());
 
                         self.batch.populate(
+                            &self.const_values,
                             row_idx,
                             scored,
                             doc_address,
@@ -457,6 +481,7 @@ impl Batch {
     #[allow(clippy::too_many_arguments)]
     fn populate(
         &mut self,
+        const_values: &HashMap<usize, (pg_sys::Datum, bool)>,
         row_idx: usize,
         scored: SearchIndexScore,
         doc_address: DocAddress,
@@ -507,6 +532,20 @@ impl Batch {
                     if let Some(datum) = datum_opt {
                         datums[i] = datum;
                         isnull[i] = false;
+                    } else {
+                        // if the tlist entry is not null but the datum retrieved is null,
+                        // it could mean there was a constant value in the tlist that we can
+                        // project into the slot
+                        if let Some((val, is_null)) = const_values.get(&i) {
+                            datums[i] = *val;
+                            isnull[i] = *is_null;
+                            continue;
+                        } else {
+                            pgrx::error!(
+                                "Expression in target list is not yet supported. \
+                                Please file an issue at https://github.com/paradedb/paradedb/issues."
+                            );
+                        }
                     }
                 }
             }

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -213,6 +213,12 @@ impl TypmodSchema {
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
                 rule!("alias", ValueConstraint::String),
+                rule!(
+                    "chinese_convert",
+                    ValueConstraint::StringChoice(vec![
+                        "t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"
+                    ])
+                ),
             ]
         });
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -31,7 +31,9 @@ use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::tokenizers::type_can_be_tokenized;
-use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod};
+use crate::api::tokenizers::{
+    try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
+};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -396,11 +398,9 @@ pub unsafe fn field_name_from_node(
                     let field_name = if type_is_tokenizer(pg_sys::exprType(
                         indexed_expression.cast(),
                     )) {
+                        let oid = pg_sys::exprType(indexed_expression.cast());
                         let typmod = pg_sys::exprTypmod(indexed_expression.cast());
-                        let typmod =
-                            UncheckedTypmod::try_from(typmod).unwrap_or_else(|e| panic!("{e}"));
-
-                        typmod.alias().map(FieldName::from).or_else(|| {
+                        try_get_alias(oid, typmod).map(FieldName::from).or_else(|| {
                             find_one_var(indexed_expression.cast())
                                 .and_then(|var| attname_from_var(heaprel, var.cast()))
                         })
@@ -418,12 +418,15 @@ pub unsafe fn field_name_from_node(
                 }
 
                 // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
+                // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
                 if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-                    let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                    if args.len() == 1 {
-                        if let Some(arg) = args.get_ptr(0) {
-                            reduced_expression = arg.cast();
-                            continue;
+                    if type_is_alias((*func).funcresulttype) {
+                        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                        if args.len() == 1 {
+                            if let Some(arg) = args.get_ptr(0) {
+                                reduced_expression = arg.cast();
+                                continue;
+                            }
                         }
                     }
                 }

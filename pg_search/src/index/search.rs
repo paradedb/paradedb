@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -34,6 +34,18 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
         let config = search_field.field_config();
         if let Some(tokenizer) = config.tokenizer() {
             tokenizers.push(tokenizer.clone());
+
+            // <= `0.20.5`, `unicode_words` was accidentally named `remove_emojis`, so we need to register the old name for backwards compatibility
+            if let SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters,
+            } = tokenizer
+            {
+                tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
+                    remove_emojis: *remove_emojis,
+                    filters: filters.clone(),
+                });
+            }
         }
     }
 

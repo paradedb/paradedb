@@ -1,0 +1,198 @@
+---
+title: Using ParadeDB with Citus
+description: Distributed full-text search with Citus and ParadeDB
+canonical: https://docs.paradedb.com/deploy/citus
+---
+
+[Citus](https://github.com/citusdata/citus) transforms PostgreSQL into a distributed database with horizontal sharding. ParadeDB is fully compatible with Citus, enabling distributed full-text search across sharded tables.
+
+## What's Supported
+
+- **BM25 indexes on distributed tables** — Create search indexes after distributing tables with `create_distributed_table()`
+- **Distributed queries with search operators** — Use the `@@@` search operator in queries across sharded tables
+- **Subqueries with LIMIT** — Complex queries with subqueries and LIMIT clauses work correctly
+- **JOIN queries** — Search with JOINs across distributed tables
+
+## Installation
+
+Both `citus` and `pg_search` must be added to `shared_preload_libraries` in the correct order:
+
+```bash
+# Install Citus first
+curl https://install.citusdata.com/community/deb.sh | sudo bash
+apt-get install -y postgresql-17-citus-13.0
+
+# Add both extensions to shared_preload_libraries
+sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf
+
+# Restart PostgreSQL
+# Then create extensions in your database
+```
+
+<Note>
+  The order in `shared_preload_libraries` matters. Always list `citus` before
+  `pg_search` to ensure proper planner hook chaining.
+</Note>
+
+## Usage Example
+
+Here's a complete example of setting up distributed search with Citus:
+
+```sql
+CREATE EXTENSION citus;
+CREATE EXTENSION pg_search;
+
+-- Create a table with a distribution key
+CREATE TABLE articles (
+    id SERIAL,
+    author_id INT NOT NULL,
+    title TEXT,
+    body TEXT,
+    PRIMARY KEY (author_id, id)  -- Must include distribution column
+);
+
+-- Distribute the table across shards
+SELECT create_distributed_table('articles', 'author_id');
+
+-- Create a BM25 index on the distributed table
+CREATE INDEX articles_search_idx ON articles
+USING bm25 (id, title, body)
+WITH (key_field='id');
+
+-- Insert some data
+INSERT INTO articles (author_id, title, body) VALUES
+    (1, 'PostgreSQL Performance', 'Optimizing PostgreSQL queries for large datasets'),
+    (1, 'Distributed Databases', 'Understanding sharding and replication strategies'),
+    (2, 'Full-Text Search', 'Building search engines with PostgreSQL');
+
+-- Search across shards
+SELECT id, title FROM articles
+WHERE body @@@ 'PostgreSQL OR distributed'
+ORDER BY id;
+
+-- Results:
+--  id |         title
+-- ----+------------------------
+--   1 | PostgreSQL Performance
+--   3 | Full-Text Search
+```
+
+### Verify Distributed Execution
+
+You can verify that both ParadeDB and Citus are working together by examining the query plan:
+
+```sql
+EXPLAIN (VERBOSE)
+SELECT id, title FROM articles
+WHERE body @@@ 'PostgreSQL OR distributed'
+ORDER BY id;
+```
+
+The plan should show:
+
+1. **Citus Adaptive Custom Scan** — Coordinating distributed query execution across shards
+2. **ParadeDB Scan** — Using the BM25 index within each shard
+3. **Task Count: 32** — Query distributed across 32 shards (default Citus shard count)
+
+<Accordion title="Example EXPLAIN Output">
+
+```
+Sort  (cost=11041.82..11291.82 rows=100000 width=36)
+  Sort Key: remote_scan.id
+  ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=36)
+        Task Count: 32
+        Tasks Shown: One of 32
+        ->  Task
+              Query: SELECT id, title FROM articles WHERE body @@@ 'PostgreSQL OR distributed'
+              Node: host=localhost port=5432 dbname=citus_demo
+              ->  Custom Scan (ParadeDB Scan) on articles_102008  (cost=10.00..10.01 rows=1 width=36)
+                    Index: articles_search_idx_102008
+                    Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL OR distributed"}}
+```
+
+</Accordion>
+
+## Distributed JOINs with Search
+
+ParadeDB search operators work seamlessly with Citus distributed JOINs:
+
+```sql
+-- Create and distribute a second table
+CREATE TABLE authors (
+    id INT PRIMARY KEY,
+    name TEXT,
+    bio TEXT
+);
+
+SELECT create_distributed_table('authors', 'id');
+
+-- JOIN with search operators
+SELECT a.name, ar.title
+FROM authors a
+JOIN articles ar ON a.id = ar.author_id
+WHERE ar.body @@@ 'PostgreSQL'
+ORDER BY a.name;
+
+-- Results:
+--  name  |         title
+-- -------+------------------------
+--  Alice | PostgreSQL Performance
+--  Bob   | Full-Text Search
+```
+
+### Verify Distributed JOIN Execution
+
+Check the execution plan for distributed JOINs with search:
+
+```sql
+EXPLAIN (VERBOSE)
+SELECT a.name, ar.title
+FROM authors a
+JOIN articles ar ON a.id = ar.author_id
+WHERE ar.body @@@ 'PostgreSQL'
+ORDER BY a.name;
+```
+
+<Accordion title="Example EXPLAIN Output for JOIN">
+
+```
+Sort  (cost=12067.32..12317.32 rows=100000 width=64)
+  Sort Key: remote_scan.name
+  ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=64)
+        Task Count: 32
+        Tasks Shown: One of 32
+        ->  Task
+              Query: SELECT a.name, ar.title FROM authors a JOIN articles ar
+                     ON a.id = ar.author_id WHERE ar.body @@@ 'PostgreSQL'
+              Node: host=localhost port=5432 dbname=citus_demo
+              ->  Nested Loop  (cost=10.15..18.20 rows=1 width=64)
+                    Join Filter: (a.id = ar.author_id)
+                    ->  Custom Scan (ParadeDB Scan) on articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
+                          Index: articles_search_idx_102008
+                          Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL"}}
+                    ->  Index Scan using authors_pkey_102040 on authors_102040 a  (cost=0.15..8.17 rows=1 width=36)
+                          Index Cond: (id = ar.author_id)
+```
+
+Key indicators:
+
+- `Nested Loop` shows efficient JOIN execution on each shard
+- `Custom Scan (ParadeDB Scan)` on the outer side of the JOIN uses BM25 for filtering
+- `Index Scan` on authors table uses the primary key for lookups
+- JOINs execute **locally on each shard** for optimal performance
+
+</Accordion>
+
+## Known Limitations
+
+- ❌ **Citus columnar tables** — BM25 indexes and other PostgreSQL indexes (like GiST, GIN) cannot be created on Citus columnar tables due to limitations in Citus's columnar storage implementation. However, you can use regular distributed tables with BM25 indexes alongside columnar tables for analytics.
+
+## Performance Considerations
+
+When using ParadeDB with Citus:
+
+- **Index creation** happens locally on each shard, enabling parallel index building
+- **Search queries** execute in parallel across shards and results are merged by the coordinator
+- **Distribution column** should be chosen based on your query patterns to minimize cross-shard operations
+
+For more guidance on optimizing distributed search workloads, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via [email](mailto:support@paradedb.com).

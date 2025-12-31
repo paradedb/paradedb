@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -221,6 +221,11 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::FullTransactionId>,
     next_xid: Option<pg_sys::FullTransactionId>,
 ) -> anyhow::Result<()> {
+    // don't kick off merges for invalid indexes
+    if !index.is_valid() {
+        return Ok(());
+    }
+
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
     let cleanup_lock = metadata.cleanup_lock_shared();

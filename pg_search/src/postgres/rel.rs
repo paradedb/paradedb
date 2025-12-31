@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -210,6 +210,12 @@ impl PgSearchRelation {
 
     pub fn is_create_index(&self) -> bool {
         self.0.as_ref().unwrap().5.get()
+    }
+
+    /// Returns false if in the middle of a `REINDEX CONCURRENTLY`
+    /// and the index is not yet ready to serve queries
+    pub fn is_valid(&self) -> bool {
+        unsafe { (*(*self.as_ptr()).rd_index).indisvalid }
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {

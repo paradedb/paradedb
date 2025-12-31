@@ -1,0 +1,13 @@
+---
+title: 0.20.4
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed a bug where, if a hard-coded value was present in the target list and a custom scan was triggered, the result table could have the value incorrectly set to null
+- Fixed an issue where aliased non-text fields needed to have the same name as the Postgres field in order to be pushed down to the custom scan
+- If an invalid field name is passed to `pdb.agg`, an error is thrown instead of an empty result being returned
+- Fixed incorrect `NULL` positioning when using `NULLS FIRST/NULLS LAST` with `ORDER BY` in aggregate custom scans
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.20.4).

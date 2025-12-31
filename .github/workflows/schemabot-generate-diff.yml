@@ -1,7 +1,18 @@
 # workflows/schemabot-generate-diff.yml
 #
 # SchemaBot Generate Diff
-# Determine if a commit introduces an extension schema change for pg_search and post a comment to the PR.
+# Determine if a commit introduces an extension schema change for pg_search.
+#
+# This workflow:
+# 1. Generates SQL schemas from both base and PR branches using pgrx
+# 2. Loads schemas into temporary PostgreSQL databases
+# 3. Uses Stripe's pg-schema-diff to analyze database differences semantically
+# 4. Generates a migration plan with the SQL needed to migrate from old to new schema
+# 5. Validates that migration files contain necessary changes for modified functions
+# 6. Uploads schema artifacts and migration plan for manual review
+#
+# Note: pg-schema-diff compares database structures semantically, so statement ordering
+# in the SQL files doesn't matter. It understands PostgreSQL schemas, not just text diffs.
 
 name: SchemaBot Generate Diff
 
@@ -72,10 +83,21 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pg-schema-diff and its Required Dependencies
+          # Start PostgreSQL for schema comparison
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "CREATE USER runner SUPERUSER;"
+          sudo -u postgres psql -c "CREATE DATABASE old_schema;"
+          sudo -u postgres psql -c "CREATE DATABASE new_schema;"
+
+      - name: Install Stripe's pg-schema-diff
         run: |
-          sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
+          # Download and install Stripe's Go-based pg-schema-diff
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/stripe/pg-schema-diff/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+          wget -q "https://github.com/stripe/pg-schema-diff/releases/download/${LATEST_VERSION}/pg-schema-diff_${LATEST_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "pg-schema-diff_${LATEST_VERSION}_linux_amd64.tar.gz"
+          sudo mv pg-schema-diff /usr/local/bin/
+          sudo chmod +x /usr/local/bin/pg-schema-diff
+          pg-schema-diff --version
 
       - name: Install cargo-pgrx
         run: |
@@ -86,9 +108,7 @@ jobs:
           echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
-        run: |
-          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
-          cp ~/this.sql ~/this_raw.sql  # Keep raw copy for artifacts
+        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
         run: |
@@ -108,92 +128,54 @@ jobs:
 
           # Generate schema
           cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
-          cp ~/old.sql ~/old_raw.sql  # Keep raw copy for artifacts
 
-      - name: Generate Schema Diffs
+      - name: Load Schemas into PostgreSQL Databases
         run: |
-          # Show schema sizes for diagnostics
-          echo "Schema file sizes:"
-          echo "  Old schema: $(wc -l < ~/old_raw.sql) lines, $(wc -c < ~/old_raw.sql) bytes"
-          echo "  New schema: $(wc -l < ~/this_raw.sql) lines, $(wc -c < ~/this_raw.sql) bytes"
+          echo "Loading schemas into temporary PostgreSQL databases..."
+
+          # Load old schema
+          psql -U runner -d old_schema -f ~/old.sql
+          echo "✅ Loaded old schema ($(wc -l < ~/old.sql) lines)"
+
+          # Load new schema
+          psql -U runner -d new_schema -f ~/this.sql
+          echo "✅ Loaded new schema ($(wc -l < ~/this.sql) lines)"
+
+      - name: Generate Schema Diffs with pg-schema-diff
+        run: |
+          echo "Comparing schemas using Stripe's pg-schema-diff..."
+          echo "Note: This step will fail the entire job if pg-schema-diff encounters an error."
           echo
 
-          # Show raw schemas in collapsed sections for inline reference
-          echo "<details>"
-          echo "<summary>📄 Raw Old Schema (before normalization) - click to expand</summary>"
-          echo ""
-          echo '```sql'
-          head -100 ~/old_raw.sql
-          if [ $(wc -l < ~/old_raw.sql) -gt 100 ]; then
-            echo "... (truncated to first 100 lines, see artifacts for full file)"
-          fi
-          echo '```'
-          echo "</details>"
+          # Run pg-schema-diff to generate migration plan
+          # No error handling - let it fail the job if there are issues
+          pg-schema-diff plan \
+            --dsn "postgresql://runner@localhost/old_schema?sslmode=disable" \
+            --new-dsn "postgresql://runner@localhost/new_schema?sslmode=disable" \
+            > ~/diff.sql
+
           echo
-          echo "<details>"
-          echo "<summary>📄 Raw New Schema (before normalization) - click to expand</summary>"
-          echo ""
-          echo '```sql'
-          head -100 ~/this_raw.sql
-          if [ $(wc -l < ~/this_raw.sql) -gt 100 ]; then
-            echo "... (truncated to first 100 lines, see artifacts for full file)"
-          fi
-          echo '```'
-          echo "</details>"
-          echo
+          echo "✅ pg-schema-diff completed successfully"
 
-          # Normalize schemas by removing pgrx-generated noise
-          echo "Normalizing schemas to remove pgrx-generated hashes..."
+          # Also generate a traditional unified diff for reference
+          diff -u ~/old.sql ~/this.sql > ~/diff.patch 2>&1 || true
 
-          # Remove hash-based function names and comments that change on every build
-          normalize_schema() {
-            sed -E \
-              -e 's/_[0-9a-f]{32}/_HASH/g' \
-              -e 's/-- pg_search::[^:]+::[^:]+::_[0-9a-f]+/-- HASH_COMMENT/g' \
-              "$1"
-          }
-
-          normalize_schema ~/old.sql > ~/old_normalized.sql
-          normalize_schema ~/this.sql > ~/this_normalized.sql
-
-          # Run pg-schema-diff with increased stack size on normalized schemas
-          set +e  # Temporarily disable exit on error
-          RUST_MIN_STACK=8388608 pg-schema-diff diff ~/old_normalized.sql ~/this_normalized.sql 2>&1 | grep -v "^$" > ~/diff.sql
-          PG_SCHEMA_DIFF_EXIT=$?
-          set -e  # Re-enable exit on error
-
-          # Check if pg-schema-diff crashed or had an error
-          if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
-            echo "⚠️  WARNING: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
-            echo "Output:"
-            cat ~/diff.sql
-            echo
-            echo "Falling back to filtered diff..."
-
-            # Generate a filtered diff that focuses on actual SQL changes
-            diff ~/old_normalized.sql ~/this_normalized.sql 2>&1 | \
-              grep -E "^[<>].*\b(CREATE|ALTER|DROP|RETURNS|AS 'MODULE_PATHNAME')" | \
-              grep -v "HASH" | \
-              sort -u > ~/diff_filtered.txt || true
-
-            if [ -s ~/diff_filtered.txt ]; then
-              echo "-- Filtered schema changes (normalized):" > ~/diff.sql
-              cat ~/diff_filtered.txt >> ~/diff.sql
-            else
-              echo "✅ No significant schema differences detected after normalization"
-              > ~/diff.sql  # Empty the diff file
-            fi
-          fi
-
-          # Generate a full traditional diff for detailed review (exit code doesn't matter)
-          (diff -u ~/old_normalized.sql ~/this_normalized.sql > ~/diff.patch) || true
-
-          # Show the schema diff
+          # Show the migration plan summary
           if [ -s ~/diff.sql ]; then
-            echo "Schema diff (normalized):"
-            cat ~/diff.sql
+            DIFF_LINES=$(wc -l < ~/diff.sql)
+            echo
+            echo "Migration plan generated: $DIFF_LINES lines"
+            echo
+            echo "--- BEGIN MIGRATION PLAN (first 50 lines) ---"
+            head -50 ~/diff.sql
+            if [ "$DIFF_LINES" -gt 50 ]; then
+              echo
+              echo "... (see artifacts for full migration plan)"
+            fi
+            echo "--- END MIGRATION PLAN ---"
           else
-            echo "✅ No schema differences detected"
+            echo
+            echo "✅ No schema differences detected - databases are identical"
           fi
 
       - name: Check Schema Diff and Validate Migration
@@ -205,43 +187,19 @@ jobs:
             echo "=========================================="
             echo
 
-            # Check if this is a filtered diff (pg-schema-diff failed)
-            if grep -q "^-- Filtered schema changes" ~/diff.sql; then
-              echo "⚠️  Note: pg-schema-diff tool failed, showing filtered changes"
+            TOTAL_LINES=$(wc -l < ~/diff.sql)
+            echo "Migration plan: $TOTAL_LINES SQL statements"
+            echo
+            echo "--- BEGIN MIGRATION PLAN (first 100 lines) ---"
+            head -100 ~/diff.sql
+            if [ "$TOTAL_LINES" -gt 100 ]; then
               echo
-              echo "Key SQL changes detected:"
-              grep -v "^-- Filtered" ~/diff.sql | head -50
-
-              if [ $(wc -l < ~/diff.sql) -gt 50 ]; then
-                echo "... (truncated, see full diff below)"
-              fi
-
-              echo
-            echo "--- BEGIN DETAILED DIFF (first 200 lines) ---"
-              head -200 ~/diff.patch
-              echo "--- END DETAILED DIFF ---"
-              echo
-              echo "⚠️  WARNING: Schema differences detected."
-              echo "The schemas have been normalized to remove pgrx hash noise."
-              echo "Please review the key changes above and update the migration file."
-              echo
-              echo "📦 Full schema files are available as GitHub Actions artifacts for detailed inspection."
-
-              # Don't fail immediately - let the function check below determine if this is significant
-            else
-              echo "A suggested upgrade.sql script follows. Please review it carefully as SchemaBot is not infallible."
-              echo
-              echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"
-              cat ~/diff.sql
-              echo "--- END SUGGESTED UPGRADE SCRIPT ---"
-              echo
-              echo "=========================================="
-              echo "FULL SCHEMA DIFF"
-              echo "=========================================="
-              cat ~/diff.patch
-              echo
-              echo "=========================================="
+              echo "... ($TOTAL_LINES total lines, see artifacts for full plan)"
             fi
+            echo "--- END MIGRATION PLAN ---"
+            echo
+            echo "See artifacts for complete migration plan and schema files."
+            echo
 
             # Find the most recent migration file for pg_search
             MIGRATION_FILE=$(ls -t pg_search/sql/pg_search--*.sql 2>/dev/null | head -n 1)
@@ -256,21 +214,33 @@ jobs:
             echo
             echo "Checking if migration file contains the necessary schema changes..."
 
-            # Extract meaningful changes from the diff
-            # Look for CREATE/ALTER/DROP statements and RETURNS type changes
-            DIFF_FUNCTIONS=$(grep -oP "(?<=FUNCTION )[\w.\"]+\.[\w\"]+(?=\()" ~/diff.sql | grep -v "HASH" | sort -u || true)
-            DIFF_RETURNS=$(grep "RETURNS" ~/diff.sql | grep -v "HASH" || true)
+            # Extract functions from pg-schema-diff migration plan
+            # pg-schema-diff outputs actual SQL statements (no diff markers)
+            DIFF_FUNCTIONS=$(grep -E "^\s*(CREATE OR REPLACE|DROP)\s+FUNCTION" ~/diff.sql 2>/dev/null | \
+              grep -oP '(?<=FUNCTION\s)[".\w]+(?=\()' | \
+              sed 's/"//g' | \
+              sort -u || true)
 
-            # Count meaningful changes (ignore hash-only changes)
-            MEANINGFUL_CHANGES=$(grep -E "^[<>].*\b(CREATE|ALTER|DROP|RETURNS)" ~/diff.sql 2>/dev/null | grep -v "HASH" | wc -l || echo "0")
+            # Count SQL statements in migration plan
+            MEANINGFUL_CHANGES=$(grep -E "^\s*(CREATE|ALTER|DROP)" ~/diff.sql 2>/dev/null | wc -l || echo "0")
 
-            echo "Meaningful SQL changes detected: $MEANINGFUL_CHANGES"
+            echo
+            echo "=========================================="
+            echo "MIGRATION ANALYSIS"
+            echo "=========================================="
+            echo "SQL statements in migration plan: $MEANINGFUL_CHANGES"
+            echo
 
             if [ "$MEANINGFUL_CHANGES" -eq 0 ]; then
-              echo "✅ No meaningful schema changes detected (only pgrx-generated hash changes)"
-              echo "Migration file update not required."
+              echo "✅ No schema changes detected"
+              echo "   pg-schema-diff found no differences between the databases"
+              echo "   Migration file update not required."
+              echo
               exit 0
             fi
+
+            echo "📝 Migration required - please review the generated migration plan"
+            echo
 
             if [ -n "$DIFF_FUNCTIONS" ]; then
               echo
@@ -279,17 +249,25 @@ jobs:
               echo
 
               MIGRATION_MISSING=""
+              FUNCTIONS_CHECKED=0
               # Check if each function appears in the migration file
               while IFS= read -r func; do
                 [ -z "$func" ] && continue
+                FUNCTIONS_CHECKED=$((FUNCTIONS_CHECKED + 1))
                 # Remove quotes and extract just the function name
-                func_name=$(echo "$func" | sed 's/"//g' | awk -F. '{print $NF}')
+                func_clean=$(echo "$func" | sed 's/"//g')
+                func_name=$(echo "$func_clean" | awk -F. '{print $NF}')
+
+                # Check if function name appears in migration file (case insensitive)
                 if ! grep -qi "$func_name" "$MIGRATION_FILE"; then
-                  MIGRATION_MISSING="${MIGRATION_MISSING}  - $func (function: $func_name)\n"
+                  MIGRATION_MISSING="${MIGRATION_MISSING}  - $func_clean\n"
                 fi
               done <<< "$DIFF_FUNCTIONS"
 
+              echo "Checked $FUNCTIONS_CHECKED function(s) against migration file"
+
               if [ -n "$MIGRATION_MISSING" ]; then
+                echo
                 echo "❌ ERROR: Migration file is missing changes for the following functions:"
                 echo -e "$MIGRATION_MISSING"
                 echo
@@ -299,32 +277,25 @@ jobs:
               fi
             fi
 
-            # Check for return type changes
-            if [ -n "$DIFF_RETURNS" ]; then
-              echo
-              echo "Return type changes detected:"
-              echo "$DIFF_RETURNS" | head -10
-              echo
-            fi
-
             echo "✅ Migration file appears to contain references to the affected functions"
             echo
             echo "⚠️  Please manually verify that the migration file:"
             echo "   $MIGRATION_FILE"
-            echo "   correctly implements all changes shown in the suggested upgrade script."
+            echo "   correctly implements all changes shown in the migration plan."
+            echo
+            echo "💡 Review the migration plan in diff.sql artifact for exact SQL statements."
             echo
             echo "=========================================="
             echo "REFERENCE FILES"
             echo "=========================================="
             echo
             echo "📦 The following files are available as GitHub Actions artifacts:"
-            echo "  • old_raw.sql - Base branch schema (raw, before normalization)"
-            echo "  • this_raw.sql - Current branch schema (raw, before normalization)"
-            echo "  • old_normalized.sql - Base branch schema (normalized)"
-            echo "  • this_normalized.sql - Current branch schema (normalized)"
-            echo "  • diff.sql - Suggested upgrade script"
-            echo "  • diff.patch - Full unified diff"
+            echo "  • old_schema.sql - Base branch schema (as generated by pgrx)"
+            echo "  • new_schema.sql - Current branch schema (as generated by pgrx)"
+            echo "  • migration_plan.sql - SQL migration generated by pg-schema-diff"
+            echo "  • unified_diff.patch - Traditional text diff (for reference)"
             echo
+            echo "💡 TIP: migration_plan.sql contains ready-to-use SQL for the migration"
             echo "Download artifacts from the GitHub Actions run summary page."
           else
             echo "✅ No schema difference detected"
@@ -335,12 +306,10 @@ jobs:
         if: always()
         run: |
           mkdir -p schema-artifacts
-          cp ~/old_raw.sql schema-artifacts/ || true
-          cp ~/this_raw.sql schema-artifacts/ || true
-          cp ~/old_normalized.sql schema-artifacts/ || true
-          cp ~/this_normalized.sql schema-artifacts/ || true
-          cp ~/diff.sql schema-artifacts/ || true
-          cp ~/diff.patch schema-artifacts/ || true
+          cp ~/old.sql schema-artifacts/old_schema.sql || true
+          cp ~/this.sql schema-artifacts/new_schema.sql || true
+          cp ~/diff.sql schema-artifacts/migration_plan.sql || true
+          cp ~/diff.patch schema-artifacts/unified_diff.patch || true
           ls -lh schema-artifacts/
 
       - name: Upload Schema Files as Artifacts

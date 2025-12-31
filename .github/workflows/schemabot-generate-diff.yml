@@ -83,11 +83,24 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-          # Start PostgreSQL for schema comparison
+          # Start PostgreSQL and configure authentication
           sudo systemctl start postgresql
+
+          # Configure pg_hba.conf for trust authentication for local connections
+          sudo sed -i 's/^local.*all.*all.*peer/local   all             all                                     trust/' /etc/postgresql/${{ matrix.pg_version }}/main/pg_hba.conf
+          sudo sed -i 's/^host.*all.*all.*127\.0\.0\.1\/32.*scram-sha-256/host    all             all             127.0.0.1\/32            trust/' /etc/postgresql/${{ matrix.pg_version }}/main/pg_hba.conf
+          sudo sed -i 's/^host.*all.*all.*::1\/128.*scram-sha-256/host    all             all             ::1\/128                 trust/' /etc/postgresql/${{ matrix.pg_version }}/main/pg_hba.conf
+
+          # Reload PostgreSQL to apply changes
+          sudo systemctl reload postgresql
+
+          # Create runner user and databases
           sudo -u postgres psql -c "CREATE USER runner SUPERUSER;"
-          sudo -u postgres psql -c "CREATE DATABASE old_schema;"
-          sudo -u postgres psql -c "CREATE DATABASE new_schema;"
+          sudo -u postgres psql -c "CREATE DATABASE old_schema OWNER runner;"
+          sudo -u postgres psql -c "CREATE DATABASE new_schema OWNER runner;"
+
+          # Verify connection works
+          psql -U runner -h localhost -d old_schema -c "SELECT version();"
 
       - name: Install Go
         uses: actions/setup-go@v5

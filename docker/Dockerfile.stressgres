@@ -13,9 +13,6 @@
 
 FROM rust:1.90.0-slim-trixie
 
-ARG RELEASE_TAG=""
-LABEL com.paradedb.release.tag="${RELEASE_TAG}"
-
 # Install build and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \

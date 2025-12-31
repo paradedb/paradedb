@@ -1,9 +1,9 @@
 # workflows/test-stressgres-docker.yml
 #
-# Test (Docker)
+# Test Stressgres (Docker)
 # Test building and running the Stressgres Docker Image.
 
-name: Test (Docker)
+name: Test Stressgres (Docker)
 
 on:
   pull_request:
@@ -38,13 +38,11 @@ jobs:
         run: |
           docker build \
             -f docker/Dockerfile.stressgres \
-            --build-arg RELEASE_TAG=0.0.0 \
-            --build-arg COMMIT_SHA=${{ github.sha }} \
-            -t paradedb/stressgres:0.0.0 \
+            -t paradedb/stressgres:${{ github.sha }} \
             .
 
       - name: Run the Stressgres Docker Image
-        run: docker run -d --name stressgres paradedb/stressgres:0.0.0
+        run: docker run -d --name stressgres paradedb/stressgres:${{ github.sha }}
 
       - name: Check that the Stressgres Docker Image Runs Properly
         run: |
@@ -54,11 +52,7 @@ jobs:
           echo "Container status: $CONTAINER_STATUS"
 
           echo ""
-          echo "Sleeping 60 seconds to give Stressgres the time to compile..."
-          sleep 60
-
-          echo ""
-          echo "Printing logs for the Sterssgres Docker container..."
+          echo "Printing logs for the Stressgres Docker container..."
           docker logs $CONTAINER_ID
 
           # Fail the run if the container failed to start

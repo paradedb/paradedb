@@ -83,6 +83,12 @@ jobs:
           sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
           cat paradedb.yaml
 
+      - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
+        working-directory: docker/manifests/
+        run: |
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" stressgres.yaml
+          cat stressgres.yaml
+
       - name: Extract Config Metadata
         id: extract-config-metadata
         uses: docker/metadata-action@v5
@@ -108,9 +114,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
           tags: |
-            type=sha
-            type=raw,value=${{ github.event.inputs.release_version }}
-            type=raw,value=v${{ github.event.inputs.release_version }}
+            type=raw,value=${{ github.sha }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -119,9 +123,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          build-args: |
-            RELEASE_TAG=v${{ github.event.inputs.release_version }}
-            COMMIT_SHA=${{ github.sha }}
           platforms: linux/amd64
           file: docker/Dockerfile.stressgres
           push: true

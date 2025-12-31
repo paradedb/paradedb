@@ -1,17 +1,13 @@
 # workflows/publish-stressgres-docker.yml
 #
 # Publish Stressgres (Docker)
-# Publish Stressgres as a Docker image to Docker Hub.
+# Publish Stressgres as a Docker image to Docker Hub. The workflow build and publishes
+# the last commit from the triggering branch and tags the image with the SHA.
 
 name: Publish Stressgres (Docker)
 
 on:
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: "GitHub tag version for this Docker image (e.g. 0.3.0)"
-        required: true
-        type: string
 
 concurrency:
   group: publish-stressgres-docker-${{ github.head_ref || github.ref }}
@@ -21,8 +17,6 @@ jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout Git Repository
@@ -43,9 +37,7 @@ jobs:
         with:
           images: paradedb/stressgres
           tags: |
-            type=raw,value=${{ github.event.inputs.release_version }}
-            type=raw,value=v${{ github.event.inputs.release_version }}
-            type=raw,value=latest
+            type=raw,value=${{ github.sha }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3

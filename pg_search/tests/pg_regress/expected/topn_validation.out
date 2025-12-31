@@ -1,0 +1,99 @@
+psql:common/common_setup.sql:1: NOTICE:  extension "pg_search" already exists, skipping
+CREATE EXTENSION
+SET
+SET
+SET
+CALL
+CREATE INDEX
+Test 1: Validation OFF (no warning expected)
+SET
+ id |     description     
+----+---------------------
+  5 | Generic shoes
+  3 | Sleek running shoes
+  4 | White jogging shoes
+(3 rows)
+
+Test 2: Validation ON - warning expected (ORDER BY not a fast field)
+SET
+psql:sql/topn_validation.sql:40: WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: pathkeys are unusable. This may cause poor performance on large datasets. Consider: (1) ensuring ORDER BY columns are indexed with fast=true, (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), or (3) reducing ORDER BY columns to 3 or fewer.
+ id |     description     
+----+---------------------
+  5 | Generic shoes
+  3 | Sleek running shoes
+  4 | White jogging shoes
+(3 rows)
+
+Test 3: Valid TopN query (no warning expected)
+ id |  category   | rating 
+----+-------------+--------
+ 12 | Electronics |      5
+  1 | Electronics |      4
+  2 | Electronics |      4
+ 22 | Electronics |      4
+ 32 | Electronics |      3
+(5 rows)
+
+DROP INDEX
+CREATE INDEX
+Test 4: Too many ORDER BY columns (warning expected)
+psql:sql/topn_validation.sql:64: WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: pathkeys are unusable. This may cause poor performance on large datasets. Consider: (1) ensuring ORDER BY columns are indexed with fast=true, (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), or (3) reducing ORDER BY columns to 3 or fewer.
+ id 
+----
+ 12
+  1
+ 22
+  2
+ 32
+(5 rows)
+
+DROP INDEX
+CREATE INDEX
+Test 5a: ORDER BY with lower() - should use TopN (no warning)
+ id | category 
+----+----------
+(0 rows)
+
+Test 5b: ORDER BY without lower() - warning expected
+psql:sql/topn_validation.sql:84: WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: pathkeys are unusable. This may cause poor performance on large datasets. Consider: (1) ensuring ORDER BY columns are indexed with fast=true, (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), or (3) reducing ORDER BY columns to 3 or fewer.
+ id | category 
+----+----------
+(0 rows)
+
+Test 6: No LIMIT (no validation, no warning)
+ id 
+----
+(0 rows)
+
+Test 7: EXPLAIN with validation warning
+psql:sql/topn_validation.sql:98: WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: pathkeys are unusable. This may cause poor performance on large datasets. Consider: (1) ensuring ORDER BY columns are indexed with fast=true, (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), or (3) reducing ORDER BY columns to 3 or fewer.
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: category DESC
+         ->  Custom Scan (ParadeDB Scan) on test_products
+               Table: test_products
+               Index: products_lower_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id, category
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Electronics","is_datetime":false}}}}
+(10 rows)
+
+Test 8: Disable validation (no warning)
+SET
+ id 
+----
+(0 rows)
+
+DROP INDEX
+DROP TABLE
+RESET
+RESET
+RESET
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

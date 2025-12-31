@@ -17,11 +17,6 @@ on:
       - "!pg_search/README.md"
   workflow_dispatch:
 
-# Required to post a comment to the PR
-permissions:
-  pull-requests: write
-  issues: write
-
 concurrency:
   group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
   cancel-in-progress: true

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767196899455,
+  "lastUpdate": 1767196903976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33502,6 +33502,108 @@ window.BENCHMARK_DATA = {
             "value": 160.25390625,
             "unit": "median mem",
             "extra": "avg mem: 179.54784314475364, max mem: 220.72265625, count: 56382"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd1d175b804ce659d23d55f6a37347c93acc350f",
+          "message": "chore: Update Copyright to 2026 (#3832)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n^\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2025-12-31T10:14:38-05:00",
+          "tree_id": "54518b8094cedb6d0744eccedb15eb2aa94b4b39",
+          "url": "https://github.com/paradedb/paradedb/commit/cd1d175b804ce659d23d55f6a37347c93acc350f"
+        },
+        "date": 1767196900780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08045630344533938, max background_merging: 2.0, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8188506961104265, max cpu: 9.648242, count: 56366"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 22.790090934694675, max mem: 22.859375, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928409676284863, max cpu: 14.229248, count: 56366"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.52311115909856, max mem: 165.96875, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64661,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64563.9680835965, max block_count: 64661.0, count: 56366"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.47613809743462, max segment_count: 58.0, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6849533334138105, max cpu: 9.467456, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 115.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 105.78023320796224, max mem: 132.109375, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.718937093570757, max cpu: 9.648242, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.30787550895042, max mem: 165.7109375, count: 56366"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.9921673150673, max cpu: 33.667336, count: 56366"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 178.97253684346504, max mem: 220.64453125, count: 56366"
           }
         ]
       }

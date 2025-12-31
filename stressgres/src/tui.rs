@@ -302,7 +302,9 @@ fn panel_title(runner: &JobRunner, conninfo: &ConnInfo, runtime_stats: &RuntimeS
         conninfo.pid(),
         runner
             .job()
-            .atomic_connection { "(atomic)" } else { Default::default() }
+            .atomic_connection
+            .then_some("(atomic)")
+            .unwrap_or_default()
     )
 }
 

@@ -86,7 +86,7 @@ jobs:
       - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" stressgres.yaml
+          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" stressgres.yaml
           cat stressgres.yaml
 
       - name: Extract Config Metadata

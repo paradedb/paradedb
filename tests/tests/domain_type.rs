@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-// Copyright (c) 2023-2025 Retake, Inc.
+// Copyright (C) 2023-2026 Retake, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //

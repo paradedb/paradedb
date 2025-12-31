@@ -67,9 +67,9 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id;
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
-       1 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944 | 0.20342469
+       1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3862944 | 0.20342469
        2 |                     |                  |            1 | 0.13515766
-       3 | J.K. <b>Rowling</b> | {{5,12}}         |    2.3862944 |  0.2152619
+       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3862944 |  0.2152619
 (3 rows)
 
 -- For comparison, show a working case where predicates can be pushed down
@@ -84,7 +84,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
-         1 | J.K. <b>Rowling</b> | {{5,12}}         |    1.3862944
+         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3862944
 (1 row)
 
 -- Show another working case with books
@@ -96,11 +96,11 @@ SELECT
 FROM books b
 WHERE b.content @@@ 'test'
 ORDER BY b.id;
- book_id |                                      content_snippet                                      |     content_positions     | book_score 
----------+-------------------------------------------------------------------------------------------+---------------------------+------------
-       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{10,14},{15,19},{58,62}} | 0.20342469
-       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words           | {{8,12}}                  | 0.13515766
-       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{12,16},{17,21},{22,26}} |  0.2152619
+ book_id |                                      content_snippet                                      |        content_positions        | book_score 
+---------+-------------------------------------------------------------------------------------------+---------------------------------+------------
+       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"} | 0.20342469
+       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words           | {"{8,12}"}                      | 0.13515766
+       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{12,16}","{17,21}","{22,26}"} |  0.2152619
 (3 rows)
 
 -- Commented out for now because it has an oid in the output, which changes on every run
@@ -130,11 +130,11 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
- book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |     content_positions     | author_score | book_score 
----------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{5,12}}         | {{10,14},{15,19},{58,62}} |    2.3862944 | 0.20342469
-       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {{8,12}}                  |            1 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{5,12}}         | {{12,16},{17,21},{22,26}} |    2.3862944 |  0.2152619
+ book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |        content_positions        | author_score | book_score 
+---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------------+--------------+------------
+       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{5,12}"}       | {"{10,14}","{15,19}","{58,62}"} |    2.3862944 | 0.20342469
+       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {"{8,12}"}                      |            1 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{5,12}"}       | {"{12,16}","{17,21}","{22,26}"} |    2.3862944 |  0.2152619
 (3 rows)
 
 -- Additional test: Show that score functions work (they use placeholder mechanism)

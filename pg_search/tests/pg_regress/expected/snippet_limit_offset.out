@@ -16,41 +16,41 @@ CREATE INDEX ON snippet_test USING bm25 (
     key_field = 'id'
 );
 SELECT pdb.snippet(content), pdb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
-                                          snippet                                          |     snippet_positions     
--------------------------------------------------------------------------------------------+---------------------------
- This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{10,14},{15,19},{58,62}}
- Another <b>test</b> of the snippet snippet function with repeated snippet words           | {{8,12}}
- Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{12,16},{17,21},{22,26}}
- <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {{0,4},{34,38}}
+                                          snippet                                          |        snippet_positions        
+-------------------------------------------------------------------------------------------+---------------------------------
+ This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"}
+ Another <b>test</b> of the snippet snippet function with repeated snippet words           | {"{8,12}"}
+ Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{12,16}","{17,21}","{22,26}"}
+ <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {"{0,4}","{34,38}"}
 (4 rows)
 
 SELECT pdb.snippet(content, "limit" => 1), pdb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
 WARNING:  using `limit` or `offset` with `pdb.snippet` is deprecated
                                      snippet                                     | snippet_positions 
 ---------------------------------------------------------------------------------+-------------------
- This is a <b>test</b> test of the snippet function with multiple test words     | {{10,14}}
- Another <b>test</b> of the snippet snippet function with repeated snippet words | {{8,12}}
- Yet another <b>test</b> test test of the function function function             | {{12,16}}
- <b>test</b> Lorem ipsum dolor sit amet...test                                   | {{0,4}}
+ This is a <b>test</b> test of the snippet function with multiple test words     | {"{10,14}"}
+ Another <b>test</b> of the snippet snippet function with repeated snippet words | {"{8,12}"}
+ Yet another <b>test</b> test test of the function function function             | {"{12,16}"}
+ <b>test</b> Lorem ipsum dolor sit amet...test                                   | {"{0,4}"}
 (4 rows)
 
 SELECT pdb.snippet(content, "limit" => 1, "offset" => 1), pdb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
 WARNING:  using `limit` or `offset` with `pdb.snippet` is deprecated
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
- This is a test <b>test</b> of the snippet function with multiple test words | {{15,19}}
+ This is a test <b>test</b> of the snippet function with multiple test words | {"{15,19}"}
                                                                              | 
- Yet another test <b>test</b> test of the function function function         | {{17,21}}
- test Lorem ipsum dolor sit amet...<b>test</b>                               | {{34,38}}
+ Yet another test <b>test</b> test of the function function function         | {"{17,21}"}
+ test Lorem ipsum dolor sit amet...<b>test</b>                               | {"{34,38}"}
 (4 rows)
 
 SELECT pdb.snippet(content, "limit" => 5, "offset" => 2), pdb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
 WARNING:  using `limit` or `offset` with `pdb.snippet` is deprecated
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
- This is a test test of the snippet function with multiple <b>test</b> words | {{58,62}}
+ This is a test test of the snippet function with multiple <b>test</b> words | {"{58,62}"}
                                                                              | 
- Yet another test test <b>test</b> of the function function function         | {{22,26}}
+ Yet another test test <b>test</b> of the function function function         | {"{22,26}"}
                                                                              | 
 (4 rows)
 
@@ -78,12 +78,12 @@ WARNING:  using `limit` or `offset` with `pdb.snippet` is deprecated
 (4 rows)
 
 SELECT pdb.snippet(content, "limit" => null), pdb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
-                                          snippet                                          |     snippet_positions     
--------------------------------------------------------------------------------------------+---------------------------
- This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {{10,14},{15,19},{58,62}}
- Another <b>test</b> of the snippet snippet function with repeated snippet words           | {{8,12}}
- Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {{12,16},{17,21},{22,26}}
- <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {{0,4},{34,38}}
+                                          snippet                                          |        snippet_positions        
+-------------------------------------------------------------------------------------------+---------------------------------
+ This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"}
+ Another <b>test</b> of the snippet snippet function with repeated snippet words           | {"{8,12}"}
+ Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{12,16}","{17,21}","{22,26}"}
+ <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {"{0,4}","{34,38}"}
 (4 rows)
 
 -- With max num chars

@@ -22,7 +22,6 @@ use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
-use crate::postgres::customscan::pdbscan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::qual_inspect::Qual;
@@ -300,7 +299,7 @@ impl PdbScanState {
         &self,
         ctid: u64,
         snippet_type: &SnippetType,
-    ) -> Option<IntArray2D> {
+    ) -> Option<Vec<Vec<i32>>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippet = generator.snippet(&text);
@@ -309,12 +308,12 @@ impl PdbScanState {
         if highlighted.is_empty() {
             None
         } else {
-            Some(IntArray2D(
+            Some(
                 highlighted
                     .iter()
                     .map(|span| vec![span.start as i32, span.end as i32])
                     .collect(),
-            ))
+            )
         }
     }
 

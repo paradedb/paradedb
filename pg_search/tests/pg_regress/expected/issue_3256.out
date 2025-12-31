@@ -16,9 +16,9 @@ SELECT
 FROM mock_items WHERE description @@@ 'shoes';
    snippet    |          snippet           | snippet_positions 
 --------------+----------------------------+-------------------
- <b>shoes</b> | Sleek running <i>shoes</i> | {{14,19}}
- <b>shoes</b> | White jogging <i>shoes</i> | {{14,19}}
- <b>shoes</b> | Generic <i>shoes</i>       | {{8,13}}
+ <b>shoes</b> | Sleek running <i>shoes</i> | {"{14,19}"}
+ <b>shoes</b> | White jogging <i>shoes</i> | {"{14,19}"}
+ <b>shoes</b> | Generic <i>shoes</i>       | {"{8,13}"}
 (3 rows)
 
 DROP TABLE mock_items;

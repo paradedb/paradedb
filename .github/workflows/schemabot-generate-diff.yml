@@ -156,8 +156,8 @@ jobs:
           # Run pg-schema-diff to generate migration plan
           # No error handling - let it fail the job if there are issues
           pg-schema-diff plan \
-            --dsn "postgresql://runner@localhost/old_schema?sslmode=disable" \
-            --new-dsn "postgresql://runner@localhost/new_schema?sslmode=disable" \
+            --from-dsn "postgresql://runner@localhost/old_schema?sslmode=disable" \
+            --to-dsn "postgresql://runner@localhost/new_schema?sslmode=disable" \
             > ~/diff.sql
 
           echo

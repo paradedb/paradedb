@@ -89,17 +89,21 @@ jobs:
           sudo -u postgres psql -c "CREATE DATABASE old_schema;"
           sudo -u postgres psql -c "CREATE DATABASE new_schema;"
 
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
       - name: Install Stripe's pg-schema-diff
         run: |
-          # Download and install Stripe's Go-based pg-schema-diff
-          # Using specific version to ensure stability
-          VERSION="v0.9.0"
-          wget -q "https://github.com/stripe/pg-schema-diff/releases/download/${VERSION}/pg-schema-diff_linux_amd64.tar.gz"
-          tar -xzf pg-schema-diff_linux_amd64.tar.gz
-          sudo mv pg-schema-diff /usr/local/bin/
-          sudo chmod +x /usr/local/bin/pg-schema-diff
-          echo "Installed pg-schema-diff:"
-          pg-schema-diff --version
+          # Install using Go toolchain (official method)
+          go install github.com/stripe/pg-schema-diff/cmd/pg-schema-diff@latest
+
+          # Add Go bin to PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+          # Verify installation
+          $HOME/go/bin/pg-schema-diff --version
 
       - name: Install cargo-pgrx
         run: |

@@ -11,6 +11,7 @@ use cursive_core::views::{LinearLayout, NamedView, Panel, ResizedView, TextView}
 use cursive_core::Cursive;
 use cursive_multiplex::Mux;
 use cursive_table_view::TableView;
+use human_bytes::human_bytes;
 use humantime::format_duration;
 use postgres::Row;
 use std::fmt::Display;

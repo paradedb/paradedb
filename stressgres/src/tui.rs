@@ -301,11 +301,9 @@ fn panel_title(runner: &JobRunner, conninfo: &ConnInfo, runtime_stats: &RuntimeS
         runtime_stats.cpu_usage,
         human_bytes(runtime_stats.mem_usage as f64),
         conninfo.pid(),
-        runner
+        if runner
             .job()
-            .atomic_connection
-            .then_some("(atomic)")
-            .unwrap_or_default()
+            .atomic_connection { "(atomic)" } else { Default::default() }
     )
 }
 

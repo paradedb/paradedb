@@ -60,7 +60,7 @@ runs:
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
-          .github/stressgres/${{ inputs.test_file }} \
+          stressgres/suites/${{ inputs.test_file }} \
           --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
           --pgversion pg18 \
           --runtime ${{ inputs.duration }}

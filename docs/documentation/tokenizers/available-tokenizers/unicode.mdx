@@ -33,3 +33,18 @@ SELECT 'Tokenize me!'::pdb.unicode_words::text[];
  {tokenize,me}
 (1 row)
 ```
+
+## Remove Emojis
+
+By default, emojis in the source text are preserved. To remove emojis, set `remove_emojis` to `true`.
+
+```sql
+SELECT 'Tokenize me! 😊'::pdb.unicode_words('remove_emojis=true')::text[];
+```
+
+```ini Expected Response
+     text
+---------------
+ {tokenize,me}
+(1 row)
+```

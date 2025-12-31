@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -34,8 +34,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, GenericTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod, UncheckedTypmod,
-    UnicodeWordsTypmod,
+    AliasTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod,
+    UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -97,7 +97,10 @@ pub fn search_field_config_from_type(
         ),
         #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
-        "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+        "jieba" => SearchTokenizer::Jieba {
+            chinese_convert: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "ngram" => SearchTokenizer::Ngram {
             min_gram: 0,
             max_gram: 0,
@@ -201,12 +204,23 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLindera(filters)
         | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters)
-        | SearchTokenizer::Jieba(filters) => {
+        | SearchTokenizer::KoreanLindera(filters) => {
+            // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::Jieba {
+            chinese_convert,
+            filters,
+        } => {
+            let jieba_typmod = JiebaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *filters = jieba_typmod.filters;
+            *chinese_convert = jieba_typmod.chinese_convert;
         }
 
         #[cfg(feature = "icu")]
@@ -218,6 +232,10 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         }
 
         SearchTokenizer::UnicodeWords {
+            remove_emojis,
+            filters,
+        }
+        | SearchTokenizer::UnicodeWordsDeprecated {
             remove_emojis,
             filters,
         } => {
@@ -290,7 +308,7 @@ impl<T: DatumWrapper> CowString for T {
             let varlena = self.as_datum().cast_mut_ptr::<pg_sys::varlena>();
             let detoasted = pg_sys::pg_detoast_datum(varlena);
 
-            let s = convert_varlena_to_str_memoized(varlena);
+            let s = convert_varlena_to_str_memoized(detoasted);
             if std::ptr::eq(detoasted, varlena) {
                 // wasn't toasted, can do zero-copy
                 Cow::Borrowed(s)
@@ -306,6 +324,7 @@ impl<T: DatumWrapper> CowString for T {
 
 struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
     pub datum: pg_sys::Datum,
+    pub typoid: pg_sys::Oid,
     __marker: PhantomData<(Type, SqlName)>,
 }
 
@@ -335,13 +354,14 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> FromDatum for GenericTypeWrappe
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,
-        _typoid: pg_sys::Oid,
+        typoid: pg_sys::Oid,
     ) -> Option<Self> {
         if is_null {
             None
         } else {
             Some(Self {
                 datum,
+                typoid,
                 __marker: PhantomData,
             })
         }
@@ -369,9 +389,10 @@ unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> BoxRet
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> GenericTypeWrapper<Type, SqlName> {
-    fn new(datum: pg_sys::Datum) -> Self {
+    fn new(datum: pg_sys::Datum, typoid: pg_sys::Oid) -> Self {
         Self {
             datum,
+            typoid,
             __marker: PhantomData,
         }
     }

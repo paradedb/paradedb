@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -107,6 +107,7 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("icu".into(),),
                 ("jieba".into(),),
                 ("lindera".into(),),
+                ("unicode_words_deprecated".into(),),
                 ("unicode_words".into(),)
             ]
         );
@@ -129,6 +130,7 @@ fn list_tokenizers(mut conn: PgConnection) {
                 ("korean_lindera".into(),),
                 ("jieba".into(),),
                 ("lindera".into(),),
+                ("unicode_words_deprecated".into(),),
                 ("unicode_words".into(),)
             ]
         );

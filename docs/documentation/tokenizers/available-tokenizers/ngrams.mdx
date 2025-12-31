@@ -29,3 +29,18 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];
  {tok,oke,ken,eni,niz,ize,"ze ","e m"," me",me!}
 (1 row)
 ```
+
+## Ngram Prefix Only
+
+The generate ngram tokens for only the first `n` characters in the text, set `prefix_only` to `true`.
+
+```sql
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
+```
+
+```ini Expected Response
+ text
+-------
+ {tok}
+(1 row)
+```

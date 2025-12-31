@@ -73,6 +73,8 @@ jobs:
             ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
           file: docker/Dockerfile
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
@@ -104,6 +106,8 @@ jobs:
           context: .
           platforms: linux/amd64
           file: docker/Dockerfile.config
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
           labels: ${{ steps.extract-config-metadata.outputs.labels }}
@@ -125,6 +129,8 @@ jobs:
           context: .
           platforms: linux/amd64
           file: docker/Dockerfile.stressgres
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}
           labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}

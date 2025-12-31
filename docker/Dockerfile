@@ -43,16 +43,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Copy project because we need to extract the pgrx version
-COPY . /tmp/
-
-# Install the pgrx version of pg_search
+# Copy only Cargo.toml to extract pgrx version without invalidating cache on source changes
+COPY Cargo.toml /tmp/
 WORKDIR /tmp/
-RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \
+
+# Extract version from Cargo.toml (handles 'pgrx = "=0.16.1"')
+# This replaces `cargo tree` to avoid needing the full source tree
+RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
-    rm -rf /tmp/Cargo.toml
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_search
@@ -69,8 +69,6 @@ ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
-COPY . /tmp/
-
 # Download the ICU 76.1 library source. The version we use must be compatible with
 # https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
 WORKDIR /tmp
@@ -84,6 +82,9 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     make "-j$(nproc)" && \
     make install && \
     ldconfig && ldconfig # Yes, running it twice
+
+# Copy the full project. This layer will invalidate if any project file changes.
+COPY . /tmp/
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
@@ -160,7 +161,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
-    org.opencontainers.image.source="https://github.com/paradedb/paradedb"
+    org.opencontainers.image.source="https://github.com/paradedb/paradedb-enterprise"
 
 ARG PG_VERSION_MAJOR
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
@@ -181,10 +182,6 @@ COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSIO
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-
-# Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
@@ -246,6 +243,10 @@ RUN ./runConfigureICU Linux --prefix=/usr/local && \
     rm -rf /tmp/icu && \
     ldconfig && ldconfig # Yes, running it twice
 
+# Copy the ParadeDB extension from its builder stage
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
@@ -264,6 +265,14 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get purge -y build-essential wget make gcc && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install gdb to allow debugging the ParadeDB extension
+# TODO: Remove this when we no longer need gdb in production images
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y gdb --no-install-recommends && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

@@ -92,11 +92,13 @@ jobs:
       - name: Install Stripe's pg-schema-diff
         run: |
           # Download and install Stripe's Go-based pg-schema-diff
-          LATEST_VERSION=$(curl -s https://api.github.com/repos/stripe/pg-schema-diff/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
-          wget -q "https://github.com/stripe/pg-schema-diff/releases/download/${LATEST_VERSION}/pg-schema-diff_${LATEST_VERSION}_linux_amd64.tar.gz"
-          tar -xzf "pg-schema-diff_${LATEST_VERSION}_linux_amd64.tar.gz"
+          # Using specific version to ensure stability
+          VERSION="v0.9.0"
+          wget -q "https://github.com/stripe/pg-schema-diff/releases/download/${VERSION}/pg-schema-diff_linux_amd64.tar.gz"
+          tar -xzf pg-schema-diff_linux_amd64.tar.gz
           sudo mv pg-schema-diff /usr/local/bin/
           sudo chmod +x /usr/local/bin/pg-schema-diff
+          echo "Installed pg-schema-diff:"
           pg-schema-diff --version
 
       - name: Install cargo-pgrx

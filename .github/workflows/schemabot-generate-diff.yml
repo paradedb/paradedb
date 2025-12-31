@@ -103,7 +103,7 @@ jobs:
           echo "$HOME/go/bin" >> $GITHUB_PATH
 
           # Verify installation
-          $HOME/go/bin/pg-schema-diff --version
+          $HOME/go/bin/pg-schema-diff version
 
       - name: Install cargo-pgrx
         run: |

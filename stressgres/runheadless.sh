@@ -20,7 +20,7 @@ fi
 LOGFILE=$(basename -- "${SUITE}")
 LOGFILE="${LOGFILE%.*}.log"
 
-if [ "$4" != "" ]; then
+if [ "${4:-""}" != "" ]; then
   LOGFILE="$4"
 fi
 

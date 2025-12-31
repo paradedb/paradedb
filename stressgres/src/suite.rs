@@ -114,18 +114,13 @@ impl PostgresqlConf {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub enum PgVersion {
     V15,
     V16,
+    #[default]
     V17,
     V18,
-}
-
-impl Default for PgVersion {
-    fn default() -> Self {
-        PgVersion::V17
-    }
 }
 
 impl fmt::Display for PgVersion {

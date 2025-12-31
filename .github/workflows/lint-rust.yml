@@ -36,7 +36,7 @@ jobs:
           components: rustfmt, clippy
           cache: false
 
-      # Required by Stresgres
+      # Required by Stressgres
       - name: Install fontconfig
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
 

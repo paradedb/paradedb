@@ -40,7 +40,7 @@ pub enum Command {
     Graph(GraphArgs),
 
     /// Parse a log file and generate an aggregated CSV report of contained data
-    CSV(CsvArgs),
+    Csv(CsvArgs),
 
     /// Given the location of a `pg_config` automatically spin up an transient Postgres cluster (or two, if logical replication is enabled)
     Auto(AutoArgs),

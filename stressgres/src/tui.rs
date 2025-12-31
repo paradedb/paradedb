@@ -272,10 +272,8 @@ fn refresh_runner_view(siv: &mut Cursive, sr: &Arc<SuiteRunner>, runner: &Arc<Jo
                         update_error_view(siv, &runner, &conninfo, Arc::new(anyhow::anyhow!(e)))
                     }
                 }
-            } else {
-                if let Err(e) = runtime_stats.results {
-                    update_error_view(siv, &runner, &conninfo, Arc::new(anyhow::anyhow!(e)));
-                }
+            } else if let Err(e) = runtime_stats.results {
+                update_error_view(siv, &runner, &conninfo, Arc::new(anyhow::anyhow!(e)));
             }
         }
     }
@@ -305,9 +303,7 @@ fn panel_title(runner: &JobRunner, conninfo: &ConnInfo, runtime_stats: &RuntimeS
         conninfo.pid(),
         runner
             .job()
-            .atomic_connection
-            .then_some("(atomic)")
-            .unwrap_or_default()
+            .atomic_connection { "(atomic)" } else { Default::default() }
     )
 }
 

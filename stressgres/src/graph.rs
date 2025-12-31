@@ -74,7 +74,6 @@ pub fn run(args: &GraphArgs) -> Result<()> {
 
 /// Parse the entire log file line-by-line, ignoring lines with ERROR=.
 /// Returns a vector of LogRecord (time-series data).
-
 const BGCOLOR: &RGBAColor = &RGBAColor(0x00, 0x2E, 0x47, 1.0);
 const PALETTE: &[RGBColor] = &[
     LIME, LIGHTBLUE, CYAN, PURPLE, ORANGE, PINK_300, AMBER, BLUEGREY, BROWN, INDIGO_800, TEAL_A700,

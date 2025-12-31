@@ -1,6 +1,6 @@
 # Stressgres
 
-Stressgres is a stress-testing tool for ParadeDB and standard PostgreSQL, featuring both a text UI and an automated headless mode.
+Stressgres is a stress-testing tool for ParadeDB and standard PostgreSQL, featuring both a text UI and an automated headless mode. We used it for local development and in CI to replicate and test against representative customer workloads, called suites.
 
 ## Quickstart
 
@@ -26,7 +26,7 @@ To run Stressgres from within Docker, use:
 docker run --rm paradedb/stressgres:latest cargo run -- headless suites/vanilla-postgres.toml
 ```
 
-The source, including all suites, are loaded in the Docker image. The image prebuilds Stressgres and can run in air-gapped environment, like within Antithesis.
+The source, including all suites, are loaded in the Docker image. The image prebuilds Stressgres and can run in air-gapped environments like Antithesis.
 
 For an interactive shell:
 
@@ -35,20 +35,9 @@ docker run -d --name stressgres paradedb/stressgres:latest
 docker exec -it stressgres bash
 ```
 
-## Releases
+### Docker Hub
 
-To create a release:
-
-- Update the version number in `Cargo.toml` and run `cargo build` to refresh the lockfile.
-
-- Create and push a new Git tag that matches the new `Cargo.toml` version:
-
-```bash
-git tag v0.3.0
-git push origin v0.3.0
-```
-
-- From the Actions tab, trigger the build of a new Stressgres Docker image to Docker Hub, and optionally to Antithesis, by selecting the desired workflow and running a manual `workflow_dispatch` with the version of the tag, without the leading `v`, that you just created (e.g. `0.3.0`) as input.
+To publish the Stressgres image to Docker Hub, trigger a workflow dispatch of the `Publish Stressgres (Docker) from within the Actions tab. This is useful to get updated Stressgres binaries to our BYOC end-to-end testing framework.
 
 ## Antithesis
 
@@ -58,9 +47,9 @@ To add a new suite:
 
 - Create the corresponding singleton driver
 
-- Trigger a release of the Docker image to the Antithesis registry
+- Trigger a release of the Docker image to the Antithesis registry via the `Test pg_search (Antithesis)` workflow. This workflow builds and publishes the latest commit ParadeDB and Stressgres Docker images to Antithesis, and triggers a test run.
 
-The new suite will be executed in the next Antithesis run.
+If it behaves as desired, merged your new singleton driver to `main`. The new suite will then be added to the nightly Antithesis runs.
 
 ### Connection Strings
 

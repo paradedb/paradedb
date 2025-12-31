@@ -417,7 +417,7 @@ impl SuiteRunner {
             let (runner_arc, handle) = self.make_runner_thread(jrunner, self.paused.clone());
             self.runners.push(runner_arc.clone());
             self.handles.lock().push(ThreadHandle {
-                handle: handle,
+                handle,
                 runner: runner_arc,
             });
         }

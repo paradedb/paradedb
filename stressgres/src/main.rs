@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
             graph::run(&graph_args)?;
         }
 
-        Command::CSV(csv_args) => {
+        Command::Csv(csv_args) => {
             csv::run(&csv_args)?;
         }
 

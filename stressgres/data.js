@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767195994414,
+  "lastUpdate": 1767196899455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25896,6 +25896,54 @@ window.BENCHMARK_DATA = {
             "value": 5.625897969243289,
             "unit": "median tps",
             "extra": "avg tps: 5.61482053311942, max tps: 8.84010049214077, count: 56382"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd1d175b804ce659d23d55f6a37347c93acc350f",
+          "message": "chore: Update Copyright to 2026 (#3832)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n^\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2025-12-31T10:14:38-05:00",
+          "tree_id": "54518b8094cedb6d0744eccedb15eb2aa94b4b39",
+          "url": "https://github.com/paradedb/paradedb/commit/cd1d175b804ce659d23d55f6a37347c93acc350f"
+        },
+        "date": 1767196896406,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1144.453037739784,
+            "unit": "median tps",
+            "extra": "avg tps: 1143.766681217839, max tps: 1195.9168031745917, count: 56366"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1255.8041269793928,
+            "unit": "median tps",
+            "extra": "avg tps: 1253.049802957755, max tps: 1272.8009610232202, count: 56366"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1907.7718418957422,
+            "unit": "median tps",
+            "extra": "avg tps: 1883.0711459855202, max tps: 2061.475054876372, count: 56366"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.453356283789562,
+            "unit": "median tps",
+            "extra": "avg tps: 5.460606037593322, max tps: 7.189212155807481, count: 56366"
           }
         ]
       }

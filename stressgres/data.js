@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767274687432,
+  "lastUpdate": 1767274691977,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61570,6 +61570,186 @@ window.BENCHMARK_DATA = {
             "value": 31.01171875,
             "unit": "median mem",
             "extra": "avg mem: 30.363657500093115, max mem: 31.421875, count: 53696"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0",
+          "message": "test: added Citus compatibility tests (#3817)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nAdds integration tests to verify ParadeDB works correctly with Citus for\ndistributed search workloads.\n\n## Why\n\nWe needed to verify that:\n1. **Sharded BM25 indexes work** - Users can create BM25 indexes on\ndistributed Citus tables and search across shards\n2. **Catalog queries don't break** - Common operations like `\\dx` and\n`\\di` work when both extensions are installed\n3. **JOIN queries work** - Search queries with JOINs across distributed\ntables execute correctly\n\nThis ensures we properly support users running Citus columnar tables for\nanalytics alongside regular distributed tables with BM25 indexes for\nsearch.\n\n## How\n\nAdded two new Rust integration tests in\n`tests/tests/citus_compatibility.rs`:\n\n1. **`citus_sharded_bm25_indexes`**\n   - Creates a distributed table, then adds a BM25 index\n   - Verifies search works across sharded BM25 indexes\n   - Tests JOIN queries with search operators on distributed tables\n- Validates EXPLAIN plans show both ParadeDB Custom Scan and Citus\ndistributed execution\n\n2. **`citus_catalog_queries_compatibility`**\n- Tests catalog queries (`pg_extension`, `pg_class`, `pg_indexes`) work\ncorrectly\n- Verifies BM25 search works on regular distributed tables (not\ncolumnar, which has known limitations)\n   - Ensures metadata operations don't break with both extensions loaded\n\nAlso increased `max_connections` to 300 in CI for Citus tests to handle\ndistributed query coordination.\n\n## Tests\n\nThe tests themselves are the addition. All tests:\n- Gracefully skip if Citus is not installed\n- Verify EXPLAIN plans contain both \"ParadeDB Scan\" and \"Citus\" nodes\n\nRun locally with:\n```bash\ncargo test --test citus_compatibility --features=pg16 -- --nocapture\n```",
+          "timestamp": "2026-01-01T07:22:05-05:00",
+          "tree_id": "4ac0f3469c39e28dc6bc308938887d9d71f771bd",
+          "url": "https://github.com/paradedb/paradedb/commit/3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0"
+        },
+        "date": 1767274688673,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.956668656030972, max cpu: 9.275363, count: 53716"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 47.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.54873795168106, max mem: 53.4609375, count: 53716"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.421827660455983, max cpu: 4.5845275, count: 53716"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.160648130910715, max mem: 30.1953125, count: 53716"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.561329499451325, max cpu: 18.408438, count: 53716"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 50.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.900840691670076, max mem: 56.046875, count: 53716"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.947476552971435, max cpu: 9.266409, count: 53716"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 47.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.10280071056575, max mem: 53.01171875, count: 53716"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.625215378277657, max cpu: 9.213051, count: 53716"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 30.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.04387753706996, max mem: 36.109375, count: 53716"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1111,
+            "unit": "median pages",
+            "extra": "avg pages: 1112.699642564599, max pages: 1844.0, count: 53716"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6796875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.692965957535929, max relation_size:MB: 14.40625, count: 53716"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 6,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.140628490580088, max segment_count: 15.0, count: 53716"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.608916117604396, max cpu: 4.6021094, count: 53716"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.836696192126183, max mem: 27.9140625, count: 53716"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.486531865460864, max cpu: 4.6021094, count: 53716"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 27.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.857433655707798, max mem: 27.87109375, count: 53716"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.672968250871675, max cpu: 13.88621, count: 53716"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.32793621779358, max mem: 51.1953125, count: 53716"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000021101846282343133, max replication_lag:MB: 0.10605621337890625, count: 53716"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.071254039023996, max cpu: 9.275363, count: 107432"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.86751023321729, max mem: 51.86328125, count: 107432"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.498722077298988, max cpu: 4.619827, count: 53716"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.802269037042034, max mem: 30.8203125, count: 53716"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.440472644552363, max cpu: 4.5845275, count: 53716"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.85354122258731, max mem: 30.6015625, count: 53716"
           }
         ]
       }

@@ -22,6 +22,7 @@ use std::ffi::CStr;
 pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
     unsafe {
         let namespace_oid = pg_sys::get_namespace_oid(namespace.as_ptr(), true);
+        pgrx::debug1!("namespace_oid: {:?}", namespace_oid);
         (namespace_oid != pg_sys::InvalidOid).then_some(namespace_oid)
     }
 }

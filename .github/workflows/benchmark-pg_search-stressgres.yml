@@ -28,12 +28,6 @@ on:
         required: false
         default: ""
 
-# Single global lock for anything that might push to paradedb/benchmark-data
-# we *want* all runs to complete, so don't cancel older ones
-concurrency:
-  group: benchmark-pg_search-stressgres-benchmark-data
-  cancel-in-progress: false
-
 permissions:
   actions: write
   contents: write

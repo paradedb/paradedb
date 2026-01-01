@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767198635634,
+  "lastUpdate": 1767271141865,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5336,6 +5336,72 @@ window.BENCHMARK_DATA = {
             "value": 115.41786159178017,
             "unit": "median tps",
             "extra": "avg tps: 133.27094986441236, max tps: 764.3658744269168, count: 55285"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0",
+          "message": "test: added Citus compatibility tests (#3817)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nAdds integration tests to verify ParadeDB works correctly with Citus for\ndistributed search workloads.\n\n## Why\n\nWe needed to verify that:\n1. **Sharded BM25 indexes work** - Users can create BM25 indexes on\ndistributed Citus tables and search across shards\n2. **Catalog queries don't break** - Common operations like `\\dx` and\n`\\di` work when both extensions are installed\n3. **JOIN queries work** - Search queries with JOINs across distributed\ntables execute correctly\n\nThis ensures we properly support users running Citus columnar tables for\nanalytics alongside regular distributed tables with BM25 indexes for\nsearch.\n\n## How\n\nAdded two new Rust integration tests in\n`tests/tests/citus_compatibility.rs`:\n\n1. **`citus_sharded_bm25_indexes`**\n   - Creates a distributed table, then adds a BM25 index\n   - Verifies search works across sharded BM25 indexes\n   - Tests JOIN queries with search operators on distributed tables\n- Validates EXPLAIN plans show both ParadeDB Custom Scan and Citus\ndistributed execution\n\n2. **`citus_catalog_queries_compatibility`**\n- Tests catalog queries (`pg_extension`, `pg_class`, `pg_indexes`) work\ncorrectly\n- Verifies BM25 search works on regular distributed tables (not\ncolumnar, which has known limitations)\n   - Ensures metadata operations don't break with both extensions loaded\n\nAlso increased `max_connections` to 300 in CI for Citus tests to handle\ndistributed query coordination.\n\n## Tests\n\nThe tests themselves are the addition. All tests:\n- Gracefully skip if Citus is not installed\n- Verify EXPLAIN plans contain both \"ParadeDB Scan\" and \"Citus\" nodes\n\nRun locally with:\n```bash\ncargo test --test citus_compatibility --features=pg16 -- --nocapture\n```",
+          "timestamp": "2026-01-01T07:22:05-05:00",
+          "tree_id": "4ac0f3469c39e28dc6bc308938887d9d71f771bd",
+          "url": "https://github.com/paradedb/paradedb/commit/3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0"
+        },
+        "date": 1767271138566,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 582.0421015086531,
+            "unit": "median tps",
+            "extra": "avg tps: 582.0578895949566, max tps: 682.7514219783978, count: 55245"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3132.5778803799844,
+            "unit": "median tps",
+            "extra": "avg tps: 3109.7153823260323, max tps: 3161.0772218742336, count: 55245"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 571.2454940700187,
+            "unit": "median tps",
+            "extra": "avg tps: 571.8184757084297, max tps: 691.4677717243616, count: 55245"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 478.9949917789338,
+            "unit": "median tps",
+            "extra": "avg tps: 479.195056549167, max tps: 529.5104459518558, count: 55245"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3332.817964968467,
+            "unit": "median tps",
+            "extra": "avg tps: 3299.3701790819205, max tps: 3367.941568583775, count: 110490"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2208.2765796771832,
+            "unit": "median tps",
+            "extra": "avg tps: 2197.2895663642335, max tps: 2219.7779310873357, count: 55245"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 172.72626695345903,
+            "unit": "median tps",
+            "extra": "avg tps: 226.46916380696615, max tps: 552.3559950959072, count: 55245"
           }
         ]
       }

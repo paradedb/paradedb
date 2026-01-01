@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767271146451,
+  "lastUpdate": 1767272035800,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17962,6 +17962,42 @@ window.BENCHMARK_DATA = {
             "value": 5.41355156781212,
             "unit": "median tps",
             "extra": "avg tps: 4.867433229414001, max tps: 6.067236386188018, count: 57752"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0",
+          "message": "test: added Citus compatibility tests (#3817)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nAdds integration tests to verify ParadeDB works correctly with Citus for\ndistributed search workloads.\n\n## Why\n\nWe needed to verify that:\n1. **Sharded BM25 indexes work** - Users can create BM25 indexes on\ndistributed Citus tables and search across shards\n2. **Catalog queries don't break** - Common operations like `\\dx` and\n`\\di` work when both extensions are installed\n3. **JOIN queries work** - Search queries with JOINs across distributed\ntables execute correctly\n\nThis ensures we properly support users running Citus columnar tables for\nanalytics alongside regular distributed tables with BM25 indexes for\nsearch.\n\n## How\n\nAdded two new Rust integration tests in\n`tests/tests/citus_compatibility.rs`:\n\n1. **`citus_sharded_bm25_indexes`**\n   - Creates a distributed table, then adds a BM25 index\n   - Verifies search works across sharded BM25 indexes\n   - Tests JOIN queries with search operators on distributed tables\n- Validates EXPLAIN plans show both ParadeDB Custom Scan and Citus\ndistributed execution\n\n2. **`citus_catalog_queries_compatibility`**\n- Tests catalog queries (`pg_extension`, `pg_class`, `pg_indexes`) work\ncorrectly\n- Verifies BM25 search works on regular distributed tables (not\ncolumnar, which has known limitations)\n   - Ensures metadata operations don't break with both extensions loaded\n\nAlso increased `max_connections` to 300 in CI for Citus tests to handle\ndistributed query coordination.\n\n## Tests\n\nThe tests themselves are the addition. All tests:\n- Gracefully skip if Citus is not installed\n- Verify EXPLAIN plans contain both \"ParadeDB Scan\" and \"Citus\" nodes\n\nRun locally with:\n```bash\ncargo test --test citus_compatibility --features=pg16 -- --nocapture\n```",
+          "timestamp": "2026-01-01T07:22:05-05:00",
+          "tree_id": "4ac0f3469c39e28dc6bc308938887d9d71f771bd",
+          "url": "https://github.com/paradedb/paradedb/commit/3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0"
+        },
+        "date": 1767272032488,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.468375381855994,
+            "unit": "median tps",
+            "extra": "avg tps: 6.415544150814344, max tps: 9.717952020373081, count: 57356"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.504228420233136,
+            "unit": "median tps",
+            "extra": "avg tps: 4.928030411538752, max tps: 6.163119266211721, count: 57356"
           }
         ]
       }

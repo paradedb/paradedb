@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -Eeuo pipefail
 
 # This script is used by the kernel to handle core dumps.

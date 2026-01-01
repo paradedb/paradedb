@@ -125,6 +125,44 @@ jobs:
             exit 1
           fi
 
+      - name: Test Core Dump Handler Script writes & chowns
+        run: |
+          docker run --rm --entrypoint /bin/bash paradedb/paradedb:latest -lc '
+            set -euo pipefail
+
+            COREDIR="/var/lib/postgresql/tablespaces/coredumps"
+            mkdir -p "$COREDIR"
+
+            # Simulate the kernel: write some bytes to stdin, pass a "pid" as $1
+            printf "fake-core-bytes-%s" "$(date +%s)" | /usr/local/bin/handle-coredump.sh 424242
+
+            test -f "$COREDIR/core.424242"
+            test -s "$COREDIR/core.424242"
+
+            echo "File listing:"
+            ls -la "$COREDIR"
+
+            echo "Owner/group:"
+            stat -c "%U:%G %s %n" "$COREDIR/core.424242" | tee /tmp/stat.txt
+            grep -q "^postgres:postgres " /tmp/stat.txt
+          '
+
+      - name: Test Core Dump Handler Fails if Coredumps Volume is Missing
+        run: |
+          docker run --rm --entrypoint /bin/bash paradedb/paradedb:latest -lc '
+            set -euo pipefail
+
+            # Ensure directory is absent
+            rm -rf /var/lib/postgresql/tablespaces/coredumps
+
+            set +e
+            echo "data" | /usr/local/bin/handle-coredump.sh 1
+            rc=$?
+            set -e
+
+            test "$rc" -ne 0
+          '
+
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History
         run: docker history paradedb/paradedb:latest

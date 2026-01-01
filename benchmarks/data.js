@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767271734244,
+  "lastUpdate": 1767273715132,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -41300,6 +41300,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 32602.4295,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0",
+          "message": "test: added Citus compatibility tests (#3817)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nAdds integration tests to verify ParadeDB works correctly with Citus for\ndistributed search workloads.\n\n## Why\n\nWe needed to verify that:\n1. **Sharded BM25 indexes work** - Users can create BM25 indexes on\ndistributed Citus tables and search across shards\n2. **Catalog queries don't break** - Common operations like `\\dx` and\n`\\di` work when both extensions are installed\n3. **JOIN queries work** - Search queries with JOINs across distributed\ntables execute correctly\n\nThis ensures we properly support users running Citus columnar tables for\nanalytics alongside regular distributed tables with BM25 indexes for\nsearch.\n\n## How\n\nAdded two new Rust integration tests in\n`tests/tests/citus_compatibility.rs`:\n\n1. **`citus_sharded_bm25_indexes`**\n   - Creates a distributed table, then adds a BM25 index\n   - Verifies search works across sharded BM25 indexes\n   - Tests JOIN queries with search operators on distributed tables\n- Validates EXPLAIN plans show both ParadeDB Custom Scan and Citus\ndistributed execution\n\n2. **`citus_catalog_queries_compatibility`**\n- Tests catalog queries (`pg_extension`, `pg_class`, `pg_indexes`) work\ncorrectly\n- Verifies BM25 search works on regular distributed tables (not\ncolumnar, which has known limitations)\n   - Ensures metadata operations don't break with both extensions loaded\n\nAlso increased `max_connections` to 300 in CI for Citus tests to handle\ndistributed query coordination.\n\n## Tests\n\nThe tests themselves are the addition. All tests:\n- Gracefully skip if Citus is not installed\n- Verify EXPLAIN plans contain both \"ParadeDB Scan\" and \"Citus\" nodes\n\nRun locally with:\n```bash\ncargo test --test citus_compatibility --features=pg16 -- --nocapture\n```",
+          "timestamp": "2026-01-01T07:22:05-05:00",
+          "tree_id": "4ac0f3469c39e28dc6bc308938887d9d71f771bd",
+          "url": "https://github.com/paradedb/paradedb/commit/3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0"
+        },
+        "date": 1767273711924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1225.3919999999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 484.82399999999996,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1510.1865,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 522.29,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 516.1595,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1273.8294999999998,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 28819.9565,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 28896.7095,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 29102.493,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

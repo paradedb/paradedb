@@ -28,7 +28,7 @@ CREATE OR REPLACE FUNCTION "paradedb"."snippet_positions"(
     "limit" INT DEFAULT NULL,
     "offset" INT DEFAULT NULL
 ) RETURNS integer[]
-STABLE PARALLEL SAFE
+STABLE PARALLEL SAFEsss
 LANGUAGE c
 AS 'MODULE_PATHNAME', 'paradedb_snippet_positions_from_relation_wrapper';
 DROP FUNCTION IF EXISTS pdb.snippet_positions(field anyelement, "limit" pg_catalog.int4, "offset" pg_catalog.int4);

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767272953726,
+  "lastUpdate": 1767272958393,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33934,6 +33934,108 @@ window.BENCHMARK_DATA = {
             "value": 160.26953125,
             "unit": "median mem",
             "extra": "avg mem: 178.97253684346504, max mem: 220.64453125, count: 56366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0",
+          "message": "test: added Citus compatibility tests (#3817)\n\n# Ticket(s) Closed\n\n- Closes #2784\n\n## What\n\nAdds integration tests to verify ParadeDB works correctly with Citus for\ndistributed search workloads.\n\n## Why\n\nWe needed to verify that:\n1. **Sharded BM25 indexes work** - Users can create BM25 indexes on\ndistributed Citus tables and search across shards\n2. **Catalog queries don't break** - Common operations like `\\dx` and\n`\\di` work when both extensions are installed\n3. **JOIN queries work** - Search queries with JOINs across distributed\ntables execute correctly\n\nThis ensures we properly support users running Citus columnar tables for\nanalytics alongside regular distributed tables with BM25 indexes for\nsearch.\n\n## How\n\nAdded two new Rust integration tests in\n`tests/tests/citus_compatibility.rs`:\n\n1. **`citus_sharded_bm25_indexes`**\n   - Creates a distributed table, then adds a BM25 index\n   - Verifies search works across sharded BM25 indexes\n   - Tests JOIN queries with search operators on distributed tables\n- Validates EXPLAIN plans show both ParadeDB Custom Scan and Citus\ndistributed execution\n\n2. **`citus_catalog_queries_compatibility`**\n- Tests catalog queries (`pg_extension`, `pg_class`, `pg_indexes`) work\ncorrectly\n- Verifies BM25 search works on regular distributed tables (not\ncolumnar, which has known limitations)\n   - Ensures metadata operations don't break with both extensions loaded\n\nAlso increased `max_connections` to 300 in CI for Citus tests to handle\ndistributed query coordination.\n\n## Tests\n\nThe tests themselves are the addition. All tests:\n- Gracefully skip if Citus is not installed\n- Verify EXPLAIN plans contain both \"ParadeDB Scan\" and \"Citus\" nodes\n\nRun locally with:\n```bash\ncargo test --test citus_compatibility --features=pg16 -- --nocapture\n```",
+          "timestamp": "2026-01-01T07:22:05-05:00",
+          "tree_id": "4ac0f3469c39e28dc6bc308938887d9d71f771bd",
+          "url": "https://github.com/paradedb/paradedb/commit/3d5dbcecf3e8504de9e01282ffadf58cb3bcafb0"
+        },
+        "date": 1767272955006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0809547595261881, max background_merging: 2.0, count: 56056"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.727321884288472, max cpu: 9.706775, count: 56056"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.254976399158878, max mem: 23.26953125, count: 56056"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.968904920428662, max cpu: 13.980582, count: 56056"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.875,
+            "unit": "median mem",
+            "extra": "avg mem: 164.64177173273154, max mem: 166.21484375, count: 56056"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64621,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64533.06846724704, max block_count: 64621.0, count: 56056"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.61716854573997, max segment_count: 58.0, count: 56056"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6445520686136454, max cpu: 9.619239, count: 56056"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 111.15226479714482, max mem: 137.67578125, count: 56056"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.792697136277877, max cpu: 9.866392, count: 56056"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 161.4937594492561, max mem: 165.89453125, count: 56056"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.7972802024118, max cpu: 33.136093, count: 56056"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.90173533219013, max mem: 220.62109375, count: 56056"
           }
         ]
       }

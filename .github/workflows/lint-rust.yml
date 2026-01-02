@@ -36,6 +36,10 @@ jobs:
           components: rustfmt, clippy
           cache: false
 
+      # Required by Stressgres
+      - name: Install fontconfig
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/

@@ -49,7 +49,7 @@ To add a new suite:
 
 - Trigger a release of the Docker image to the Antithesis registry via the `Test pg_search (Antithesis)` workflow. This workflow builds and publishes the latest commit ParadeDB and Stressgres Docker images to Antithesis, and triggers a test run.
 
-If it behaves as desired, merged your new singleton driver to `main`. The new suite will then be added to the nightly Antithesis runs.
+If it behaves as desired, merge your new singleton driver to `main`. The new suite will then be added to the nightly Antithesis runs.
 
 ### Connection Strings
 

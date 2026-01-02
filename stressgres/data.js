@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767378796400,
+  "lastUpdate": 1767379710392,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26886,6 +26886,54 @@ window.BENCHMARK_DATA = {
             "value": 5.604315870079742,
             "unit": "median tps",
             "extra": "avg tps: 5.590980743984069, max tps: 6.538666002547438, count: 56675"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b",
+          "message": "fix: tokenized phrase (###) operator now works with JSON fields (#3841)\n\n## Summary\n\n- Fixes the ### (tokenized phrase) operator not returning results when\nquerying JSON/JSONB fields\n- The root cause was that tokenized_phrase() was not properly handling\nJSON paths when creating search terms\n\n## Changes\n\n- Use field.root() for schema lookup instead of the full field path\n- Pass field.path() to value_to_term() for proper JSON path encoding in\nterms\n\n## Test plan\n\n- Verified j->'key1' ### 'value1' now returns expected results\n\nFixes #3819",
+          "timestamp": "2026-01-02T23:31:13+05:30",
+          "tree_id": "06fa47d6d601e344f5d4e5c245a26aac208dc0c6",
+          "url": "https://github.com/paradedb/paradedb/commit/f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b"
+        },
+        "date": 1767379706842,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1139.8337096329942,
+            "unit": "median tps",
+            "extra": "avg tps: 1141.006692595516, max tps: 1188.7101317739962, count: 56228"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1246.1019533182605,
+            "unit": "median tps",
+            "extra": "avg tps: 1239.5309296435162, max tps: 1257.4166823334592, count: 56228"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1888.2707480996723,
+            "unit": "median tps",
+            "extra": "avg tps: 1858.034732901616, max tps: 2022.3450380484246, count: 56228"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.290308798971293,
+            "unit": "median tps",
+            "extra": "avg tps: 5.313105065435444, max tps: 7.557064175635634, count: 56228"
           }
         ]
       }

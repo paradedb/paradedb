@@ -283,3 +283,295 @@ fn citus_without_search_operators(mut conn: PgConnection) {
 
     "DROP TABLE simple_table CASCADE".execute(&mut conn);
 }
+
+/// Test BM25 indexes created AFTER distributing tables (true sharded BM25 indexes)
+/// This is the real-world scenario where you distribute first, then add search capability
+#[rstest]
+fn citus_sharded_bm25_indexes(mut conn: PgConnection) {
+    // Check if Citus is in shared_preload_libraries
+    let preload_libs: Vec<(String,)> = "SHOW shared_preload_libraries".fetch(&mut conn);
+    let preload_str = &preload_libs[0].0;
+    let citus_preloaded = preload_str.contains("citus");
+
+    if !citus_preloaded {
+        eprintln!("Skipping test: Citus not found in shared_preload_libraries");
+        return;
+    }
+
+    "CREATE EXTENSION IF NOT EXISTS citus".execute(&mut conn);
+
+    // Create table and distribute it FIRST
+    // Note: Citus requires PRIMARY KEY to include the distribution column
+    r#"
+    CREATE TABLE articles (
+        id SERIAL,
+        author_id INT NOT NULL,
+        title TEXT,
+        body TEXT,
+        published_date DATE,
+        PRIMARY KEY (author_id, id)
+    );
+
+    INSERT INTO articles (author_id, title, body, published_date) VALUES
+        (1, 'PostgreSQL Performance', 'Optimizing PostgreSQL queries for large datasets', '2024-01-15'),
+        (1, 'Distributed Databases', 'Understanding sharding and replication strategies', '2024-02-20'),
+        (2, 'Full-Text Search', 'Building search engines with PostgreSQL', '2024-03-10'),
+        (2, 'Database Indexing', 'B-tree vs GiST vs GIN indexes explained', '2024-04-05'),
+        (3, 'Citus Extension', 'Scaling PostgreSQL horizontally with Citus', '2024-05-12');
+    "#
+    .execute(&mut conn);
+
+    // Distribute the table BEFORE creating BM25 index
+    "SELECT create_distributed_table('articles', 'author_id')".execute(&mut conn);
+
+    // Now create BM25 index on the distributed table (true sharded BM25 index)
+    r#"
+    CREATE INDEX articles_search_idx ON articles 
+    USING bm25 (id, title, body) 
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    // Test that search works on the sharded BM25 index
+    let rows: Vec<(i32, String)> = r#"
+        SELECT id, title FROM articles
+        WHERE body @@@ 'PostgreSQL OR sharding'
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            (1, "PostgreSQL Performance".to_string()),
+            (2, "Distributed Databases".to_string()),
+            (3, "Full-Text Search".to_string()),
+            (5, "Citus Extension".to_string())
+        ]
+    );
+
+    // Verify EXPLAIN plan shows ParadeDB scan on sharded BM25 index
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT id, title FROM articles
+        WHERE body @@@ 'PostgreSQL OR sharding'
+        ORDER BY id
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Sharded BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan for sharded BM25 index"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed"),
+        "EXPLAIN plan should contain Citus distributed query nodes"
+    );
+
+    // Test search with join across distributed tables
+    r#"
+    CREATE TABLE authors (
+        id INT PRIMARY KEY,
+        name TEXT,
+        bio TEXT
+    );
+
+    INSERT INTO authors (id, name, bio) VALUES
+        (1, 'Alice', 'Database expert'),
+        (2, 'Bob', 'Search specialist'),
+        (3, 'Carol', 'Distributed systems engineer');
+
+    SELECT create_distributed_table('authors', 'id');
+    "#
+    .execute(&mut conn);
+
+    // Search with join on distributed tables
+    let rows: Vec<(String, String)> = r#"
+        SELECT a.name, ar.title
+        FROM authors a
+        JOIN articles ar ON a.id = ar.author_id
+        WHERE ar.body @@@ 'PostgreSQL'
+        ORDER BY a.name, ar.title
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![
+            ("Alice".to_string(), "PostgreSQL Performance".to_string()),
+            ("Bob".to_string(), "Full-Text Search".to_string()),
+            ("Carol".to_string(), "Citus Extension".to_string())
+        ]
+    );
+
+    // Verify EXPLAIN plan for JOIN query with BM25 search on distributed tables
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT a.name, ar.title
+        FROM authors a
+        JOIN articles ar ON a.id = ar.author_id
+        WHERE ar.body @@@ 'PostgreSQL'
+        ORDER BY a.name, ar.title
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Distributed JOIN with BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan for BM25 search in JOIN"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed") || plan_str.contains("Join"),
+        "EXPLAIN plan should contain Citus distributed JOIN execution"
+    );
+
+    "DROP TABLE articles CASCADE".execute(&mut conn);
+    "DROP TABLE authors CASCADE".execute(&mut conn);
+}
+
+/// Test catalog queries and metadata with both Citus and pg_search installed (Wharton's use case)
+/// Tests that catalog queries like \dx, \di work correctly when both extensions are loaded
+#[rstest]
+fn citus_catalog_queries_compatibility(mut conn: PgConnection) {
+    // Check if Citus is in shared_preload_libraries
+    let preload_libs: Vec<(String,)> = "SHOW shared_preload_libraries".fetch(&mut conn);
+    let preload_str = &preload_libs[0].0;
+    let citus_preloaded = preload_str.contains("citus");
+
+    if !citus_preloaded {
+        eprintln!("Skipping test: Citus not found in shared_preload_libraries");
+        return;
+    }
+
+    "CREATE EXTENSION IF NOT EXISTS citus".execute(&mut conn);
+
+    // Test catalog queries (similar to \dx)
+    let extensions: Vec<(String,)> = r#"
+        SELECT extname FROM pg_extension 
+        WHERE extname IN ('citus', 'pg_search')
+        ORDER BY extname
+    "#
+    .fetch(&mut conn);
+
+    assert!(
+        !extensions.is_empty(),
+        "Should have at least pg_search extension installed"
+    );
+
+    // Create a regular table with BM25 index (not columnar, as Citus columnar doesn't support BM25)
+    // This tests that catalog queries work when both extensions are installed
+    r#"
+    CREATE TABLE events (
+        event_id SERIAL,
+        user_id INT NOT NULL,
+        event_time TIMESTAMP,
+        event_type TEXT,
+        event_data TEXT,
+        PRIMARY KEY (user_id, event_id)
+    );
+
+    INSERT INTO events (user_id, event_time, event_type, event_data) VALUES
+        (1, '2024-01-01 10:00:00', 'login', 'User logged in successfully'),
+        (1, '2024-01-01 10:05:00', 'search', 'Searched for PostgreSQL tutorials'),
+        (2, '2024-01-01 10:10:00', 'login', 'User logged in successfully'),
+        (2, '2024-01-01 10:15:00', 'purchase', 'Purchased PostgreSQL book'),
+        (3, '2024-01-01 10:20:00', 'search', 'Searched for database optimization');
+    "#
+    .execute(&mut conn);
+
+    // Create BM25 index on regular table
+    r#"
+    CREATE INDEX events_search_idx ON events 
+    USING bm25 (event_id, event_type, event_data) 
+    WITH (key_field='event_id');
+    "#
+    .execute(&mut conn);
+
+    // Distribute the table
+    "SELECT create_distributed_table('events', 'user_id')".execute(&mut conn);
+
+    // Test search on distributed table
+    let rows: Vec<(i32, String)> = r#"
+        SELECT event_id, event_type FROM events
+        WHERE event_data @@@ 'PostgreSQL'
+        ORDER BY event_id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(
+        rows,
+        vec![(2, "search".to_string()), (4, "purchase".to_string())]
+    );
+
+    // Verify EXPLAIN plan shows BM25 search on distributed table
+    let (plan,): (Value,) = r#"
+        EXPLAIN (VERBOSE, FORMAT JSON)
+        SELECT event_id, event_type FROM events
+        WHERE event_data @@@ 'PostgreSQL'
+        ORDER BY event_id
+    "#
+    .fetch_one(&mut conn);
+
+    eprintln!(
+        "Catalog compatibility BM25 search EXPLAIN plan:\n{}",
+        serde_json::to_string_pretty(&plan).unwrap()
+    );
+
+    let plan_str = format!("{:?}", plan);
+    assert!(
+        plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
+        "EXPLAIN plan should contain ParadeDB Custom Scan"
+    );
+    assert!(
+        plan_str.contains("Citus") || plan_str.contains("distributed"),
+        "EXPLAIN plan should contain Citus distributed query nodes"
+    );
+
+    // Test that we can query pg_class
+    let table_info: Vec<(String,)> = r#"
+        SELECT relname
+        FROM pg_class 
+        WHERE relname = 'events' AND relkind = 'r'
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(table_info.len(), 1, "Should find the events table");
+
+    // Test listing indexes (similar to \di)
+    let indexes: Vec<(String,)> = r#"
+        SELECT indexname FROM pg_indexes 
+        WHERE tablename = 'events'
+        ORDER BY indexname
+    "#
+    .fetch(&mut conn);
+
+    assert!(
+        indexes.iter().any(|(name,)| name.contains("search_idx")),
+        "Should find the BM25 search index"
+    );
+
+    // Test listing extensions (similar to \dx)
+    let ext_count: Vec<(i64,)> = r#"
+        SELECT COUNT(*) FROM pg_extension 
+        WHERE extname IN ('citus', 'pg_search')
+    "#
+    .fetch(&mut conn);
+
+    assert!(
+        ext_count[0].0 >= 1,
+        "Should find at least pg_search extension"
+    );
+
+    "DROP TABLE events CASCADE".execute(&mut conn);
+}

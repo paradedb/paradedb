@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767381504017,
+  "lastUpdate": 1767383423570,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5534,6 +5534,72 @@ window.BENCHMARK_DATA = {
             "value": 151.06450200536128,
             "unit": "median tps",
             "extra": "avg tps: 182.5015330097335, max tps: 541.9261872146335, count: 55208"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45d6d6e9167b280b360858e6b4fb90207bcb0f1a",
+          "message": "fix: `pdb.snippet_positions` return type (#3824)\n\n# Ticket(s) Closed\n\n- Closes #3433\n\n## What\n\nFixed `pdb.snippet_positions` to return proper PostgreSQL 2D integer\narrays (`{{10,14},{15,19}}`) instead of JSON-serialized strings\n(`{\"{10,14}\",\"{15,19}\"}`) that were breaking ORMs and type\nintrospection.\n\n## Why\n\nThe function was declared to return `integer[]`, but the actual data was\nbeing JSON-serialized, causing:\n- ORMs to fail when introspecting the return type\n- Type mismatches in client libraries\n- Inability to use PostgreSQL array operations like `array[i][j]`\nindexing\n\n## How\n\n- Created `IntArray2D` newtype wrapper with custom `IntoDatum`\nimplementation that uses `pg_sys::construct_md_array` to properly\nconstruct 2D PostgreSQL arrays\n- Fixed parameter quoting for reserved keywords (`limit`, `offset`) in\nfunction signatures\n\n## Tests\n\n- Added `snippet_positions_type.sql` regression test verifying correct\ntype introspection and 2D array operations\n- Updated `snippet_position_01_basic.sql` with examples showing array\naccess patterns (`[i][j]` for elements, `[i:i][j:j]` for slices)\n- Regenerated all existing snippet test outputs to reflect proper array\nformat",
+          "timestamp": "2026-01-02T11:31:56-08:00",
+          "tree_id": "1cf6d4fd1dc46f7d8dd6864b0480d357e8dc0f27",
+          "url": "https://github.com/paradedb/paradedb/commit/45d6d6e9167b280b360858e6b4fb90207bcb0f1a"
+        },
+        "date": 1767383420358,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 598.6823282728357,
+            "unit": "median tps",
+            "extra": "avg tps: 599.9810861714485, max tps: 656.3920104810006, count: 55274"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3034.114717189329,
+            "unit": "median tps",
+            "extra": "avg tps: 3018.840837251446, max tps: 3043.602065279451, count: 55274"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 574.4082341207127,
+            "unit": "median tps",
+            "extra": "avg tps: 577.2183603606277, max tps: 706.0662386963838, count: 55274"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 494.1259051156588,
+            "unit": "median tps",
+            "extra": "avg tps: 497.1552828089393, max tps: 542.2274365379587, count: 55274"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3279.3809012135694,
+            "unit": "median tps",
+            "extra": "avg tps: 3271.1301084175548, max tps: 3314.0339770607557, count: 110548"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2154.130310708138,
+            "unit": "median tps",
+            "extra": "avg tps: 2134.3631615386535, max tps: 2165.1005798316123, count: 55274"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 119.36193398816114,
+            "unit": "median tps",
+            "extra": "avg tps: 121.70014392985979, max tps: 767.0705804653204, count: 55274"
           }
         ]
       }

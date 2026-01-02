@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767378791456,
+  "lastUpdate": 1767378796400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23114,6 +23114,66 @@ window.BENCHMARK_DATA = {
             "value": 89,
             "unit": "median segment_count",
             "extra": "avg segment_count: 93.99554434926776, max segment_count: 156.0, count: 57904"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b",
+          "message": "fix: tokenized phrase (###) operator now works with JSON fields (#3841)\n\n## Summary\n\n- Fixes the ### (tokenized phrase) operator not returning results when\nquerying JSON/JSONB fields\n- The root cause was that tokenized_phrase() was not properly handling\nJSON paths when creating search terms\n\n## Changes\n\n- Use field.root() for schema lookup instead of the full field path\n- Pass field.path() to value_to_term() for proper JSON path encoding in\nterms\n\n## Test plan\n\n- Verified j->'key1' ### 'value1' now returns expected results\n\nFixes #3819",
+          "timestamp": "2026-01-02T23:31:13+05:30",
+          "tree_id": "06fa47d6d601e344f5d4e5c245a26aac208dc0c6",
+          "url": "https://github.com/paradedb/paradedb/commit/f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b"
+        },
+        "date": 1767378792803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.862532138681193, max cpu: 42.72997, count: 57518"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 232.3573121946608, max mem: 233.921875, count: 57518"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39977422767544, max cpu: 33.333336, count: 57518"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.86163930476113, max mem: 172.28515625, count: 57518"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49373,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48881.59868215167, max block_count: 51051.0, count: 57518"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 89,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 94.20784797802428, max segment_count: 158.0, count: 57518"
           }
         ]
       }

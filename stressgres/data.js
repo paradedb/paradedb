@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767380595923,
+  "lastUpdate": 1767381499214,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50930,6 +50930,54 @@ window.BENCHMARK_DATA = {
             "value": 108.48264789053644,
             "unit": "median tps",
             "extra": "avg tps: 106.57980944521009, max tps: 139.41888750128368, count: 107362"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b",
+          "message": "fix: tokenized phrase (###) operator now works with JSON fields (#3841)\n\n## Summary\n\n- Fixes the ### (tokenized phrase) operator not returning results when\nquerying JSON/JSONB fields\n- The root cause was that tokenized_phrase() was not properly handling\nJSON paths when creating search terms\n\n## Changes\n\n- Use field.root() for schema lookup instead of the full field path\n- Pass field.path() to value_to_term() for proper JSON path encoding in\nterms\n\n## Test plan\n\n- Verified j->'key1' ### 'value1' now returns expected results\n\nFixes #3819",
+          "timestamp": "2026-01-02T23:31:13+05:30",
+          "tree_id": "06fa47d6d601e344f5d4e5c245a26aac208dc0c6",
+          "url": "https://github.com/paradedb/paradedb/commit/f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b"
+        },
+        "date": 1767381495673,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 542.2156714753969,
+            "unit": "median tps",
+            "extra": "avg tps: 547.3633390806594, max tps: 717.3053607274496, count: 53706"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 621.1420177975125,
+            "unit": "median tps",
+            "extra": "avg tps: 629.8061909085161, max tps: 837.9295690450717, count: 53706"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.87967871739524,
+            "unit": "median tps",
+            "extra": "avg tps: 85.95995544247596, max tps: 94.67123454111044, count: 53706"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.16809852383778,
+            "unit": "median tps",
+            "extra": "avg tps: 107.12448268334371, max tps: 186.76128942959056, count: 107412"
           }
         ]
       }

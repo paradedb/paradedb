@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767379715297,
+  "lastUpdate": 1767380591005,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -39104,6 +39104,60 @@ window.BENCHMARK_DATA = {
             "value": 14.939103181532058,
             "unit": "median tps",
             "extra": "avg tps: 15.08231657593346, max tps: 21.030781261346764, count: 55459"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b",
+          "message": "fix: tokenized phrase (###) operator now works with JSON fields (#3841)\n\n## Summary\n\n- Fixes the ### (tokenized phrase) operator not returning results when\nquerying JSON/JSONB fields\n- The root cause was that tokenized_phrase() was not properly handling\nJSON paths when creating search terms\n\n## Changes\n\n- Use field.root() for schema lookup instead of the full field path\n- Pass field.path() to value_to_term() for proper JSON path encoding in\nterms\n\n## Test plan\n\n- Verified j->'key1' ### 'value1' now returns expected results\n\nFixes #3819",
+          "timestamp": "2026-01-02T23:31:13+05:30",
+          "tree_id": "06fa47d6d601e344f5d4e5c245a26aac208dc0c6",
+          "url": "https://github.com/paradedb/paradedb/commit/f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b"
+        },
+        "date": 1767380587512,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.73919074305182,
+            "unit": "median tps",
+            "extra": "avg tps: 31.53985919418611, max tps: 34.69074289163104, count: 55557"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.09694062372773,
+            "unit": "median tps",
+            "extra": "avg tps: 258.6126410204714, max tps: 2586.6391127667544, count: 55557"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1886.1025755377211,
+            "unit": "median tps",
+            "extra": "avg tps: 1877.5932793664872, max tps: 2149.9645231141453, count: 55557"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.26663831049677,
+            "unit": "median tps",
+            "extra": "avg tps: 195.64901249832627, max tps: 1699.61282433586, count: 111114"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.043222289169819,
+            "unit": "median tps",
+            "extra": "avg tps: 15.119802141622733, max tps: 20.93147841920619, count: 55557"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767379710392,
+  "lastUpdate": 1767379715297,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34798,6 +34798,108 @@ window.BENCHMARK_DATA = {
             "value": 160.09375,
             "unit": "median mem",
             "extra": "avg mem: 179.9683058557565, max mem: 220.58984375, count: 56675"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b",
+          "message": "fix: tokenized phrase (###) operator now works with JSON fields (#3841)\n\n## Summary\n\n- Fixes the ### (tokenized phrase) operator not returning results when\nquerying JSON/JSONB fields\n- The root cause was that tokenized_phrase() was not properly handling\nJSON paths when creating search terms\n\n## Changes\n\n- Use field.root() for schema lookup instead of the full field path\n- Pass field.path() to value_to_term() for proper JSON path encoding in\nterms\n\n## Test plan\n\n- Verified j->'key1' ### 'value1' now returns expected results\n\nFixes #3819",
+          "timestamp": "2026-01-02T23:31:13+05:30",
+          "tree_id": "06fa47d6d601e344f5d4e5c245a26aac208dc0c6",
+          "url": "https://github.com/paradedb/paradedb/commit/f2da8b5d90b414d4bea7fc01e6be340f2b35fd6b"
+        },
+        "date": 1767379711707,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08127623248203741, max background_merging: 2.0, count: 56228"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.760278083924104, max cpu: 9.638554, count: 56228"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.759588055550616, max mem: 23.77734375, count: 56228"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.952457996816434, max cpu: 9.657948, count: 56228"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.43226079811214, max mem: 165.91796875, count: 56228"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65372,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65270.790869317774, max block_count: 65372.0, count: 56228"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.24142775841218, max segment_count: 56.0, count: 56228"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.637010851393067, max cpu: 9.458128, count: 56228"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 114.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 105.5038589398298, max mem: 131.8046875, count: 56228"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768274847219141, max cpu: 9.504951, count: 56228"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.9808074935975, max mem: 165.4609375, count: 56228"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.049753503984086, max cpu: 33.300297, count: 56228"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.79295902397382, max mem: 220.60546875, count: 56228"
           }
         ]
       }

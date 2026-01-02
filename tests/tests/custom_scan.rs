@@ -507,13 +507,13 @@ fn cte_issue_1951(mut conn: PgConnection) {
     r#"
         CREATE TABLE t
         (
-            id   SERIAL,
+            id   SERIAL PRIMARY KEY,
             data TEXT
         );
 
         CREATE TABLE s
         (
-            id   SERIAL,
+            id   SERIAL PRIMARY KEY,
             data TEXT
         );
 
@@ -1133,7 +1133,7 @@ fn uses_max_parallel_workers_per_gather_issue2515(mut conn: PgConnection) {
     SET max_parallel_workers_per_gather = 2;
     SET paradedb.enable_aggregate_custom_scan = false;
 
-    CREATE TABLE t (id bigint);
+    CREATE TABLE t (id bigint PRIMARY KEY);
     INSERT INTO t (id) SELECT x FROM generate_series(1, 1000000) x;
     CREATE INDEX t_idx ON t USING bm25(id) WITH (key_field='id');
     "#
@@ -1169,12 +1169,12 @@ fn join_with_string_fast_fields_issue_2505(mut conn: PgConnection) {
     DROP TABLE IF EXISTS b;
 
     CREATE TABLE a (
-        a_id_pk TEXT,
+        a_id_pk TEXT PRIMARY KEY,
         content TEXT
     ) WITH (autovacuum_enabled = false);
 
     CREATE TABLE b (
-        b_id_pk TEXT,
+        b_id_pk TEXT PRIMARY KEY,
         a_id_fk TEXT,
         content TEXT
     ) WITH (autovacuum_enabled = false);

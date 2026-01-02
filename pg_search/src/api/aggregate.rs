@@ -55,18 +55,18 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::gucs;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
 
-#[pg_extern]
-pub fn aggregate(
+fn aggregate_impl(
     index: PgRelation,
     query: SearchQueryInput,
     agg: Json,
-    solve_mvcc: default!(bool, true),
-    memory_limit: default!(i64, 500000000),
-    bucket_limit: default!(i64, 65000),
+    solve_mvcc: bool,
+    memory_limit: i64,
+    bucket_limit: i64,
 ) -> Result<JsonB, Box<dyn Error>> {
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
     let standalone_context = ExprContextGuard::new();
@@ -85,6 +85,36 @@ pub fn aggregate(
     } else {
         Ok(JsonB(serde_json::to_value(aggregate)?))
     }
+}
+
+/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=GUC)
+#[pg_extern]
+pub fn aggregate(
+    index: PgRelation,
+    query: SearchQueryInput,
+    agg: Json,
+    solve_mvcc: default!(bool, true),
+    memory_limit: default!(i64, 500000000),
+) -> Result<JsonB, Box<dyn Error>> {
+    let bucket_limit_i32 = gucs::max_term_agg_buckets();
+    if bucket_limit_i32 <= 0 {
+        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
+    }
+    let bucket_limit = bucket_limit_i32 as i64;
+    aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
+}
+
+/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit)
+#[pg_extern(name = "aggregate")]
+pub fn aggregate_with_bucket_limit(
+    index: PgRelation,
+    query: SearchQueryInput,
+    agg: Json,
+    solve_mvcc: bool,
+    memory_limit: i64,
+    bucket_limit: i64,
+) -> Result<JsonB, Box<dyn Error>> {
+    aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
 }
 
 #[pgrx::pg_schema]

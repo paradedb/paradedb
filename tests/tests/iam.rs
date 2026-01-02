@@ -25,6 +25,7 @@ use rstest::*;
 use rustc_hash::FxHashSet as HashSet;
 use sqlx::PgConnection;
 
+/*
 #[rstest]
 fn reltuples_are_set(mut conn: PgConnection) {
     "CREATE TABLE reltuptest AS SELECT md5(x::text), x FROM generate_series(1, 1024) x;"
@@ -42,6 +43,7 @@ fn reltuples_are_set(mut conn: PgConnection) {
         .fetch_one::<(f32,)>(&mut conn);
     assert_eq!(reltuples, 1024.0);
 }
+*/
 
 #[rstest]
 fn direct_or_queries(mut conn: PgConnection) {

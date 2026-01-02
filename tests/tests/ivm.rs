@@ -35,7 +35,7 @@ fn use_ivm(mut conn: PgConnection) {
     r#"
     DROP TABLE IF EXISTS test CASCADE;
     CREATE TABLE test (
-        id int,
+        id int PRIMARY KEY,
         content TEXT
     );
 

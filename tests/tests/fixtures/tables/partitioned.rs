@@ -50,11 +50,10 @@ BEGIN;
       FOR VALUES FROM ('2023-04-01') TO ('2023-06-30');
 
     CREATE INDEX sales_index ON sales
-      USING bm25 (id, description, sale_date, amount)
+      USING bm25 (id, sale_date, description, amount)
       WITH (
         key_field='id',
-        numeric_fields='{"amount": {"fast": true}}',
-        datetime_fields = '{"sale_date": {"fast": true}}'
+        numeric_fields='{"amount": {"fast": true}}'
       );
 COMMIT;
 "#;

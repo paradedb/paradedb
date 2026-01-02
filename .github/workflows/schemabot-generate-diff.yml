@@ -138,12 +138,18 @@ jobs:
             echo "--- END SUGGESTED UPGRADE SCRIPT ---"
             echo
             echo "=========================================="
-            # Find the most recent migration file for pg_search
-            MIGRATION_FILE=$(ls -t pg_search/sql/pg_search--*.sql 2>/dev/null | head -n 1)
+
+            # Extract the version from Cargo.toml
+            CURRENT_VERSION=$(grep -m 1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            echo "Current version from Cargo.toml: $CURRENT_VERSION"
+
+            # Find the migration file ending with the current version
+            MIGRATION_FILE=$(ls pg_search/sql/pg_search--*--${CURRENT_VERSION}.sql 2>/dev/null | head -n 1)
 
             if [ -z "$MIGRATION_FILE" ]; then
-              echo "❌ ERROR: Schema changed but no migration file found in pg_search/sql/"
-              echo "Please create a migration file (e.g., pg_search--X.Y.Z--X.Y.Z+1.sql) with the schema changes."
+              echo "❌ ERROR: Schema changed but no migration file found ending with version $CURRENT_VERSION"
+              echo "Expected file: pg_search/sql/pg_search--<prev_version>--${CURRENT_VERSION}.sql"
+              echo "Please create a migration file with the schema changes."
               exit 1
             fi
 
@@ -157,6 +163,11 @@ jobs:
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."
               echo "Please copy the entire suggested upgrade script shown above into your migration file as-is."
+              echo
+              echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
+              echo "   please update the schema diff generation logic at:"
+              echo "   https://github.com/paradedb/pg-schema-diff"
+              echo "   Do not manually modify the diff in the migration file, as CI will fail."
               exit 1
             else
               echo "✅ Migration file contains the exact schema diff in the correct sequence"

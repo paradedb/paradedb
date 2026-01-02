@@ -9,7 +9,7 @@ canonical: https://docs.paradedb.com/deploy/citus
 ## What's Supported
 
 - **BM25 indexes on distributed tables** — Create search indexes after distributing tables with `create_distributed_table()`
-- **Distributed queries with search operators** — Use the `@@@` search operator in queries across sharded tables
+- **Distributed queries with search operators** — Use the `|||` (match disjunction) and `&&&` (match conjunction) operators in queries across sharded tables
 - **Subqueries with LIMIT** — Complex queries with subqueries and LIMIT clauses work correctly
 - **JOIN queries** — Search with JOINs across distributed tables
 
@@ -67,7 +67,7 @@ INSERT INTO articles (author_id, title, body) VALUES
 
 -- Search across shards
 SELECT id, title FROM articles
-WHERE body @@@ 'PostgreSQL OR distributed'
+WHERE body ||| 'PostgreSQL distributed'
 ORDER BY id;
 
 -- Results:
@@ -84,7 +84,7 @@ You can verify that both ParadeDB and Citus are working together by examining th
 ```sql
 EXPLAIN (VERBOSE)
 SELECT id, title FROM articles
-WHERE body @@@ 'PostgreSQL OR distributed'
+WHERE body ||| 'PostgreSQL distributed'
 ORDER BY id;
 ```
 
@@ -98,16 +98,20 @@ The plan should show:
 
 ```
 Sort  (cost=11041.82..11291.82 rows=100000 width=36)
+  Output: remote_scan.id, remote_scan.title
   Sort Key: remote_scan.id
   ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=36)
+        Output: remote_scan.id, remote_scan.title
         Task Count: 32
         Tasks Shown: One of 32
         ->  Task
-              Query: SELECT id, title FROM articles WHERE body @@@ 'PostgreSQL OR distributed'
-              Node: host=localhost port=5432 dbname=citus_demo
-              ->  Custom Scan (ParadeDB Scan) on articles_102008  (cost=10.00..10.01 rows=1 width=36)
+              Query: SELECT id, title FROM public.articles_102008 articles WHERE (id OPERATOR(pg_catalog.@@@) ...)
+              Node: host=localhost port=5432 dbname=postgres
+              ->  Custom Scan (ParadeDB Scan) on public.articles_102008 articles  (cost=10.00..10.01 rows=1 width=36)
+                    Output: id, title
+                    Table: articles_102008
                     Index: articles_search_idx_102008
-                    Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL OR distributed"}}
+                    Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"body","value":"PostgreSQL distributed"}}}}}}
 ```
 
 </Accordion>
@@ -130,7 +134,7 @@ SELECT create_distributed_table('authors', 'id');
 SELECT a.name, ar.title
 FROM authors a
 JOIN articles ar ON a.id = ar.author_id
-WHERE ar.body @@@ 'PostgreSQL'
+WHERE ar.body ||| 'PostgreSQL'
 ORDER BY a.name;
 
 -- Results:
@@ -149,7 +153,7 @@ EXPLAIN (VERBOSE)
 SELECT a.name, ar.title
 FROM authors a
 JOIN articles ar ON a.id = ar.author_id
-WHERE ar.body @@@ 'PostgreSQL'
+WHERE ar.body ||| 'PostgreSQL'
 ORDER BY a.name;
 ```
 
@@ -157,21 +161,26 @@ ORDER BY a.name;
 
 ```
 Sort  (cost=12067.32..12317.32 rows=100000 width=64)
+  Output: remote_scan.name, remote_scan.title
   Sort Key: remote_scan.name
   ->  Custom Scan (Citus Adaptive)  (cost=0.00..0.00 rows=100000 width=64)
+        Output: remote_scan.name, remote_scan.title
         Task Count: 32
         Tasks Shown: One of 32
         ->  Task
-              Query: SELECT a.name, ar.title FROM authors a JOIN articles ar
-                     ON a.id = ar.author_id WHERE ar.body @@@ 'PostgreSQL'
-              Node: host=localhost port=5432 dbname=citus_demo
+              Query: SELECT a.name, ar.title FROM (public.authors_102040 a JOIN public.articles_102008 ar ON (...))
+              Node: host=localhost port=5432 dbname=postgres
               ->  Nested Loop  (cost=10.15..18.20 rows=1 width=64)
-                    Join Filter: (a.id = ar.author_id)
-                    ->  Custom Scan (ParadeDB Scan) on articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
+                    Output: a.name, ar.title
+                    Inner Unique: true
+                    ->  Custom Scan (ParadeDB Scan) on public.articles_102008 ar  (cost=10.00..10.01 rows=1 width=36)
+                          Output: ar.title, ar.author_id
+                          Table: articles_102008
                           Index: articles_search_idx_102008
-                          Tantivy Query: {"parse_with_field":{"field":"body","query_string":"PostgreSQL"}}
-                    ->  Index Scan using authors_pkey_102040 on authors_102040 a  (cost=0.15..8.17 rows=1 width=36)
-                          Index Cond: (id = ar.author_id)
+                          Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"body","value":"PostgreSQL"}}}}}}
+                    ->  Index Scan using authors_pkey_102040 on public.authors_102040 a  (cost=0.15..8.17 rows=1 width=36)
+                          Output: a.id, a.name, a.bio
+                          Index Cond: (a.id = ar.author_id)
 ```
 
 Key indicators:

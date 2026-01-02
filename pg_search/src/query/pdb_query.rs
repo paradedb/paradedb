@@ -580,7 +580,7 @@ impl pdb::Query {
                 right,
             } => proximity(&field, schema, left, distance, right)?,
             pdb::Query::TokenizedPhrase { phrase, slop } => {
-                tokenized_phrase(&field, schema, searcher, &phrase, slop)
+                tokenized_phrase(&field, schema, searcher, &phrase, slop)?
             }
             pdb::Query::Range {
                 lower_bound,
@@ -1399,31 +1399,39 @@ fn tokenized_phrase(
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
-) -> Box<dyn TantivyQuery> {
-    let tantivy_field = schema
-        .search_field(field)
-        .unwrap_or_else(|| core::panic!("Field `{field}` not found in tantivy schema"))
-        .field();
-    let mut tokenizer = searcher
-        .index()
-        .tokenizer_for_field(tantivy_field)
-        .unwrap_or_else(|e| core::panic!("{e}"));
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
+    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
     let mut stream = tokenizer.token_stream(phrase);
+    let path = field.path();
 
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
-        tokens.push(Term::from_field_text(tantivy_field, &token.text));
+        let value = OwnedValue::Str(token.text.clone());
+        let term = value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            path.as_deref(),
+            false,
+        )?;
+        tokens.push(term);
     }
-    if tokens.is_empty() {
+    Ok(if tokens.is_empty() {
         Box::new(EmptyQuery)
     } else if tokens.len() == 1 {
-        let query = TermQuery::new(tokens.remove(0), IndexRecordOption::WithFreqs.into());
-        Box::new(query)
+        Box::new(TermQuery::new(
+            tokens.remove(0),
+            IndexRecordOption::WithFreqs.into(),
+        ))
     } else {
         let mut query = PhraseQuery::new(tokens);
         query.set_slop(slop.unwrap_or(0));
         Box::new(query)
-    }
+    })
 }
 
 fn phrase_prefix(

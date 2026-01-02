@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767385287681,
+  "lastUpdate": 1767385292380,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35230,6 +35230,108 @@ window.BENCHMARK_DATA = {
             "value": 160.3359375,
             "unit": "median mem",
             "extra": "avg mem: 178.79295902397382, max mem: 220.60546875, count: 56228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45d6d6e9167b280b360858e6b4fb90207bcb0f1a",
+          "message": "fix: `pdb.snippet_positions` return type (#3824)\n\n# Ticket(s) Closed\n\n- Closes #3433\n\n## What\n\nFixed `pdb.snippet_positions` to return proper PostgreSQL 2D integer\narrays (`{{10,14},{15,19}}`) instead of JSON-serialized strings\n(`{\"{10,14}\",\"{15,19}\"}`) that were breaking ORMs and type\nintrospection.\n\n## Why\n\nThe function was declared to return `integer[]`, but the actual data was\nbeing JSON-serialized, causing:\n- ORMs to fail when introspecting the return type\n- Type mismatches in client libraries\n- Inability to use PostgreSQL array operations like `array[i][j]`\nindexing\n\n## How\n\n- Created `IntArray2D` newtype wrapper with custom `IntoDatum`\nimplementation that uses `pg_sys::construct_md_array` to properly\nconstruct 2D PostgreSQL arrays\n- Fixed parameter quoting for reserved keywords (`limit`, `offset`) in\nfunction signatures\n\n## Tests\n\n- Added `snippet_positions_type.sql` regression test verifying correct\ntype introspection and 2D array operations\n- Updated `snippet_position_01_basic.sql` with examples showing array\naccess patterns (`[i][j]` for elements, `[i:i][j:j]` for slices)\n- Regenerated all existing snippet test outputs to reflect proper array\nformat",
+          "timestamp": "2026-01-02T11:31:56-08:00",
+          "tree_id": "1cf6d4fd1dc46f7d8dd6864b0480d357e8dc0f27",
+          "url": "https://github.com/paradedb/paradedb/commit/45d6d6e9167b280b360858e6b4fb90207bcb0f1a"
+        },
+        "date": 1767385288980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08070162967175531, max background_merging: 2.0, count: 56269"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.696235869094862, max cpu: 9.504951, count: 56269"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.48426170493522, max mem: 23.49609375, count: 56269"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.013049291831454, max cpu: 14.215202, count: 56269"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.7133784116254, max mem: 166.27734375, count: 56269"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64681,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64577.334873553824, max block_count: 64681.0, count: 56269"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.194796424318895, max segment_count: 58.0, count: 56269"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5733021879700875, max cpu: 9.458128, count: 56269"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 113.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 104.96185913313725, max mem: 130.125, count: 56269"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.803821148099803, max cpu: 9.533267, count: 56269"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.31853775224812, max mem: 165.703125, count: 56269"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.886869993131057, max cpu: 34.11167, count: 56269"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 178.7984205890455, max mem: 220.7734375, count: 56269"
           }
         ]
       }

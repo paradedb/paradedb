@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767384344591,
+  "lastUpdate": 1767385287681,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27216,6 +27216,54 @@ window.BENCHMARK_DATA = {
             "value": 5.290308798971293,
             "unit": "median tps",
             "extra": "avg tps: 5.313105065435444, max tps: 7.557064175635634, count: 56228"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "45d6d6e9167b280b360858e6b4fb90207bcb0f1a",
+          "message": "fix: `pdb.snippet_positions` return type (#3824)\n\n# Ticket(s) Closed\n\n- Closes #3433\n\n## What\n\nFixed `pdb.snippet_positions` to return proper PostgreSQL 2D integer\narrays (`{{10,14},{15,19}}`) instead of JSON-serialized strings\n(`{\"{10,14}\",\"{15,19}\"}`) that were breaking ORMs and type\nintrospection.\n\n## Why\n\nThe function was declared to return `integer[]`, but the actual data was\nbeing JSON-serialized, causing:\n- ORMs to fail when introspecting the return type\n- Type mismatches in client libraries\n- Inability to use PostgreSQL array operations like `array[i][j]`\nindexing\n\n## How\n\n- Created `IntArray2D` newtype wrapper with custom `IntoDatum`\nimplementation that uses `pg_sys::construct_md_array` to properly\nconstruct 2D PostgreSQL arrays\n- Fixed parameter quoting for reserved keywords (`limit`, `offset`) in\nfunction signatures\n\n## Tests\n\n- Added `snippet_positions_type.sql` regression test verifying correct\ntype introspection and 2D array operations\n- Updated `snippet_position_01_basic.sql` with examples showing array\naccess patterns (`[i][j]` for elements, `[i:i][j:j]` for slices)\n- Regenerated all existing snippet test outputs to reflect proper array\nformat",
+          "timestamp": "2026-01-02T11:31:56-08:00",
+          "tree_id": "1cf6d4fd1dc46f7d8dd6864b0480d357e8dc0f27",
+          "url": "https://github.com/paradedb/paradedb/commit/45d6d6e9167b280b360858e6b4fb90207bcb0f1a"
+        },
+        "date": 1767385284280,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1109.3780406022877,
+            "unit": "median tps",
+            "extra": "avg tps: 1109.4387038716502, max tps: 1146.587469308156, count: 56269"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1246.0458960263638,
+            "unit": "median tps",
+            "extra": "avg tps: 1242.1982230647172, max tps: 1259.1795322529783, count: 56269"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1878.7741827681523,
+            "unit": "median tps",
+            "extra": "avg tps: 1855.5133234147236, max tps: 2030.6498799865626, count: 56269"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.468685605202791,
+            "unit": "median tps",
+            "extra": "avg tps: 5.4817925247168, max tps: 7.054199758740725, count: 56269"
           }
         ]
       }

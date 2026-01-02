@@ -1,0 +1,237 @@
+[[server]]
+name = "WalSender"
+[server.style.With]
+# Template connection string - replace with your actual PostgreSQL connection details
+# Format: postgresql://<USER>:<PASSWORD>@<HOST>:<PORT>/<DATABASE>
+connection_string = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+[server.setup]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    old_message TEXT,
+    unique_id BIGINT UNIQUE
+) WITH (
+    autovacuum_enabled = true,
+    autovacuum_vacuum_scale_factor = 0,
+    autovacuum_vacuum_threshold = 50,
+    autovacuum_vacuum_insert_threshold = 50
+);
+DROP SEQUENCE IF EXISTS test_unique_id_seq;
+CREATE SEQUENCE test_unique_id_seq START 1;
+INSERT INTO test (message, unique_id) VALUES ('beer wine cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer wine a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('wine cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('wine a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer wine cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer wine a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('beer a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('wine cheese a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('wine a', nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('cheese a', nextval('test_unique_id_seq'));
+CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %', a, b;
+    END IF;
+    RETURN true;
+END;
+$$;
+"""
+
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+title = "Index Info Monitor"
+destination = "WalSender"
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+[[server]]
+name = "WalReceiver"
+[server.style.With]
+# Template connection string - replace with your actual PostgreSQL connection details
+# Format: postgresql://<USER>:<PASSWORD>@<HOST>:<PORT>/<DATABASE>
+connection_string = "postgresql://postgres:postgres@localhost:5433/postgres"
+
+[server.setup]
+sql = "SELECT pg_sleep(25)"
+
+[server.teardown]
+sql = ""
+
+[server.monitor]
+refresh_ms = 10
+sql = """
+SELECT segno, visible, recyclable, xmax, num_docs, num_deleted, byte_size
+FROM paradedb.index_info('idxtest', true)
+ORDER BY byte_size DESC;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Size Info"
+destination = "WalSender"
+log_columns = ["pages", "relation_size:MB", "segment_count"]
+log_tps = false
+sql = """
+SELECT count(*) FILTER (WHERE visible)         AS visible,
+       count(*) FILTER (WHERE recyclable)      AS recyclable,
+       count(*)                                AS segment_count,
+       pg_relation_size('idxtest') / 8192      AS pages,
+       pg_relation_size('idxtest')             AS relation_size,
+       pg_size_pretty(pg_relation_size('idxtest'))
+FROM paradedb.index_info('idxtest', true);
+"""
+destinations = ["WalSender", "WalReceiver"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Top N"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET max_parallel_workers = 32;
+"""
+sql = "SELECT * FROM test WHERE id @@@ 'message:beer' ORDER BY id DESC LIMIT 25"
+assert = "11"
+destinations = ["WalSender", "WalReceiver"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+"""
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:beer';
+"""
+destinations = ["WalSender", "WalReceiver"]
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET debug_parallel_query TO ON;
+"""
+sql = """
+SELECT count(*) FROM test WHERE id @@@ 'message:beer';
+"""
+assert = "8"
+destinations = ["WalSender", "WalReceiver"]
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Only Scan"
+on_connect = """
+set max_parallel_workers = 0;
+set paradedb.enable_custom_scan to off;
+"""
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where id @@@ 'message:wine';
+"""
+destinations = ["WalSender", "WalReceiver"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Top N"
+sql = """
+SELECT * FROM test WHERE message @@@ 'wine' OR message @@@ 'beer' ORDER BY old_message LIMIT 5;
+"""
+destinations = ["WalSender", "WalReceiver"]
+
+[[jobs]]
+refresh_ms = 5
+window_height = 10
+log_tps = false
+title = "Find by ctid"
+sql = """
+select ctid::text, id, message, old_message, paradedb.find_ctid('idxtest', ctid) as segment_ids, now()::text, txid_current()::numeric from test where message ilike '%beer%' order by id;
+"""
+# NOTE: Can not be executed on the WalReceiver: pg_current_xact_id is not available.
+destinations = ["WalSender"]
+
+##
+## Mutations: only run on the WalSender.
+##
+
+[[jobs]]
+refresh_ms = 1000
+log_tps = false
+title = "VACUUM"
+sql = """
+VACUUM test;
+"""
+destinations = ["WalSender"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Update 1..9"
+cancel_keycode = 'U'
+sql = """
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id < 10;
+"""
+destinations = ["WalSender"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Update 10,11"
+cancel_keycode = 'U'
+sql = """
+BEGIN;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id IN (10, 11);
+ABORT;
+"""
+destinations = ["WalSender"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Insert value A"
+sql = """
+INSERT INTO test (message, unique_id) VALUES ('A', nextval('test_unique_id_seq'));
+"""
+destinations = ["WalSender"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+title = "Insert value B"
+sql = """
+INSERT INTO test (message, unique_id) VALUES ('B', nextval('test_unique_id_seq'));
+"""
+destinations = ["WalSender"]
+
+[[jobs]]
+refresh_ms = 100
+log_tps = false
+pause_keycode = 'd'
+cancel_keycode = 'D'
+title = "Delete values"
+sql = """
+DELETE FROM test WHERE id > 14;
+"""
+destinations = ["WalSender"]

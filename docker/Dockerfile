@@ -254,6 +254,9 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
+# Reset the working directory to the root directory
+WORKDIR /
+
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
@@ -268,11 +271,12 @@ RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Reset the working directory to the root directory
-WORKDIR /
-
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+
+# Add script to handle core dumps
+COPY ./docker/handle-coredump.sh /usr/local/bin/handle-coredump.sh
+RUN chmod +x /usr/local/bin/handle-coredump.sh
 
 # The upstream `postgres` Docker image comes with its own `entrypoint.sh` script which
 # starts as `root` and then switches to the `postgres` user after running chown and chmod

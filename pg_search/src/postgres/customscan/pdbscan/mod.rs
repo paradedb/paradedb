@@ -1356,6 +1356,94 @@ impl CustomScan for PdbScan {
 /// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
+///
+/// Validates whether a query that should use TopN scan is actually using it.
+///
+/// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
+/// that uses ParadeDB's search operators is using the TopN execution method. If TopN was
+/// expected but not chosen, it logs a warning with diagnostic information to help developers
+/// identify performance issues.
+///
+/// # Performance Note
+/// This function has minimal overhead as it returns early when the GUC is disabled.
+fn validate_topn_expectation(
+    privdata: &PrivateData,
+    topn_pathkey_info: &PathKeyInfo,
+    chosen_method: &ExecMethodType,
+) {
+    // Fast path: if validation is disabled, return immediately
+    if !crate::gucs::check_topn_scan() {
+        return;
+    }
+
+    // Check if this query should be using TopN
+    let has_limit = privdata.limit().is_some();
+    let has_search_query = privdata.query().is_some();
+    let no_group_by = privdata.window_aggregates().is_empty();
+
+    // TopN is expected when we have: LIMIT + search query + no GROUP BY
+    let should_use_topn = has_limit && has_search_query && no_group_by;
+
+    // Check if we actually got TopN
+    let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
+
+    // If there's a mismatch, emit a warning with diagnostic information
+    if should_use_topn && !is_using_topn {
+        let limit = privdata.limit().unwrap();
+        let method_name = match chosen_method {
+            ExecMethodType::Normal => "Normal",
+            ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+            ExecMethodType::TopN { .. } => "TopN",
+        };
+
+        let reason = match topn_pathkey_info {
+            PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => {
+                format!(
+                    "ORDER BY has {} columns but TopN supports maximum {}",
+                    count, max
+                )
+            }
+            PathKeyInfo::Unusable(UnusableReason::PrefixOnly { matched, total }) => {
+                format!(
+                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                    matched, total
+                )
+            }
+            PathKeyInfo::Unusable(UnusableReason::NotSortable) => {
+                "ORDER BY columns cannot be pushed down to the index".to_string()
+            }
+            PathKeyInfo::UsablePrefix(matched) => {
+                format!(
+                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                    matched.len(),
+                    privdata
+                        .maybe_orderby_info()
+                        .as_ref()
+                        .map_or(0, |o| o.len()),
+                )
+            }
+            PathKeyInfo::None => {
+                // This case should normally use TopN with no ordering
+                "unknown reason (no pathkeys but should still use TopN)".to_string()
+            }
+            PathKeyInfo::UsableAll(_) => "unknown reason (pathkeys are usable)".to_string(),
+        };
+
+        pgrx::warning!(
+            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+             Reason: {}. \
+             This may cause poor performance on large datasets. \
+             Consider: (1) ensuring ORDER BY columns are indexed with fast=true, \
+             (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), \
+             or (3) reducing ORDER BY columns to {} or fewer.",
+            limit,
+            method_name,
+            reason,
+            MAX_TOPN_FEATURES
+        );
+    }
+}
+
 fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
@@ -1383,15 +1471,20 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
     }
 
     // Otherwise, see if we can use a fast fields method.
-    if fast_fields::is_mixed_fast_field_capable(privdata) {
-        return ExecMethodType::FastFieldMixed {
+    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
+        ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-        };
-    }
+        }
+    } else {
+        // Else, fall back to normal execution
+        ExecMethodType::Normal
+    };
 
-    // Else, fall back to normal execution
-    ExecMethodType::Normal
+    // Validate TopN expectations before returning
+    validate_topn_expectation(privdata, topn_pathkey_info, &chosen);
+
+    chosen
 }
 
 ///
@@ -1677,12 +1770,23 @@ unsafe fn replace_window_agg_with_const(
     (node, None)
 }
 
+/// Reason why pathkeys cannot be used for TopN execution
+#[derive(Debug, Clone)]
+pub enum UnusableReason {
+    /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
+    TooManyColumns { count: usize, max: usize },
+    /// Only a prefix of the ORDER BY columns can be pushed down
+    PrefixOnly { matched: usize, total: usize },
+    /// Columns are not indexed with fast=true or not sortable
+    NotSortable,
+}
+
 #[derive(Debug, Clone)]
 pub enum PathKeyInfo {
     /// There are no PathKeys at all.
     None,
     /// There were PathKeys, but we cannot execute them.
-    Unusable,
+    Unusable(UnusableReason),
     /// There were PathKeys, but we can only execute a non-empty prefix of them.
     UsablePrefix(Vec<OrderByStyle>),
     /// There are some PathKeys, and we can execute all of them.
@@ -1693,7 +1797,7 @@ impl PathKeyInfo {
     pub fn is_usable(&self) -> bool {
         match self {
             PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
-            PathKeyInfo::None | PathKeyInfo::Unusable => false,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => false,
         }
     }
 
@@ -1702,7 +1806,7 @@ impl PathKeyInfo {
             PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
                 Some(pathkeys)
             }
-            PathKeyInfo::None | PathKeyInfo::Unusable => None,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => None,
         }
     }
 }
@@ -1730,16 +1834,22 @@ unsafe fn pullup_topn_pathkeys(
             // MAX_TOPN_FEATURES order-by clauses.
             PathKeyInfo::UsableAll(styles)
         }
-        PathKeyInfo::UsableAll(_) => {
+        PathKeyInfo::UsableAll(ref styles) => {
             // Too many pathkeys were extracted.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::TooManyColumns {
+                count: styles.len(),
+                max: MAX_TOPN_FEATURES,
+            })
         }
-        PathKeyInfo::UsablePrefix(_) => {
+        PathKeyInfo::UsablePrefix(ref prefix) => {
             // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
             // the suffix of the pathkey comes into play.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
+                matched: prefix.len(),
+                total: prefix.len(), // We only know the prefix length at this point
+            })
         }
-        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable) => pki,
+        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable(_)) => pki,
     }
 }
 
@@ -1855,7 +1965,7 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
-                return PathKeyInfo::Unusable;
+                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);
             }

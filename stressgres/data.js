@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767444345705,
+  "lastUpdate": 1767445266939,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27546,6 +27546,54 @@ window.BENCHMARK_DATA = {
             "value": 5.468685605202791,
             "unit": "median tps",
             "extra": "avg tps: 5.4817925247168, max tps: 7.054199758740725, count: 56269"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b599bb8f47b4182720644cfde2f40a12c8af1a9",
+          "message": "fix: Adjust path for stressgres suite in Antithesis (#3846)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nFailed with this error:\nhttps://paradedb.antithesis.com/report/RDW8aykxk9kFseDQsxdl5zKL/tsCrttq9RIh35meILTjA6uim8E4sHuar7lrA1JJaqlw.html?auth=v2.public.eyJuYmYiOiIyMDI2LTAxLTAyVDIxOjQyOjMzLjk1MTc2NDY3MloiLCJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoidHNDcnR0cTlSSWgzNW1lSUxUakE2dWltOEU0c0h1YXI3bHJBMUpKYXFsdy5odG1sIiwicmVwb3J0X2lkIjoiUkRXOGF5a3hrOWtGc2VEUXN4ZGw1ektMIn19fWuZl-GXYNcoS3OLx_pMNm__TYsjXrxTCUaXbHzoGanlT1La2JNz9sHy6M3f4tN0nv43N-IW2cIPKRChwOzQrAw\n\nFixing the path should ensure it can find the suite now that we moved\nStressgres into the monorepo.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-03T07:09:56-05:00",
+          "tree_id": "948e3fb35ed578d6fd229b79edee5513a2b637bb",
+          "url": "https://github.com/paradedb/paradedb/commit/6b599bb8f47b4182720644cfde2f40a12c8af1a9"
+        },
+        "date": 1767445263764,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1130.8128573384286,
+            "unit": "median tps",
+            "extra": "avg tps: 1135.3758796911152, max tps: 1191.4678428650302, count: 56643"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1192.4526285975198,
+            "unit": "median tps",
+            "extra": "avg tps: 1191.2497983486442, max tps: 1278.9652700306233, count: 56643"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1895.299677963858,
+            "unit": "median tps",
+            "extra": "avg tps: 1873.8669446891936, max tps: 2059.2317320805687, count: 56643"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.582628346379968,
+            "unit": "median tps",
+            "extra": "avg tps: 5.570076410919143, max tps: 6.726697486398963, count: 56643"
           }
         ]
       }

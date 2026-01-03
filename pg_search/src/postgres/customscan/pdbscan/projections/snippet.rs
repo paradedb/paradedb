@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -111,7 +111,7 @@ impl SnippetType {
         match self {
             SnippetType::SingleText(_, _, _) => pg_sys::TEXTOID,
             SnippetType::MultipleText(_, _, _, _) => pg_sys::TEXTARRAYOID,
-            SnippetType::Positions(_, _) => pg_sys::INT4ARRAYOID,
+            SnippetType::Positions(_, _) => pg_sys::INT4ARRAYOID, // integer[][]
         }
     }
 
@@ -173,8 +173,91 @@ struct Context<'a> {
 }
 
 #[pgrx::pg_schema]
-mod pdb {
-    use pgrx::{default, pg_extern, AnyElement};
+pub mod pdb {
+    use pgrx::callconv::{BoxRet, FcInfo};
+    use pgrx::datum::Datum;
+    use pgrx::pgrx_sql_entity_graph::metadata::{
+        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    };
+    use pgrx::{default, pg_extern, pg_sys, AnyElement, IntoDatum};
+
+    // Newtype wrapper for Vec<Vec<i32>> to implement custom IntoDatum
+    // This ensures it serializes as a proper 2D PostgreSQL integer array
+    // instead of an array of JSON strings.
+    //
+    // Note: PostgreSQL doesn't differentiate between integer[] and integer[][]
+    // at the type level - both are represented as integer[] (internally _int4).
+    // The difference is in the array dimensions metadata stored with each value.
+    #[repr(transparent)]
+    #[derive(Clone)]
+    pub struct IntArray2D(pub Vec<Vec<i32>>);
+
+    impl IntoDatum for IntArray2D {
+        fn into_datum(self) -> Option<pg_sys::Datum> {
+            if self.0.is_empty() {
+                return Some(pg_sys::Datum::from(
+                    std::ptr::null_mut::<pg_sys::ArrayType>(),
+                ));
+            }
+
+            unsafe {
+                // Flatten the 2D array and collect dimensions
+                let mut datums: Vec<pg_sys::Datum> = Vec::new();
+                let mut nulls: Vec<bool> = Vec::new();
+
+                let outer_len = self.0.len();
+                let inner_len = if outer_len > 0 { self.0[0].len() } else { 0 };
+
+                for row in &self.0 {
+                    for &val in row {
+                        datums.push(val.into_datum().unwrap());
+                        nulls.push(false);
+                    }
+                }
+
+                // Set up dimensions: [outer_dim, inner_dim]
+                let dims = [outer_len as i32, inner_len as i32];
+                let lbs = [1i32, 1i32]; // Lower bounds are 1 for PostgreSQL arrays
+
+                // Construct the 2D array using pg_sys::construct_md_array
+                let array_datum = pg_sys::construct_md_array(
+                    datums.as_mut_ptr(),
+                    nulls.as_mut_ptr(),
+                    2, // ndims (2D array)
+                    dims.as_ptr() as *mut i32,
+                    lbs.as_ptr() as *mut i32,
+                    pg_sys::INT4OID, // element type OID (integer)
+                    4,               // typlen (int4 is 4 bytes)
+                    true,            // typbyval (int4 is passed by value)
+                    pg_sys::TYPALIGN_INT.try_into().unwrap(), // typalign (char type, architecture-specific)
+                );
+
+                Some(pg_sys::Datum::from(array_datum))
+            }
+        }
+
+        fn type_oid() -> pg_sys::Oid {
+            pg_sys::INT4ARRAYOID
+        }
+    }
+
+    unsafe impl SqlTranslatable for IntArray2D {
+        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
+            Ok(SqlMapping::As(String::from("integer[]")))
+        }
+
+        fn return_sql() -> Result<Returns, ReturnsError> {
+            Ok(Returns::One(SqlMapping::As(String::from("integer[]"))))
+        }
+    }
+
+    unsafe impl BoxRet for IntArray2D {
+        unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> Datum<'fcx> {
+            self.into_datum()
+                .map(|datum| fcinfo.return_raw_datum(datum))
+                .unwrap_or_else(Datum::null)
+        }
+    }
 
     #[pg_extern(name = "snippet", stable, parallel_safe)]
     fn snippet_from_relation(
@@ -201,12 +284,26 @@ mod pdb {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
-    #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+    #[pg_extern(
+        name = "snippet_positions",
+        stable,
+        parallel_safe,
+        sql = r#"
+CREATE OR REPLACE FUNCTION "pdb"."snippet_positions"(
+    "field" anyelement,
+    "limit" INT DEFAULT NULL,
+    "offset" INT DEFAULT NULL
+) RETURNS integer[]  -- Note: PostgreSQL doesn't distinguish integer[] from integer[][] at the type level
+STABLE PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
+"#
+    )]
     fn snippet_positions_from_relation(
-        field: AnyElement,
-        limit: default!(Option<i32>, "NULL"),
-        offset: default!(Option<i32>, "NULL"),
-    ) -> Vec<Vec<i32>> {
+        _field: AnyElement,
+        _limit: default!(Option<i32>, "NULL"),
+        _offset: default!(Option<i32>, "NULL"),
+    ) -> IntArray2D {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 }
@@ -241,12 +338,26 @@ fn paradedb_snippets_from_relation(
 }
 
 #[warn(deprecated)]
-#[pg_extern(name = "snippet_positions", stable, parallel_safe)]
+#[pg_extern(
+    name = "snippet_positions",
+    stable,
+    parallel_safe,
+    sql = r#"
+CREATE OR REPLACE FUNCTION "paradedb"."snippet_positions"(
+    "field" anyelement,
+    "limit" INT DEFAULT NULL,
+    "offset" INT DEFAULT NULL
+) RETURNS integer[]
+STABLE PARALLEL SAFE
+LANGUAGE c
+AS 'MODULE_PATHNAME', 'paradedb_snippet_positions_from_relation_wrapper';
+"#
+)]
 fn paradedb_snippet_positions_from_relation(
-    field: AnyElement,
-    limit: default!(Option<i32>, "NULL"),
-    offset: default!(Option<i32>, "NULL"),
-) -> Option<Vec<Vec<i32>>> {
+    _field: AnyElement,
+    _limit: default!(Option<i32>, "NULL"),
+    _offset: default!(Option<i32>, "NULL"),
+) -> pdb::IntArray2D {
     panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 

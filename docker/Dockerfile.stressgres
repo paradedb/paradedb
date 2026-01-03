@@ -1,0 +1,55 @@
+# RESOURCE RECOMMENDATIONS:
+# - Minimum 2GB memory limit for compilation
+# - Minimum 1 CPU core for compilation
+#
+# Use in Kubernetes with resource limits:
+#   resources:
+#     requests:
+#       memory: "2Gi"
+#       cpu: "1000m"
+#     limits:
+#       memory: "4Gi"
+#       cpu: "2000m"
+
+FROM rust:1.90.0-slim-trixie
+
+# Install build and runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libpq-dev \
+    libssl-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libfontconfig1-dev \
+    ca-certificates \
+    postgresql-client \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd --create-home --shell /bin/bash app
+
+# Set working directory
+WORKDIR /home/app
+
+# Copy the entire paradedb/paradedb source code
+COPY --chown=app:app . .
+
+# Configure Antithesis test singletons
+RUN mkdir -p /opt/antithesis/test/v1/quickstart
+COPY stressgres/suites/antithesis/ /opt/antithesis/test/v1/quickstart/
+
+# Switch to app user
+USER app
+
+# Set environment variables
+ENV RUST_LOG=info
+ENV PGCLIENTENCODING=UTF8
+
+# Prefetch deps and build Stressgres while we have Internet. This Docker image
+# will be run in an air-gapped environment in Antithesis
+RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
+    cargo build --offline --release --manifest-path /home/app/Cargo.toml -p stressgres
+
+CMD ["sleep", "infinity"]

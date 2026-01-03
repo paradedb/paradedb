@@ -2,7 +2,7 @@
 #
 # Benchmark pg_search - Stressgres
 # Run our Stressgres stress testing tool against pg_search on the
-# testing suites specificed in .github/stressgres.
+# testing suites specificed in stressgres/suites/.
 
 name: Benchmark pg_search - Stressgres
 
@@ -14,7 +14,7 @@ on:
       # TODO: We do not run for release branch pushes, because we do not currently sort our graphs
       # or PR comments by the git-graph. See https://github.com/paradedb/paradedb/issues/3769
     paths:
-      - ".github/stressgres/**"
+      - "stressgres/suites/**"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
@@ -216,18 +216,9 @@ jobs:
       - name: Compile & install pg_search extension
         run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }} --no-default-features
 
-      - name: Checkout Stressgres Repo
-        uses: actions/checkout@v6
-        with:
-          repository: paradedb/stressgres
-          path: stressgres
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-
-      - name: Install the stressgres CLI tool
-        run: cd stressgres && CARGO_TARGET_DIR=../target/ cargo install --path .
-
-      - name: Remove stressgres repo
-        run: rm -rf stressgres
+      - name: Install the Stressgres CLI tool
+        working-directory: stressgres/
+        run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml

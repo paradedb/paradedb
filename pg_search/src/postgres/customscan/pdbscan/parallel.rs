@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -55,7 +55,7 @@ impl ParallelQueryCapable for PdbScan {
         unsafe {
             let pscan_state = coordinate.cast::<ParallelScanState>();
             assert!(!pscan_state.is_null(), "coordinate is null");
-            (*pscan_state).init(args);
+            (*pscan_state).create_and_populate(args);
             state.custom_state_mut().parallel_state = Some(pscan_state);
         }
     }

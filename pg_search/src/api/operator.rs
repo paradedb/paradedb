@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -418,12 +418,15 @@ pub unsafe fn field_name_from_node(
                 }
 
                 // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
+                // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
                 if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-                    let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                    if args.len() == 1 {
-                        if let Some(arg) = args.get_ptr(0) {
-                            reduced_expression = arg.cast();
-                            continue;
+                    if type_is_alias((*func).funcresulttype) {
+                        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+                        if args.len() == 1 {
+                            if let Some(arg) = args.get_ptr(0) {
+                                reduced_expression = arg.cast();
+                                continue;
+                            }
                         }
                     }
                 }

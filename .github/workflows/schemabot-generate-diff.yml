@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch the entire history
 
       - name: Extract pgrx Version
         id: pgrx

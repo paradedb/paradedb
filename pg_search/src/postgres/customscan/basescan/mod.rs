@@ -1421,20 +1421,20 @@ fn validate_topn_expectation(
         };
 
         let reason = match topn_pathkey_info {
-            PathKeyInfo::Unusable => {
-                if let Some(orderby) = privdata.maybe_orderby_info() {
-                    if orderby.len() > MAX_TOPN_FEATURES {
-                        format!(
-                            "ORDER BY has {} columns but TopN supports maximum {}",
-                            orderby.len(),
-                            MAX_TOPN_FEATURES
-                        )
-                    } else {
-                        "ORDER BY columns cannot be pushed down to the index".to_string()
-                    }
-                } else {
-                    "pathkeys are unusable".to_string()
-                }
+            PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => {
+                format!(
+                    "ORDER BY has {} columns but TopN supports maximum {}",
+                    count, max
+                )
+            }
+            PathKeyInfo::Unusable(UnusableReason::PrefixOnly { matched, total }) => {
+                format!(
+                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                    matched, total
+                )
+            }
+            PathKeyInfo::Unusable(UnusableReason::NotSortable) => {
+                "ORDER BY columns cannot be pushed down to the index".to_string()
             }
             PathKeyInfo::UsablePrefix(matched) => {
                 format!(
@@ -1794,12 +1794,23 @@ unsafe fn replace_window_agg_with_const(
     (node, None)
 }
 
+/// Reason why pathkeys cannot be used for TopN execution
+#[derive(Debug, Clone)]
+pub enum UnusableReason {
+    /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
+    TooManyColumns { count: usize, max: usize },
+    /// Only a prefix of the ORDER BY columns can be pushed down
+    PrefixOnly { matched: usize, total: usize },
+    /// Columns are not indexed with fast=true or not sortable
+    NotSortable,
+}
+
 #[derive(Debug, Clone)]
 pub enum PathKeyInfo {
     /// There are no PathKeys at all.
     None,
     /// There were PathKeys, but we cannot execute them.
-    Unusable,
+    Unusable(UnusableReason),
     /// There were PathKeys, but we can only execute a non-empty prefix of them.
     UsablePrefix(Vec<OrderByStyle>),
     /// There are some PathKeys, and we can execute all of them.
@@ -1810,7 +1821,7 @@ impl PathKeyInfo {
     pub fn is_usable(&self) -> bool {
         match self {
             PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
-            PathKeyInfo::None | PathKeyInfo::Unusable => false,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => false,
         }
     }
 
@@ -1819,7 +1830,7 @@ impl PathKeyInfo {
             PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
                 Some(pathkeys)
             }
-            PathKeyInfo::None | PathKeyInfo::Unusable => None,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => None,
         }
     }
 }
@@ -1847,16 +1858,22 @@ unsafe fn pullup_topn_pathkeys(
             // MAX_TOPN_FEATURES order-by clauses.
             PathKeyInfo::UsableAll(styles)
         }
-        PathKeyInfo::UsableAll(_) => {
+        PathKeyInfo::UsableAll(ref styles) => {
             // Too many pathkeys were extracted.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::TooManyColumns {
+                count: styles.len(),
+                max: MAX_TOPN_FEATURES,
+            })
         }
-        PathKeyInfo::UsablePrefix(_) => {
+        PathKeyInfo::UsablePrefix(ref prefix) => {
             // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
             // the suffix of the pathkey comes into play.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
+                matched: prefix.len(),
+                total: prefix.len(), // We only know the prefix length at this point
+            })
         }
-        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable) => pki,
+        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable(_)) => pki,
     }
 }
 
@@ -1972,7 +1989,7 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
-                return PathKeyInfo::Unusable;
+                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);
             }

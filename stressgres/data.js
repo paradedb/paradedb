@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767443414078,
+  "lastUpdate": 1767443418714,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15858,6 +15858,126 @@ window.BENCHMARK_DATA = {
             "value": 50.26953125,
             "unit": "median mem",
             "extra": "avg mem: 50.029605352426096, max mem: 61.77734375, count: 55274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b599bb8f47b4182720644cfde2f40a12c8af1a9",
+          "message": "fix: Adjust path for stressgres suite in Antithesis (#3846)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nFailed with this error:\nhttps://paradedb.antithesis.com/report/RDW8aykxk9kFseDQsxdl5zKL/tsCrttq9RIh35meILTjA6uim8E4sHuar7lrA1JJaqlw.html?auth=v2.public.eyJuYmYiOiIyMDI2LTAxLTAyVDIxOjQyOjMzLjk1MTc2NDY3MloiLCJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoidHNDcnR0cTlSSWgzNW1lSUxUakE2dWltOEU0c0h1YXI3bHJBMUpKYXFsdy5odG1sIiwicmVwb3J0X2lkIjoiUkRXOGF5a3hrOWtGc2VEUXN4ZGw1ektMIn19fWuZl-GXYNcoS3OLx_pMNm__TYsjXrxTCUaXbHzoGanlT1La2JNz9sHy6M3f4tN0nv43N-IW2cIPKRChwOzQrAw\n\nFixing the path should ensure it can find the suite now that we moved\nStressgres into the monorepo.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-03T07:09:56-05:00",
+          "tree_id": "948e3fb35ed578d6fd229b79edee5513a2b637bb",
+          "url": "https://github.com/paradedb/paradedb/commit/6b599bb8f47b4182720644cfde2f40a12c8af1a9"
+        },
+        "date": 1767443415296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.404903501330294, max cpu: 18.991098, count: 55334"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 58.17314421004717, max mem: 69.4453125, count: 55334"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663949460981145, max cpu: 9.347614, count: 55334"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.26725614563379, max mem: 35.7109375, count: 55334"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.33596475064526, max cpu: 18.58664, count: 55334"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.508928662192325, max mem: 69.75390625, count: 55334"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605896067815815, max cpu: 9.467456, count: 55334"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.439284758240866, max mem: 69.34765625, count: 55334"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.573363242442495, max cpu: 9.67742, count: 110668"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.283474276665345, max mem: 57.41796875, count: 110668"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1794.5,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1803.3171648534355, max block_count: 3193.0, count: 55334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.576426790038674, max segment_count: 17.0, count: 55334"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.566196492061681, max cpu: 9.29332, count: 55334"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.83388533157733, max mem: 59.81640625, count: 55334"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.864167224764149, max cpu: 4.8144436, count: 55334"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.700189276710525, max mem: 61.953125, count: 55334"
           }
         ]
       }

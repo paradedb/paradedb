@@ -22,7 +22,9 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 
 use serde::{Deserialize, Serialize};
+use tantivy::collector::ComparableDoc;
 use tantivy::columnar::StrColumn;
+use tantivy::columnar::ValueRange;
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::SegmentOrdinal;
@@ -242,11 +244,11 @@ impl FFType {
     ///
     /// The given `output` slice must be the same length as the docs slice.
     #[inline(always)]
-    pub fn as_u64s(&self, docs: &[DocId], output: &mut [Option<u64>]) {
+    pub fn as_u64s(&self, docs: &[DocId], output: &mut Vec<ComparableDoc<Option<u64>, DocId>>) {
         let FFType::U64(ff) = self else {
             panic!("Expected a u64 column.");
         };
-        ff.first_vals(docs, output);
+        ff.first_vals_in_value_range(docs, output, ValueRange::All);
     }
 }
 

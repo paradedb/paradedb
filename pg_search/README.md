@@ -47,18 +47,6 @@ This enables the extension to spawn a background worker process that performs wr
 
 We provide prebuilt binaries for Debian-based Linux for Postgres 14+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
-Our prebuilt binaries come with the ICU tokenizer enabled, which requires the `libicu` library. If you don't have it installed, you can do so with:
-
-```bash
-# Ubuntu 20.04 or 22.04
-sudo apt-get install -y libicu70
-
-# Ubuntu 24.04
-sudo apt-get install -y libicu74
-```
-
-Or, you can compile the extension from source without `--features icu` to build without the ICU tokenizer.
-
 #### RHEL/Rocky and Other Linux Distributions Using Pigsty
 
 - `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
@@ -179,41 +167,6 @@ sudo PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config make install # may need sudo
 PG_CONFIG=/usr/bin/pg_config make
 sudo PG_CONFIG=/usr/bin/pg_config make install # may need sudo
 ```
-
-#### ICU Tokenizer
-
-`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, Czech and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
-
-Ensure that the `libicu` library is installed. It should come preinstalled on most distros, but you can install it with your system package manager if it isn't:
-
-```bash
-# macOS
-brew install icu4c
-
-# Ubuntu 20.04
-sudo apt-get install -y libicu66
-
-# Ubuntu 22.04
-sudo apt-get install -y libicu70
-
-# Ubuntu 24.04
-sudo apt-get install -y libicu74
-
-# Arch Linux
-sudo pacman -S core/icu
-```
-
-Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:
-
-```bash
-# ARM macOS
-export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
-
-# Intel macOS
-export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
-```
-
-Finally, to enable the ICU tokenizer in development, pass `--features icu` to the `cargo pgrx run` and `cargo pgrx test` commands.
 
 ### Running the Extension
 

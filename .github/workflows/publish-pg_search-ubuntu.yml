@@ -182,7 +182,7 @@ jobs:
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
         run: |

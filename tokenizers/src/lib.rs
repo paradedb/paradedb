@@ -18,7 +18,6 @@
 pub mod chinese_convert;
 pub mod cjk;
 pub mod code;
-#[cfg(feature = "icu")]
 pub mod icu;
 pub mod jieba;
 pub mod lindera;

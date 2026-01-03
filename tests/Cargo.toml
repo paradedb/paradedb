@@ -8,8 +8,6 @@ license = { workspace = true }
 [lib]
 crate-type = ["rlib"]
 
-[features]
-icu = ["tokenizers/icu"]
 
 [dependencies]
 

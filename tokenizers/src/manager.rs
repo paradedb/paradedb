@@ -18,7 +18,6 @@
 
 use std::fmt::Write;
 
-#[cfg(feature = "icu")]
 use crate::icu::ICUTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
@@ -332,7 +331,6 @@ pub enum SearchTokenizer {
     ChineseLindera(SearchTokenizerFilters),
     JapaneseLindera(SearchTokenizerFilters),
     KoreanLindera(SearchTokenizerFilters),
-    #[cfg(feature = "icu")]
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba {
@@ -419,7 +417,6 @@ impl SearchTokenizer {
             "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera(filters)),
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
-            #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -521,7 +518,6 @@ impl SearchTokenizer {
             | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
                 add_filters!(LinderaKoreanTokenizer::default(), filters)
             }
-            #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
             }
@@ -575,7 +571,6 @@ impl SearchTokenizer {
             SearchTokenizer::JapaneseLindera(filters) => filters,
             SearchTokenizer::KoreanLindera(filters) => filters,
             SearchTokenizer::Lindera(_, filters) => filters,
-            #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
@@ -646,7 +641,6 @@ impl SearchTokenizer {
                 LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
             }
-            #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,

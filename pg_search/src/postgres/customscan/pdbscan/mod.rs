@@ -537,9 +537,33 @@ impl CustomScan for PdbScan {
 
             // Check if this is a partial index and if the query is compatible with it
             if !bm25_index.rd_indpred.is_null() {
-                // This is a partial index - we need to check if the query can be satisfied by it
-                if !quals.is_query_compatible_with_partial_index() {
-                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                // This is a partial index - we need to check if the query predicates
+                // imply the partial index predicate using PostgreSQL's predicate_implied_by.
+                //
+                // For example:
+                // - Partial index: WHERE deleted_at IS NULL
+                // - Query: WHERE deleted_at IS NULL AND category_id = 5
+                // - predicate_implied_by(index_pred, query_clauses) returns true
+                //
+                // But:
+                // - Partial index: WHERE category = 'Electronics'
+                // - Query: WHERE description @@@ 'Apple' AND rating >= 4
+                // - predicate_implied_by returns false (query doesn't imply category = 'Electronics')
+
+                // Extract the restriction clauses as a list of Expr nodes
+                let mut clause_list: *mut pg_sys::List = std::ptr::null_mut();
+                for ri in restrict_info.iter_ptr() {
+                    clause_list =
+                        pg_sys::lappend(clause_list, (*ri).clause as *mut std::ffi::c_void);
+                }
+
+                // Check if query clauses imply the partial index predicate
+                let is_compatible =
+                    pg_sys::predicate_implied_by(bm25_index.rd_indpred, clause_list, false);
+
+                if !is_compatible {
+                    // The query predicates don't imply the partial index predicate,
+                    // so we cannot safely use this partial index
                     return None;
                 }
             }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767445266939,
+  "lastUpdate": 1767445271423,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35662,6 +35662,108 @@ window.BENCHMARK_DATA = {
             "value": 160.296875,
             "unit": "median mem",
             "extra": "avg mem: 178.7984205890455, max mem: 220.7734375, count: 56269"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b599bb8f47b4182720644cfde2f40a12c8af1a9",
+          "message": "fix: Adjust path for stressgres suite in Antithesis (#3846)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nFailed with this error:\nhttps://paradedb.antithesis.com/report/RDW8aykxk9kFseDQsxdl5zKL/tsCrttq9RIh35meILTjA6uim8E4sHuar7lrA1JJaqlw.html?auth=v2.public.eyJuYmYiOiIyMDI2LTAxLTAyVDIxOjQyOjMzLjk1MTc2NDY3MloiLCJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoidHNDcnR0cTlSSWgzNW1lSUxUakE2dWltOEU0c0h1YXI3bHJBMUpKYXFsdy5odG1sIiwicmVwb3J0X2lkIjoiUkRXOGF5a3hrOWtGc2VEUXN4ZGw1ektMIn19fWuZl-GXYNcoS3OLx_pMNm__TYsjXrxTCUaXbHzoGanlT1La2JNz9sHy6M3f4tN0nv43N-IW2cIPKRChwOzQrAw\n\nFixing the path should ensure it can find the suite now that we moved\nStressgres into the monorepo.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-03T07:09:56-05:00",
+          "tree_id": "948e3fb35ed578d6fd229b79edee5513a2b637bb",
+          "url": "https://github.com/paradedb/paradedb/commit/6b599bb8f47b4182720644cfde2f40a12c8af1a9"
+        },
+        "date": 1767445268141,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07785604576028812, max background_merging: 2.0, count: 56643"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.670704665264066, max cpu: 9.552238, count: 56643"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.53881092434193, max mem: 23.55078125, count: 56643"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.936236761796776, max cpu: 13.953489, count: 56643"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 164.67598682758683, max mem: 166.09375, count: 56643"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65350,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65268.66248256625, max block_count: 65350.0, count: 56643"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.0278940027894, max segment_count: 59.0, count: 56643"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5550756607558185, max cpu: 9.590409, count: 56643"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 112.00502627200184, max mem: 137.89453125, count: 56643"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.742359366979343, max cpu: 9.495549, count: 56643"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.35377875189786, max mem: 165.48828125, count: 56643"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.832743252104116, max cpu: 33.905144, count: 56643"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.5404443041285, max mem: 220.64453125, count: 56643"
           }
         ]
       }

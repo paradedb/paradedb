@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767445271423,
+  "lastUpdate": 1767446162412,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40076,6 +40076,60 @@ window.BENCHMARK_DATA = {
             "value": 15.385507850699215,
             "unit": "median tps",
             "extra": "avg tps: 15.567344284389279, max tps: 20.586538902763415, count: 55450"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b599bb8f47b4182720644cfde2f40a12c8af1a9",
+          "message": "fix: Adjust path for stressgres suite in Antithesis (#3846)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nFailed with this error:\nhttps://paradedb.antithesis.com/report/RDW8aykxk9kFseDQsxdl5zKL/tsCrttq9RIh35meILTjA6uim8E4sHuar7lrA1JJaqlw.html?auth=v2.public.eyJuYmYiOiIyMDI2LTAxLTAyVDIxOjQyOjMzLjk1MTc2NDY3MloiLCJzY29wZSI6eyJSZXBvcnRTY29wZVYxIjp7ImFzc2V0IjoidHNDcnR0cTlSSWgzNW1lSUxUakE2dWltOEU0c0h1YXI3bHJBMUpKYXFsdy5odG1sIiwicmVwb3J0X2lkIjoiUkRXOGF5a3hrOWtGc2VEUXN4ZGw1ektMIn19fWuZl-GXYNcoS3OLx_pMNm__TYsjXrxTCUaXbHzoGanlT1La2JNz9sHy6M3f4tN0nv43N-IW2cIPKRChwOzQrAw\n\nFixing the path should ensure it can find the suite now that we moved\nStressgres into the monorepo.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^\n\n---------\n\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-03T07:09:56-05:00",
+          "tree_id": "948e3fb35ed578d6fd229b79edee5513a2b637bb",
+          "url": "https://github.com/paradedb/paradedb/commit/6b599bb8f47b4182720644cfde2f40a12c8af1a9"
+        },
+        "date": 1767446159195,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.221441051428336,
+            "unit": "median tps",
+            "extra": "avg tps: 31.128262713332862, max tps: 36.24162262126175, count: 55502"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.7136758051068,
+            "unit": "median tps",
+            "extra": "avg tps: 267.52191027020376, max tps: 2645.0283971738877, count: 55502"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1833.6239354271797,
+            "unit": "median tps",
+            "extra": "avg tps: 1829.405389966296, max tps: 2228.176574752348, count: 55502"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.39464821374082,
+            "unit": "median tps",
+            "extra": "avg tps: 196.2093955266371, max tps: 1660.5967006716926, count: 111004"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.226573715916734,
+            "unit": "median tps",
+            "extra": "avg tps: 14.281631425321947, max tps: 20.98492669503437, count: 55502"
           }
         ]
       }

@@ -68,7 +68,7 @@ pub fn tokenizer(
     language: default!(Option<String>, "NULL"),
     pattern: default!(Option<String>, "NULL"),
     stemmer: default!(Option<String>, "NULL"),
-    stopwords_language: default!(Option<String>, "NULL"),
+    stopwords_language: default!(Option<Vec<String>>, "NULL"),
     stopwords: default!(Option<Vec<String>>, "NULL"),
     ascii_folding: default!(Option<bool>, "NULL"),
 ) -> JsonB {
@@ -80,7 +80,12 @@ pub fn tokenizer(
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
     stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
-    stopwords_language.map(|v| config.insert("stopwords_language".to_string(), Value::String(v)));
+    stopwords_language.map(|v| {
+        config.insert(
+            "stopwords_language".to_string(),
+            Value::Array(v.into_iter().map(Value::String).collect()),
+        )
+    });
     stopwords.map(|v| {
         config.insert(
             "stopwords".to_string(),

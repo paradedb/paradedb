@@ -25,43 +25,126 @@ CREATE INDEX idx_multi_stopwords_bm25 ON test_multi_stopwords
         "content": {"tokenizer": {"type": "default", "stopwords_language": ["English", "French"]}}
     }'
 );
-ERROR:  field config should be valid for SearchFieldConfig::content: stopwords_language tokenizer requires a valid 'stopwords_language' field: invalid type: sequence, expected string or map
 -- Test 1: Search for English stopword "the" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"the","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id | content 
+----+---------
+(0 rows)
+
 -- Test 2: Search for French stopword "le" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"le","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id | content 
+----+---------
+(0 rows)
+
 -- Test 3: Search for non-stopword "quick" - should return rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"quick","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id |                    content                    
+----+-----------------------------------------------
+  1 | the quick brown fox
+  5 | quick renard
+  7 | the quick fox le renard and et lazy paresseux
+(3 rows)
+
 -- Test 4: Search for non-stopword "renard" - should return rows  
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"renard","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id |                    content                    
+----+-----------------------------------------------
+  2 | le renard brun rapide
+  5 | quick renard
+  7 | the quick fox le renard and et lazy paresseux
+(3 rows)
+
 -- Test 5: Search for English stopword "and" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"and","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id | content 
+----+---------
+(0 rows)
+
 -- Test 6: Search for French stopword "et" - should return 0 rows (filtered)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_multi_stopwords
+   Output: id, content
+   Table: test_multi_stopwords
+   Index: idx_multi_stopwords_bm25
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"et","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
-ERROR:  `test_multi_stopwords` does not contain a `USING bm25` index
+ id | content 
+----+---------
+(0 rows)
+
 -- Clean up
 DROP TABLE test_multi_stopwords;
 -- Test single language still works (backwards compatibility)

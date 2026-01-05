@@ -16,6 +16,34 @@ pub enum VarContext {
     Exec(pg_sys::Oid),
 }
 
+/// Resolves an RTE_GROUP reference to its underlying Var.
+///
+/// In PostgreSQL 18+, GROUP BY creates a synthetic RTE_GROUP entry that wraps grouped columns.
+/// This function extracts the underlying Var from the group expression list.
+///
+/// Returns `Some(var)` if:
+/// - The varattno is valid (> 0)
+/// - The groupexprs list is not null
+/// - The expression at that position contains exactly one Var
+///
+/// Returns `None` otherwise, indicating the resolution should fall back to InvalidOid.
+#[cfg(feature = "pg18")]
+pub(crate) unsafe fn resolve_rte_group_var(
+    rte: *mut pg_sys::RangeTblEntry,
+    varattno: pg_sys::AttrNumber,
+) -> Option<*mut pg_sys::Var> {
+    // PG18: grouped columns are stored in rte->groupexprs, indexed by varattno.
+    if varattno <= 0 || (*rte).groupexprs.is_null() {
+        return None;
+    }
+
+    let group_exprs = PgList::<pg_sys::Node>::from_pg((*rte).groupexprs);
+    let group_expr = group_exprs.get_ptr(varattno as usize - 1)?;
+    let group_var = find_one_var(group_expr)?;
+
+    Some(group_var)
+}
+
 impl VarContext {
     pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
         Self::Planner(root)
@@ -58,14 +86,28 @@ impl VarContext {
                     return (pg_sys::InvalidOid, (*var).varattno);
                 }
 
-                // Get the RTE and check if it's a relation
-                let heaprelid = match rtable_list.get_ptr(rte_index) {
-                    Some(rte) if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION => (*rte).relid,
-                    _ => pg_sys::InvalidOid,
+                let varattno = (*var).varattno;
+                let rte = match rtable_list.get_ptr(rte_index) {
+                    Some(rte) => rte,
+                    None => return (pg_sys::InvalidOid, varattno),
                 };
 
-                let varattno = (*var).varattno;
-                (heaprelid, varattno)
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
+                    return ((*rte).relid, varattno);
+                }
+
+                #[cfg(feature = "pg18")]
+                if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
+                    // PG18: grouped Vars point at RTE_GROUP, not the base relation.
+                    if let Some(group_var) = resolve_rte_group_var(rte, varattno) {
+                        let (heaprelid, group_attno) = self.var_relation(group_var);
+                        if heaprelid != pg_sys::InvalidOid {
+                            return (heaprelid, group_attno);
+                        }
+                    }
+                }
+
+                (pg_sys::InvalidOid, varattno)
             },
             Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
@@ -179,6 +221,15 @@ pub unsafe fn find_var_relation(
         // supported.
         pg_sys::RTEKind::RTE_NAMEDTUPLESTORE => {
             (pg_sys::Oid::INVALID, pg_sys::InvalidAttrNumber as i16, None)
+        }
+
+        #[cfg(feature = "pg18")]
+        pg_sys::RTEKind::RTE_GROUP => {
+            // PG18: resolve grouped Vars back to their originating relation/column.
+            if let Some(group_var) = resolve_rte_group_var(rte, (*var).varattno) {
+                return find_var_relation(group_var, root);
+            }
+            (pg_sys::InvalidOid, pg_sys::InvalidAttrNumber as i16, None)
         }
 
         // Likewise, the safest bet for any other RTEKind that we do not recognize is to ignore it.

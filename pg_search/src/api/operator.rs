@@ -42,6 +42,8 @@ use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
+#[cfg(feature = "pg18")]
+use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{
     find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
 };
@@ -498,7 +500,7 @@ unsafe fn rewrite_to_search_query_input_opexpr(
         "rhs must represent a SearchQueryInput"
     );
 
-    let lhs_var = make_lhs_var(indexrel, lhs);
+    let lhs_var = make_lhs_var((*srs).root, indexrel, lhs);
 
     let rhs = wrap_with_index(indexrel, rhs);
 
@@ -519,7 +521,11 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
 }
 
-unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *mut pg_sys::Var {
+unsafe fn make_lhs_var(
+    _root: *mut pg_sys::PlannerInfo,
+    indexrel: &PgSearchRelation,
+    lhs: *mut pg_sys::Node,
+) -> *mut pg_sys::Var {
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
     let heap_attno = index_info.ii_IndexAttrNumbers[0];
 
@@ -528,12 +534,15 @@ unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *
         panic!("provided lhs does not contain a Var")
     }
 
+    let base_var = vars[0];
+    #[cfg(feature = "pg18")]
+    let base_var = resolve_lhs_var_for_group(_root, base_var);
     let tupdesc = indexrel.tuple_desc();
     let att = tupdesc
         .get(0)
         .expect("`USING bm25` index must have at least one attribute which is the 'key_field'");
 
-    let var = pg_sys::copyObjectImpl(vars[0].cast()).cast::<pg_sys::Var>();
+    let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
 
     // the Var must look like the first attribute from the index definition
     (*var).varattno = heap_attno;
@@ -543,6 +552,24 @@ unsafe fn make_lhs_var(indexrel: &PgSearchRelation, lhs: *mut pg_sys::Node) -> *
     (*var).vartype = att.atttypid;
     (*var).vartypmod = att.atttypmod;
     (*var).varcollid = att.attcollation;
+
+    var
+}
+
+#[cfg(feature = "pg18")]
+#[inline]
+unsafe fn resolve_lhs_var_for_group(
+    root: *mut pg_sys::PlannerInfo,
+    var: *mut pg_sys::Var,
+) -> *mut pg_sys::Var {
+    let varno = (*var).varno as pg_sys::Index;
+    let rte = pg_sys::rt_fetch(varno, (*(*root).parse).rtable);
+    if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
+        // PG18: grouped output Vars must be mapped back to their base relation Vars.
+        if let Some(group_var) = resolve_rte_group_var(rte, (*var).varattno) {
+            return group_var;
+        }
+    }
 
     var
 }

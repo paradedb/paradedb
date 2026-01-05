@@ -1,0 +1,95 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- PG18 RTE_GROUP regression (issue #3827)
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS issue_3827_t CASCADE;
+CREATE TABLE issue_3827_t (
+    id SERIAL PRIMARY KEY,
+    txt TEXT,
+    n INT
+);
+INSERT INTO issue_3827_t (txt, n) VALUES
+    ('foo', 1),
+    ('foo', 2),
+    ('foo', 3);
+CREATE INDEX issue_3827_t_idx ON issue_3827_t
+USING bm25 (id, txt, n)
+WITH (
+    key_field = 'id',
+    text_fields = '{"txt": {}}',
+    numeric_fields = '{"n": {"fast": true}}'
+);
+-- Test 1: Window agg pushdown with GROUP BY/ORDER BY on grouping column (planner hook)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT n, SUM(n) OVER ()
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: n, (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Result
+         Output: n, pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_3827_t
+               Output: n
+               Index: issue_3827_t_idx
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: 
+                 Group By: n
+                 Limit: 1
+                 Aggregate Definition: {"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(12 rows)
+
+-- Test 2: ORDER BY on grouped column is pushed into aggregate definition (planner-time)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT n, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY n
+ORDER BY n
+LIMIT 1;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: n, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_3827_t
+         Output: n, pdb.agg_fn('COUNT(*)'::text)
+         Index: issue_3827_t_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: n
+           Limit: 1
+           Aggregate Definition: {"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
+
+-- Test 3: HAVING on grouped column uses support function before flattening
+-- (aggregate term prevents HAVING from being pushed into WHERE)
+SELECT txt
+FROM issue_3827_t
+GROUP BY txt
+HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
+ORDER BY txt;
+ txt 
+-----
+ foo
+(1 row)
+
+DROP TABLE issue_3827_t;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

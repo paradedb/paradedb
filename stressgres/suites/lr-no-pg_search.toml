@@ -1,0 +1,166 @@
+[setup_primary]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    old_message TEXT
+) WITH (autovacuum_enabled = false);
+
+DROP PUBLICATION IF EXISTS stressgres_pub;
+CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
+
+INSERT INTO test (message) VALUES ('beer wine cheese a');
+INSERT INTO test (message) VALUES ('beer wine a');
+INSERT INTO test (message) VALUES ('beer cheese a');
+INSERT INTO test (message) VALUES ('beer a');
+INSERT INTO test (message) VALUES ('wine cheese a');
+INSERT INTO test (message) VALUES ('wine a');
+INSERT INTO test (message) VALUES ('cheese a');
+INSERT INTO test (message) VALUES ('beer wine cheese a');
+INSERT INTO test (message) VALUES ('beer wine a');
+INSERT INTO test (message) VALUES ('beer cheese a');
+INSERT INTO test (message) VALUES ('beer a');
+INSERT INTO test (message) VALUES ('wine cheese a');
+INSERT INTO test (message) VALUES ('wine a');
+INSERT INTO test (message) VALUES ('cheese a');
+"""
+
+[setup_secondary]
+sql = """
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT,
+    old_message TEXT
+) WITH (autovacuum_enabled = false);
+
+DROP SUBSCRIPTION IF EXISTS stressgres_sub;
+CREATE SUBSCRIPTION stressgres_sub CONNECTION '@PRIMARY_CONNSTR@' PUBLICATION stressgres_pub;
+SELECT pg_sleep(5);
+
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+"""
+
+[teardown]
+sql = """
+-- DROP TABLE test CASCADE;
+-- DROP EXTENSION pg_search CASCADE;
+"""
+
+[monitor]
+refresh_ms = 100
+title = "Index Info Monitor"
+sql = """
+SELECT
+  pid,
+  pg_size_pretty(pg_wal_lsn_diff(sent_lsn, replay_lsn)) AS replication_lag,
+  application_name::text,
+  state::text
+FROM pg_stat_replication;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+"""
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where message ilike '%beer%'
+"""
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Parallel Custom Scan"
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+SET debug_parallel_query TO ON;
+"""
+sql = """
+SELECT count(*) FROM test WHERE message ilike '%beer%'
+"""
+assert = "8"
+
+
+[[jobs]]
+refresh_ms = 5
+title = "Index Only Scan"
+on_connect = """
+set max_parallel_workers = 0;
+set paradedb.enable_custom_scan to off;
+"""
+sql = """
+SELECT assert(count(*), 8), count(*) FROM test where message ilike '%beer%'
+"""
+
+[[jobs]]
+refresh_ms = 1
+#atomic_connection = false
+title = "Update 1..9"
+cancel_keycode = 'U'
+sql = """
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id < 10;
+"""
+
+[[jobs]]
+refresh_ms = 1
+#atomic_connection = false
+title = "Update 10,11"
+cancel_keycode = 'U'
+sql = """
+BEGIN;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id IN (10, 11);
+ABORT;
+"""
+
+[[jobs]]
+refresh_ms = 1
+#atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 1
+#atomic_connection = true
+title = "Insert value"
+sql = """
+INSERT INTO test (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 1
+pause_keycode = 'd'
+cancel_keycode = 'D'
+#atomic_connection = true
+title = "Delete values"
+sql = """
+DELETE FROM test WHERE id > 14;
+"""
+
+[[jobs]]
+refresh_ms = 100
+cancel_keycode = 'V'
+title = "Vacuum"
+sql = "VACUUM (parallel 32, index_cleanup on) test"

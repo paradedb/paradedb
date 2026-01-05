@@ -1,0 +1,38 @@
+[[server]]
+name = "PostgresPublisher"
+default = true
+[server.style.With]
+# Template connection string - replace with your actual PostgreSQL connection details
+# Format: postgresql://<USER>:<PASSWORD>@<HOST>:<PORT>/<DATABASE>
+connection_string = "postgresql://postgres:postgres@localhost:5432/postgres"
+
+[server.setup]
+sql = """
+CREATE TABLE IF NOT EXISTS simple_test (
+    id SERIAL8 NOT NULL PRIMARY KEY,
+    message TEXT
+);
+
+INSERT INTO simple_test (message) VALUES ('hello world');
+"""
+
+[server.teardown]
+sql = """
+DROP TABLE simple_test;
+"""
+
+[server.monitor]
+refresh_ms = 1000
+title = "Simple Test Monitor"
+log_columns = ["row_count"]
+sql = """
+SELECT count(*)::bigint as row_count FROM simple_test
+"""
+
+[[jobs]]
+refresh_ms = 100
+title = "Simple Select"
+log_tps = true
+sql = """
+SELECT * FROM simple_test;
+"""

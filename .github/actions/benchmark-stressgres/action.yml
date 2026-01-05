@@ -60,7 +60,7 @@ runs:
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
-          .github/stressgres/${{ inputs.test_file }} \
+          stressgres/suites/${{ inputs.test_file }} \
           --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.log \
           --pgversion pg18 \
           --runtime ${{ inputs.duration }}
@@ -171,7 +171,7 @@ runs:
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 
-    # NB:  we'll publish every graph so they can be located for historical purposes
+    # NB: we'll publish every graph so they can be located for historical purposes
     - name: Publish Stressgres Graph
       uses: ./.github/actions/push-file
       with:

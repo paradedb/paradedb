@@ -174,7 +174,9 @@ jobs:
       - name: Add extensions to shared_preload_libraries (with Citus)
         if: matrix.arch == 'amd64' && matrix.pg_version >= 14 && matrix.pg_version <= 17
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
+          sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
 
       - name: Add extensions to shared_preload_libraries (without Citus)
         if: matrix.arch != 'amd64' || matrix.pg_version < 14 || matrix.pg_version > 17

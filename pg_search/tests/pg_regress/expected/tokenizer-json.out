@@ -78,9 +78,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'
 (6 rows)
 
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                                  QUERY PLAN                                                 
@@ -162,9 +163,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  
@@ -340,9 +342,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  

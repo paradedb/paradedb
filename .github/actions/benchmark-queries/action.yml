@@ -50,7 +50,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Benchmark Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: paradedb/github-action-benchmark
       with:
         name: "pg_search '${{ inputs.dataset }}' Query Performance"
         ref: ${{ inputs.ref }}

@@ -68,18 +68,30 @@ fn aggregate_impl(
     memory_limit: i64,
     bucket_limit: i64,
 ) -> Result<JsonB, Box<dyn Error>> {
+    // Explicit bucket_limit must be semantically valid.
+    if bucket_limit <= 0 {
+        pgrx::error!("bucket_limit must be a positive integer");
+    }
+
+    // Convert with a clearer error for huge values.
+    let bucket_limit_u32: u32 = bucket_limit
+        .try_into()
+        .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
+
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
     let standalone_context = ExprContextGuard::new();
+
     let aggregate = execute_aggregate(
         &relation,
         query,
         AggregateRequest::Json(serde_json::from_value(agg.0)?),
         solve_mvcc,
         memory_limit.try_into()?,
-        bucket_limit.try_into()?,
+        bucket_limit_u32,
         standalone_context.as_ptr(),
         std::ptr::null_mut(), // No planstate in API context
     )?;
+
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
     } else {
@@ -88,6 +100,8 @@ fn aggregate_impl(
 }
 
 /// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=GUC)
+/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=NULL)
+/// - bucket_limit=NULL => use GUC paradedb.max_term_agg_buckets
 #[pg_extern]
 pub fn aggregate(
     index: PgRelation,
@@ -95,25 +109,11 @@ pub fn aggregate(
     agg: Json,
     solve_mvcc: default!(bool, true),
     memory_limit: default!(i64, 500000000),
+    bucket_limit: default!(Option<i64>, "NULL"),
 ) -> Result<JsonB, Box<dyn Error>> {
-    let bucket_limit_i32 = gucs::max_term_agg_buckets();
-    if bucket_limit_i32 <= 0 {
-        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
-    }
-    let bucket_limit = bucket_limit_i32 as i64;
-    aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
-}
+    // bucket_limit NULL => use GUC
+    let bucket_limit = bucket_limit.unwrap_or_else(|| gucs::max_term_agg_buckets() as i64);
 
-/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit)
-#[pg_extern(name = "aggregate")]
-pub fn aggregate_with_bucket_limit(
-    index: PgRelation,
-    query: SearchQueryInput,
-    agg: Json,
-    solve_mvcc: bool,
-    memory_limit: i64,
-    bucket_limit: i64,
-) -> Result<JsonB, Box<dyn Error>> {
     aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
 }
 

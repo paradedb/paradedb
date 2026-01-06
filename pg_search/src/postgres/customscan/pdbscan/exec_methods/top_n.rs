@@ -322,11 +322,7 @@ impl ExecMethod for TopNScanExecState {
         let aggregations = self.prepare_aggregations(state);
 
         // Use the GUC for term aggregation bucket limits (single source of truth).
-        let bucket_limit_i32 = gucs::max_term_agg_buckets();
-        if bucket_limit_i32 <= 0 {
-            pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
-        }
-        let bucket_limit: u32 = bucket_limit_i32 as u32;
+        let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
 
         let agg_limits = AggregationLimitsGuard::new(
             Some(gucs::adjust_work_mem().get().try_into().unwrap()),

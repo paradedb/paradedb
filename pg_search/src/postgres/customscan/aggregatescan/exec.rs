@@ -65,11 +65,7 @@ pub fn aggregation_results_iter(
     let query = aggregate_clause.query().clone();
 
     // Use the GUC for term aggregation bucket limits (single source of truth).
-    let bucket_limit_i32 = gucs::max_term_agg_buckets();
-    if bucket_limit_i32 <= 0 {
-        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
-    }
-    let bucket_limit: u32 = bucket_limit_i32 as u32;
+    let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
 
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),

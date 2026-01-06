@@ -120,6 +120,9 @@ jobs:
           echo "Schema diff generated successfully:"
           cat ~/diff.sql
 
+          # Remove trailing newlines from diff for comparison
+          perl -i -pe 'chomp if eof' ~/diff.sql
+
       - name: Check Schema Diff and Validate Migration
         id: check_schema_diff
         run: |

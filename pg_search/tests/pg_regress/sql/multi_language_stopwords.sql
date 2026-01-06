@@ -1,13 +1,24 @@
 -- Test multiple stopwords languages per field
 -- This tests the feature allowing multiple language stopwords filters
 
--- Test paradedb.tokenizer() with stopwords_languages parameter (array form)
+-- Test v2 typmod syntax: single language
+SELECT 'the quick fox and'::pdb.simple('stopwords_language=English')::text[];
+
+-- Test v2 typmod syntax: multiple languages (comma-separated)
+SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,French')::text[];
+
+-- Test v2 typmod syntax: compare with and without stopwords
+SELECT
+  'The cat in the hat le renard et'::pdb.simple::text[],
+  'The cat in the hat le renard et'::pdb.simple('stopwords_language=French,English')::text[];
+
+-- Test v1 paradedb.tokenizer() with stopwords_languages parameter (array form)
 SELECT * FROM paradedb.tokenize(
     paradedb.tokenizer('default', stopwords_languages => ARRAY['English', 'French']),
     'the quick fox and le renard et'
 );
 
--- Test paradedb.tokenizer() with single stopwords_language parameter (backwards compatible)
+-- Test v1 paradedb.tokenizer() with single stopwords_language parameter (backwards compatible)
 SELECT * FROM paradedb.tokenize(
     paradedb.tokenizer('default', stopwords_language => 'English'),
     'the quick fox and'

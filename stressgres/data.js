@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767447053096,
+  "lastUpdate": 1767727315811,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5666,6 +5666,72 @@ window.BENCHMARK_DATA = {
             "value": 182.01568623318337,
             "unit": "median tps",
             "extra": "avg tps: 202.2476073318869, max tps: 839.1873645236898, count: 55334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "skprasadu@yahoo.com",
+            "name": "Krishna Prasad",
+            "username": "skprasadu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acb5cf4be82d061bbc4df4b198c80060373aab7",
+          "message": "fix: honor max_term_agg_buckets GUC for term aggs (#3811)\n\nContext\nIssue #2964 notes paradedb.max_term_agg_buckets is used inconsistently\nacross execution paths (TopN window agg, AggregateScan, and direct\nparadedb.aggregate calls).\n\nWhat this PR does (1st iteration)\nUnifies term aggregation bucket limit handling to use the\nparadedb.max_term_agg_buckets GUC as the single source of truth:\n\t•\tpdb.agg(..) OVER() / TopN aggregation limits now use the GUC\n\t•\tAggregateScan execution now uses the GUC\n• Direct paradedb.aggregate(...) now has a GUC-based default path;\nexplicit bucket_limit remains available via overload\n\nWhat this PR intentionally does NOT do\nSkips planner/cardinality/fallback work per maintainer guidance. Also\nnot changing spill-to-disk strategy.\n\nHow I tested (local)\n\t•\tPostgres 17 via cargo pgrx run pg17 --package pg_search\n\t•\tRepro script using bucket_guc_demo:\n• SET paradedb.max_term_agg_buckets TO 10; → BucketLimitExceeded\n(expected)\n\t•\tSET ... TO 65000; → returns all buckets (expected)\n\n---------\n\nCo-authored-by: Krishna Prasad <krishna.prasad@tcengine.com>",
+          "timestamp": "2026-01-06T11:02:52-08:00",
+          "tree_id": "46bd272e97bc7ee9eddf6a4c13ab1308c03e73ad",
+          "url": "https://github.com/paradedb/paradedb/commit/6acb5cf4be82d061bbc4df4b198c80060373aab7"
+        },
+        "date": 1767727312394,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 551.3544517145211,
+            "unit": "median tps",
+            "extra": "avg tps: 552.7505355757264, max tps: 679.9857978166268, count: 55376"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3164.373504351095,
+            "unit": "median tps",
+            "extra": "avg tps: 3150.656847744543, max tps: 3173.8205936553895, count: 55376"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 605.5046483033009,
+            "unit": "median tps",
+            "extra": "avg tps: 605.4258014664854, max tps: 679.2446678538856, count: 55376"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 479.93138877540116,
+            "unit": "median tps",
+            "extra": "avg tps: 480.71072923653685, max tps: 513.508658505886, count: 55376"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3351.4430096039896,
+            "unit": "median tps",
+            "extra": "avg tps: 3336.647119643628, max tps: 3386.764727578388, count: 110752"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2176.857552392536,
+            "unit": "median tps",
+            "extra": "avg tps: 2166.234883473467, max tps: 2185.839873334874, count: 55376"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 140.6050419963738,
+            "unit": "median tps",
+            "extra": "avg tps: 154.16871829018143, max tps: 696.6378862334601, count: 55376"
           }
         ]
       }

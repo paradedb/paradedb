@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -376,9 +376,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        // TODO: Compound top-n occasionally flakes, so we only use tiebreaker columns.
-        // See https://github.com/paradedb/paradedb/issues/3266.
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -461,9 +459,7 @@ async fn generated_subquery(database: Db) {
             COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        // TODO: Compound top-n occasionally flakes, so we only use tiebreaker columns.
-        // See https://github.com/paradedb/paradedb/issues/3266.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         let pg = format!(

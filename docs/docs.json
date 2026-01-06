@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.20.5",
+        "version": "v0.21.0",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -306,6 +306,7 @@
                   "deploy/enterprise",
                   "deploy/upgrading",
                   "deploy/third-party-extensions",
+                  "deploy/citus",
                   {
                     "group": "Continuous Integration",
                     "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
@@ -321,6 +322,8 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.0",
+                  "changelog/0.20.6",
                   "changelog/0.20.5",
                   "changelog/0.20.4",
                   "changelog/0.20.3",

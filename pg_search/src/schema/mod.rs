@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -124,9 +124,15 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
 
         if matches!(base_oid, PgOid::Custom(alias_oid) if type_is_alias(alias_oid)) {
+            // For pdb.alias types, resolve the inner_typoid to get the base element type
+            // This strips array information (e.g., timestamptz[] -> timestamptz)
+            // which matches how non-alias array fields are handled
             base_oid = resolve_base_type(PgOid::from_untagged(inner_typoid))
                 .unwrap_or_else(|| {
-                    pgrx::error!("Failed to resolve base type for type {:?}", inner_typoid)
+                    pgrx::error!(
+                        "Failed to resolve base type for inner type {:?}",
+                        inner_typoid
+                    )
                 })
                 .0;
         }
@@ -183,7 +189,8 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
 pub struct CategorizedFieldData {
     pub attno: usize,
     pub source: FieldSource,
-    pub base_oid: PgOid,
+    pub pg_type: PgOid,  // Original PostgreSQL type OID (e.g., pdb.alias)
+    pub base_oid: PgOid, // Resolved base type OID (e.g., integer)
     pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
@@ -294,6 +301,7 @@ impl SearchIndexSchema {
                 ExtractedFieldAttribute {
                     attno,
                     source,
+                    pg_type,
                     tantivy_type,
                     inner_typoid,
                     ..
@@ -329,6 +337,7 @@ impl SearchIndexSchema {
                         CategorizedFieldData {
                             attno: *attno,
                             source: *source,
+                            pg_type: *pg_type,
                             base_oid,
                             is_key_field,
                             is_array,

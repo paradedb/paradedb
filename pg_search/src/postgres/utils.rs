@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::definitions::pdb::AliasDatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
 };
@@ -577,6 +578,7 @@ pub unsafe fn row_to_search_document<'a>(
         isnull,
         search_field,
         CategorizedFieldData {
+            pg_type,
             base_oid,
             is_key_field,
             is_array,
@@ -593,20 +595,32 @@ pub unsafe fn row_to_search_document<'a>(
             continue;
         }
 
+        // For pdb.alias types, unwrap the datum first before any processing
+        // The AliasDatumWithType structure wraps the actual datum for all alias types
+        let actual_datum = if type_is_alias(pg_type.value()) {
+            unsafe { AliasDatumWithType::extract_datum(datum) }
+        } else {
+            datum
+        };
+
         if *is_array {
-            for value in TantivyValue::try_from_datum_array(datum, *base_oid).unwrap_or_else(|e| {
-                panic!("could not parse field `{}`: {e}", search_field.field_name())
-            }) {
+            for value in
+                TantivyValue::try_from_datum_array(actual_datum, *base_oid).unwrap_or_else(|e| {
+                    panic!("could not parse field `{}`: {e}", search_field.field_name())
+                })
+            {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
-            for value in TantivyValue::try_from_datum_json(datum, *base_oid).unwrap_or_else(|e| {
-                panic!("could not parse field `{}`: {e}", search_field.field_name())
-            }) {
+            for value in
+                TantivyValue::try_from_datum_json(actual_datum, *base_oid).unwrap_or_else(|e| {
+                    panic!("could not parse field `{}`: {e}", search_field.field_name())
+                })
+            {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(datum, *base_oid).unwrap_or_else(|e| {
+            let tv = TantivyValue::try_from_datum(actual_datum, *base_oid).unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));

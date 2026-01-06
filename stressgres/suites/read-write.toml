@@ -1,0 +1,87 @@
+[[server]]
+name = "Primary"
+[server.style.With]
+connection_string = "postgresql://postgres:<password>@localhost:5432/paradedb"
+
+[server.setup]
+sql = """
+CREATE EXTENSION IF NOT EXISTS pg_search;
+"""
+
+[server.teardown]
+sql = """
+"""
+
+[server.monitor]
+refresh_ms = 100
+title = "Monitor Segment Count on Primary"
+
+# Combined query returning both columns
+sql = """
+SELECT COUNT(*) FROM paradedb.index_info('vendors_idx');
+"""
+
+[[server]]
+name = "Standby"
+[server.style.With]
+connection_string = "postgresql://postgres:<password>@localhost:5433/paradedb"
+
+[server.setup]
+sql = """
+"""
+
+[server.teardown]
+sql = """
+"""
+
+[server.monitor]
+refresh_ms = 100
+title = "Monitor Segment Count on Standby"
+
+# Combined query returning both columns
+sql = """
+SELECT COUNT(*) FROM paradedb.index_info('vendors_idx');
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Single Update"
+log_tps = true
+sql = """
+UPDATE vendors SET directional_amount = directional_amount + 1 WHERE id = 1;
+"""
+destinations = ["Primary"]
+
+[[jobs]]
+refresh_ms = 5
+title = "Bulk Update"
+log_tps = true
+sql = """
+UPDATE vendors SET directional_amount = directional_amount + 1 WHERE id > 1 AND id < 100;
+"""
+destinations = ["Primary"]
+
+[[jobs]]
+title = "Custom Scan on Primary"
+log_tps = true
+sql = """
+SELECT COUNT(*) FROM vendors WHERE organization_id @@@ '550e8400-e29b-41d4-a716-446655440000';
+"""
+destinations = ["Primary"]
+
+[[jobs]]
+title = "Custom Scan on Standby"
+log_tps = true
+sql = """
+SELECT COUNT(*) FROM vendors WHERE organization_id @@@ '550e8400-e29b-41d4-a716-446655440000';
+"""
+destinations = ["Standby"]
+
+[[jobs]]
+refresh_ms = 1000
+title = "Vacuum"
+log_tps = true
+sql = """
+VACUUM vendors;
+"""
+destinations = ["Primary"]

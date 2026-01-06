@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767727840298,
+  "lastUpdate": 1767727845238,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16416,6 +16416,126 @@ window.BENCHMARK_DATA = {
             "value": 50.91015625,
             "unit": "median mem",
             "extra": "avg mem: 49.966097564680474, max mem: 63.9765625, count: 54518"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a",
+          "message": "fix: Handle wrapped aggregates in aggregate pushdown (#3804)\n\n## Summary\nFixes #3757 - Aggregates wrapped in functions like\n`jsonb_pretty(pdb.agg(...))` were not recognized for pushdown.\n\n- Add `find_single_aggref_in_expr()` using `expression_tree_walker` to\nfind nested Aggref nodes\n- Update `replace_aggrefs_in_target_list()` to use\n`expression_tree_mutator` for wrapped Aggrefs\n- Follows same pattern as window function handling in `window_agg.rs`\n\n## Test plan\n- Added non-window wrapped aggregate tests to `fn_wrapped_agg.sql`\n(Tests 5-10)\n- Verified issue test cases: `jsonb_pretty(pdb.agg(...))`,\n`pdb.agg(...)->'values'`\n- Passes `cargo fmt`, `cargo clippy`, `cargo check`",
+          "timestamp": "2026-01-07T00:40:25+05:30",
+          "tree_id": "53312092f68565819546d0cbf077b86aab81817a",
+          "url": "https://github.com/paradedb/paradedb/commit/6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a"
+        },
+        "date": 1767727841657,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.712386669128038, max cpu: 24.072216, count: 55480"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.78176876802451, max mem: 68.9140625, count: 55480"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.509960429300646, max cpu: 9.504951, count: 55480"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.186499921142754, max mem: 35.3828125, count: 55480"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.725669733470078, max cpu: 19.712526, count: 55480"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 58.039293368668886, max mem: 69.17578125, count: 55480"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.540564899547306, max cpu: 4.83871, count: 55480"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.28787513518385, max mem: 68.78125, count: 55480"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.586213901389659, max cpu: 9.514371, count: 110960"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.999641798001534, max mem: 57.02734375, count: 110960"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1755,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1764.5166005767844, max block_count: 3121.0, count: 55480"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.381903388608508, max segment_count: 29.0, count: 55480"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.525985061710394, max cpu: 4.828974, count: 55480"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.531783060900324, max mem: 59.76171875, count: 55480"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.277607695684468, max cpu: 4.7904196, count: 55480"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.25,
+            "unit": "median mem",
+            "extra": "avg mem: 47.822565352942505, max mem: 62.6328125, count: 55480"
           }
         ]
       }

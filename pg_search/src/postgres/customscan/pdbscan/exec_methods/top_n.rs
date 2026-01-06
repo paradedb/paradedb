@@ -320,10 +320,13 @@ impl ExecMethod for TopNScanExecState {
         let next_offset = self.offset + local_limit;
 
         let aggregations = self.prepare_aggregations(state);
+
+        // Use the GUC for term aggregation bucket limits (single source of truth).
+        let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
+
         let agg_limits = AggregationLimitsGuard::new(
             Some(gucs::adjust_work_mem().get().try_into().unwrap()),
-            // TODO: configure?
-            Some(tantivy::aggregation::DEFAULT_BUCKET_LIMIT),
+            Some(bucket_limit),
         );
 
         // Get the tokenizer manager from the index (has all custom tokenizers registered)

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767729185436,
+  "lastUpdate": 1767729190515,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36658,6 +36658,108 @@ window.BENCHMARK_DATA = {
             "value": 160.15625,
             "unit": "median mem",
             "extra": "avg mem: 180.5404443041285, max mem: 220.64453125, count: 56643"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "skprasadu@yahoo.com",
+            "name": "Krishna Prasad",
+            "username": "skprasadu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acb5cf4be82d061bbc4df4b198c80060373aab7",
+          "message": "fix: honor max_term_agg_buckets GUC for term aggs (#3811)\n\nContext\nIssue #2964 notes paradedb.max_term_agg_buckets is used inconsistently\nacross execution paths (TopN window agg, AggregateScan, and direct\nparadedb.aggregate calls).\n\nWhat this PR does (1st iteration)\nUnifies term aggregation bucket limit handling to use the\nparadedb.max_term_agg_buckets GUC as the single source of truth:\n\t•\tpdb.agg(..) OVER() / TopN aggregation limits now use the GUC\n\t•\tAggregateScan execution now uses the GUC\n• Direct paradedb.aggregate(...) now has a GUC-based default path;\nexplicit bucket_limit remains available via overload\n\nWhat this PR intentionally does NOT do\nSkips planner/cardinality/fallback work per maintainer guidance. Also\nnot changing spill-to-disk strategy.\n\nHow I tested (local)\n\t•\tPostgres 17 via cargo pgrx run pg17 --package pg_search\n\t•\tRepro script using bucket_guc_demo:\n• SET paradedb.max_term_agg_buckets TO 10; → BucketLimitExceeded\n(expected)\n\t•\tSET ... TO 65000; → returns all buckets (expected)\n\n---------\n\nCo-authored-by: Krishna Prasad <krishna.prasad@tcengine.com>",
+          "timestamp": "2026-01-06T11:02:52-08:00",
+          "tree_id": "46bd272e97bc7ee9eddf6a4c13ab1308c03e73ad",
+          "url": "https://github.com/paradedb/paradedb/commit/6acb5cf4be82d061bbc4df4b198c80060373aab7"
+        },
+        "date": 1767729186893,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08107819208636939, max background_merging: 2.0, count: 56131"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.724308958105849, max cpu: 9.657948, count: 56131"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 23.47631524079831, max mem: 23.4921875, count: 56131"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.909934622761518, max cpu: 14.007783, count: 56131"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.13389026618535, max mem: 165.75, count: 56131"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65208,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65110.30893801999, max block_count: 65208.0, count: 56131"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.13942384778465, max segment_count: 58.0, count: 56131"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.601523602834581, max cpu: 9.4395275, count: 56131"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 116.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 106.89467321700576, max mem: 133.54296875, count: 56131"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.781445490938006, max cpu: 9.657948, count: 56131"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.96066296086389, max mem: 165.4921875, count: 56131"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.966697698017086, max cpu: 33.366436, count: 56131"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 178.8862096869377, max mem: 220.625, count: 56131"
           }
         ]
       }

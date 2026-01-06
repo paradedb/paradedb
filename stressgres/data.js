@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767729729061,
+  "lastUpdate": 1767730107421,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41426,6 +41426,60 @@ window.BENCHMARK_DATA = {
             "value": 14.226573715916734,
             "unit": "median tps",
             "extra": "avg tps: 14.281631425321947, max tps: 20.98492669503437, count: 55502"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "skprasadu@yahoo.com",
+            "name": "Krishna Prasad",
+            "username": "skprasadu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acb5cf4be82d061bbc4df4b198c80060373aab7",
+          "message": "fix: honor max_term_agg_buckets GUC for term aggs (#3811)\n\nContext\nIssue #2964 notes paradedb.max_term_agg_buckets is used inconsistently\nacross execution paths (TopN window agg, AggregateScan, and direct\nparadedb.aggregate calls).\n\nWhat this PR does (1st iteration)\nUnifies term aggregation bucket limit handling to use the\nparadedb.max_term_agg_buckets GUC as the single source of truth:\n\t•\tpdb.agg(..) OVER() / TopN aggregation limits now use the GUC\n\t•\tAggregateScan execution now uses the GUC\n• Direct paradedb.aggregate(...) now has a GUC-based default path;\nexplicit bucket_limit remains available via overload\n\nWhat this PR intentionally does NOT do\nSkips planner/cardinality/fallback work per maintainer guidance. Also\nnot changing spill-to-disk strategy.\n\nHow I tested (local)\n\t•\tPostgres 17 via cargo pgrx run pg17 --package pg_search\n\t•\tRepro script using bucket_guc_demo:\n• SET paradedb.max_term_agg_buckets TO 10; → BucketLimitExceeded\n(expected)\n\t•\tSET ... TO 65000; → returns all buckets (expected)\n\n---------\n\nCo-authored-by: Krishna Prasad <krishna.prasad@tcengine.com>",
+          "timestamp": "2026-01-06T11:02:52-08:00",
+          "tree_id": "46bd272e97bc7ee9eddf6a4c13ab1308c03e73ad",
+          "url": "https://github.com/paradedb/paradedb/commit/6acb5cf4be82d061bbc4df4b198c80060373aab7"
+        },
+        "date": 1767730103670,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.318898095318584,
+            "unit": "median tps",
+            "extra": "avg tps: 28.455773920398574, max tps: 33.69910476121147, count: 55671"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.50064890269465,
+            "unit": "median tps",
+            "extra": "avg tps: 268.29505085800133, max tps: 2709.2670573118353, count: 55671"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1987.6284205676266,
+            "unit": "median tps",
+            "extra": "avg tps: 1973.4256303760599, max tps: 2255.9685925539998, count: 55671"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 161.89093372058554,
+            "unit": "median tps",
+            "extra": "avg tps: 201.8460443434381, max tps: 1786.6910471449246, count: 111342"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.409118680994359,
+            "unit": "median tps",
+            "extra": "avg tps: 15.408928021193434, max tps: 21.116593964345306, count: 55671"
           }
         ]
       }

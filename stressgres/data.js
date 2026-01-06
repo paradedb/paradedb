@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767728617070,
+  "lastUpdate": 1767728764690,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19516,6 +19516,42 @@ window.BENCHMARK_DATA = {
             "value": 5.323017981934327,
             "unit": "median tps",
             "extra": "avg tps: 4.771017048612645, max tps: 5.9491419492795306, count: 57611"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a",
+          "message": "fix: Handle wrapped aggregates in aggregate pushdown (#3804)\n\n## Summary\nFixes #3757 - Aggregates wrapped in functions like\n`jsonb_pretty(pdb.agg(...))` were not recognized for pushdown.\n\n- Add `find_single_aggref_in_expr()` using `expression_tree_walker` to\nfind nested Aggref nodes\n- Update `replace_aggrefs_in_target_list()` to use\n`expression_tree_mutator` for wrapped Aggrefs\n- Follows same pattern as window function handling in `window_agg.rs`\n\n## Test plan\n- Added non-window wrapped aggregate tests to `fn_wrapped_agg.sql`\n(Tests 5-10)\n- Verified issue test cases: `jsonb_pretty(pdb.agg(...))`,\n`pdb.agg(...)->'values'`\n- Passes `cargo fmt`, `cargo clippy`, `cargo check`",
+          "timestamp": "2026-01-07T00:40:25+05:30",
+          "tree_id": "53312092f68565819546d0cbf077b86aab81817a",
+          "url": "https://github.com/paradedb/paradedb/commit/6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a"
+        },
+        "date": 1767728761095,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.774547998254627,
+            "unit": "median tps",
+            "extra": "avg tps: 6.646814770044868, max tps: 10.030309386965126, count: 57815"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.288584731240837,
+            "unit": "median tps",
+            "extra": "avg tps: 4.746724818912912, max tps: 5.9522370553684985, count: 57815"
           }
         ]
       }

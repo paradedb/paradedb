@@ -157,6 +157,15 @@ jobs:
             echo
             echo "Checking if migration file contains the exact schema diff as a contiguous block..."
 
+            # Debug: Show what we're comparing
+            echo
+            echo "=== DEBUG: Contents of diff.sql ==="
+            cat -A ~/diff.sql | head -20
+            echo "=== DEBUG: Contents of migration file ==="
+            cat -A "$MIGRATION_FILE"
+            echo "=== END DEBUG ==="
+            echo
+
             # Use awk to check if the diff exists as a contiguous block in the migration file
             # This is more reliable than grep -Fzo for multi-line patterns
             if awk '

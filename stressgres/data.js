@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767729724043,
+  "lastUpdate": 1767729729061,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -36958,6 +36958,108 @@ window.BENCHMARK_DATA = {
             "value": 160.265625,
             "unit": "median mem",
             "extra": "avg mem: 179.6020142074611, max mem: 220.72265625, count: 56513"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a",
+          "message": "fix: Handle wrapped aggregates in aggregate pushdown (#3804)\n\n## Summary\nFixes #3757 - Aggregates wrapped in functions like\n`jsonb_pretty(pdb.agg(...))` were not recognized for pushdown.\n\n- Add `find_single_aggref_in_expr()` using `expression_tree_walker` to\nfind nested Aggref nodes\n- Update `replace_aggrefs_in_target_list()` to use\n`expression_tree_mutator` for wrapped Aggrefs\n- Follows same pattern as window function handling in `window_agg.rs`\n\n## Test plan\n- Added non-window wrapped aggregate tests to `fn_wrapped_agg.sql`\n(Tests 5-10)\n- Verified issue test cases: `jsonb_pretty(pdb.agg(...))`,\n`pdb.agg(...)->'values'`\n- Passes `cargo fmt`, `cargo clippy`, `cargo check`",
+          "timestamp": "2026-01-07T00:40:25+05:30",
+          "tree_id": "53312092f68565819546d0cbf077b86aab81817a",
+          "url": "https://github.com/paradedb/paradedb/commit/6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a"
+        },
+        "date": 1767729725415,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0773600550429582, max background_merging: 2.0, count: 56683"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.69913855598182, max cpu: 9.495549, count: 56683"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 23.519405619850748, max mem: 23.53125, count: 56683"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.91142413801512, max cpu: 9.552238, count: 56683"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.54286889367182, max mem: 166.046875, count: 56683"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65630,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65535.32522978671, max block_count: 65630.0, count: 56683"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.95704179383589, max segment_count: 56.0, count: 56683"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605510145353522, max cpu: 9.638554, count: 56683"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 117.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 107.18674994045834, max mem: 133.984375, count: 56683"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.747107575966463, max cpu: 9.533267, count: 56683"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.59702361984634, max mem: 165.5859375, count: 56683"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.575638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.947219878926955, max cpu: 33.466137, count: 56683"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 180.45308627035442, max mem: 220.82421875, count: 56683"
           }
         ]
       }

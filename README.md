@@ -116,7 +116,6 @@ By participating in this project, you agree to follow its terms.
 
 Thank you for helping us make ParadeDB better for everyone :heart:.
 
-
 ## License
 
 ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).

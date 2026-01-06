@@ -109,15 +109,15 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
-                                                                                                                       QUERY PLAN                                                                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25_partial
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}},"field_filters":[{"heap_filter":"(deleted_at IS NULL)"}]}}]}}
+   Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}},"field_filters":[{"expr_node":"{NULLTEST :arg {VAR :varno 1 :varattno 3 :vartype 1114 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :nulltesttype 0 :argisrow false :location -1}","description":"NULL test: field_3 IS NULL"}]}}]}}
 (7 rows)
 
 SELECT COUNT(*) FROM products 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767727701450,
+  "lastUpdate": 1767727840298,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5798,6 +5798,72 @@ window.BENCHMARK_DATA = {
             "value": 159.21878548706525,
             "unit": "median tps",
             "extra": "avg tps: 197.39215965810365, max tps: 483.7464491361498, count: 54518"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a",
+          "message": "fix: Handle wrapped aggregates in aggregate pushdown (#3804)\n\n## Summary\nFixes #3757 - Aggregates wrapped in functions like\n`jsonb_pretty(pdb.agg(...))` were not recognized for pushdown.\n\n- Add `find_single_aggref_in_expr()` using `expression_tree_walker` to\nfind nested Aggref nodes\n- Update `replace_aggrefs_in_target_list()` to use\n`expression_tree_mutator` for wrapped Aggrefs\n- Follows same pattern as window function handling in `window_agg.rs`\n\n## Test plan\n- Added non-window wrapped aggregate tests to `fn_wrapped_agg.sql`\n(Tests 5-10)\n- Verified issue test cases: `jsonb_pretty(pdb.agg(...))`,\n`pdb.agg(...)->'values'`\n- Passes `cargo fmt`, `cargo clippy`, `cargo check`",
+          "timestamp": "2026-01-07T00:40:25+05:30",
+          "tree_id": "53312092f68565819546d0cbf077b86aab81817a",
+          "url": "https://github.com/paradedb/paradedb/commit/6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a"
+        },
+        "date": 1767727836609,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 554.1250293716071,
+            "unit": "median tps",
+            "extra": "avg tps: 552.3039748039223, max tps: 633.0134337359875, count: 55480"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3075.2544740979893,
+            "unit": "median tps",
+            "extra": "avg tps: 3056.986295794119, max tps: 3140.0079295666915, count: 55480"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 550.2599775820689,
+            "unit": "median tps",
+            "extra": "avg tps: 549.1601357913305, max tps: 687.6634234812088, count: 55480"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 454.2605139978701,
+            "unit": "median tps",
+            "extra": "avg tps: 453.3089310041876, max tps: 521.5034858224249, count: 55480"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3190.0366360642497,
+            "unit": "median tps",
+            "extra": "avg tps: 3215.447102002305, max tps: 3328.1598570910855, count: 110960"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2103.515877889018,
+            "unit": "median tps",
+            "extra": "avg tps: 2100.8024572166964, max tps: 2114.128020213386, count: 55480"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 207.3862801221443,
+            "unit": "median tps",
+            "extra": "avg tps: 290.1265702761039, max tps: 886.9541462445475, count: 55480"
           }
         ]
       }

@@ -39,6 +39,8 @@ pub(crate) unsafe fn resolve_rte_group_var(
 
     let group_exprs = PgList::<pg_sys::Node>::from_pg((*rte).groupexprs);
     let group_expr = group_exprs.get_ptr(varattno as usize - 1)?;
+    // find_one_var returns None if the expression contains multiple Vars (e.g., "a + b"),
+    // which is correct: we can only resolve single-column GROUP BY references here.
     let group_var = find_one_var(group_expr)?;
 
     Some(group_var)

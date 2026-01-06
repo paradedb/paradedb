@@ -521,8 +521,9 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
 }
 
+#[cfg_attr(not(feature = "pg18"), allow(unused_variables))]
 unsafe fn make_lhs_var(
-    _root: *mut pg_sys::PlannerInfo,
+    root: *mut pg_sys::PlannerInfo,
     indexrel: &PgSearchRelation,
     lhs: *mut pg_sys::Node,
 ) -> *mut pg_sys::Var {
@@ -536,7 +537,7 @@ unsafe fn make_lhs_var(
 
     let base_var = vars[0];
     #[cfg(feature = "pg18")]
-    let base_var = resolve_lhs_var_for_group(_root, base_var);
+    let base_var = resolve_lhs_var_for_group(root, base_var);
     let tupdesc = indexrel.tuple_desc();
     let att = tupdesc
         .get(0)
@@ -563,9 +564,24 @@ unsafe fn resolve_lhs_var_for_group(
     var: *mut pg_sys::Var,
 ) -> *mut pg_sys::Var {
     let varno = (*var).varno as pg_sys::Index;
-    let rte = pg_sys::rt_fetch(varno, (*(*root).parse).rtable);
+    let rtable = (*(*root).parse).rtable;
+
+    // Bounds check: varno is 1-indexed and must be within the rtable
+    let rtable_size = if !rtable.is_null() {
+        PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
+    } else {
+        0
+    };
+    if varno == 0 || varno as usize > rtable_size {
+        return var;
+    }
+
+    let rte = pg_sys::rt_fetch(varno, rtable);
     if (*rte).rtekind == pg_sys::RTEKind::RTE_GROUP {
-        // PG18: grouped output Vars must be mapped back to their base relation Vars.
+        // PG18 introduces RTE_GROUP for GROUP BY expressions. When a Var references
+        // RTE_GROUP, it points to a synthetic range table entry rather than the base
+        // relation. We must resolve these Vars back to their originating column so
+        // that operator rewriting can correctly identify the indexed field.
         if let Some(group_var) = resolve_rte_group_var(rte, (*var).varattno) {
             return group_var;
         }

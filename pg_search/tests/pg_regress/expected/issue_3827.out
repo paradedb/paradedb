@@ -10,12 +10,13 @@ DROP TABLE IF EXISTS issue_3827_t CASCADE;
 CREATE TABLE issue_3827_t (
     id SERIAL PRIMARY KEY,
     txt TEXT,
-    n INT
+    n INT,
+    not_indexed INT  -- column NOT in the bm25 index
 );
-INSERT INTO issue_3827_t (txt, n) VALUES
-    ('foo', 1),
-    ('foo', 2),
-    ('foo', 3);
+INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
+    ('foo', 1, 10),
+    ('foo', 2, 20),
+    ('foo', 3, 30);
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
 USING bm25 (id, txt, n)
 WITH (
@@ -80,6 +81,79 @@ ORDER BY txt;
 -----
  foo
 (1 row)
+
+-- Test 4: GROUP BY on non-indexed column should gracefully fall back
+-- (RTE_GROUP resolution returns the var, but field lookup returns None)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT not_indexed, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY not_indexed
+ORDER BY not_indexed;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: not_indexed, count(*)
+   Group Key: issue_3827_t.not_indexed
+   ->  Sort
+         Output: not_indexed
+         Sort Key: issue_3827_t.not_indexed
+         ->  Custom Scan (ParadeDB Scan) on public.issue_3827_t
+               Output: not_indexed
+               Table: issue_3827_t
+               Index: issue_3827_t_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
+
+SELECT not_indexed, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY not_indexed
+ORDER BY not_indexed;
+ not_indexed | count 
+-------------+-------
+          10 |     1
+          20 |     1
+          30 |     1
+(3 rows)
+
+-- Test 5: Multi-column GROUP BY on indexed columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT txt, n, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY txt, n
+ORDER BY txt, n;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ GroupAggregate
+   Output: txt, n, count(*)
+   Group Key: issue_3827_t.txt, issue_3827_t.n
+   ->  Sort
+         Output: txt, n
+         Sort Key: issue_3827_t.txt, issue_3827_t.n
+         ->  Custom Scan (ParadeDB Scan) on public.issue_3827_t
+               Output: txt, n
+               Table: issue_3827_t
+               Index: issue_3827_t_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
+
+SELECT txt, n, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY txt, n
+ORDER BY txt, n;
+ txt | n | count 
+-----+---+-------
+ foo | 1 |     1
+ foo | 2 |     1
+ foo | 3 |     1
+(3 rows)
 
 DROP TABLE issue_3827_t;
 \i common/common_cleanup.sql

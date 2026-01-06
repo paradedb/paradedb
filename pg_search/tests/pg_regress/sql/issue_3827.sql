@@ -7,13 +7,14 @@ DROP TABLE IF EXISTS issue_3827_t CASCADE;
 CREATE TABLE issue_3827_t (
     id SERIAL PRIMARY KEY,
     txt TEXT,
-    n INT
+    n INT,
+    not_indexed INT  -- column NOT in the bm25 index
 );
 
-INSERT INTO issue_3827_t (txt, n) VALUES
-    ('foo', 1),
-    ('foo', 2),
-    ('foo', 3);
+INSERT INTO issue_3827_t (txt, n, not_indexed) VALUES
+    ('foo', 1, 10),
+    ('foo', 2, 20),
+    ('foo', 3, 30);
 
 CREATE INDEX issue_3827_t_idx ON issue_3827_t
 USING bm25 (id, txt, n)
@@ -48,6 +49,35 @@ FROM issue_3827_t
 GROUP BY txt
 HAVING (txt @@@ pdb.parse('foo')) OR SUM(n) < 0
 ORDER BY txt;
+
+-- Test 4: GROUP BY on non-indexed column should gracefully fall back
+-- (RTE_GROUP resolution returns the var, but field lookup returns None)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT not_indexed, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY not_indexed
+ORDER BY not_indexed;
+
+SELECT not_indexed, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY not_indexed
+ORDER BY not_indexed;
+
+-- Test 5: Multi-column GROUP BY on indexed columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT txt, n, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY txt, n
+ORDER BY txt, n;
+
+SELECT txt, n, COUNT(*)
+FROM issue_3827_t
+WHERE id @@@ pdb.all()
+GROUP BY txt, n
+ORDER BY txt, n;
 
 DROP TABLE issue_3827_t;
 

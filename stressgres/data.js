@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767727315811,
+  "lastUpdate": 1767727321122,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16044,6 +16044,126 @@ window.BENCHMARK_DATA = {
             "value": 49.28515625,
             "unit": "median mem",
             "extra": "avg mem: 49.700189276710525, max mem: 61.953125, count: 55334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "skprasadu@yahoo.com",
+            "name": "Krishna Prasad",
+            "username": "skprasadu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acb5cf4be82d061bbc4df4b198c80060373aab7",
+          "message": "fix: honor max_term_agg_buckets GUC for term aggs (#3811)\n\nContext\nIssue #2964 notes paradedb.max_term_agg_buckets is used inconsistently\nacross execution paths (TopN window agg, AggregateScan, and direct\nparadedb.aggregate calls).\n\nWhat this PR does (1st iteration)\nUnifies term aggregation bucket limit handling to use the\nparadedb.max_term_agg_buckets GUC as the single source of truth:\n\t•\tpdb.agg(..) OVER() / TopN aggregation limits now use the GUC\n\t•\tAggregateScan execution now uses the GUC\n• Direct paradedb.aggregate(...) now has a GUC-based default path;\nexplicit bucket_limit remains available via overload\n\nWhat this PR intentionally does NOT do\nSkips planner/cardinality/fallback work per maintainer guidance. Also\nnot changing spill-to-disk strategy.\n\nHow I tested (local)\n\t•\tPostgres 17 via cargo pgrx run pg17 --package pg_search\n\t•\tRepro script using bucket_guc_demo:\n• SET paradedb.max_term_agg_buckets TO 10; → BucketLimitExceeded\n(expected)\n\t•\tSET ... TO 65000; → returns all buckets (expected)\n\n---------\n\nCo-authored-by: Krishna Prasad <krishna.prasad@tcengine.com>",
+          "timestamp": "2026-01-06T11:02:52-08:00",
+          "tree_id": "46bd272e97bc7ee9eddf6a4c13ab1308c03e73ad",
+          "url": "https://github.com/paradedb/paradedb/commit/6acb5cf4be82d061bbc4df4b198c80060373aab7"
+        },
+        "date": 1767727317665,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5363622386218525, max cpu: 19.651997, count: 55376"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.52780614289132, max mem: 68.25, count: 55376"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.591807600699396, max cpu: 9.476802, count: 55376"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.42074973815371, max mem: 36.3203125, count: 55376"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.315665272159577, max cpu: 14.45783, count: 55376"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.93095341957707, max mem: 68.61328125, count: 55376"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.553655010188209, max cpu: 4.828974, count: 55376"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.859023778915954, max mem: 67.9375, count: 55376"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628075932444055, max cpu: 9.4395275, count: 110752"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.84474945288798, max mem: 56.6015625, count: 110752"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1784,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1772.8092494943658, max block_count: 3089.0, count: 55376"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.550382837330252, max segment_count: 17.0, count: 55376"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.56452417712154, max cpu: 4.843592, count: 55376"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.323103504902846, max mem: 58.87109375, count: 55376"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.104107806387602, max cpu: 4.7524753, count: 55376"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.41566715499494, max mem: 62.1328125, count: 55376"
           }
         ]
       }

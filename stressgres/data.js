@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767730107421,
+  "lastUpdate": 1767730113073,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -50208,6 +50208,114 @@ window.BENCHMARK_DATA = {
             "value": 170.9765625,
             "unit": "median mem",
             "extra": "avg mem: 167.39965585418093, max mem: 171.83203125, count: 55502"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "skprasadu@yahoo.com",
+            "name": "Krishna Prasad",
+            "username": "skprasadu"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acb5cf4be82d061bbc4df4b198c80060373aab7",
+          "message": "fix: honor max_term_agg_buckets GUC for term aggs (#3811)\n\nContext\nIssue #2964 notes paradedb.max_term_agg_buckets is used inconsistently\nacross execution paths (TopN window agg, AggregateScan, and direct\nparadedb.aggregate calls).\n\nWhat this PR does (1st iteration)\nUnifies term aggregation bucket limit handling to use the\nparadedb.max_term_agg_buckets GUC as the single source of truth:\n\t•\tpdb.agg(..) OVER() / TopN aggregation limits now use the GUC\n\t•\tAggregateScan execution now uses the GUC\n• Direct paradedb.aggregate(...) now has a GUC-based default path;\nexplicit bucket_limit remains available via overload\n\nWhat this PR intentionally does NOT do\nSkips planner/cardinality/fallback work per maintainer guidance. Also\nnot changing spill-to-disk strategy.\n\nHow I tested (local)\n\t•\tPostgres 17 via cargo pgrx run pg17 --package pg_search\n\t•\tRepro script using bucket_guc_demo:\n• SET paradedb.max_term_agg_buckets TO 10; → BucketLimitExceeded\n(expected)\n\t•\tSET ... TO 65000; → returns all buckets (expected)\n\n---------\n\nCo-authored-by: Krishna Prasad <krishna.prasad@tcengine.com>",
+          "timestamp": "2026-01-06T11:02:52-08:00",
+          "tree_id": "46bd272e97bc7ee9eddf6a4c13ab1308c03e73ad",
+          "url": "https://github.com/paradedb/paradedb/commit/6acb5cf4be82d061bbc4df4b198c80060373aab7"
+        },
+        "date": 1767730109280,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.584310874764444, max cpu: 47.61905, count: 55671"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 170.02709928923946, max mem: 173.4921875, count: 55671"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.684810195355605, max cpu: 28.20764, count: 55671"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 115.35071165867328, max mem: 116.828125, count: 55671"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7676086904118895, max cpu: 9.476802, count: 55671"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 136.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 119.99051886585924, max mem: 158.26171875, count: 55671"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14321,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14423.205744463006, max block_count: 24897.0, count: 55671"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.549998273991996, max cpu: 4.729064, count: 55671"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 93.27450234974224, max mem: 134.7265625, count: 55671"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.135618185410717, max segment_count: 37.0, count: 55671"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.699528756819413, max cpu: 28.015566, count: 111342"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 160.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.46402339610165, max mem: 161.8125, count: 111342"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.36782564447784, max cpu: 27.906979, count: 55671"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.3109185128927, max mem: 173.12109375, count: 55671"
           }
         ]
       }

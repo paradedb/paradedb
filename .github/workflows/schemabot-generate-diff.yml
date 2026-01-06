@@ -157,8 +157,52 @@ jobs:
             echo
             echo "Checking if migration file contains the exact schema diff as a contiguous block..."
 
-            # Check if the entire diff content exists as a contiguous sequence in the migration file
-            if ! grep -Fzo "$(cat ~/diff.sql)" "$MIGRATION_FILE" > /dev/null 2>&1; then
+            # Use awk to check if the diff exists as a contiguous block in the migration file
+            # This is more reliable than grep -Fzo for multi-line patterns
+            if awk '
+              BEGIN {
+                diff_file = ARGV[1]
+                migration_file = ARGV[2]
+
+                # Read the diff into an array
+                diff_lines = 0
+                while ((getline line < diff_file) > 0) {
+                  diff[++diff_lines] = line
+                }
+                close(diff_file)
+
+                # Search for the diff as a contiguous block in the migration file
+                found = 0
+                match_pos = 0
+                while ((getline line < migration_file) > 0) {
+                  if (match_pos > 0) {
+                    # We are in the middle of matching
+                    if (line == diff[match_pos]) {
+                      match_pos++
+                      if (match_pos > diff_lines) {
+                        found = 1
+                        break
+                      }
+                    } else {
+                      match_pos = 0
+                    }
+                  }
+                  # Check if this line starts a new match
+                  if (match_pos == 0 && line == diff[1]) {
+                    match_pos = 2
+                    if (diff_lines == 1) {
+                      found = 1
+                      break
+                    }
+                  }
+                }
+                close(migration_file)
+
+                exit !found
+              }
+            ' ~/diff.sql "$MIGRATION_FILE"; then
+              echo "✅ Migration file contains the exact schema diff in the correct sequence"
+            else
               echo "❌ ERROR: Migration file does not contain the exact schema diff as a contiguous block."
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."
@@ -169,8 +213,6 @@ jobs:
               echo "   https://github.com/paradedb/pg-schema-diff"
               echo "   Do not manually modify the diff in the migration file, as CI will fail."
               exit 1
-            else
-              echo "✅ Migration file contains the exact schema diff in the correct sequence"
             fi
           else
             echo "✅ No schema difference detected"

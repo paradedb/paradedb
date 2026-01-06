@@ -1,5 +1,6 @@
--- Test for partial index scoring with non-indexed predicates
--- This tests the fix for using partial index predicates instead of All query for HeapExpr
+-- Test for partial index behavior
+-- A partial index can only be used when the query predicates IMPLY the partial index predicate.
+-- This test verifies correct behavior with predicate_implied_by checking.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.global_mutable_segment_rows = 0;
 -- Setup test table
@@ -14,20 +15,24 @@ INSERT INTO partial_test (description, category, rating) VALUES
 ('Samsung Galaxy', 'Electronics', 4),
 ('Nike Shoes', 'Footwear', 3),
 ('Apple Watch', 'Electronics', 4),
+('Apple Box', 'Footwear', 4),
 ('Adidas Sneakers', 'Footwear', 2);
 -- Create partial index with WHERE clause
 CREATE INDEX partial_test_idx ON partial_test
 USING bm25 (id, description)
 WITH (key_field = 'id')
 WHERE category = 'Electronics';
--- Test Case 1: Query with only indexed field - should work correctly
+-- ============================================================
+-- Test Case 1: Query WITH partial index predicate
+-- Query includes category = 'Electronics', so partial index CAN be used
+-- ============================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple'
+WHERE description @@@ 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on partial_test
@@ -35,12 +40,12 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (8 rows)
 
 SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
-WHERE description @@@ 'Apple'
+WHERE description @@@ 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
  id | description  |  category   |   score    
 ----+--------------+-------------+------------
@@ -48,55 +53,79 @@ ORDER BY score DESC;
   4 | Apple Watch  | Electronics | 0.47000363
 (2 rows)
 
--- Test Case 2: Query with indexed field + non-indexed predicate
--- This should use the partial index predicate (category = 'Electronics')
--- instead of All query for the non-indexed rating filter
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT id, description, category, rating, pdb.score(id) as score
--- FROM partial_test
--- WHERE description @@@ 'Apple' AND rating >= 4
--- ORDER BY score DESC;
-SELECT id, description, category, rating, pdb.score(id) as score
-FROM partial_test
-WHERE description @@@ 'Apple' AND rating >= 4
-ORDER BY score DESC;
- id | description  |  category   | rating | score 
-----+--------------+-------------+--------+-------
-  1 | Apple iPhone | Electronics |      5 |      
-  4 | Apple Watch  | Electronics |      4 |      
-(2 rows)
-
--- Test Case 3: Query with only non-indexed predicate
--- This should still use the partial index predicate for the base query
+-- ============================================================
+-- Test Case 2: Query WITH partial index predicate + additional filter
+-- Query includes category = 'Electronics', so partial index CAN be used
+-- The rating filter is evaluated as HeapExpr
+-- ============================================================
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE rating >= 4
+WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
-            QUERY PLAN            
-----------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (pdb.score(id)) DESC
-   ->  Seq Scan on partial_test
-         Filter: (rating >= 4)
-(4 rows)
+   ->  Custom Scan (ParadeDB Scan) on partial_test
+         Table: partial_test
+         Index: partial_test_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 4 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 525"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+(8 rows)
 
 SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
-WHERE rating >= 4
+WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
- id |  description   |  category   | rating | score 
-----+----------------+-------------+--------+-------
-  1 | Apple iPhone   | Electronics |      5 |      
-  2 | Samsung Galaxy | Electronics |      4 |      
-  4 | Apple Watch    | Electronics |      4 |      
+ id | description  |  category   | rating |   score    
+----+--------------+-------------+--------+------------
+  1 | Apple iPhone | Electronics |      5 | 0.94000727
+  4 | Apple Watch  | Electronics |      4 | 0.94000727
+(2 rows)
+
+-- ============================================================
+-- Test Case 3: Query with only partial index predicate (no @@@)
+-- Query includes category = 'Electronics', so partial index CAN be used
+-- ============================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, description, category, rating
+FROM partial_test
+WHERE category = 'Electronics' AND rating >= 4
+AND id @@@ paradedb.all()
+ORDER BY rating DESC;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: rating DESC
+   ->  Custom Scan (ParadeDB Scan) on partial_test
+         Table: partial_test
+         Index: partial_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 4 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 525"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+(9 rows)
+
+SELECT id, description, category, rating
+FROM partial_test
+WHERE category = 'Electronics' AND rating >= 4
+AND id @@@ paradedb.all()
+ORDER BY rating DESC;
+ id |  description   |  category   | rating 
+----+----------------+-------------+--------
+  1 | Apple iPhone   | Electronics |      5
+  2 | Samsung Galaxy | Electronics |      4
+  4 | Apple Watch    | Electronics |      4
 (3 rows)
 
 -- Cleanup
 DROP INDEX partial_test_idx;
 DROP TABLE partial_test;
--- Test case for partial index scoring fix
--- This reproduces the issue seen in bm25_partial_index_search and bm25_partial_index_hybrid tests
+-- ============================================================
+-- Test case for partial index with category predicate
+-- ============================================================
 -- Setup test table
 CALL paradedb.create_bm25_test_table(table_name => 'test_partial_index', schema_name => 'paradedb');
 -- Create partial index with predicate WHERE category = 'Electronics'
@@ -110,15 +139,15 @@ WITH (
         }
     }'
 ) WHERE category = 'Electronics';
--- Test 1: Initial query should return only Electronics items with rating > 1
--- This should return 5 results (all Electronics with rating > 1)
+-- Test 1: Query WITH category = 'Electronics' predicate
+-- This should use the partial index and return only Electronics items with rating > 1
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on test_partial_index
          Table: test_partial_index
@@ -127,12 +156,12 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopN Order By: rating asc
             TopN Limit: 20
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (9 rows)
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -149,30 +178,10 @@ INSERT INTO paradedb.test_partial_index (description, category, rating, in_stock
 ('Product 2', 'Electronics', 1, false),
 ('Product 3', 'Footwear', 2, true);
 -- Test 2: After insert, should return 6 results (5 original + 1 new Electronics with rating > 1)
--- The key insight: Product 3 (Footwear) should NOT be returned since it's not in the partial index
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- Product 3 (Footwear) is NOT in partial index and NOT in query results
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
-ORDER BY rating LIMIT 20;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
-               Table: test_partial_index
-               Index: partial_idx
-               Exec Method: TopNScanExecState
-               Scores: false
-                  TopN Order By: rating asc
-                  TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
-SELECT description, rating, category
-FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -186,29 +195,9 @@ ORDER BY rating LIMIT 20;
 
 -- Test 3: Update Product 1 to Footwear - should reduce results to 5
 UPDATE paradedb.test_partial_index SET category = 'Footwear' WHERE description = 'Product 1';
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
-ORDER BY rating LIMIT 20;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   ->  Gather Merge
-         Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
-               Table: test_partial_index
-               Index: partial_idx
-               Exec Method: TopNScanExecState
-               Scores: false
-                  TopN Order By: rating asc
-                  TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
-SELECT description, rating, category
-FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -224,10 +213,10 @@ UPDATE paradedb.test_partial_index SET category = 'Electronics' WHERE descriptio
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -238,12 +227,12 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (11 rows)
 
 SELECT description, rating, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
          description         | rating |  category   
 -----------------------------+--------+-------------
@@ -255,14 +244,15 @@ ORDER BY rating LIMIT 20;
  Innovative wireless earbuds |      5 | Electronics
 (6 rows)
 
--- Test 5: Verify that non-Electronics items are not returned even if they match the query
+-- Test 5: Query for Footwear items should return nothing from partial index
+-- (partial index only contains Electronics)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -273,18 +263,16 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (11 rows)
 
 SELECT description, category
 FROM paradedb.test_partial_index
-WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
+WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
  description | category 
 -------------+----------
 (0 rows)
 
 -- Cleanup
-DROP INDEX partial_idx;
-ERROR:  index "partial_idx" does not exist
-DROP TABLE paradedb.test_partial_index;
+DROP TABLE paradedb.test_partial_index CASCADE;

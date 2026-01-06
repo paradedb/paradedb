@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -49,8 +48,8 @@ pub struct AggregateScanState {
 
     /// Pointers to Const nodes in placeholder_targetlist, indexed by target entry position.
     /// These are mutated with aggregate values before each projection build.
-    /// Key: target entry index (0-based), Value: pointer to Const node
-    pub const_agg_nodes: HashMap<usize, *mut pg_sys::Const>,
+    /// Indexed by target entry position (0-based), None for entries without Const nodes.
+    pub const_agg_nodes: Vec<Option<*mut pg_sys::Const>>,
 
     /// Reusable tuple slot for aggregate result rows
     /// Created once during begin_custom_scan and cleared/reused for each row

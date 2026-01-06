@@ -662,8 +662,9 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     assert!(ret.is_ok(), "{ret:?}");
 
     // Ensure returned rows match the predicate
+    // Query must include category = 'Electronics' to use the partial index
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM paradedb.test_partial_index WHERE test_partial_index @@@ 'rating:>1' ORDER BY rating LIMIT 20"
+        "SELECT * FROM paradedb.test_partial_index WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1' ORDER BY rating LIMIT 20"
             .fetch_collect(&mut conn);
     assert_eq!(columns.category.len(), 5);
     assert_eq!(
@@ -677,7 +678,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     // Ensure no mismatch rows returned
     let rows: Vec<(String, String)> = "
     SELECT description, category FROM paradedb.test_partial_index
-    WHERE test_partial_index @@@ '(description:jeans OR category:Footwear) AND rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ '(description:jeans OR category:Footwear) AND rating:>1'
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 0);
@@ -691,7 +692,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -707,7 +708,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -720,7 +721,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);
@@ -733,7 +734,7 @@ fn bm25_partial_index_search(mut conn: PgConnection) {
     // Insert one row without specifying the column referenced by the predicate.
     let rows: Vec<(String, i32, String)> = "
     SELECT description, rating, category FROM paradedb.test_partial_index
-    WHERE test_partial_index @@@ 'rating:>1'
+    WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
     ORDER BY rating LIMIT 20"
         .fetch(&mut conn);
     assert_eq!(rows.len(), 6);

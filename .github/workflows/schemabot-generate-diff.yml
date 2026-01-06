@@ -125,6 +125,11 @@ jobs:
           # Remove trailing newlines from diff for comparison
           perl -i -pe 'chomp if eof' ~/diff.sql
 
+      - name: Switch Back to PR Branch
+        run: |
+          # Switch back to the PR branch to check the migration file
+          git checkout ${{ github.event.pull_request.head.ref || github.ref }}
+
       - name: Check Schema Diff and Validate Migration
         id: check_schema_diff
         run: |

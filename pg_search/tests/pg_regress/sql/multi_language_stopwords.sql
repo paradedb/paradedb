@@ -1,6 +1,18 @@
 -- Test multiple stopwords languages per field
 -- This tests the feature allowing multiple language stopwords filters
 
+-- Test paradedb.tokenizer() with stopwords_languages parameter (array form)
+SELECT * FROM paradedb.tokenize(
+    paradedb.tokenizer('default', stopwords_languages => ARRAY['English', 'French']),
+    'the quick fox and le renard et'
+);
+
+-- Test paradedb.tokenizer() with single stopwords_language parameter (backwards compatible)
+SELECT * FROM paradedb.tokenize(
+    paradedb.tokenizer('default', stopwords_language => 'English'),
+    'the quick fox and'
+);
+
 -- Clean up
 DROP TABLE IF EXISTS test_multi_stopwords;
 

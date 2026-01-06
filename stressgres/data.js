@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767729557700,
+  "lastUpdate": 1767729724043,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28536,6 +28536,54 @@ window.BENCHMARK_DATA = {
             "value": 5.603340054149999,
             "unit": "median tps",
             "extra": "avg tps: 5.603876949103892, max tps: 6.672221320570358, count: 56513"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a",
+          "message": "fix: Handle wrapped aggregates in aggregate pushdown (#3804)\n\n## Summary\nFixes #3757 - Aggregates wrapped in functions like\n`jsonb_pretty(pdb.agg(...))` were not recognized for pushdown.\n\n- Add `find_single_aggref_in_expr()` using `expression_tree_walker` to\nfind nested Aggref nodes\n- Update `replace_aggrefs_in_target_list()` to use\n`expression_tree_mutator` for wrapped Aggrefs\n- Follows same pattern as window function handling in `window_agg.rs`\n\n## Test plan\n- Added non-window wrapped aggregate tests to `fn_wrapped_agg.sql`\n(Tests 5-10)\n- Verified issue test cases: `jsonb_pretty(pdb.agg(...))`,\n`pdb.agg(...)->'values'`\n- Passes `cargo fmt`, `cargo clippy`, `cargo check`",
+          "timestamp": "2026-01-07T00:40:25+05:30",
+          "tree_id": "53312092f68565819546d0cbf077b86aab81817a",
+          "url": "https://github.com/paradedb/paradedb/commit/6dcf6697e9dcd703f6b2c90b374fc7e3c30df77a"
+        },
+        "date": 1767729720391,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1133.4379963377683,
+            "unit": "median tps",
+            "extra": "avg tps: 1138.629108078581, max tps: 1191.4019413803003, count: 56683"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1188.7325249051848,
+            "unit": "median tps",
+            "extra": "avg tps: 1189.0194303287067, max tps: 1253.2818264516532, count: 56683"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1923.4129051680238,
+            "unit": "median tps",
+            "extra": "avg tps: 1901.6771294885896, max tps: 2074.4946663527694, count: 56683"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.6695008418569985,
+            "unit": "median tps",
+            "extra": "avg tps: 5.653493902026512, max tps: 6.819572972320598, count: 56683"
           }
         ]
       }

@@ -154,15 +154,19 @@ jobs:
             fi
 
             echo "Found migration file: $MIGRATION_FILE"
+            echo "Current branch: $(git rev-parse --abbrev-ref HEAD)"
+            echo "Current commit: $(git rev-parse HEAD)"
+            echo "File last modified in commit: $(git log -1 --format='%H %s' -- "$MIGRATION_FILE")"
             echo
             echo "Checking if migration file contains the exact schema diff as a contiguous block..."
 
             # Debug: Show what we're comparing
             echo
-            echo "=== DEBUG: Contents of diff.sql ==="
-            cat -A ~/diff.sql | head -20
-            echo "=== DEBUG: Contents of migration file ==="
-            cat -A "$MIGRATION_FILE"
+            echo "=== DEBUG: diff.sql (with line numbers) ==="
+            nl -ba ~/diff.sql
+            echo
+            echo "=== DEBUG: migration file (with line numbers) ==="
+            nl -ba "$MIGRATION_FILE"
             echo "=== END DEBUG ==="
             echo
 

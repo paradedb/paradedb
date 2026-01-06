@@ -36,6 +36,7 @@ mod hook;
 mod opexpr;
 mod path;
 pub mod pdbscan;
+pub mod projections;
 mod pushdown;
 pub mod qual_inspect;
 mod range_table;

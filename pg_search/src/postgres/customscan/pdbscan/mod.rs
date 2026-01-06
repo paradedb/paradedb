@@ -56,10 +56,10 @@ use crate::postgres::customscan::pdbscan::projections::window_agg::{
     deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
     WindowAggregateInfo,
 };
-use crate::postgres::customscan::pdbscan::projections::{
+use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::qual_inspect::{
     extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, PlannerContext, Qual,
     QualExtractState,

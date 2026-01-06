@@ -38,6 +38,23 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     pub execution_rti: pg_sys::Index,
     pub aggregate_clause: AggregateCSClause,
+
+    /// Target list with FuncExpr placeholders replaced by Const nodes.
+    /// Used for expression projection when aggregates are wrapped in functions.
+    /// The Const nodes are mutated with actual aggregate values before each
+    /// ExecBuildProjectionInfo call, which bakes the current values into the
+    /// compiled projection. This follows the pdbscan pattern.
+    pub placeholder_targetlist: Option<*mut pg_sys::List>,
+
+    /// Pointers to Const nodes in placeholder_targetlist, indexed by target entry position.
+    /// These are mutated with aggregate values before each projection build.
+    /// Indexed by target entry position (0-based), None for entries without Const nodes.
+    pub const_agg_nodes: Vec<Option<*mut pg_sys::Const>>,
+
+    /// Reusable tuple slot for aggregate result rows
+    /// Created once during begin_custom_scan and cleared/reused for each row
+    /// to avoid per-row memory allocation and leaks
+    pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
 }
 
 impl AggregateScanState {

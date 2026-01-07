@@ -38,6 +38,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Fetch the entire history
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Extract pgrx Version
         id: pgrx
@@ -119,6 +121,14 @@ jobs:
           # Show the schema diff
           echo "Schema diff generated successfully:"
           cat ~/diff.sql
+
+          # Remove trailing newlines from diff for comparison
+          perl -i -pe 'chomp if eof' ~/diff.sql
+
+      - name: Switch Back to PR Branch
+        run: |
+          # Switch back to the PR branch to check the migration file
+          git checkout ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Check Schema Diff and Validate Migration
         id: check_schema_diff

@@ -8,7 +8,7 @@ Stopwords are words that are so common or semantically insignificant in most con
 In English, for example, stopwords include "a", "and", "or", etc.
 
 All tokenizers besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer can be configured to automatically remove stopwords
-for a given language.
+for one or more languages.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -16,14 +16,37 @@ USING bm25 (id, (description::pdb.simple('stopwords_language=english')))
 WITH (key_field='id');
 ```
 
-Valid languages are `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `hungarian`, `italian`, `norwegian`,`polish`, `portuguese`, `russian`, `spanish`, `swedish`.
+Valid languages are `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Hungarian`, `Italian`, `Norwegian`, `Polish`, `Portuguese`, `Russian`, `Spanish`, and `Swedish`. Language names are case-insensitive.
+
+## Multiple Languages
+
+For documents containing multiple languages, you can specify multiple stopword languages as a comma-separated list:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.simple('stopwords_language=English,French')))
+WITH (key_field='id');
+```
+
+```sql
+SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,French')::text[];
+```
+
+```ini Expected Response
+        text
+--------------------
+ {quick,fox,renard}
+(1 row)
+```
+
+## Example
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 
 ```sql
 SELECT
   'The cat in the hat'::pdb.simple::text[],
-  'The cat in the hat'::pdb.simple('stopwords_language=english')::text[];
+  'The cat in the hat'::pdb.simple('stopwords_language=English')::text[];
 ```
 
 ```ini Expected Response

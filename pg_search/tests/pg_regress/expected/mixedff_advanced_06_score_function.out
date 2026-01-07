@@ -653,34 +653,34 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score_test_2.title, score_test_2.author, score_test_2.rating, (pdb.score(score_test_2.id)), score_test.title
-   ->  Hash Semi Join
-         Hash Cond: (score_test.author = score_test_1.author)
-         ->  Hash Join
-               Hash Cond: (score_test.author = score_test_2.author)
-               Join Filter: (score_test_2.title <> score_test.title)
-               ->  Seq Scan on score_test
-               ->  Hash
-                     ->  Limit
-                           ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
-                                 Table: score_test
-                                 Index: score_test_idx
-                                 Exec Method: TopNScanExecState
-                                 Scores: true
-                                    TopN Order By: pdb.score() desc
-                                    TopN Limit: 5
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+   ->  Hash Right Semi Join
+         Hash Cond: (score_test_1.author = score_test.author)
+         ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
+               Table: score_test
+               Index: score_test_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: author
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
-                     Table: score_test
-                     Index: score_test_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: author
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash Join
+                     Hash Cond: (score_test.author = score_test_2.author)
+                     Join Filter: (score_test_2.title <> score_test.title)
+                     ->  Seq Scan on score_test
+                     ->  Hash
+                           ->  Limit
+                                 ->  Custom Scan (ParadeDB Scan) on score_test score_test_2
+                                       Table: score_test
+                                       Index: score_test_idx
+                                       Exec Method: TopNScanExecState
+                                       Scores: true
+                                          TopN Order By: pdb.score() desc
+                                          TopN Limit: 5
+                                       Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title

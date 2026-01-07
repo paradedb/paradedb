@@ -36,31 +36,17 @@ SELECT a.id,
 FROM test_items a
 INNER JOIN test_items b ON a.id = b.id
 WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Hash Join
-   Output: a.id, (paradedb.score(a.id)), b.id, (paradedb.score(b.id))
-   Inner Unique: true
-   Hash Cond: (b.id = a.id)
-   ->  Custom Scan (ParadeDB Scan) on public.test_items b
-         Output: b.id, paradedb.score(b.id), paradedb.score(b.id)
-         Table: test_items
-         Index: test_items_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: id
-         Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
-   ->  Hash
-         Output: a.id, (paradedb.score(a.id)), (paradedb.score(a.id))
-         ->  Custom Scan (ParadeDB Scan) on public.test_items a
-               Output: a.id, paradedb.score(a.id), paradedb.score(a.id)
-               Table: test_items
-               Index: test_items_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_items b
+   Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+   Table: test_items
+   Index: test_items_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id
+   Scores: true
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
 
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -71,10 +57,10 @@ INNER JOIN test_items b ON a.id = b.id
 WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
  id |  a_score   | id |  b_score   
 ----+------------+----+------------
-  1 | 0.27517417 |  1 |   1.112579
-  2 | 0.27517417 |  2 | 0.27517417
-  3 | 0.27517417 |  3 | 0.27517417
-  5 | 0.27517417 |  5 | 0.27517417
+  1 |  1.3877531 |  1 |  1.3877531
+  2 | 0.55034834 |  2 | 0.55034834
+  3 | 0.55034834 |  3 | 0.55034834
+  5 | 0.55034834 |  5 | 0.55034834
 (4 rows)
 
 -- Test 2: Simple self-join with OR condition and score on both sides
@@ -89,40 +75,20 @@ INNER JOIN test_items b ON a.id = b.id
 WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: a.id, (paradedb.score(a.id)), b.id, (paradedb.score(b.id))
-   ->  Merge Join
-         Output: a.id, (paradedb.score(a.id)), b.id, (paradedb.score(b.id))
-         Inner Unique: true
-         Merge Cond: (a.id = b.id)
-         Join Filter: ((a.id @@@ '{"with_index":{"oid":51873,"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{"with_index":{"oid":51873,"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  Sort
-               Output: a.id, (paradedb.score(a.id)), (paradedb.score(a.id))
-               Sort Key: a.id
-               ->  Custom Scan (ParadeDB Scan) on public.test_items a
-                     Output: a.id, paradedb.score(a.id), paradedb.score(a.id)
-                     Table: test_items
-                     Index: test_items_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: id
-                     Scores: true
-                     Full Index Scan: true
-                     Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},"all"]}}
-         ->  Sort
-               Output: b.id, (paradedb.score(b.id)), (paradedb.score(b.id))
-               Sort Key: b.id
-               ->  Custom Scan (ParadeDB Scan) on public.test_items b
-                     Output: b.id, paradedb.score(b.id), paradedb.score(b.id)
-                     Table: test_items
-                     Index: test_items_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: id
-                     Scores: true
-                     Full Index Scan: true
-                     Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
-(31 rows)
+   Output: b.id, (paradedb.score(b.id)), b.id, (paradedb.score(b.id))
+   ->  Custom Scan (ParadeDB Scan) on public.test_items b
+         Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
+         Table: test_items
+         Index: test_items_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: id asc
+            TopN Limit: 1
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
 
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -133,9 +99,9 @@ INNER JOIN test_items b ON a.id = b.id
 WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
- id |  a_score   | id | b_score  
-----+------------+----+----------
-  1 | 0.27517417 |  1 | 1.112579
+ id |  a_score  | id |  b_score  
+----+-----------+----+-----------
+  1 | 1.3877531 |  1 | 1.3877531
 (1 row)
 
 -- Test 3: Self-join with subqueries that include score()
@@ -144,31 +110,17 @@ SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
 INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b.id
 WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Hash Join
-   Output: test_items.id, (paradedb.score(test_items.id)), test_items_1.id, (paradedb.score(test_items_1.id))
-   Inner Unique: true
-   Hash Cond: (test_items_1.id = test_items.id)
-   ->  Custom Scan (ParadeDB Scan) on public.test_items test_items_1
-         Output: test_items_1.id, paradedb.score(test_items_1.id), paradedb.score(test_items_1.id)
-         Table: test_items
-         Index: test_items_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: id
-         Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
-   ->  Hash
-         Output: test_items.id, (paradedb.score(test_items.id)), (paradedb.score(test_items.id))
-         ->  Custom Scan (ParadeDB Scan) on public.test_items
-               Output: test_items.id, paradedb.score(test_items.id), paradedb.score(test_items.id)
-               Table: test_items
-               Index: test_items_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.test_items
+   Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+   Table: test_items
+   Index: test_items_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id
+   Scores: true
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
@@ -176,10 +128,10 @@ INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b
 WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
  id |   score    | id |   score    
 ----+------------+----+------------
-  1 | 0.27517417 |  1 |   1.112579
-  2 | 0.27517417 |  2 | 0.27517417
-  3 | 0.27517417 |  3 | 0.27517417
-  5 | 0.27517417 |  5 | 0.27517417
+  1 |  1.3877531 |  1 |  1.3877531
+  2 | 0.55034834 |  2 | 0.55034834
+  3 | 0.55034834 |  3 | 0.55034834
+  5 | 0.55034834 |  5 | 0.55034834
 (4 rows)
 
 -- Test 4: Self-join with subqueries and OR condition
@@ -190,40 +142,20 @@ INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b
 WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
-                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: test_items.id, (paradedb.score(test_items.id)), test_items_1.id, (paradedb.score(test_items_1.id))
-   ->  Merge Join
-         Output: test_items.id, (paradedb.score(test_items.id)), test_items_1.id, (paradedb.score(test_items_1.id))
-         Inner Unique: true
-         Merge Cond: (test_items.id = test_items_1.id)
-         Join Filter: ((test_items.id @@@ '{"with_index":{"oid":51873,"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (test_items_1.id @@@ '{"with_index":{"oid":51873,"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  Sort
-               Output: test_items.id, (paradedb.score(test_items.id)), (paradedb.score(test_items.id))
-               Sort Key: test_items.id
-               ->  Custom Scan (ParadeDB Scan) on public.test_items
-                     Output: test_items.id, paradedb.score(test_items.id), paradedb.score(test_items.id)
-                     Table: test_items
-                     Index: test_items_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: id
-                     Scores: true
-                     Full Index Scan: true
-                     Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},"all"]}}
-         ->  Sort
-               Output: test_items_1.id, (paradedb.score(test_items_1.id)), (paradedb.score(test_items_1.id))
-               Sort Key: test_items_1.id
-               ->  Custom Scan (ParadeDB Scan) on public.test_items test_items_1
-                     Output: test_items_1.id, paradedb.score(test_items_1.id), paradedb.score(test_items_1.id)
-                     Table: test_items
-                     Index: test_items_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: id
-                     Scores: true
-                     Full Index Scan: true
-                     Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
-(31 rows)
+   Output: test_items.id, (paradedb.score(test_items.id)), test_items.id, (paradedb.score(test_items.id))
+   ->  Custom Scan (ParadeDB Scan) on public.test_items
+         Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
+         Table: test_items
+         Index: test_items_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: id asc
+            TopN Limit: 1
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}]}}
+(11 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
@@ -231,9 +163,9 @@ INNER JOIN (SELECT paradedb.score(id) as score, * FROM test_items) b ON a.id = b
 WHERE a.description @@@ 'bear' OR b.description @@@ 'teddy bear'
 ORDER BY a.id
 LIMIT 1;
- id |   score    | id |  score   
-----+------------+----+----------
-  1 | 0.27517417 |  1 | 1.112579
+ id |   score   | id |   score   
+----+-----------+----+-----------
+  1 | 1.3877531 |  1 | 1.3877531
 (1 row)
 
 -- Test 5: Non-self-join (should work normally)

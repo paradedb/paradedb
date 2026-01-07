@@ -230,8 +230,10 @@ SELECT update_random_data(10);
 """
 
 [[jobs]]
-refresh_ms = 500
+refresh_ms = 0
 title = "Top N"
+cancel_keycode = 'D'
+cancel_every = 2.0
 sql = """
 SELECT COUNT(*) FROM (
     SELECT
@@ -246,9 +248,38 @@ SELECT COUNT(*) FROM (
         AND wide_table.number_3 >= '100'
         AND wide_table.number_3 <= '900'
         AND wide_table.timestamp_3 IS NULL
+        AND id @@@ pdb.all()
     ORDER BY
         wide_table.date_1 DESC,
-        wide_table.timestamp_1 DESC,
+        wide_table.timestamp_3 DESC,
+        wide_table.id DESC
+    LIMIT 100
+);
+"""
+
+[[jobs]]
+refresh_ms = 0
+title = "Top N"
+cancel_keycode = 'D'
+cancel_every = 2.0
+sql = """
+SELECT COUNT(*) FROM (
+    SELECT
+        *
+    FROM
+        wide_table
+    WHERE
+        wide_table.field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+        AND wide_table.bool_1 = true
+        AND 1 = 1
+        AND true
+        AND wide_table.number_3 >= '100'
+        AND wide_table.number_3 <= '900'
+        AND wide_table.timestamp_3 IS NULL
+        AND id @@@ pdb.all()
+    ORDER BY
+        wide_table.date_1 DESC,
+        wide_table.timestamp_3 DESC,
         wide_table.id DESC
     LIMIT 100
 );

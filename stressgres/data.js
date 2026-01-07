@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767747864679,
+  "lastUpdate": 1767747869460,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -37390,6 +37390,108 @@ window.BENCHMARK_DATA = {
             "value": 160.40234375,
             "unit": "median mem",
             "extra": "avg mem: 180.45308627035442, max mem: 220.82421875, count: 56683"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767747866013,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08100069049768949, max background_merging: 2.0, count: 56481"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.688749637073174, max cpu: 9.619239, count: 56481"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.572074016040794, max mem: 23.61328125, count: 56481"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0102910069262565, max cpu: 13.93998, count: 56481"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.43781239764257, max mem: 165.84765625, count: 56481"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65945,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65845.42081407907, max block_count: 65945.0, count: 56481"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.946424461323275, max segment_count: 57.0, count: 56481"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.572114104718504, max cpu: 9.619239, count: 56481"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 116.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 106.66103009197784, max mem: 132.73828125, count: 56481"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.760882723422116, max cpu: 9.523809, count: 56481"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.14327342933908, max mem: 165.57421875, count: 56481"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.90787530824745, max cpu: 33.73494, count: 56481"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 179.34592806928435, max mem: 220.453125, count: 56481"
           }
         ]
       }

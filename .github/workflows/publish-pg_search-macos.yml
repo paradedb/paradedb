@@ -160,7 +160,7 @@ jobs:
 
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
           if [[ "${{ matrix.pg_version }}" == "14" || "${{ matrix.pg_version }}" == "15" ]]; then
-            cp archive/*.so ${package_dir}/${lib_path}  
+            cp archive/*.so ${package_dir}/${lib_path}
           else
             cp archive/*.dylib ${package_dir}/${lib_path}
           fi

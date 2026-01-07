@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767731559229,
+  "lastUpdate": 1767745984869,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5864,6 +5864,72 @@ window.BENCHMARK_DATA = {
             "value": 207.3862801221443,
             "unit": "median tps",
             "extra": "avg tps: 290.1265702761039, max tps: 886.9541462445475, count: 55480"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767745981702,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 597.9271402208799,
+            "unit": "median tps",
+            "extra": "avg tps: 597.315982903033, max tps: 700.4466785334623, count: 54828"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2980.1517169750723,
+            "unit": "median tps",
+            "extra": "avg tps: 2980.303899873554, max tps: 3264.2227113871522, count: 54828"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 590.6768555132119,
+            "unit": "median tps",
+            "extra": "avg tps: 589.2943631700598, max tps: 673.3389993825718, count: 54828"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 481.7120577025494,
+            "unit": "median tps",
+            "extra": "avg tps: 480.3016566728015, max tps: 534.3002148755102, count: 54828"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3284.6477478497304,
+            "unit": "median tps",
+            "extra": "avg tps: 3300.4561765825656, max tps: 3432.8601067360573, count: 109656"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2160.3319571608517,
+            "unit": "median tps",
+            "extra": "avg tps: 2147.6590400615873, max tps: 2168.288605352051, count: 54828"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 304.19186901626955,
+            "unit": "median tps",
+            "extra": "avg tps: 354.6834376715445, max tps: 533.222644982522, count: 54828"
           }
         ]
       }

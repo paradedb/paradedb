@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767748762971,
+  "lastUpdate": 1767748767672,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51126,6 +51126,114 @@ window.BENCHMARK_DATA = {
             "value": 170.9375,
             "unit": "median mem",
             "extra": "avg mem: 167.49380200259998, max mem: 173.3671875, count: 55481"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767748764214,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.5841262510973, max cpu: 42.39451, count: 55500"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 168.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.9129506615991, max mem: 173.453125, count: 55500"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.648540106322349, max cpu: 27.934044, count: 55500"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 117.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 116.17516047297298, max mem: 117.40234375, count: 55500"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.804619539028781, max cpu: 9.4395275, count: 55500"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 127.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 114.54353920326577, max mem: 152.48046875, count: 55500"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14039,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14090.15054054054, max block_count: 24243.0, count: 55500"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.561489788996755, max cpu: 4.6647234, count: 55500"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.44800443412163, max mem: 130.21484375, count: 55500"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.19634234234234, max segment_count: 38.0, count: 55500"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.876633120526591, max cpu: 28.458496, count: 111000"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.5927876196509, max mem: 160.94921875, count: 111000"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.61118766079359, max cpu: 27.906979, count: 55500"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.96783495213964, max mem: 173.6484375, count: 55500"
           }
         ]
       }

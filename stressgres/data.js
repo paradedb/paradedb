@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767746922000,
+  "lastUpdate": 1767746926560,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24806,6 +24806,66 @@ window.BENCHMARK_DATA = {
             "value": 90,
             "unit": "median segment_count",
             "extra": "avg segment_count: 94.72424111389778, max segment_count: 159.0, count: 57815"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767746923209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.315380594578613, max cpu: 42.857143, count: 57875"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.98041866900647, max mem: 234.55859375, count: 57875"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.425147086554603, max cpu: 33.23442, count: 57875"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 172.23474210313174, max mem: 172.6484375, count: 57875"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 48671,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48596.501995680344, max block_count: 50685.0, count: 57875"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 88,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 93.26869978401727, max segment_count: 155.0, count: 57875"
           }
         ]
       }

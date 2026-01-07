@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767748767672,
+  "lastUpdate": 1767749662894,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -54782,6 +54782,54 @@ window.BENCHMARK_DATA = {
             "value": 107.87412450572707,
             "unit": "median tps",
             "extra": "avg tps: 106.36182344052636, max tps: 200.50276853786923, count: 107626"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767749659479,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 533.4846924079244,
+            "unit": "median tps",
+            "extra": "avg tps: 534.9483587960992, max tps: 742.6546019490504, count: 53783"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 649.9094830597564,
+            "unit": "median tps",
+            "extra": "avg tps: 646.0250217267533, max tps: 821.4491642370841, count: 53783"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.46490797935019,
+            "unit": "median tps",
+            "extra": "avg tps: 86.51150382658972, max tps: 91.955222966417, count: 53783"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.26167774393187,
+            "unit": "median tps",
+            "extra": "avg tps: 107.45743588993902, max tps: 189.85039571048443, count: 107566"
           }
         ]
       }

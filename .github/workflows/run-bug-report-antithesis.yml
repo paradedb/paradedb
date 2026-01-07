@@ -1,4 +1,4 @@
-name: Run a bug report
+name: Run a bug report (Antithesis)
 
 on: 
   workflow_dispatch:

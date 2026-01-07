@@ -103,6 +103,7 @@ WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
 
+-- TODO: Won't get TopN due to https://github.com/paradedb/paradedb/issues/2688.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
 FROM data_records
@@ -205,7 +206,7 @@ USING bm25 (
 
 -- '--- Tests with index WITH explicit fast:false for non-text fields ---'
 
--- 'Test 6: ORDER BY with LIMIT (should use TopNScanExecState)'
+-- 'Test 6: ORDER BY with LIMIT (should not use TopNScanExecState, because fast:false)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category

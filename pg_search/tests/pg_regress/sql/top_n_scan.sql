@@ -98,6 +98,8 @@ USING bm25 (
 \echo '======== EXECUTION METHOD TESTS ========'
 \echo 'Tests to identify when TopNScanExecState vs NormalScanExecState is used'
 
+-- TODO: Many queries won't get TopN due to https://github.com/paradedb/paradedb/issues/2688
+
 -- Test 1: Simple query with LIMIT (should use TopNScanExecState)
 \echo 'Test 1: Simple query with LIMIT (should use TopNScanExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

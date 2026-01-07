@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767745984869,
+  "lastUpdate": 1767745989358,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16602,6 +16602,126 @@ window.BENCHMARK_DATA = {
             "value": 50.25,
             "unit": "median mem",
             "extra": "avg mem: 47.822565352942505, max mem: 62.6328125, count: 55480"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a985b4fa462d7edf58a62fcd44c26098a238d2a0",
+          "message": "feat: allow multiple language stopwords filters per field (#3852)\n\n## Ticket(s) Closed\n\n- Closes #3289\n\n## What\n\nAdds support for specifying multiple languages in `stopwords_language`\nfor a single text field.\n\n## Why\n\nDocuments often contain content in multiple languages. Previously, you\ncould only filter stopwords for one language per field, leaving\nstopwords from other languages unfiltered.\n\n## How\n\n- Changed `stopwords_language` from `Option<Language>` to\n`Option<Vec<Language>>`\n- JSON config now accepts both a single string (backwards compatible)\nand an array:\n  ```json\n  {\"stopwords_language\": \"English\"}\n  {\"stopwords_language\": [\"English\", \"French\"]}\n  ```\n- Uses Tantivy's `.dynamic()` builder method to type-erase the analyzer,\nenabling a for loop to apply multiple `StopWordFilter`s\n\n## Tests\n\nAdded `multi_language_stopwords.sql` regression test covering:\n- Multiple languages filtering (English + French stopwords)\n- Single language backwards compatibility\n- Non-stopword terms returning expected results",
+          "timestamp": "2026-01-06T16:14:23-08:00",
+          "tree_id": "9432575bee09c54afca004e5021e5a44d06d3676",
+          "url": "https://github.com/paradedb/paradedb/commit/a985b4fa462d7edf58a62fcd44c26098a238d2a0"
+        },
+        "date": 1767745986194,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.540959508118693, max cpu: 18.934912, count: 54828"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.74256966103086, max mem: 68.81640625, count: 54828"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.430473969709134, max cpu: 7.748184, count: 54828"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.22431826575837, max mem: 35.71484375, count: 54828"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.533233522374056, max cpu: 18.879055, count: 54828"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 58.04573293413037, max mem: 69.0859375, count: 54828"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.780751113414085, max cpu: 9.590409, count: 54828"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.99635992330561, max mem: 68.5, count: 54828"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.492456288452655, max cpu: 9.4395275, count: 109656"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 45.46177848225359, max mem: 56.328125, count: 109656"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1800,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1790.3703946888452, max block_count: 3134.0, count: 54828"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.355657693149485, max segment_count: 30.0, count: 54828"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.429022281849323, max cpu: 4.833837, count: 54828"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.83474207122729, max mem: 58.63671875, count: 54828"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7244096,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.4264805663690603, max cpu: 4.733728, count: 54828"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.222235402645545, max mem: 61.8984375, count: 54828"
           }
         ]
       }

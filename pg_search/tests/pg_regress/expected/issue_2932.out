@@ -9,6 +9,7 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX on mock_items USING bm25 (id, description, rating) WITH (key_field='id');
+-- TODO: Many of these will not get TopN due to https://github.com/paradedb/paradedb/issues/3303
 SELECT description, pdb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
 WARNING:  Query has LIMIT 3 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
      description     |       score       

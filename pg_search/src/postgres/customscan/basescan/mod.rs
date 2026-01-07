@@ -1366,21 +1366,6 @@ impl CustomScan for BaseScan {
 }
 
 ///
-/// Choose and return an ExecMethodType based on the properties of the builder at planning time.
-///
-/// If the query can return "fast fields", make that determination here, falling back to the
-/// [`NormalScanExecState`] if not.
-///
-/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
-///
-/// If we have failed to extract all relevant information at planning time, then the fast-field
-/// execution methods might still fall back to `Normal` at execution time: see the notes in
-/// `assign_exec_method` and `compute_exec_which_fast_fields`.
-///
-/// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
-/// these specialized [`ExecMethod`]s.
-///
-///
 /// Validates whether a query that should use TopN scan is actually using it.
 ///
 /// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
@@ -1411,63 +1396,94 @@ fn validate_topn_expectation(
     // Check if we actually got TopN
     let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
 
-    // If there's a mismatch, emit a warning with diagnostic information
-    if should_use_topn && !is_using_topn {
-        let limit = privdata.limit().unwrap();
-        let method_name = match chosen_method {
-            ExecMethodType::Normal => "Normal",
-            ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
-            ExecMethodType::TopN { .. } => "TopN",
-        };
+    // If TopN is not expected or we're already using TopN, nothing to warn about
+    if !should_use_topn || is_using_topn {
+        return;
+    }
 
-        let reason = match topn_pathkey_info {
-            PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => {
-                format!(
-                    "ORDER BY has {} columns but TopN supports maximum {}",
-                    count, max
-                )
-            }
-            PathKeyInfo::Unusable(UnusableReason::PrefixOnly { matched, total }) => {
-                format!(
-                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
-                    matched, total
-                )
-            }
-            PathKeyInfo::Unusable(UnusableReason::NotSortable) => {
-                "ORDER BY columns cannot be pushed down to the index".to_string()
-            }
-            PathKeyInfo::UsablePrefix(matched) => {
-                format!(
-                    "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
-                    matched.len(),
-                    privdata
-                        .maybe_orderby_info()
-                        .as_ref()
-                        .map_or(0, |o| o.len()),
-                )
-            }
-            PathKeyInfo::None => {
-                // This case should normally use TopN with no ordering
-                "unknown reason (no pathkeys but should still use TopN)".to_string()
-            }
-            PathKeyInfo::UsableAll(_) => "unknown reason (pathkeys are usable)".to_string(),
-        };
+    // At this point: should_use_topn is true AND we're not using TopN - emit warning
+    let limit = privdata.limit().unwrap();
+    let method_name = match chosen_method {
+        ExecMethodType::Normal => "Normal",
+        ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+        ExecMethodType::TopN { .. } => "TopN",
+    };
 
-        pgrx::warning!(
-            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+    let (reason, remedies) = match topn_pathkey_info {
+        PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => (
+            format!(
+                "ORDER BY has {} columns but TopN supports maximum {}",
+                count, max
+            ),
+            format!("Reduce ORDER BY columns to {} or fewer", max),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::PrefixOnly { matched }) => (
+            format!(
+                "only partial prefix of ORDER BY can be pushed down ({} columns matched)",
+                matched
+            ),
+            "Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, \
+                 or verify that normalizer/collation matches the index"
+                .to_string(),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::NotSortable) => (
+            "ORDER BY columns cannot be pushed down to the index".to_string(),
+            "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
+                 For string columns, use pdb::literal tokenizer"
+                .to_string(),
+        ),
+        PathKeyInfo::UsablePrefix(matched) => (
+            format!(
+                "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                matched.len(),
+                privdata
+                    .maybe_orderby_info()
+                    .as_ref()
+                    .map_or(0, |o| o.len()),
+            ),
+            "Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, \
+                 or verify that normalizer/collation matches the index"
+                .to_string(),
+        ),
+        PathKeyInfo::None => (
+            // This case should normally use TopN with no ordering
+            "unknown reason (no pathkeys but should still use TopN)".to_string(),
+            "This is unexpected - please report this issue".to_string(),
+        ),
+        PathKeyInfo::UsableAll(_) => (
+            "unknown reason (pathkeys are usable)".to_string(),
+            "This is unexpected - please report this issue".to_string(),
+        ),
+    };
+
+    pgrx::warning!(
+        "Query has LIMIT {} but is not using TopN scan (using {} instead). \
              Reason: {}. \
              This may cause poor performance on large datasets. \
-             Consider: (1) ensuring ORDER BY columns are indexed with fast=true, \
-             (2) verifying normalizer matches (e.g., use lower() in index if used in ORDER BY), \
-             or (3) reducing ORDER BY columns to {} or fewer.",
-            limit,
-            method_name,
-            reason,
-            MAX_TOPN_FEATURES
-        );
-    }
+             Remedies: {}. \
+             To disable this warning: SET paradedb.check_topn_scan = false",
+        limit,
+        method_name,
+        reason,
+        remedies
+    );
 }
 
+///
+/// Choose and return an ExecMethodType based on the properties of the builder at planning time.
+///
+/// If the query can return "fast fields", make that determination here, falling back to the
+/// [`NormalScanExecState`] if not.
+///
+/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
+///
+/// If we have failed to extract all relevant information at planning time, then the fast-field
+/// execution methods might still fall back to `Normal` at execution time: see the notes in
+/// `assign_exec_method` and `compute_exec_which_fast_fields`.
+///
+/// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
+/// these specialized [`ExecMethod`]s.
+///
 fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
@@ -1800,7 +1816,7 @@ pub enum UnusableReason {
     /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
     TooManyColumns { count: usize, max: usize },
     /// Only a prefix of the ORDER BY columns can be pushed down
-    PrefixOnly { matched: usize, total: usize },
+    PrefixOnly { matched: usize },
     /// Columns are not indexed with fast=true or not sortable
     NotSortable,
 }
@@ -1870,7 +1886,6 @@ unsafe fn pullup_topn_pathkeys(
             // the suffix of the pathkey comes into play.
             PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
                 matched: prefix.len(),
-                total: prefix.len(), // We only know the prefix length at this point
             })
         }
         pki @ (PathKeyInfo::None | PathKeyInfo::Unusable(_)) => pki,

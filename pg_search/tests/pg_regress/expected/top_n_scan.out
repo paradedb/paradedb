@@ -136,6 +136,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -163,6 +164,7 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -254,6 +256,7 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -310,6 +313,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -334,6 +338,7 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -359,8 +364,8 @@ ORDER BY state, id
 LIMIT 10000;
                                                                      QUERY PLAN                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=2500.00 loops=1)
-   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500.00 loops=1)
+ Limit (actual rows=2500 loops=1)
+   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500 loops=1)
          Table: records
          Index: records_search_idx
          Heap Fetches: 2500

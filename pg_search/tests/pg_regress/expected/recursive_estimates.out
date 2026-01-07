@@ -328,16 +328,16 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on recursive_test.estimate_items  (cost=10.00..10.04 rows=4 width=641)
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on recursive_test.estimate_items  (cost=10.00..10.41 rows=41 width=641)
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
    Segment Count: 1
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":41}},"estimated_docs":41}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -900,7 +900,7 @@ EXPLAIN (VERBOSE) SELECT * FROM recursive_test.estimate_items WHERE description 
 EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
                                                                                                                    QUERY PLAN                                                                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on recursive_test.estimate_items (actual rows=1.00 loops=1)
+ Custom Scan (ParadeDB Scan) on recursive_test.estimate_items (actual rows=1 loops=1)
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
@@ -910,10 +910,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
-   Buffers: shared hit=21
- Planning:
-   Buffers: shared hit=36
-(13 rows)
+(10 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates
 EXPLAIN SELECT * FROM recursive_test.estimate_items WHERE description &&& 'running shoes';
@@ -1106,7 +1103,6 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Total Cost": 10.03,                                                                                                                                                                                              +
        "Plan Rows": 3,                                                                                                                                                                                                   +
        "Plan Width": 641,                                                                                                                                                                                                +
-       "Disabled": false,                                                                                                                                                                                                +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
        "Table": "estimate_items",                                                                                                                                                                                        +
        "Index": "idx_recursive_estimates",                                                                                                                                                                               +
@@ -1144,7 +1140,6 @@ WHERE description @@@ paradedb.boolean(
        "Total Cost": 10.01,                                                                                                                                                                                                                                                                                                              +
        "Plan Rows": 1,                                                                                                                                                                                                                                                                                                                   +
        "Plan Width": 641,                                                                                                                                                                                                                                                                                                                +
-       "Disabled": false,                                                                                                                                                                                                                                                                                                                +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                        +
        "Table": "estimate_items",                                                                                                                                                                                                                                                                                                        +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                               +
@@ -1187,7 +1182,6 @@ WHERE description @@@ paradedb.boolean(
        "Total Cost": 10.01,                                                                                                                                                                                                                                                                                                                                                                                                                                                                       +
        "Plan Rows": 1,                                                                                                                                                                                                                                                                                                                                                                                                                                                                            +
        "Plan Width": 641,                                                                                                                                                                                                                                                                                                                                                                                                                                                                         +
-       "Disabled": false,                                                                                                                                                                                                                                                                                                                                                                                                                                                                         +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                                                                                                                                                                                                                                                                                                 +
        "Table": "estimate_items",                                                                                                                                                                                                                                                                                                                                                                                                                                                                 +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                                                                                                                                                                                                                                                                                        +
@@ -1207,32 +1201,31 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                         +
-   {                                                                                                                                                                                                                       +
-     "Plan": {                                                                                                                                                                                                             +
-       "Node Type": "Custom Scan",                                                                                                                                                                                         +
-       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                            +
-       "Parallel Aware": false,                                                                                                                                                                                            +
-       "Async Capable": false,                                                                                                                                                                                             +
-       "Relation Name": "estimate_items",                                                                                                                                                                                  +
-       "Schema": "recursive_test",                                                                                                                                                                                         +
-       "Alias": "estimate_items",                                                                                                                                                                                          +
-       "Startup Cost": 10.00,                                                                                                                                                                                              +
-       "Total Cost": 10.04,                                                                                                                                                                                                +
-       "Plan Rows": 4,                                                                                                                                                                                                     +
-       "Plan Width": 641,                                                                                                                                                                                                  +
-       "Disabled": false,                                                                                                                                                                                                  +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                          +
-       "Table": "estimate_items",                                                                                                                                                                                          +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                 +
-       "Segment Count": 1,                                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                               +
-       "Scores": false,                                                                                                                                                                                                    +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":4}},\"estimated_docs\":4}"+
-     }                                                                                                                                                                                                                     +
-   }                                                                                                                                                                                                                       +
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                           +
+   {                                                                                                                                                                                                                         +
+     "Plan": {                                                                                                                                                                                                               +
+       "Node Type": "Custom Scan",                                                                                                                                                                                           +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                              +
+       "Parallel Aware": false,                                                                                                                                                                                              +
+       "Async Capable": false,                                                                                                                                                                                               +
+       "Relation Name": "estimate_items",                                                                                                                                                                                    +
+       "Schema": "recursive_test",                                                                                                                                                                                           +
+       "Alias": "estimate_items",                                                                                                                                                                                            +
+       "Startup Cost": 10.00,                                                                                                                                                                                                +
+       "Total Cost": 10.41,                                                                                                                                                                                                  +
+       "Plan Rows": 41,                                                                                                                                                                                                      +
+       "Plan Width": 641,                                                                                                                                                                                                    +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                            +
+       "Table": "estimate_items",                                                                                                                                                                                            +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                   +
+       "Segment Count": 1,                                                                                                                                                                                                   +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                                 +
+       "Scores": false,                                                                                                                                                                                                      +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":41}},\"estimated_docs\":41}"+
+     }                                                                                                                                                                                                                       +
+   }                                                                                                                                                                                                                         +
  ]
 (1 row)
 
@@ -1260,7 +1253,6 @@ WHERE description @@@ paradedb.fuzzy_term(
        "Total Cost": 10.03,                                                                                                                                                                                                     +
        "Plan Rows": 3,                                                                                                                                                                                                          +
        "Plan Width": 641,                                                                                                                                                                                                       +
-       "Disabled": false,                                                                                                                                                                                                       +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                               +
        "Table": "estimate_items",                                                                                                                                                                                               +
        "Index": "idx_recursive_estimates",                                                                                                                                                                                      +
@@ -1293,7 +1285,6 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Total Cost": 10.03,                                                                                                                                                    +
        "Plan Rows": 3,                                                                                                                                                         +
        "Plan Width": 641,                                                                                                                                                      +
-       "Disabled": false,                                                                                                                                                      +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],              +
        "Table": "estimate_items",                                                                                                                                              +
        "Index": "idx_recursive_estimates",                                                                                                                                     +
@@ -1326,7 +1317,6 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        "Total Cost": 10.03,                                                                                                                                                                                              +
        "Plan Rows": 3,                                                                                                                                                                                                   +
        "Plan Width": 641,                                                                                                                                                                                                +
-       "Disabled": false,                                                                                                                                                                                                +
        "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                        +
        "Table": "estimate_items",                                                                                                                                                                                        +
        "Index": "idx_recursive_estimates",                                                                                                                                                                               +
@@ -1356,7 +1346,6 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
      Total Cost: 10.03                                                                                                                                                                                               +
      Plan Rows: 3                                                                                                                                                                                                    +
      Plan Width: 641                                                                                                                                                                                                 +
-     Disabled: false                                                                                                                                                                                                 +
      Output:                                                                                                                                                                                                         +
        - "id"                                                                                                                                                                                                        +
        - "description"                                                                                                                                                                                               +
@@ -1395,7 +1384,6 @@ SELECT * FROM recursive_test.estimate_items WHERE description @@@ 'shoes';
        <Total-Cost>10.03</Total-Cost>                                                                                                                                                                          +
        <Plan-Rows>3</Plan-Rows>                                                                                                                                                                                +
        <Plan-Width>641</Plan-Width>                                                                                                                                                                            +
-       <Disabled>false</Disabled>                                                                                                                                                                              +
        <Output>                                                                                                                                                                                                +
          <Item>id</Item>                                                                                                                                                                                       +
          <Item>description</Item>                                                                                                                                                                              +

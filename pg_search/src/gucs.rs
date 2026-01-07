@@ -96,7 +96,7 @@ static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1)
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Validate TopN scan eligibility for LIMIT queries
-static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.

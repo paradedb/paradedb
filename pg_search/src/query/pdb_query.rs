@@ -673,7 +673,7 @@ fn proximity(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
+    if !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()
@@ -746,7 +746,7 @@ fn regex_phrase(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
+    if !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()
@@ -1422,7 +1422,7 @@ fn tokenized_phrase(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
+    if !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()
@@ -1473,7 +1473,7 @@ fn phrase_prefix(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
+    if !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()
@@ -1512,7 +1512,7 @@ fn phrase(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
+    if !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()
@@ -1575,7 +1575,7 @@ fn phrase_array(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if tokens.len() > 1 && !search_field.is_tokenized_with_freqs_and_positions() {
+    if tokens.len() > 1 && !search_field.supports_positions() {
         let tokenizer = search_field
             .field_config()
             .tokenizer()

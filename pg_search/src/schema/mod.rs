@@ -467,22 +467,36 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
-    pub fn is_tokenized_with_freqs_and_positions(&self) -> bool {
-        // NB:  'uses_raw_tokenizer()' might not be enough to ensure the field is tokenized
+    pub fn supports_positions(&self) -> bool {
+        let tokenizer = self.field_config.tokenizer();
+
+        // these tokenizers only emit one token, so they implicitly "support" positions
+        #[allow(deprecated)]
+        if matches!(
+            tokenizer,
+            Some(SearchTokenizer::Keyword { .. })
+                | Some(SearchTokenizer::KeywordDeprecated { .. })
+                | Some(SearchTokenizer::Raw(..))
+                | Some(SearchTokenizer::LiteralNormalized(..))
+        ) {
+            return true;
+        }
+
+        let has_positions = self
+            .field_entry
+            .field_type()
+            .get_index_record_option()
+            .map(|opt| opt.has_positions())
+            .unwrap_or(false);
+
         (self.is_text() || self.is_json())
-            && !self.uses_raw_tokenizer()
-            && matches!(
-                &self.field_config,
-                SearchFieldConfig::Text { indexed, record, tokenizer, .. }
-                    | SearchFieldConfig::Json { indexed, record, tokenizer, .. }
-                    if *indexed
-                        && *record == IndexRecordOption::WithFreqsAndPositions
-                        && !matches!(tokenizer, SearchTokenizer::Ngram { .. })
-            )
+            && has_positions
+            // ngram tokenizer does not store usable positions.
+            && !matches!(self.field_config.tokenizer(), Some(SearchTokenizer::Ngram { .. }))
     }
 
     pub fn is_json(&self) -> bool {
-        matches!(self.field_type, SearchFieldType::Json(_))
+        self.field_entry.field_type().is_json()
     }
 
     #[allow(deprecated)]

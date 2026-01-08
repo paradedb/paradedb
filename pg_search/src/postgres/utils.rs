@@ -259,20 +259,24 @@ pub enum FieldSource {
 
 /// Collect composite slot info from categorized fields for upfront unpacking.
 ///
-/// Returns an iterator of (slot_index, datum, is_null, type_oid) for each unique
+/// Returns a lazy iterator of (slot_index, datum, is_null, type_oid) for each unique
 /// composite slot in the categorized fields.
 ///
 /// # Safety
-/// Caller must ensure values and isnull pointers are valid.
+/// - `values` and `isnull` pointers are dereferenced lazily during iteration,
+///   not at call time. Caller must ensure these pointers remain valid until
+///   the returned iterator is fully consumed.
+/// - The iterator should be consumed immediately (e.g., via `from_composites()`).
+///   Storing the iterator and consuming it later risks UB if the underlying
+///   slot arrays have been invalidated.
 pub unsafe fn collect_composites_for_unpacking<'a>(
-    categorized_fields: impl Iterator<Item = &'a CategorizedFieldData>,
+    categorized_fields: impl Iterator<Item = &'a CategorizedFieldData> + 'a,
     values: *mut pg_sys::Datum,
     isnull: *mut bool,
-) -> impl Iterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)> {
+) -> impl Iterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)> + 'a {
     let mut seen = rustc_hash::FxHashSet::default();
-    let mut result = Vec::new();
 
-    for cat in categorized_fields {
+    categorized_fields.filter_map(move |cat| {
         if let FieldSource::CompositeField {
             index_attno,
             composite_type_oid,
@@ -282,12 +286,11 @@ pub unsafe fn collect_composites_for_unpacking<'a>(
             if seen.insert(index_attno) {
                 let datum = *values.add(index_attno);
                 let is_null = *isnull.add(index_attno);
-                result.push((index_attno, datum, is_null, composite_type_oid));
+                return Some((index_attno, datum, is_null, composite_type_oid));
             }
         }
-    }
-
-    result.into_iter()
+        None
+    })
 }
 
 /// Helper to extract field value from values[] array, handling composite fields.

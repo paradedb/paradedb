@@ -7,7 +7,7 @@
 
 name: Antithesis - Run Bug Report
 
-on: 
+on:
   workflow_dispatch:
     inputs:
       input_string:

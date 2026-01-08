@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767904941047,
+  "lastUpdate": 1767904945893,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -69790,6 +69790,186 @@ window.BENCHMARK_DATA = {
             "value": 30.55078125,
             "unit": "median mem",
             "extra": "avg mem: 29.894895399337848, max mem: 30.72265625, count: 53764"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "maazahmadj@gmail.com",
+            "name": "maaz ahmad",
+            "username": "maazzzzz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f53a9a2619db4023eed84ed36fde621ccfd2aad",
+          "message": "feat: use native rust icu tokenizer (#3792)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n\n- Replaced rust_icu used in ICUTokenizer with the rust ICU4X crates,\neliminating external dependencies and removing the need for a feature\nflag.\n\n## Why\n\n- removes external dependency for icu tokenizer, \n- simpler to maintain\n- no potential for symbol conflicts with postgres\n\n## How\n\n- Replaced rust_icu crates with  icu crates(icu_segmenter) (v2.1.1)\n- Implementation: Refactored tokenizers/src/icu.rs \n  - Replaced UBreakIterator with ICU4X's WordSegmenter::new_auto()\n  - Preserved alphanumeric filtering logic to match original behavior\n- Removed UTF-8/UTF-16 conversion as it is no longer required\n- Removed  \"icu\" feature flag \n- Removed ICU compilation from Dockerfile, linker config from build.rs\n- Updated docs to reflect ICU is always available\n\n## Tests\n\n- One unit test (test_complex_email) updated because of a difference in\nhow ICU4X and rust_icu tokenize certain things:\n  - ICU4X treats \"i.e\" and domains like \"missouri.edu\" as single  tokens\n- rust_icu splits on periods yielding [\"i\", \"e\"] and [\"missouri\", \"edu\"]\n- All existing regression tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Replaces the `ICUTokenizer` implementation with ICU4X and removes the\nexternal ICU dependency and feature gating, standardizing ICU\navailability across builds.\n> \n> - Refactors `tokenizers/src/icu.rs` to use ICU4X `WordSegmenter`;\nremoves UTF-16 plumbing and `rust_icu` crates; adds `icu_segmenter`;\nrenames tokenizer type registration (`Icu`) and makes `icu` always\navailable\n> - Drops the `icu` feature from `pg_search`, `tokenizers`, `tests`,\nbuild scripts, and commands; removes linker hacks from\n`pg_search/build.rs`\n> - Updates tests and expectations (e.g., `i.e` and domains are single\ntokens); makes ICU tests unconditional and updates tokenizer\nlisting/assertions\n> - Removes ICU build/install from `docker/Dockerfile`; no longer\ncompiles or installs ICU; simplifies final image cleanup\n> - Cleans CI/workflows: remove `--features icu` and `libicu*` installs\nacross benchmark, test, and publish jobs (Debian/Ubuntu/macOS/RHEL);\npackaging steps call plain `cargo pgrx package/install`\n> - Docs: remove `libicu` prerequisite and note that ICU is included by\ndefault\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n7bcd70b68528b51af82767fa34fd2b1274da441c. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nSigned-off-by: maaz ahmad <maazahmadj@gmail.com>\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-08T14:19:23-05:00",
+          "tree_id": "b1eebe7536e066f256fbd06f06e26c9bfd99da2a",
+          "url": "https://github.com/paradedb/paradedb/commit/4f53a9a2619db4023eed84ed36fde621ccfd2aad"
+        },
+        "date": 1767904942540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.950916813777628, max cpu: 9.248554, count: 53628"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 48.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.216124054248716, max mem: 54.3359375, count: 53628"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.39982574184629, max cpu: 4.58891, count: 53628"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.13274475903446, max mem: 30.18359375, count: 53628"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.099526,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.878380164559474, max cpu: 18.32061, count: 53628"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 49.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.781283069245546, max mem: 56.26953125, count: 53628"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.948160545690071, max cpu: 9.248554, count: 53628"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 47.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.260875484238646, max mem: 53.4140625, count: 53628"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663598735412258, max cpu: 9.195402, count: 53628"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 31.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.164328874958045, max mem: 36.36328125, count: 53628"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1108,
+            "unit": "median pages",
+            "extra": "avg pages: 1121.5794547624375, max pages: 1876.0, count: 53628"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.65625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.762339636011038, max relation_size:MB: 14.65625, count: 53628"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.060528082345044, max segment_count: 17.0, count: 53628"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6574180854450926, max cpu: 4.6065254, count: 53628"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.976761133992504, max mem: 28.09375, count: 53628"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7601012180793014, max cpu: 4.58891, count: 53628"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 27.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.860315506824794, max mem: 27.90234375, count: 53628"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.865830097279124, max cpu: 13.859479, count: 53628"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.33532287820728, max mem: 51.515625, count: 53628"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.0000321795194040718, max replication_lag:MB: 0.31896209716796875, count: 53628"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0753782808567935, max cpu: 13.649289, count: 107256"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.721531640712406, max mem: 51.8828125, count: 107256"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1210790371104205, max cpu: 4.5933013, count: 53628"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.876998504162938, max mem: 30.9375, count: 53628"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5203148111853055, max cpu: 4.5933013, count: 53628"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.881405527429703, max mem: 30.671875, count: 53628"
           }
         ]
       }

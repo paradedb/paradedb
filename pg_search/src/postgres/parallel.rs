@@ -101,22 +101,20 @@ unsafe fn bm25_shared_state(
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
-) {
+) -> Option<i32> {
     if unsafe { (*scan).parallel_scan.is_null() } {
         // not a parallel scan, so there's nothing to initialize
-        return;
+        return None;
     }
 
-    let state = match get_bm25_scan_state(&mut scan) {
-        Some(s) => s,
-        None => return,
-    };
+    let state = get_bm25_scan_state(&mut scan)?;
 
     let _mutex = state.acquire_mutex();
 
     if !state.is_initialized() {
         state.populate(searcher.segment_readers(), &[], false);
     }
+    Some(unsafe { pg_sys::ParallelWorkerNumber })
 }
 
 /// Claim (steal) a segment from the shared pool.

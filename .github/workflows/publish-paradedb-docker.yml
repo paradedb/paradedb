@@ -44,7 +44,7 @@ jobs:
         run: |
           echo "Evaluating tag: $GITHUB_REF"
           if [[ "$GITHUB_REF" == *"-"* ]]; then
-            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 17 and 18."
+            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."

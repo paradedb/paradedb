@@ -162,7 +162,7 @@ pub extern "C-unwind" fn amrescan(
 
     // For parallel scans, initialize state if needed (first one wins).
     // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
-    // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple,
+    // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple/amgetbitmap,
     // which would leave claimed segments unprocessed, causing data loss.
     unsafe { parallel::maybe_init_parallel_scan(scan, &search_reader) };
 
@@ -172,7 +172,7 @@ pub extern "C-unwind" fn amrescan(
             Some(search_reader.search())
         } else {
             // parallel scan: DON'T claim segments here
-            // Segments will be claimed lazily in search_next_segment during amgettuple
+            // Segments will be claimed lazily in search_next_segment during amgettuple/amgetbitmap
             None
         };
 

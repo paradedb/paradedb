@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767908797900,
+  "lastUpdate": 1767908802929,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -52908,6 +52908,114 @@ window.BENCHMARK_DATA = {
             "value": 172.12890625,
             "unit": "median mem",
             "extra": "avg mem: 167.94828096846848, max mem: 175.22265625, count: 55500"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac76a85d6112a6c9c9657ed7ef917deb216f43b5",
+          "message": "fix: Extract heap-filter quals for top level function expressions (#3873)\n\n# Ticket(s) Closed\n\n- Fixes\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-15440228\n\n## What\n\nWe were not extracting quals for top-level function expressions: i.e.,\nfunctions which return boolean results. Now we do.\n\n## Why\n\nIn order to be able to successfully execute more queries via heap\nfilters.\n\n## Tests\n\nAdded a new regress test.",
+          "timestamp": "2026-01-08T12:38:59-08:00",
+          "tree_id": "29fb426551ccf6bc6deb5f4f79f6163b23f1ede1",
+          "url": "https://github.com/paradedb/paradedb/commit/ac76a85d6112a6c9c9657ed7ef917deb216f43b5"
+        },
+        "date": 1767908799324,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.57372581364375, max cpu: 42.814667, count: 55508"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 151.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.41267510144934, max mem: 169.63671875, count: 55508"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.695327813824279, max cpu: 27.988338, count: 55508"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 118.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 117.12605516884953, max mem: 118.44921875, count: 55508"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.797902489787046, max cpu: 9.448819, count: 55508"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 125.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.81844149998649, max mem: 152.2421875, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14027,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14126.049578439144, max block_count: 24391.0, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.37584575567734, max cpu: 4.6647234, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.87928844434586, max mem: 131.30859375, count: 55508"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.239208762700873, max segment_count: 38.0, count: 55508"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.91329643082106, max cpu: 28.042841, count: 111016"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 136.71084070229742, max mem: 161.7265625, count: 111016"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.340782694506919, max cpu: 27.906979, count: 55508"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.80439158263223, max mem: 172.75, count: 55508"
           }
         ]
       }

@@ -123,7 +123,7 @@ jobs:
 
     steps:
       - name: Install Dependencies
-        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq libicu-dev
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev jq
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6
@@ -203,7 +203,7 @@ jobs:
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --pg-config $PG_CONFIG_PATH
 
       - name: Create .deb Package
         run: |

@@ -95,7 +95,6 @@ pub fn search_field_config_from_type(
             LinderaLanguage::default(),
             SearchTokenizerFilters::default(),
         ),
-        #[cfg(feature = "icu")]
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
             chinese_convert: None,
@@ -223,7 +222,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *chinese_convert = jieba_typmod.chinese_convert;
         }
 
-        #[cfg(feature = "icu")]
         SearchTokenizer::ICUTokenizer(filters) => {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);

@@ -37,4 +37,4 @@ done
 source "${SCRIPT_DIR}/pg_search_common.sh" "${COMMON_ARGS[@]+"${COMMON_ARGS[@]}"}"
 
 # Run the test suite with backtrace enabled and pass along all arguments
-RUST_BACKTRACE=1 cargo test --package tests --package tokenizers --features=icu "$@"
+RUST_BACKTRACE=1 cargo test --package tests --package tokenizers "$@"

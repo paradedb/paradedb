@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767904945893,
+  "lastUpdate": 1767905952626,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6062,6 +6062,72 @@ window.BENCHMARK_DATA = {
             "value": 104.73197877453298,
             "unit": "median tps",
             "extra": "avg tps: 109.62026772236923, max tps: 388.4077883011833, count: 54512"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac76a85d6112a6c9c9657ed7ef917deb216f43b5",
+          "message": "fix: Extract heap-filter quals for top level function expressions (#3873)\n\n# Ticket(s) Closed\n\n- Fixes\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-15440228\n\n## What\n\nWe were not extracting quals for top-level function expressions: i.e.,\nfunctions which return boolean results. Now we do.\n\n## Why\n\nIn order to be able to successfully execute more queries via heap\nfilters.\n\n## Tests\n\nAdded a new regress test.",
+          "timestamp": "2026-01-08T12:38:59-08:00",
+          "tree_id": "29fb426551ccf6bc6deb5f4f79f6163b23f1ede1",
+          "url": "https://github.com/paradedb/paradedb/commit/ac76a85d6112a6c9c9657ed7ef917deb216f43b5"
+        },
+        "date": 1767905949222,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 541.6051734873952,
+            "unit": "median tps",
+            "extra": "avg tps: 546.5808268398575, max tps: 673.6454378280837, count: 55309"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3010.4362011538165,
+            "unit": "median tps",
+            "extra": "avg tps: 2999.4311359776934, max tps: 3018.40550493028, count: 55309"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 622.8590893387328,
+            "unit": "median tps",
+            "extra": "avg tps: 624.5737386537114, max tps: 690.3738369873262, count: 55309"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 452.78617553248864,
+            "unit": "median tps",
+            "extra": "avg tps: 457.47231891253887, max tps: 504.0218536090833, count: 55309"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3201.977317603253,
+            "unit": "median tps",
+            "extra": "avg tps: 3197.689635798319, max tps: 3342.8833894251666, count: 110618"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2089.9038650329157,
+            "unit": "median tps",
+            "extra": "avg tps: 2083.4275519984767, max tps: 2095.369517396285, count: 55309"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 111.76418077854224,
+            "unit": "median tps",
+            "extra": "avg tps: 111.99491445484746, max tps: 365.4671102137946, count: 55309"
           }
         ]
       }

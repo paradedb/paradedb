@@ -16,7 +16,7 @@ WHERE (test.content &&& 'Beijing') AND jsonb_path_exists(test.extra, '$.type')
 ORDER BY pdb.score(test.id) DESC
 LIMIT 10;
 
-SELECT test.content, test.extra
+SELECT pdb.score(test.id), test.content, test.extra
 FROM test
 WHERE (test.content &&& 'Beijing') AND jsonb_path_exists(test.extra, '$.type')
 ORDER BY pdb.score(test.id) DESC

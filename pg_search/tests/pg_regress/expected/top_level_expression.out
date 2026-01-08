@@ -12,19 +12,28 @@ FROM test
 WHERE (test.content &&& 'Beijing') AND jsonb_path_exists(test.extra, '$.type')
 ORDER BY pdb.score(test.id) DESC
 LIMIT 10;
-                                                                                                                         QUERY PLAN                                                                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: (pdb.score(id)) DESC
-         ->  Index Scan using test_bm25 on test
-               Index Cond: (id @@@ '{"with_index":{"oid":143531,"query":{"match":{"field":"content","value":"Beijing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}'::paradedb.searchqueryinput)
-               Filter: jsonb_path_exists(extra, '$."type"'::jsonpath, '{}'::jsonb, false)
-(6 rows)
+   ->  Custom Scan (ParadeDB Scan) on test
+         Table: test
+         Index: test_bm25
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"content","value":"Beijing","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}]}},"field_filters":[{"heap_filter":"jsonb_path_exists(extra, '$.\"type\"'::jsonpath, '{}'::jsonb, false)"}]}}]}}
+(9 rows)
 
-SELECT test.content, test.extra
+SELECT pdb.score(test.id), test.content, test.extra
 FROM test
 WHERE (test.content &&& 'Beijing') AND jsonb_path_exists(test.extra, '$.type')
 ORDER BY pdb.score(test.id) DESC
 LIMIT 10;
-ERROR:  Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678
+   score    |          content          |                       extra                       
+------------+---------------------------+---------------------------------------------------
+ 0.34388584 | Beijing CBD area          | {"type": "business", "district": "Chaoyang"}
+ 0.34388584 | Beijing Palace Museum     | {"type": "landmark", "district": "Dongcheng"}
+ 0.34388584 | Universal Studios Beijing | {"type": "entertainment", "district": "Tongzhou"}
+(3 rows)
+

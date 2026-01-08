@@ -210,9 +210,9 @@ impl<'a> ParallelAggregationWorker<'a> {
             // we take the minimum of what we want which is the target vs what is left which is available
             let count_to_take = std::cmp::min(target_count, available_count);
 
-            if count_to_take > 0 { 
+            if count_to_take > 0 {
                 // treating the segment list as a stack
-                // poping a batch from the end by calculating the slice range 
+                // poping a batch from the end by calculating the slice range
                 let start_index = available_count - count_to_take;
                 let end_index = available_count;
 

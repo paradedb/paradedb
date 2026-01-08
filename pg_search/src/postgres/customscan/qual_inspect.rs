@@ -537,6 +537,27 @@ pub unsafe fn extract_quals(
     }
 
     match (*node).type_ {
+        pg_sys::NodeTag::T_FuncExpr => {
+            // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
+            // This is distinct from FuncExprs used inside comparisons (e.g. pdb.score(id) > 0.5),
+            // which are handled within opexpr().
+            if contains_relation_reference(node, rti) {
+                if !gucs::enable_filter_pushdown() {
+                    return None;
+                }
+
+                state.uses_heap_expr = true;
+                state.uses_tantivy_to_query = true;
+                Some(Qual::HeapExpr {
+                    expr_node: node,
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                })
+            } else {
+                None
+            }
+        }
+
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
                 context,

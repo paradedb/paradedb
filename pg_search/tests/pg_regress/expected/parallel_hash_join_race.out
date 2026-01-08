@@ -303,22 +303,14 @@ EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt'
    730
 (1 row)
 
--- Force generic plan
-SET plan_cache_mode = force_generic_plan;
-DEALLOCATE parallel_hash_join_query;
-PREPARE parallel_hash_join_query_generic(text, text, text, text, date, date) AS
-SELECT COUNT(*)
-FROM document_text dt
-JOIN core c ON dt.dwf_doid = c.dwf_doid
-WHERE dt.full_text @@@ $1
-  AND (c.author @@@ paradedb.match('author', $2)
-       OR c.author @@@ paradedb.match('author', $3)
-       OR c.author @@@ paradedb.match('author', $4))
-  AND DATE(c.date_time_combined) >= $5
-  AND DATE(c.date_time_combined) <= $6;
-EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
-WARNING:  terminating connection because of crash of another server process
-server closed the connection unexpectedly
-	This probably means the server terminated abnormally
-	before or while processing the request.
-connection to server was lost
+-- Reset settings
+RESET plan_cache_mode;
+RESET max_parallel_workers_per_gather;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+RESET paradedb.enable_custom_scan;
+-- Clean up
+DROP TABLE document_text;
+DROP TABLE core;

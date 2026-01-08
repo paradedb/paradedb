@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
@@ -28,9 +27,13 @@ pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_v
 }
 
 #[pg_guard]
-pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {
-    // Note: PostgreSQL doesn't actually call this function for index scans for our custom scan.
-    // Rescanning is handled in amrescan itself, which is called by both leader and workers.
+pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
+    // PostgreSQL calls this before a rescan to reset the parallel scan state.
+    // Mark as uninitialized so workers wait for leader to re-populate.
+    if let Some(state) = get_bm25_scan_state(&mut (scan as *mut _)) {
+        let _mutex = state.acquire_mutex();
+        state.mark_uninitialized();
+    }
 }
 
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -91,42 +94,36 @@ unsafe fn bm25_shared_state(
     }
 }
 
-/// Initialize parallel scan state for index scans.
-///
-/// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
+/// Initialize parallel scan state if not already done.
+/// The first participant to acquire the mutex and see uninitialized state
+/// will populate the segment pool. Segments are NOT claimed here - they're
+/// claimed lazily in amgettuple via maybe_claim_segment.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
-) -> Option<i32> {
+) {
     if unsafe { (*scan).parallel_scan.is_null() } {
         // not a parallel scan, so there's nothing to initialize
-        return None;
+        return;
     }
 
-    let state = get_bm25_scan_state(&mut scan)?;
-    let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+    let state = match get_bm25_scan_state(&mut scan) {
+        Some(s) => s,
+        None => return,
+    };
+
     let _mutex = state.acquire_mutex();
-    if worker_number == -1 {
-        // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
-        // our shared memory information.  The mutex was already initialized, directly, in
-        // `aminitparallelscan()`
+
+    if !state.is_initialized() {
         state.populate(searcher.segment_readers(), &[], false);
     }
-    Some(worker_number)
 }
 
+/// Claim (steal) a segment from the shared pool.
+/// Both leader and workers use this to get work.
+/// All participants wait for initialization before attempting to claim.
 pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
     get_bm25_scan_state(&mut scan)?.checkout_segment()
-}
-
-pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
-    Some(
-        get_bm25_scan_state(&mut scan)?
-            .segments()
-            .keys()
-            .cloned()
-            .collect(),
-    )
 }
 
 fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {

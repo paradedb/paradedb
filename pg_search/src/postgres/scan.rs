@@ -19,7 +19,6 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
-use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ScanStrategy};
@@ -146,34 +145,35 @@ pub extern "C-unwind" fn amrescan(
 
     let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
 
-    // Create the index and scan state
-    let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
-        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
-            // the leader only sees snapshot-visible segments.
-            // we're the leader because our WorkerNumber is -1
-            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
-            MvccSatisfies::Snapshot
-        } else {
-            // the workers have their own rules, which is literally every segment
-            // this is because the workers pick a specific segment to query that
-            // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-            // visibility test due to concurrent merges/garbage collects
-            MvccSatisfies::ParallelWorker(
-                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
-            )
-        }
-    })
+    // For parallel scans, ALL participants use Snapshot visibility.
+    // This avoids:
+    // 1. Deadlocks (no waiting for specific participant to initialize)
+    // 2. Segment ID mismatches (all see same segments with Snapshot)
+    //
+    // The first participant to acquire the mutex initializes the shared state.
+    // Others find it already initialized and proceed.
+    let search_reader = SearchIndexReader::open(
+        &indexrel,
+        search_query_input,
+        false,
+        MvccSatisfies::Snapshot,
+    )
     .expect("amrescan: should be able to open a SearchIndexReader");
-    unsafe {
-        parallel::maybe_init_parallel_scan(scan, &search_reader);
 
+    // For parallel scans, initialize state if needed (first one wins).
+    // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
+    // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple,
+    // which would leave claimed segments unprocessed, causing data loss.
+    unsafe { parallel::maybe_init_parallel_scan(scan, &search_reader) };
+
+    unsafe {
         let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan
+            // not a parallel scan - search all segments
             Some(search_reader.search())
         } else {
-            // a parallel scan: see if there is another segment to query
-            parallel::maybe_claim_segment(scan)
-                .map(|segment_number| search_reader.search_segments([segment_number].into_iter()))
+            // parallel scan: DON'T claim segments here
+            // Segments will be claimed lazily in search_next_segment during amgettuple
+            None
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;

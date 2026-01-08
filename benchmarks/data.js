@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767901754352,
+  "lastUpdate": 1767903849148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -45920,6 +45920,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 32756.3765,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "maazahmadj@gmail.com",
+            "name": "maaz ahmad",
+            "username": "maazzzzz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f53a9a2619db4023eed84ed36fde621ccfd2aad",
+          "message": "feat: use native rust icu tokenizer (#3792)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n\n- Replaced rust_icu used in ICUTokenizer with the rust ICU4X crates,\neliminating external dependencies and removing the need for a feature\nflag.\n\n## Why\n\n- removes external dependency for icu tokenizer, \n- simpler to maintain\n- no potential for symbol conflicts with postgres\n\n## How\n\n- Replaced rust_icu crates with  icu crates(icu_segmenter) (v2.1.1)\n- Implementation: Refactored tokenizers/src/icu.rs \n  - Replaced UBreakIterator with ICU4X's WordSegmenter::new_auto()\n  - Preserved alphanumeric filtering logic to match original behavior\n- Removed UTF-8/UTF-16 conversion as it is no longer required\n- Removed  \"icu\" feature flag \n- Removed ICU compilation from Dockerfile, linker config from build.rs\n- Updated docs to reflect ICU is always available\n\n## Tests\n\n- One unit test (test_complex_email) updated because of a difference in\nhow ICU4X and rust_icu tokenize certain things:\n  - ICU4X treats \"i.e\" and domains like \"missouri.edu\" as single  tokens\n- rust_icu splits on periods yielding [\"i\", \"e\"] and [\"missouri\", \"edu\"]\n- All existing regression tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Replaces the `ICUTokenizer` implementation with ICU4X and removes the\nexternal ICU dependency and feature gating, standardizing ICU\navailability across builds.\n> \n> - Refactors `tokenizers/src/icu.rs` to use ICU4X `WordSegmenter`;\nremoves UTF-16 plumbing and `rust_icu` crates; adds `icu_segmenter`;\nrenames tokenizer type registration (`Icu`) and makes `icu` always\navailable\n> - Drops the `icu` feature from `pg_search`, `tokenizers`, `tests`,\nbuild scripts, and commands; removes linker hacks from\n`pg_search/build.rs`\n> - Updates tests and expectations (e.g., `i.e` and domains are single\ntokens); makes ICU tests unconditional and updates tokenizer\nlisting/assertions\n> - Removes ICU build/install from `docker/Dockerfile`; no longer\ncompiles or installs ICU; simplifies final image cleanup\n> - Cleans CI/workflows: remove `--features icu` and `libicu*` installs\nacross benchmark, test, and publish jobs (Debian/Ubuntu/macOS/RHEL);\npackaging steps call plain `cargo pgrx package/install`\n> - Docs: remove `libicu` prerequisite and note that ICU is included by\ndefault\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n7bcd70b68528b51af82767fa34fd2b1274da441c. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nSigned-off-by: maaz ahmad <maazahmadj@gmail.com>\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-08T14:19:23-05:00",
+          "tree_id": "b1eebe7536e066f256fbd06f06e26c9bfd99da2a",
+          "url": "https://github.com/paradedb/paradedb/commit/4f53a9a2619db4023eed84ed36fde621ccfd2aad"
+        },
+        "date": 1767903845531,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1199.6695,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 482.5555,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1526.8505,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 518.538,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 504.8835,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1256.288,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 31265.046000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 31470.5565,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 31619.500500000002,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

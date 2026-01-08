@@ -106,6 +106,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             ("icu".into(),),
             ("jieba".into(),),
             ("lindera".into(),),
+            ("unicode_words_deprecated".into(),),
             ("unicode_words".into(),)
         ]
     );

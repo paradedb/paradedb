@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767901174467,
+  "lastUpdate": 1767901179968,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16974,6 +16974,126 @@ window.BENCHMARK_DATA = {
             "value": 51.4453125,
             "unit": "median mem",
             "extra": "avg mem: 50.142002113854225, max mem: 62.9921875, count: 55290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "maazahmadj@gmail.com",
+            "name": "maaz ahmad",
+            "username": "maazzzzz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f53a9a2619db4023eed84ed36fde621ccfd2aad",
+          "message": "feat: use native rust icu tokenizer (#3792)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n\n- Replaced rust_icu used in ICUTokenizer with the rust ICU4X crates,\neliminating external dependencies and removing the need for a feature\nflag.\n\n## Why\n\n- removes external dependency for icu tokenizer, \n- simpler to maintain\n- no potential for symbol conflicts with postgres\n\n## How\n\n- Replaced rust_icu crates with  icu crates(icu_segmenter) (v2.1.1)\n- Implementation: Refactored tokenizers/src/icu.rs \n  - Replaced UBreakIterator with ICU4X's WordSegmenter::new_auto()\n  - Preserved alphanumeric filtering logic to match original behavior\n- Removed UTF-8/UTF-16 conversion as it is no longer required\n- Removed  \"icu\" feature flag \n- Removed ICU compilation from Dockerfile, linker config from build.rs\n- Updated docs to reflect ICU is always available\n\n## Tests\n\n- One unit test (test_complex_email) updated because of a difference in\nhow ICU4X and rust_icu tokenize certain things:\n  - ICU4X treats \"i.e\" and domains like \"missouri.edu\" as single  tokens\n- rust_icu splits on periods yielding [\"i\", \"e\"] and [\"missouri\", \"edu\"]\n- All existing regression tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Replaces the `ICUTokenizer` implementation with ICU4X and removes the\nexternal ICU dependency and feature gating, standardizing ICU\navailability across builds.\n> \n> - Refactors `tokenizers/src/icu.rs` to use ICU4X `WordSegmenter`;\nremoves UTF-16 plumbing and `rust_icu` crates; adds `icu_segmenter`;\nrenames tokenizer type registration (`Icu`) and makes `icu` always\navailable\n> - Drops the `icu` feature from `pg_search`, `tokenizers`, `tests`,\nbuild scripts, and commands; removes linker hacks from\n`pg_search/build.rs`\n> - Updates tests and expectations (e.g., `i.e` and domains are single\ntokens); makes ICU tests unconditional and updates tokenizer\nlisting/assertions\n> - Removes ICU build/install from `docker/Dockerfile`; no longer\ncompiles or installs ICU; simplifies final image cleanup\n> - Cleans CI/workflows: remove `--features icu` and `libicu*` installs\nacross benchmark, test, and publish jobs (Debian/Ubuntu/macOS/RHEL);\npackaging steps call plain `cargo pgrx package/install`\n> - Docs: remove `libicu` prerequisite and note that ICU is included by\ndefault\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n7bcd70b68528b51af82767fa34fd2b1274da441c. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nSigned-off-by: maaz ahmad <maazahmadj@gmail.com>\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-08T14:19:23-05:00",
+          "tree_id": "b1eebe7536e066f256fbd06f06e26c9bfd99da2a",
+          "url": "https://github.com/paradedb/paradedb/commit/4f53a9a2619db4023eed84ed36fde621ccfd2aad"
+        },
+        "date": 1767901176368,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.764686537747913, max cpu: 24.615385, count: 54512"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.5087808217686, max mem: 68.5234375, count: 54512"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.530099522752892, max cpu: 9.458128, count: 54512"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.26819245361113, max mem: 35.5390625, count: 54512"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.76237326844773, max cpu: 19.692308, count: 54512"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.83567257840017, max mem: 68.8359375, count: 54512"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.547253066436451, max cpu: 9.311348, count: 54512"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.5,
+            "unit": "median mem",
+            "extra": "avg mem: 56.758194654961294, max mem: 68.3515625, count: 54512"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.512179282424579, max cpu: 9.411765, count: 109024"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 45.601064186555256, max mem: 56.59375, count: 109024"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1753,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1760.2552282066333, max block_count: 3099.0, count: 54512"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 21,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 19.06682932198415, max segment_count: 31.0, count: 54512"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4376031817914114, max cpu: 4.933196, count: 54512"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.17309405497872, max mem: 58.9765625, count: 54512"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.81341668648501, max cpu: 4.828974, count: 54512"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.78417323823195, max mem: 62.37109375, count: 54512"
           }
         ]
       }

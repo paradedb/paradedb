@@ -217,6 +217,22 @@ WHERE dt.full_text @@@ 'ea'
    730
 (1 row)
 
+-- Run the actual query multiple times
+-- All should return the same non-zero count
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+ count 
+-------
+   730
+(1 row)
+
 SELECT COUNT(*)
 FROM document_text dt
 JOIN core c ON dt.dwf_doid = c.dwf_doid

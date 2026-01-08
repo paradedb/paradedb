@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767908802929,
+  "lastUpdate": 1767909714582,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -56708,6 +56708,54 @@ window.BENCHMARK_DATA = {
             "value": 108.05008462396864,
             "unit": "median tps",
             "extra": "avg tps: 106.1955806511628, max tps: 211.28132747472964, count: 107256"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac76a85d6112a6c9c9657ed7ef917deb216f43b5",
+          "message": "fix: Extract heap-filter quals for top level function expressions (#3873)\n\n# Ticket(s) Closed\n\n- Fixes\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-15440228\n\n## What\n\nWe were not extracting quals for top-level function expressions: i.e.,\nfunctions which return boolean results. Now we do.\n\n## Why\n\nIn order to be able to successfully execute more queries via heap\nfilters.\n\n## Tests\n\nAdded a new regress test.",
+          "timestamp": "2026-01-08T12:38:59-08:00",
+          "tree_id": "29fb426551ccf6bc6deb5f4f79f6163b23f1ede1",
+          "url": "https://github.com/paradedb/paradedb/commit/ac76a85d6112a6c9c9657ed7ef917deb216f43b5"
+        },
+        "date": 1767909710826,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 546.2631357068778,
+            "unit": "median tps",
+            "extra": "avg tps: 542.8371106072316, max tps: 776.6116606839905, count: 53758"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 660.1542280056016,
+            "unit": "median tps",
+            "extra": "avg tps: 655.3440295748312, max tps: 917.8282251135184, count: 53758"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.85447420211887,
+            "unit": "median tps",
+            "extra": "avg tps: 86.91573047350414, max tps: 97.34640654231018, count: 53758"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.53068986286965,
+            "unit": "median tps",
+            "extra": "avg tps: 107.8629731517077, max tps: 169.82771382505283, count: 107516"
           }
         ]
       }

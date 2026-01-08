@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767840851633,
+  "lastUpdate": 1767841776046,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19960,6 +19960,42 @@ window.BENCHMARK_DATA = {
             "value": 5.374677789727997,
             "unit": "median tps",
             "extra": "avg tps: 4.809868792245119, max tps: 6.020376566412781, count: 57875"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c6073ef84f54f67359fb00402abb9501a5aeb6b",
+          "message": "chore: Default to PG18 (#3869)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSome leftovers from needing to release our first PG18 release.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-01-07T21:33:48-05:00",
+          "tree_id": "407be7c1e3281da6016bc9f61ba0deec6e0dc197",
+          "url": "https://github.com/paradedb/paradedb/commit/3c6073ef84f54f67359fb00402abb9501a5aeb6b"
+        },
+        "date": 1767841772293,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.522720487406107,
+            "unit": "median tps",
+            "extra": "avg tps: 6.440245885816773, max tps: 9.646384575175839, count: 57904"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.314322155582717,
+            "unit": "median tps",
+            "extra": "avg tps: 4.743351782757961, max tps: 6.019915234369082, count: 57904"
           }
         ]
       }

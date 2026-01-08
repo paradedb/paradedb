@@ -1,0 +1,268 @@
+\i common/common_setup.sql
+
+-- Test for race condition in parallel index scans with hash joins
+-- 
+-- Customer reported ~50% failure rate where COUNT(*) returns 0 instead of ~2000
+-- 
+-- Root cause: In Parallel Hash Join scenarios, workers might reach the probe
+-- scan before the leader. Previously, workers would wait forever in 
+-- list_segment_ids() because only the leader could initialize the scan state.
+--
+-- The fix allows any participant (leader or worker) to initialize the scan.
+-- The initializing participant also claims a segment during initialization
+-- to prevent the race where other participants could exhaust segments while
+-- the initializer is still creating their SearchIndexReader.
+--
+-- Key requirements for reproducing:
+-- 1. Multiple segments in the BM25 index (achieved via batch inserts)
+-- 2. Parallel Hash Join with probe side using Parallel Index Only Scan
+-- 3. Custom Scan disabled to force Index AM path
+-- 4. Parallel execution enabled
+
+-- Clean up any existing test tables
+DROP TABLE IF EXISTS document_text CASCADE;
+DROP TABLE IF EXISTS core CASCADE;
+
+-- Create test tables
+CREATE TABLE core (
+    dwf_doid BIGINT PRIMARY KEY,
+    author TEXT,
+    date_time_combined TIMESTAMP WITHOUT TIME ZONE
+);
+
+CREATE TABLE document_text (
+    dwf_doid BIGINT PRIMARY KEY,
+    full_text TEXT
+);
+
+-- Create BM25 indexes BEFORE inserting data, then insert in batches
+-- to create multiple segments (critical for reproducing the race)
+CREATE INDEX idx_parade_core ON core
+USING bm25 (dwf_doid, author)
+WITH (key_field='dwf_doid');
+
+CREATE INDEX idx_parade_document_text ON document_text
+USING bm25 (dwf_doid, full_text)
+WITH (key_field='dwf_doid');
+
+-- Insert data in batches to create multiple segments
+-- Each batch creates new segments
+INSERT INTO core (dwf_doid, author, date_time_combined)
+SELECT 
+    i,
+    CASE 
+        WHEN i % 3 = 0 THEN 'brian griffin'
+        WHEN i % 3 = 1 THEN 'barabara pewterschmidt'
+        ELSE 'bonnie swanson'
+    END,
+    '2024-01-01'::timestamp + (i || ' days')::interval
+FROM generate_series(1, 5000) i;
+
+INSERT INTO document_text (dwf_doid, full_text)
+SELECT i, 'This is document ' || i || ' with text containing ea'
+FROM generate_series(1, 5000) i;
+
+INSERT INTO core (dwf_doid, author, date_time_combined)
+SELECT 
+    i,
+    CASE 
+        WHEN i % 3 = 0 THEN 'brian griffin'
+        WHEN i % 3 = 1 THEN 'barabara pewterschmidt'
+        ELSE 'bonnie swanson'
+    END,
+    '2024-01-01'::timestamp + (i || ' days')::interval
+FROM generate_series(5001, 10000) i;
+
+INSERT INTO document_text (dwf_doid, full_text)
+SELECT i, 'This is document ' || i || ' with text containing ea'
+FROM generate_series(5001, 10000) i;
+
+INSERT INTO core (dwf_doid, author, date_time_combined)
+SELECT 
+    i,
+    CASE 
+        WHEN i % 3 = 0 THEN 'brian griffin'
+        WHEN i % 3 = 1 THEN 'barabara pewterschmidt'
+        ELSE 'bonnie swanson'
+    END,
+    '2024-01-01'::timestamp + (i || ' days')::interval
+FROM generate_series(10001, 15000) i;
+
+INSERT INTO document_text (dwf_doid, full_text)
+SELECT i, 'This is document ' || i || ' with text containing ea'
+FROM generate_series(10001, 15000) i;
+
+INSERT INTO core (dwf_doid, author, date_time_combined)
+SELECT 
+    i,
+    CASE 
+        WHEN i % 3 = 0 THEN 'brian griffin'
+        WHEN i % 3 = 1 THEN 'barabara pewterschmidt'
+        ELSE 'bonnie swanson'
+    END,
+    '2024-01-01'::timestamp + (i || ' days')::interval
+FROM generate_series(15001, 20000) i;
+
+INSERT INTO document_text (dwf_doid, full_text)
+SELECT i, 'This is document ' || i || ' with text containing ea'
+FROM generate_series(15001, 20000) i;
+
+-- Create regular index on date (not in BM25 index - key part of customer scenario)
+CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined));
+
+-- CRITICAL: Disable Custom Scan to force the use of Index Only Scan (Index AM path)
+-- This is key to reproducing the customer's issue which occurs with Parallel Index Only Scan
+SET paradedb.enable_custom_scan = false;
+
+-- Enable parallel workers
+SET max_parallel_workers_per_gather = 2;
+
+-- Force parallel plans
+SET parallel_tuple_cost = 0;
+SET parallel_setup_cost = 0;
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+
+-- Test query matching customer scenario exactly:
+-- - Hash join between two tables
+-- - BM25 index on full_text with simple search
+-- - BM25 index on author with multiple OR conditions using pdb.match()
+-- - Non-indexed date filter (critical for triggering the bug)
+-- - COUNT(*) aggregate
+
+-- Run the query multiple times
+-- All should return the same non-zero count (730 with 20000 documents where
+-- all match the full_text search and ~1/3 match each author, date range matches all)
+-- Before the fix, this would intermittently return 0 due to the race condition.
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ 'ea'
+  AND (c.author @@@ paradedb.match('author', 'brian griffin')
+       OR c.author @@@ paradedb.match('author', 'barabara pewterschmidt')
+       OR c.author @@@ paradedb.match('author', 'bonnie swanson'))
+  AND DATE(c.date_time_combined) >= DATE('2001-01-01')
+  AND DATE(c.date_time_combined) <= DATE('2025-12-31');
+
+-- Test with prepared statements (JDBC scenario)
+PREPARE parallel_hash_join_query(text, text, text, text, date, date) AS
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ $1
+  AND (c.author @@@ paradedb.match('author', $2)
+       OR c.author @@@ paradedb.match('author', $3)
+       OR c.author @@@ paradedb.match('author', $4))
+  AND DATE(c.date_time_combined) >= $5
+  AND DATE(c.date_time_combined) <= $6;
+
+-- Execute multiple times
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+
+DEALLOCATE parallel_hash_join_query;
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET parallel_tuple_cost;
+RESET parallel_setup_cost;
+RESET min_parallel_table_scan_size;
+RESET min_parallel_index_scan_size;
+RESET paradedb.enable_custom_scan;
+
+-- Clean up
+DROP TABLE document_text;
+DROP TABLE core;

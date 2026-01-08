@@ -1,10 +1,10 @@
-# workflows/test-pg_search-antithesis.yml
+# workflows/antithesis-trigger-run.yml
 #
-# Test pg_search (Antithesis)
-# Build the current commit of pg_search and Stressgres as Docker images, push them to
+# Antithesis - Trigger Run
+# Build the current commits of pg_search and Stressgres as Docker images, push them to
 # Antithesis, and trigger an Antithesis test run.
 
-name: Test pg_search (Antithesis)
+name: Antithesis - Trigger Run
 
 on:
   schedule:
@@ -25,11 +25,11 @@ on:
         description: Email recipients (default notifies developers@paradedb.com)
 
 concurrency:
-  group: test-pg_search-antithesis-${{ github.head_ref || github.ref }}
+  group: antithesis-trigger-run${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_search-antithesis:
+  antithesis-trigger-run:
     name: Test pg_search via Antithesis
     # TODO: See https://github.com/paradedb/paradedb/issues/3613
     runs-on: ubicloud-standard-8-ubuntu-2204

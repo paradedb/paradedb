@@ -1,10 +1,10 @@
-# workflows/launch-antithesis-debugger.yml
+# workflows/antithesis-launch-debugger.yml
 #
-# Lint Antithesis Debugger
+# Antithesis - Launch Debugger
 # Trigger a session of the Antithesis Multiverse Debugger for a given session ID and time. This
 # will send an email to the provided email recipients, within 5-10 minutes, with a link to the debugger session.
 
-name: Launch Antithesis Debugger
+name: Antithesis - Launch Debugger
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ permissions:
   packages: write
 
 jobs:
-  launch-antithesis-debugger:
+  antithesis-launch-debugger:
     name: Trigger Antithesis Multiverse Debugger Session
     runs-on: ubuntu-latest
     steps:

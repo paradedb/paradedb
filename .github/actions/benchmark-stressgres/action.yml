@@ -109,7 +109,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish TPS Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: paradedb/github-action-benchmark@paradedb-v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - TPS"
         ref: ${{ inputs.ref }}
@@ -137,7 +137,7 @@ runs:
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Other Metrics
-      uses: benchmark-action/github-action-benchmark@v1
+      uses: paradedb/github-action-benchmark@paradedb-v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
         ref: ${{ inputs.ref }}

@@ -19,10 +19,9 @@ on:
       - "Cargo.toml"
   workflow_dispatch:
 
-# This is the first pg_search version that has a rust-toolchain.toml file which allows us to use a version of rust known
-# to compile pg_search.
+# This is the first pg_search version that has Postgres 18 support.
 env:
-  PRIOR_PG_SEARCH_VERSION: "v0.16.1"
+  PRIOR_PG_SEARCH_VERSION: "v0.21.0"
 
 concurrency:
   group: test-pg_search-upgrade-${{ github.head_ref || github.ref }}
@@ -35,8 +34,7 @@ jobs:
     runs-on: ubicloud-standard-8-ubuntu-2204
     strategy:
       matrix:
-        # TODO: Once we release our first PG18 version, we should use PRIOR_PG_SEARCH_VERSION to test upgrades on PG18 instead
-        pg_version: [17]
+        pg_version: [18]
 
     steps:
       - name: Checkout Git Repository
@@ -85,16 +83,11 @@ jobs:
 
       # This is the pgrx version compatible with ParadeDB $PRIOR_PG_SEARCH_VERSION
       - name: Install cargo-pgrx for ParadeDB $PRIOR_PG_SEARCH_VERSION
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.15.0 --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.16.1 --debug
 
       - name: Initialize cargo-pgrx environment for ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # While technically backwards-compatible since 0.15.0, our Lindera dependency made a backwards-incompatible
-      # change by deleting its previous repository URL and forcing dependencies to upgrade, which forces us to test
-      # our upgrade compatibility from 0.15.19 onwards
-      #
-      # And to complicate matters, v0.15.19 stopped being able to compile on modern rust, so now we just use $PRIOR_PG_SEARCH_VERSION
       - name: Checkout ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: |
           # cleanup any local modifications the above steps may have made

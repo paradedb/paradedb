@@ -19,6 +19,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ScanStrategy};
@@ -118,21 +119,6 @@ pub extern "C-unwind" fn amrescan(
         }
     }
 
-    // Log scan start (buffered - no sync)
-    unsafe {
-        if !(*scan).parallel_scan.is_null() {
-            let w = pg_sys::ParallelWorkerNumber;
-            let idx = (*(*scan).indexRelation).rd_id.to_u32();
-            parallel::log_buffered(format!("RS:W{}:idx={}", w, idx));
-        }
-    }
-
-    // NOTE: We don't call mark_rescan_starting() here because:
-    // 1. On first scan: aminitparallelscan() already initialized state as uninitialized
-    // 2. On rescans: amparallelrescan() handles resetting the state
-    // Calling mark_rescan_starting() caused a race condition where the leader would
-    // undo a worker's initialization if the worker arrived first.
-
     let (indexrel, keys) = unsafe {
         // SAFETY:  assert the pointers we're going to use are non-null
         assert!(!scan.is_null());
@@ -160,38 +146,34 @@ pub extern "C-unwind" fn amrescan(
 
     let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
 
-    // For parallel scans, ALL participants use Snapshot visibility.
-    // This avoids:
-    // 1. Deadlocks (no waiting for specific participant to initialize)
-    // 2. Segment ID mismatches (all see same segments with Snapshot)
-    //
-    // The first participant to acquire the mutex initializes the shared state.
-    // Others find it already initialized and proceed.
-    let search_reader = SearchIndexReader::open(
-        &indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::Snapshot,
-    )
+    // Create the index and scan state
+    let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
+        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
+            // the leader only sees snapshot-visible segments.
+            // we're the leader because our WorkerNumber is -1
+            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
+            MvccSatisfies::Snapshot
+        } else {
+            // the workers have their own rules, which is literally every segment
+            // this is because the workers pick a specific segment to query that
+            // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+            // visibility test due to concurrent merges/garbage collects
+            MvccSatisfies::ParallelWorker(
+                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
+            )
+        }
+    })
     .expect("amrescan: should be able to open a SearchIndexReader");
-
-    // For parallel scans, initialize state if needed (first one wins).
-    // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
-    // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple,
-    // which would leave claimed segments unprocessed, causing data loss.
-    unsafe { parallel::maybe_init_parallel_scan(scan, &search_reader) };
-
     unsafe {
+        parallel::maybe_init_parallel_scan(scan, &search_reader);
+
         let results = if (*scan).parallel_scan.is_null() {
-            // not a parallel scan - search all segments
+            // not a parallel scan
             Some(search_reader.search())
         } else {
-            // parallel scan: DON'T claim segments here
-            // Segments will be claimed lazily in search_next_segment during amgettuple
-            let idx = (*(*scan).indexRelation).rd_id.to_u32();
-            let w = pg_sys::ParallelWorkerNumber;
-            parallel::log_buffered(format!("RS_NOCLAIM:W{}:idx={}", w, idx));
-            None
+            // a parallel scan: see if there is another segment to query
+            parallel::maybe_claim_segment(scan)
+                .map(|segment_number| search_reader.search_segments([segment_number].into_iter()))
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
@@ -245,18 +227,6 @@ pub extern "C-unwind" fn amrescan(
 
 #[pg_guard]
 pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
-    // Log end of scan
-    unsafe {
-        if !(*scan).parallel_scan.is_null() {
-            let w = pg_sys::ParallelWorkerNumber;
-            let idx = (*(*scan).indexRelation).rd_id.to_u32();
-            parallel::log_buffered(format!("ES:W{}:idx={}", w, idx));
-        }
-    }
-
-    // Flush all buffered logs
-    parallel::flush_logs();
-
     unsafe {
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
         drop(scan_state);
@@ -278,13 +248,9 @@ pub unsafe extern "C-unwind" fn amgettuple(
 
     (*scan).xs_recheck = false;
 
-    // Count tuples returned per scan
-    let mut tuple_count = 0u32;
-
     loop {
         match state.results.as_mut().and_then(|r| r.next()) {
             Some((scored, doc_address)) => {
-                tuple_count += 1;
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
 
@@ -355,24 +321,9 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 return true;
             }
             None => {
-                // Log whether results was Some and how it got here
-                if !(*scan).parallel_scan.is_null() {
-                    let w = pg_sys::ParallelWorkerNumber;
-                    let idx = (*(*scan).indexRelation).rd_id.to_u32();
-                    let had = state.results.is_some();
-                    parallel::log_buffered(format!("GTn:W{}:idx={}:had={}", w, idx, had));
-                }
-
                 if search_next_segment(scan, state) {
                     // loop back around to start returning results from this segment
                     continue;
-                }
-
-                // Log when scan exhausted with tuple count
-                if !(*scan).parallel_scan.is_null() {
-                    let w = pg_sys::ParallelWorkerNumber;
-                    let idx = (*(*scan).indexRelation).rd_id.to_u32();
-                    parallel::log_buffered(format!("GTd:W{}:idx={}:n={}", w, idx, tuple_count));
                 }
 
                 // we are done returning results

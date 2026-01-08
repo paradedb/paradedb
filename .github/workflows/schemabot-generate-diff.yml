@@ -24,8 +24,7 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    # TODO: See https://github.com/paradedb/paradedb/issues/3613
-    runs-on: ubicloud-standard-8-ubuntu-2204
+    runs-on: ubicloud-standard-8-ubuntu-2404
     defaults:
       run:
         shell: bash -eo pipefail {0}

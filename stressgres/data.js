@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767844566604,
+  "lastUpdate": 1767901174467,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5996,6 +5996,72 @@ window.BENCHMARK_DATA = {
             "value": 120.72277648428616,
             "unit": "median tps",
             "extra": "avg tps: 113.84063758247576, max tps: 281.1308883567393, count: 55290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "maazahmadj@gmail.com",
+            "name": "maaz ahmad",
+            "username": "maazzzzz"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f53a9a2619db4023eed84ed36fde621ccfd2aad",
+          "message": "feat: use native rust icu tokenizer (#3792)\n\n# Ticket(s) Closed\n\n- Closes #3613 \n\n## What\n\n- Replaced rust_icu used in ICUTokenizer with the rust ICU4X crates,\neliminating external dependencies and removing the need for a feature\nflag.\n\n## Why\n\n- removes external dependency for icu tokenizer, \n- simpler to maintain\n- no potential for symbol conflicts with postgres\n\n## How\n\n- Replaced rust_icu crates with  icu crates(icu_segmenter) (v2.1.1)\n- Implementation: Refactored tokenizers/src/icu.rs \n  - Replaced UBreakIterator with ICU4X's WordSegmenter::new_auto()\n  - Preserved alphanumeric filtering logic to match original behavior\n- Removed UTF-8/UTF-16 conversion as it is no longer required\n- Removed  \"icu\" feature flag \n- Removed ICU compilation from Dockerfile, linker config from build.rs\n- Updated docs to reflect ICU is always available\n\n## Tests\n\n- One unit test (test_complex_email) updated because of a difference in\nhow ICU4X and rust_icu tokenize certain things:\n  - ICU4X treats \"i.e\" and domains like \"missouri.edu\" as single  tokens\n- rust_icu splits on periods yielding [\"i\", \"e\"] and [\"missouri\", \"edu\"]\n- All existing regression tests pass\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Replaces the `ICUTokenizer` implementation with ICU4X and removes the\nexternal ICU dependency and feature gating, standardizing ICU\navailability across builds.\n> \n> - Refactors `tokenizers/src/icu.rs` to use ICU4X `WordSegmenter`;\nremoves UTF-16 plumbing and `rust_icu` crates; adds `icu_segmenter`;\nrenames tokenizer type registration (`Icu`) and makes `icu` always\navailable\n> - Drops the `icu` feature from `pg_search`, `tokenizers`, `tests`,\nbuild scripts, and commands; removes linker hacks from\n`pg_search/build.rs`\n> - Updates tests and expectations (e.g., `i.e` and domains are single\ntokens); makes ICU tests unconditional and updates tokenizer\nlisting/assertions\n> - Removes ICU build/install from `docker/Dockerfile`; no longer\ncompiles or installs ICU; simplifies final image cleanup\n> - Cleans CI/workflows: remove `--features icu` and `libicu*` installs\nacross benchmark, test, and publish jobs (Debian/Ubuntu/macOS/RHEL);\npackaging steps call plain `cargo pgrx package/install`\n> - Docs: remove `libicu` prerequisite and note that ICU is included by\ndefault\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n7bcd70b68528b51af82767fa34fd2b1274da441c. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nSigned-off-by: maaz ahmad <maazahmadj@gmail.com>\nSigned-off-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2026-01-08T14:19:23-05:00",
+          "tree_id": "b1eebe7536e066f256fbd06f06e26c9bfd99da2a",
+          "url": "https://github.com/paradedb/paradedb/commit/4f53a9a2619db4023eed84ed36fde621ccfd2aad"
+        },
+        "date": 1767901170853,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 530.4200817183713,
+            "unit": "median tps",
+            "extra": "avg tps: 532.9545833191916, max tps: 703.3775961551767, count: 54512"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2927.981287673986,
+            "unit": "median tps",
+            "extra": "avg tps: 2929.646194757499, max tps: 3107.2294881317057, count: 54512"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 526.2471724359807,
+            "unit": "median tps",
+            "extra": "avg tps: 530.8099211568212, max tps: 701.1267820602884, count: 54512"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 453.4992533762568,
+            "unit": "median tps",
+            "extra": "avg tps: 452.67340191722104, max tps: 540.3610861370227, count: 54512"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3237.6250852726253,
+            "unit": "median tps",
+            "extra": "avg tps: 3278.5895983449464, max tps: 3428.231507788743, count: 109024"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2159.844205937932,
+            "unit": "median tps",
+            "extra": "avg tps: 2155.456054966331, max tps: 2169.721097143737, count: 54512"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 104.73197877453298,
+            "unit": "median tps",
+            "extra": "avg tps: 109.62026772236923, max tps: 388.4077883011833, count: 54512"
           }
         ]
       }

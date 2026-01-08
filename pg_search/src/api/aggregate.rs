@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -55,10 +55,53 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::gucs;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
 
+fn aggregate_impl(
+    index: PgRelation,
+    query: SearchQueryInput,
+    agg: Json,
+    solve_mvcc: bool,
+    memory_limit: i64,
+    bucket_limit: i64,
+) -> Result<JsonB, Box<dyn Error>> {
+    // Explicit bucket_limit must be semantically valid.
+    if bucket_limit <= 0 {
+        pgrx::error!("bucket_limit must be a positive integer");
+    }
+
+    // Convert with a clearer error for huge values.
+    let bucket_limit_u32: u32 = bucket_limit
+        .try_into()
+        .unwrap_or_else(|_| pgrx::error!("bucket_limit must be <= {}", u32::MAX));
+
+    let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
+    let standalone_context = ExprContextGuard::new();
+
+    let aggregate = execute_aggregate(
+        &relation,
+        query,
+        AggregateRequest::Json(serde_json::from_value(agg.0)?),
+        solve_mvcc,
+        memory_limit.try_into()?,
+        bucket_limit_u32,
+        standalone_context.as_ptr(),
+        std::ptr::null_mut(), // No planstate in API context
+    )?;
+
+    if aggregate.0.is_empty() {
+        Ok(JsonB(serde_json::Value::Null))
+    } else {
+        Ok(JsonB(serde_json::to_value(aggregate)?))
+    }
+}
+
+/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=GUC)
+/// SQL: aggregate(index, query, agg, solve_mvcc=true, memory_limit=..., bucket_limit=NULL)
+/// - bucket_limit=NULL => use GUC paradedb.max_term_agg_buckets
 #[pg_extern]
 pub fn aggregate(
     index: PgRelation,
@@ -66,25 +109,12 @@ pub fn aggregate(
     agg: Json,
     solve_mvcc: default!(bool, true),
     memory_limit: default!(i64, 500000000),
-    bucket_limit: default!(i64, 65000),
+    bucket_limit: default!(Option<i64>, "NULL"),
 ) -> Result<JsonB, Box<dyn Error>> {
-    let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
-    let standalone_context = ExprContextGuard::new();
-    let aggregate = execute_aggregate(
-        &relation,
-        query,
-        AggregateRequest::Json(serde_json::from_value(agg.0)?),
-        solve_mvcc,
-        memory_limit.try_into()?,
-        bucket_limit.try_into()?,
-        standalone_context.as_ptr(),
-        std::ptr::null_mut(), // No planstate in API context
-    )?;
-    if aggregate.0.is_empty() {
-        Ok(JsonB(serde_json::Value::Null))
-    } else {
-        Ok(JsonB(serde_json::to_value(aggregate)?))
-    }
+    // bucket_limit NULL => use GUC
+    let bucket_limit = bucket_limit.unwrap_or_else(|| gucs::max_term_agg_buckets() as i64);
+
+    aggregate_impl(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
 }
 
 #[pgrx::pg_schema]

@@ -1,9 +1,10 @@
-# workflows/test-pg_search-antithesis.yml
+# workflows/antithesis-trigger-run.yml
 #
-# Test pg_search (Antithesis)
-# Build the current commit as a Docker image, push it to Antithesis, and trigger an Antithesis test run.
+# Antithesis - Trigger Run
+# Build the current commits of pg_search and Stressgres as Docker images, push them to
+# Antithesis, and trigger an Antithesis test run.
 
-name: Test pg_search (Antithesis)
+name: Antithesis - Trigger Run
 
 on:
   schedule:
@@ -24,11 +25,11 @@ on:
         description: Email recipients (default notifies developers@paradedb.com)
 
 concurrency:
-  group: test-pg_search-antithesis-${{ github.head_ref || github.ref }}
+  group: antithesis-trigger-run-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_search-antithesis:
+  antithesis-trigger-run:
     name: Test pg_search via Antithesis
     # TODO: See https://github.com/paradedb/paradedb/issues/3613
     runs-on: ubicloud-standard-8-ubuntu-2204
@@ -63,7 +64,7 @@ jobs:
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
       - name: Build and Push Workload Docker Image to Antithesis Registry
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           build-args: |
@@ -72,6 +73,8 @@ jobs:
             ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
           file: docker/Dockerfile
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
@@ -81,6 +84,12 @@ jobs:
         run: |
           sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" paradedb.yaml
           cat paradedb.yaml
+
+      - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
+        working-directory: docker/manifests/
+        run: |
+          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" stressgres.yaml
+          cat stressgres.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata
@@ -92,14 +101,39 @@ jobs:
             type=raw,value=antithesis-latest
 
       - name: Build and Push Config Docker Image to Antithesis Registry
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           file: docker/Dockerfile.config
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
           labels: ${{ steps.extract-config-metadata.outputs.labels }}
+
+      - name: Extract Stressgres Metadata
+        id: extract-stressgres-metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=raw,value=antithesis-latest
+
+      # Antithesis only supports x86_64 instruction set
+      # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
+      - name: Build and Push Stressgres Docker Image to Antithesis Registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          file: docker/Dockerfile.stressgres
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: true
+          tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}
+          labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}
 
       # antithesis.duration is in minutes
       - name: Trigger Antithesis Test

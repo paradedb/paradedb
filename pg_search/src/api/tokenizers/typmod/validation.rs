@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -23,10 +23,15 @@ use tokenizers::manager::LANGUAGES;
 
 #[derive(Debug, Clone)]
 pub enum ValueConstraint {
-    Integer { min: Option<i64>, max: Option<i64> },
+    Integer {
+        min: Option<i64>,
+        max: Option<i64>,
+    },
     Boolean,
     String,
     StringChoice(Vec<&'static str>),
+    /// Like StringChoice but allows comma-separated multiple values (e.g., "English,French")
+    StringChoiceMultiple(Vec<&'static str>),
     Regex,
 }
 
@@ -98,6 +103,32 @@ impl ValueConstraint {
                             ),
                         })
                     }
+                } else {
+                    Err(ValidationError::TypeMismatch {
+                        actual_type: prop.to_string(),
+                    })
+                }
+            }
+            ValueConstraint::StringChoiceMultiple(allowed) => {
+                if let Some(s) = prop.as_str() {
+                    // Split by comma and validate each part
+                    for part in s.split(',') {
+                        let lcase = part.trim().to_lowercase();
+                        if !allowed
+                            .iter()
+                            .any(|allowed_val| allowed_val.to_lowercase() == lcase)
+                        {
+                            return Err(ValidationError::InvalidValue {
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
+                                message: format!(
+                                    "must be one or more of: [{}], got invalid value '{}'",
+                                    format_allowed_keys(allowed),
+                                    part.trim()
+                                ),
+                            });
+                        }
+                    }
+                    Ok(())
                 } else {
                     Err(ValidationError::TypeMismatch {
                         actual_type: prop.to_string(),
@@ -202,7 +233,7 @@ impl TypmodSchema {
                 ),
                 rule!(
                     "stopwords_language",
-                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect())
+                    ValueConstraint::StringChoiceMultiple(LANGUAGES.values().cloned().collect())
                 ),
                 rule!("stopwords", ValueConstraint::String),
                 rule!("alpha_num_only", ValueConstraint::Boolean),

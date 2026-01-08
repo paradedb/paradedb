@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -48,7 +48,9 @@ pub struct SearchTokenizerFilters {
     pub remove_long: Option<usize>,
     pub lowercase: Option<bool>,
     pub stemmer: Option<Language>,
-    pub stopwords_language: Option<Language>,
+    /// Supports one or more languages for stopwords filtering.
+    /// Useful for documents containing multiple languages.
+    pub stopwords_language: Option<Vec<Language>>,
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
@@ -92,6 +94,42 @@ impl SearchTokenizerFilters {
         }
     }
 
+    /// Parse stopwords_language from JSON - supports both a single string and an array of strings
+    fn parse_stopwords_language(
+        value: &serde_json::Value,
+    ) -> Result<Option<Vec<Language>>, anyhow::Error> {
+        match value {
+            serde_json::Value::Null => Ok(None),
+            serde_json::Value::String(s) => {
+                let lang: Language = serde_json::from_value(serde_json::Value::String(s.clone()))
+                    .map_err(|e| {
+                    anyhow::anyhow!("stopwords_language tokenizer requires a valid language: {e}")
+                })?;
+                Ok(Some(vec![lang]))
+            }
+            serde_json::Value::Array(arr) => {
+                let languages: Vec<Language> = arr
+                    .iter()
+                    .map(|v| {
+                        serde_json::from_value(v.clone()).map_err(|e| {
+                            anyhow::anyhow!(
+                                "stopwords_language tokenizer requires valid languages: {e}"
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if languages.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(languages))
+                }
+            }
+            _ => Err(anyhow::anyhow!(
+                "stopwords_language must be a string or array of strings"
+            )),
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 
@@ -125,13 +163,7 @@ impl SearchTokenizerFilters {
             })?);
         }
         if let Some(stopwords_language) = value.get("stopwords_language") {
-            filters.stopwords_language = Some(
-                serde_json::from_value(stopwords_language.clone()).map_err(|e| {
-                    anyhow::anyhow!(
-                        "stopwords_language tokenizer requires a valid 'stopwords_language' field: {e}"
-                    )
-                })?,
-            );
+            filters.stopwords_language = Self::parse_stopwords_language(stopwords_language)?;
         }
         if let Some(stopwords) = value.get("stopwords") {
             filters.stopwords = Some(serde_json::from_value(stopwords.clone()).map_err(|_| {
@@ -192,7 +224,11 @@ impl SearchTokenizerFilters {
             is_empty = false;
         }
         if let Some(value) = self.stopwords_language.as_ref() {
-            write!(buffer, "{}stopwords_language={value:?}", sep(is_empty)).unwrap();
+            if value.len() == 1 {
+                write!(buffer, "{}stopwords_language={:?}", sep(is_empty), value[0]).unwrap();
+            } else {
+                write!(buffer, "{}stopwords_language={value:?}", sep(is_empty)).unwrap();
+            }
             is_empty = false;
         }
 
@@ -234,11 +270,18 @@ impl SearchTokenizerFilters {
         self.stemmer.map(Stemmer::new)
     }
 
-    fn stopwords_language(&self) -> Option<StopWordFilter> {
-        match self.stopwords_language {
-            Some(language) => StopWordFilter::new(language),
-            None => None,
-        }
+    /// Returns StopWordFilters for all specified languages.
+    /// Uses Tantivy's built-in StopWordFilter::new() for each language.
+    fn stopwords_languages(&self) -> Vec<StopWordFilter> {
+        self.stopwords_language
+            .as_ref()
+            .map(|languages| {
+                languages
+                    .iter()
+                    .filter_map(|lang| StopWordFilter::new(*lang))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn stopwords(&self) -> Option<StopWordFilter> {
@@ -275,19 +318,25 @@ impl SearchTokenizerFilters {
 
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
-        tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
+        // Build the analyzer with static filters first
+        let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
             .filter($filters.trim_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
-            .filter($filters.stopwords_language())
             .filter($filters.stopwords())
             .filter($filters.ascii_folding())
             $(
                 .filter($extra_filter)
             )*
             .filter($filters.alpha_num_only())
-            .build()
+            // Convert to type-erased builder for dynamic filter application
+            .dynamic();
+        // Apply stopword language filters dynamically in a for loop
+        for stopword_filter in $filters.stopwords_languages() {
+            builder = builder.filter_dynamic(stopword_filter);
+        }
+        builder.build()
     }};
 }
 
@@ -854,7 +903,7 @@ mod tests {
                     remove_long: None,
                     lowercase: None,
                     stemmer: None,
-                    stopwords_language: Some(Language::English),
+                    stopwords_language: Some(vec![Language::English]),
                     stopwords: None,
                     ascii_folding: None,
                     trim: None,

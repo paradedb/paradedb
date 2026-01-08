@@ -1,9 +1,16 @@
 [workspace]
 resolver = "2"
-members = ["pg_search", "tests", "tokenizers", "benchmarks", "macros"]
+members = [
+  "pg_search",
+  "tests",
+  "tokenizers",
+  "benchmarks",
+  "macros",
+  "stressgres",
+]
 
 [workspace.package]
-version = "0.20.5"
+version = "0.21.1"
 edition = "2021"
 license = "AGPL-3.0"
 

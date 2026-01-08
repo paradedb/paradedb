@@ -1,0 +1,64 @@
+# workflows/antithesis-run-bug-report.yml
+#
+# Antithesis - Run Bug Report
+# Trigger a bug report for an input moment associated with a bug found by Antithesis. This
+# will send an email to the provided email recipients with a link to the bug report. An example
+# bug report can be found here: https://public.antithesis.com/report/ZsfkRkU58VYYW1yRVF8zsvUz/MX3yyG71sJvDM8cVzXljvRGAmjQLb9weaaqkELjaQRI.html
+
+name: Antithesis - Run Bug Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_string:
+        type: string
+        required: true
+        description: Paste full moment here from any reports (https://paradedb.antithesis.com/)
+      bug_oracle:
+        type: string
+        required: true
+        description: Bug oracle (look for output_text in the findings report)
+      emails:
+        type: string
+        required: true
+        description: Email recipients (default notifies developers@paradedb.com)
+
+jobs:
+  antithesis-run-bug-report:
+    name: Trigger Bug Reporting for an Antithesis Moment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract Antithesis Values from Antithesis Moment
+        id: extract
+        run: |
+          input="${{ github.event.inputs.input_string }}"
+
+          session_id_1=$(echo "$input" | sed -n 's/.*session_id: "\([^"]*\)".*/\1/p')
+          input_hash_1=$(echo "$input" | sed -n 's/.*input_hash: "\([^"]*\)".*/\1/p')
+          vtime_1=$(echo "$input" | sed -n 's/.*vtime: \([0-9.]*\).*/\1/p')
+
+          session_id_2=$(echo $input | sed -n 's/.*id: "\([^"]*\)".*/\1/p')
+          input_hash_2=$(echo $input | sed -n "s/.*), *'\([^']*\)'.*/\1/p")
+          vtime_2=$(echo $input | sed -n 's/.*,\s*\([0-9]*\.[0-9]*\).*/\1/p')
+
+          echo "session_id=${session_id_1:-$session_id_2}" >> "$GITHUB_OUTPUT"
+          echo "input_hash=${input_hash_1:-$input_hash_2}" >> "$GITHUB_OUTPUT"
+          echo "vtime=${vtime_1:-$vtime_2}" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Antithesis Bug Report Generation
+        uses: antithesishq/antithesis-trigger-action@main
+        with:
+          notebook_name: bug_report
+          tenant: paradedb
+          username: ${{ vars.ANTITHESIS_USERNAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
+          description: "Debugging session from GitHub Actions triggered by ${{ github.actor }} for session ${{ steps.extract.outputs.session_id }}"
+          email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
+          additional_parameters: |-
+            custom.session_id=${{ steps.extract.outputs.session_id }}
+            custom.input_hash=${{ steps.extract.outputs.input_hash }}
+            custom.vtime=${{ steps.extract.outputs.vtime }}
+            custom.bug_oracle=${{ github.event.inputs.bug_oracle }}
+            custom.bug_oracle_type=output_text

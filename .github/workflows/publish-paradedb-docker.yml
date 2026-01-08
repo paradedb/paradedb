@@ -3,7 +3,7 @@
 # Publish ParadeDB (Docker)
 # Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub. Stable
 # releases publish Docker images for all of our supported PostgreSQL versions, while beta releases
-# only publish the default PostgreSQL version we support (currently 17).
+# only publish the default PostgreSQL version we run as default (currently 18).
 
 name: Publish ParadeDB (Docker)
 
@@ -44,8 +44,8 @@ jobs:
         run: |
           echo "Evaluating tag: $GITHUB_REF"
           if [[ "$GITHUB_REF" == *"-"* ]]; then
-            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 17 and 18."
-            echo "matrix=[17, 18]" >> $GITHUB_OUTPUT
+            echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 18."
+            echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Regular promotion tag detected; using provided PostgreSQL version(s)."
             echo "matrix=${{ github.event.inputs.pg_version || '[14, 15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT

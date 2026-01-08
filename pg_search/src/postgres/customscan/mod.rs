@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -36,6 +36,7 @@ mod hook;
 mod opexpr;
 mod path;
 pub mod pdbscan;
+pub mod projections;
 mod pushdown;
 pub mod qual_inspect;
 mod range_table;

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -392,7 +392,11 @@ pub fn limit_fetch_multiplier() -> f64 {
 }
 
 pub fn max_term_agg_buckets() -> i32 {
-    MAX_TERM_AGG_BUCKETS.get()
+    let v = MAX_TERM_AGG_BUCKETS.get();
+    if v <= 0 {
+        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
+    }
+    v
 }
 
 pub fn max_window_aggregate_response_bytes() -> usize {

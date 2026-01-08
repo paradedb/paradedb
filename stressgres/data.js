@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767843658523,
+  "lastUpdate": 1767844561749,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -55424,6 +55424,54 @@ window.BENCHMARK_DATA = {
             "value": 109.26167774393187,
             "unit": "median tps",
             "extra": "avg tps: 107.45743588993902, max tps: 189.85039571048443, count: 107566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c6073ef84f54f67359fb00402abb9501a5aeb6b",
+          "message": "chore: Default to PG18 (#3869)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSome leftovers from needing to release our first PG18 release.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-01-07T21:33:48-05:00",
+          "tree_id": "407be7c1e3281da6016bc9f61ba0deec6e0dc197",
+          "url": "https://github.com/paradedb/paradedb/commit/3c6073ef84f54f67359fb00402abb9501a5aeb6b"
+        },
+        "date": 1767844558211,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 572.0207248881802,
+            "unit": "median tps",
+            "extra": "avg tps: 573.9136720897235, max tps: 654.5310523569207, count: 53764"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 624.318895070753,
+            "unit": "median tps",
+            "extra": "avg tps: 626.0676174323046, max tps: 723.7912824310064, count: 53764"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.16445094583139,
+            "unit": "median tps",
+            "extra": "avg tps: 86.32900768077405, max tps: 94.5551774874935, count: 53764"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 107.19168064671913,
+            "unit": "median tps",
+            "extra": "avg tps: 105.44575667654654, max tps: 137.9873951964173, count: 107528"
           }
         ]
       }

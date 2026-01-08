@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767841781902,
+  "lastUpdate": 1767842731560,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29196,6 +29196,54 @@ window.BENCHMARK_DATA = {
             "value": 5.5283672754022,
             "unit": "median tps",
             "extra": "avg tps: 5.524521482135579, max tps: 7.501068358413618, count: 56481"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c6073ef84f54f67359fb00402abb9501a5aeb6b",
+          "message": "chore: Default to PG18 (#3869)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nSome leftovers from needing to release our first PG18 release.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-01-07T21:33:48-05:00",
+          "tree_id": "407be7c1e3281da6016bc9f61ba0deec6e0dc197",
+          "url": "https://github.com/paradedb/paradedb/commit/3c6073ef84f54f67359fb00402abb9501a5aeb6b"
+        },
+        "date": 1767842728144,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1085.3157414078205,
+            "unit": "median tps",
+            "extra": "avg tps: 1087.1318739392332, max tps: 1126.4968981825657, count: 56028"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1244.3821490014318,
+            "unit": "median tps",
+            "extra": "avg tps: 1242.0556798887058, max tps: 1253.0603232660553, count: 56028"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1873.8520177444711,
+            "unit": "median tps",
+            "extra": "avg tps: 1850.0496037406176, max tps: 2012.491736530051, count: 56028"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.301589874273889,
+            "unit": "median tps",
+            "extra": "avg tps: 5.336798768477713, max tps: 7.8573901292102235, count: 56028"
           }
         ]
       }

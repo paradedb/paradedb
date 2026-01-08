@@ -31,8 +31,7 @@ concurrency:
 jobs:
   antithesis-trigger-run:
     name: Test pg_search via Antithesis
-    # TODO: See https://github.com/paradedb/paradedb/issues/3613
-    runs-on: ubicloud-standard-8-ubuntu-2204
+    runs-on: ubicloud-standard-8-ubuntu-2404
     strategy:
       matrix:
         pg_version: [18]

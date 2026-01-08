@@ -55,21 +55,18 @@ jobs:
         # Base: system Postgres on regular runner for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        # TODO: See https://github.com/paradedb/paradedb/issues/3613
-        runner: [ubicloud-standard-8-ubuntu-2204]
+        runner: [ubicloud-standard-8-ubuntu-2404]
         arch: [amd64]
         include:
           # Add pgrx-managed Postgres for PG 18 (regular runner)
           - pg_version: 18
             pg_impl: pgrx
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-ubuntu-2204
+            runner: ubicloud-standard-8-ubuntu-2404
             arch: amd64
           # Add ARM run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
-            # TODO: See https://github.com/paradedb/paradedb/issues/3613
-            runner: ubicloud-standard-8-arm-ubuntu-2204
+            runner: ubicloud-standard-8-arm-ubuntu-2404
             arch: arm64
 
     steps:

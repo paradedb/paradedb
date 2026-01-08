@@ -159,7 +159,7 @@ jobs:
             PG_CONFIG="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/pg_config"
           fi
 
-          PG_CONFIG="${PG_CONFIG}" ./configure
+          PG_CONFIG="${PG_CONFIG}" ./configure --without-libcurl
           PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
           sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767906918048,
+  "lastUpdate": 1767907887760,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29856,6 +29856,54 @@ window.BENCHMARK_DATA = {
             "value": 5.320494179273931,
             "unit": "median tps",
             "extra": "avg tps: 5.353200146850573, max tps: 8.487393710193672, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac76a85d6112a6c9c9657ed7ef917deb216f43b5",
+          "message": "fix: Extract heap-filter quals for top level function expressions (#3873)\n\n# Ticket(s) Closed\n\n- Fixes\nhttps://github.com/orgs/paradedb/discussions/3678#discussioncomment-15440228\n\n## What\n\nWe were not extracting quals for top-level function expressions: i.e.,\nfunctions which return boolean results. Now we do.\n\n## Why\n\nIn order to be able to successfully execute more queries via heap\nfilters.\n\n## Tests\n\nAdded a new regress test.",
+          "timestamp": "2026-01-08T12:38:59-08:00",
+          "tree_id": "29fb426551ccf6bc6deb5f4f79f6163b23f1ede1",
+          "url": "https://github.com/paradedb/paradedb/commit/ac76a85d6112a6c9c9657ed7ef917deb216f43b5"
+        },
+        "date": 1767907883972,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1129.8923655292951,
+            "unit": "median tps",
+            "extra": "avg tps: 1132.9010066655428, max tps: 1184.8851416195062, count: 56619"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1229.8000758847982,
+            "unit": "median tps",
+            "extra": "avg tps: 1225.4073590945893, max tps: 1238.0299995803427, count: 56619"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1926.2613579019683,
+            "unit": "median tps",
+            "extra": "avg tps: 1901.3489028589754, max tps: 2082.0148335186354, count: 56619"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.725964068646208,
+            "unit": "median tps",
+            "extra": "avg tps: 5.7089862330182, max tps: 7.701153058992334, count: 56619"
           }
         ]
       }

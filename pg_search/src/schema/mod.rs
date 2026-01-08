@@ -469,9 +469,16 @@ impl SearchField {
 
     pub fn is_tokenized_with_freqs_and_positions(&self) -> bool {
         // NB:  'uses_raw_tokenizer()' might not be enough to ensure the field is tokenized
-        self.is_text()
+        (self.is_text() || self.is_json())
             && !self.uses_raw_tokenizer()
-            && matches!(&self.field_config, SearchFieldConfig::Text { record, .. } if *record == IndexRecordOption::WithFreqsAndPositions)
+            && matches!(
+                &self.field_config,
+                SearchFieldConfig::Text { indexed, record, tokenizer, .. }
+                    | SearchFieldConfig::Json { indexed, record, tokenizer, .. }
+                    if *indexed
+                        && *record == IndexRecordOption::WithFreqsAndPositions
+                        && !matches!(tokenizer, SearchTokenizer::Ngram { .. })
+            )
     }
 
     pub fn is_json(&self) -> bool {

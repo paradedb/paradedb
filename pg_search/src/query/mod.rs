@@ -1278,8 +1278,17 @@ pub enum QueryError {
     FieldMapJsonValue(#[source] serde_json::Error),
     #[error("field map json must be an object")]
     FieldMapJsonObject,
-    #[error("invalid tokenizer setting, expected paradedb.tokenizer()")]
-    InvalidTokenizer,
+    #[error(
+        "field '{field}' was tokenized with '{tokenizer:?}' which does not support this query type"
+    )]
+    TokenizerDoesNotSupportQueryType {
+        field: FieldName,
+        tokenizer: Option<String>,
+    },
+    #[error(
+        "query requires fields indexed with positions; field '{field}' does not support positions"
+    )]
+    PositionsRequired { field: FieldName },
     #[error("field '{0}' is not part of the pg_search index")]
     NonIndexedField(FieldName),
     #[error("wrong type given for field")]

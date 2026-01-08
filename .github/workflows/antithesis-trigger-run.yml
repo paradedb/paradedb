@@ -25,7 +25,7 @@ on:
         description: Email recipients (default notifies developers@paradedb.com)
 
 concurrency:
-  group: antithesis-trigger-run${{ github.head_ref || github.ref }}
+  group: antithesis-trigger-run-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

@@ -507,9 +507,10 @@ pub unsafe fn extract_quals(
 
                 state.uses_heap_expr = true;
                 state.uses_tantivy_to_query = true;
+                let funcid = (*node.cast::<pg_sys::FuncExpr>()).funcid;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: deparse_expr(Some(context), indexrel, node),
+                    expr_desc: format!("FuncExpr with function OID {funcid}"),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             } else {

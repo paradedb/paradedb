@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767909719657,
+  "lastUpdate": 1767963644772,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6128,6 +6128,72 @@ window.BENCHMARK_DATA = {
             "value": 111.76418077854224,
             "unit": "median tps",
             "extra": "avg tps: 111.99491445484746, max tps: 365.4671102137946, count: 55309"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f89302e2bb7ee628872d53ffbc6b64109c409ee3",
+          "message": "feat: Add composite type support for BM25 indexes (>32 fields) (#3776)\n\n## Summary\n\nFixes #3686\n\n- Adds support for indexing more than 32 columns using composite types\nwith `ROW(...)::type` expressions\n- Composite fields are searchable individually by their field names from\nthe type definition\n\n## Changes\n\n### Core Module (`pg_search/src/postgres/composite.rs`)\n- `CompositeSlotValues` - Unpacks composite values upfront during\nconstruction for field extraction\n- `CompositeFieldInfo` - Metadata struct for composite type fields  \n- `CompositeError` - Validation errors for nested composites, anonymous\nROW, and domain types\n- Helper functions: `is_composite_type`, `get_composite_type_fields`,\n`get_composite_fields_for_index`\n\n### Field Matching (`pg_search/src/api/operator.rs`)\n- `expr_matches_node` - New helper function for matching WHERE clause\nexpressions against indexed expressions\n- Extended `field_name_from_node` to detect composite type fields and\nmatch them by field name\n\n### Integration (`pg_search/src/postgres/utils.rs`)\n- `FieldSource::CompositeField` variant for composite-derived fields\n- `get_field_value` helper to extract individual fields from unpacked\ncomposites\n- Extended `extract_field_attributes` to detect and expand composite\nexpressions\n- Duplicate field name detection across composites and regular columns\n\n### Parallel Build & Insert\n- `build_parallel.rs` and `insert.rs` updated to use\n`CompositeSlotValues`\n- `mvcc.rs` updated for MVCC-aware composite unpacking\n\n## Usage Example\n\n```sql\n-- Create a composite type with the fields you want to index\nCREATE TYPE product_search AS (name TEXT, description TEXT, category TEXT);\n\n-- Create table with regular columns\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name TEXT,\n    description TEXT,\n    category TEXT\n);\n\n-- Create BM25 index using composite type\nCREATE INDEX idx_products ON products USING bm25 (\n    id,\n    (ROW(name, description, category)::product_search)\n) WITH (key_field = 'id');\n\n-- Search by individual field names from the composite type\nSELECT * FROM products WHERE name @@@ 'Widget';\nSELECT * FROM products WHERE description @@@ 'amazing';\n\n-- Or with pdb functions for more control\nSELECT * FROM products WHERE name @@@ pdb.term('Widget');\nSELECT * FROM products WHERE name @@@ pdb.fuzzy_term('Widgt', distance => 1);\n```\n\n## Test plan\n\n- 47 pg_regress test sections covering:\n- `composite.sql` (39 test sections): Basic indexing, >32 fields, 100\nfields, JSON/array fields, tokenizers, error cases, parallel builds,\nMVCC, and more\n- `composite_advanced.sql` (8 test sections): Field-level queries with\n`field @@@ query` syntax, pdb functions, scoring, snippets\n- `cargo fmt` and `cargo clippy` clean\n\n---------\n\nSigned-off-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-01-09T18:12:06+05:30",
+          "tree_id": "345640650875cbc4eba38574c6f4f102bec7acd8",
+          "url": "https://github.com/paradedb/paradedb/commit/f89302e2bb7ee628872d53ffbc6b64109c409ee3"
+        },
+        "date": 1767963641205,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 612.9412009002253,
+            "unit": "median tps",
+            "extra": "avg tps: 614.1311870057491, max tps: 674.5491816323596, count: 55343"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3141.9376210837845,
+            "unit": "median tps",
+            "extra": "avg tps: 3137.204597898921, max tps: 3230.073900214748, count: 55343"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 569.942021837391,
+            "unit": "median tps",
+            "extra": "avg tps: 572.9802107610514, max tps: 650.5968496978819, count: 55343"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 518.4323927225186,
+            "unit": "median tps",
+            "extra": "avg tps: 518.6571627138349, max tps: 545.7729471512034, count: 55343"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3341.1227093485622,
+            "unit": "median tps",
+            "extra": "avg tps: 3367.7705348180093, max tps: 3451.862110264164, count: 110686"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2166.7205688308345,
+            "unit": "median tps",
+            "extra": "avg tps: 2161.9473801626186, max tps: 2174.736031555854, count: 55343"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 164.25053211812653,
+            "unit": "median tps",
+            "extra": "avg tps: 214.7662824544588, max tps: 716.553606450129, count: 55343"
           }
         ]
       }

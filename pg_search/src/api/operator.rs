@@ -36,6 +36,7 @@ use crate::api::tokenizers::{
     try_get_alias, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
 };
 use crate::api::FieldName;
+use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
@@ -420,7 +421,7 @@ pub fn get_jsonb_values_paths_for_jsonb_values(
         filtered
     };
 
-    let mut seen = std::collections::HashSet::new();
+    let mut seen: HashSet<String> = HashSet::default();
     let paths: Vec<String> = paths
         .into_iter()
         .filter(|p| seen.insert(p.clone()))

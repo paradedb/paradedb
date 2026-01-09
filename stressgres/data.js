@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767967444618,
+  "lastUpdate": 1767980621160,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6194,6 +6194,72 @@ window.BENCHMARK_DATA = {
             "value": 164.25053211812653,
             "unit": "median tps",
             "extra": "avg tps: 214.7662824544588, max tps: 716.553606450129, count: 55343"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2442693752d60dd57423a36e82e10a5df7f3d606",
+          "message": "fix: error if query needs positions but field doesn't have them (#3877)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-09T12:25:02-05:00",
+          "tree_id": "7fe803857d884c4e5ebbe570300de5aed4ac3440",
+          "url": "https://github.com/paradedb/paradedb/commit/2442693752d60dd57423a36e82e10a5df7f3d606"
+        },
+        "date": 1767980617714,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 558.7017720393353,
+            "unit": "median tps",
+            "extra": "avg tps: 559.2701973334246, max tps: 674.3481413691455, count: 55215"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3068.1763497268735,
+            "unit": "median tps",
+            "extra": "avg tps: 3057.9846287488153, max tps: 3216.350868310676, count: 55215"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 607.4548978002168,
+            "unit": "median tps",
+            "extra": "avg tps: 606.6127995232621, max tps: 668.6064011435844, count: 55215"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 479.6342254982098,
+            "unit": "median tps",
+            "extra": "avg tps: 481.38561854375814, max tps: 525.3518734079753, count: 55215"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3283.9027646250775,
+            "unit": "median tps",
+            "extra": "avg tps: 3291.1398372560884, max tps: 3446.234364326994, count: 110430"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2134.711490538314,
+            "unit": "median tps",
+            "extra": "avg tps: 2127.082424376869, max tps: 2142.3648714877254, count: 55215"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 329.84289912557546,
+            "unit": "median tps",
+            "extra": "avg tps: 324.0610770250562, max tps: 702.5372836536435, count: 55215"
           }
         ]
       }

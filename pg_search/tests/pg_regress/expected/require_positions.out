@@ -1,0 +1,61 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+DROP TABLE IF EXISTS require_positions;
+CREATE TABLE require_positions (
+    id serial8 not null primary key,
+    t text
+);
+INSERT INTO require_positions (t) VALUES ('AAABBB');
+INSERT INTO require_positions (t) VALUES ('BBBAAA');
+CREATE INDEX idxrequire_positions ON require_positions USING bm25 (id, (t::pdb.ngram(3, 3))) WITH (key_field = 'id');
+SELECT * FROM require_positions WHERE t ### 'aaa';
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t @@@ ('aaa' ##> 1 ## 'bbb');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t @@@ pdb.phrase('aaa');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t @@@ pdb.phrase_prefix(ARRAY['aaa', 'b']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t @@@ pdb.regex_phrase(ARRAY['a.*', 'bbb']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+DROP TABLE require_positions;
+CREATE TABLE require_positions (
+    id serial8 not null primary key,
+    t jsonb
+);
+INSERT INTO require_positions (t) VALUES ('{"key1": "value1", "key2": 3}');
+INSERT INTO require_positions (t) VALUES ('{"key1": "value1", "key2": 3}');
+CREATE INDEX idxrequire_positions ON require_positions USING bm25 (id, (t::pdb.ngram(3, 3))) WITH (key_field = 'id');
+SELECT * FROM require_positions WHERE t->>'key1' ### 'aaa';
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t->>'key1' @@@ ('aaa' ##> 1 ## 'bbb');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t->>'key1' @@@ pdb.phrase('aaa');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t->>'key1' @@@ pdb.phrase_prefix(ARRAY['aaa', 'b']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE t->>'key1' @@@ pdb.regex_phrase(ARRAY['a.*', 'bbb']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+DROP TABLE require_positions;
+CREATE TABLE require_positions (
+    id serial8 not null primary key,
+    t jsonb
+);
+INSERT INTO require_positions (t) VALUES ('{"key1": "value1", "key2": 3}');
+INSERT INTO require_positions (t) VALUES ('{"key1": "value1", "key2": 3}');
+CREATE INDEX idxrequire_positions ON require_positions USING bm25 (id, ((t->>'key1')::pdb.ngram(3, 3))) WITH (key_field = 'id');
+SELECT * FROM require_positions WHERE ((t->>'key1')::pdb.ngram(3, 3)) ### 'aaa';
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE ((t->>'key1')::pdb.ngram(3, 3)) @@@ ('aaa' ##> 1 ## 'bbb');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE ((t->>'key1')::pdb.ngram(3, 3)) @@@ pdb.phrase('aaa');
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE ((t->>'key1')::pdb.ngram(3, 3)) @@@ pdb.phrase_prefix(ARRAY['aaa', 'b']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+SELECT * FROM require_positions WHERE ((t->>'key1')::pdb.ngram(3, 3)) @@@ pdb.regex_phrase(ARRAY['a.*', 'bbb']);
+ERROR:  field 't' was tokenized with 'Some("ngram_mingram:3_maxgram:3_prefixonly:false")' which does not support this query type
+DROP TABLE require_positions;

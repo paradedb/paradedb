@@ -19,22 +19,22 @@ use std::os::raw::c_void;
 
 use crate::api::Cardinality;
 use crate::api::HashSet;
-use crate::customscan::pdbscan::ExecMethodType;
+use crate::customscan::basescan::ExecMethodType;
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
-use crate::postgres::customscan::pdbscan::PdbScan;
 use crate::postgres::ParallelScanState;
 
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
 use tantivy::index::SegmentId;
 
-impl ParallelQueryCapable for PdbScan {
+impl ParallelQueryCapable for BaseScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         pcxt: *mut ParallelContext,
     ) -> Size {
         if state.custom_state().search_reader.is_none() {
-            PdbScan::init_search_reader(state);
+            BaseScan::init_search_reader(state);
         }
 
         let args = state.custom_state().parallel_scan_args();

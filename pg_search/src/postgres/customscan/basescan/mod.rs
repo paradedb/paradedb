@@ -34,6 +34,20 @@ use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::postgres::customscan::basescan::exec_methods::{
+    fast_fields, normal::NormalScanExecState, ExecState,
+};
+use crate::postgres::customscan::basescan::parallel::{compute_nworkers, list_segment_ids};
+use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
+use crate::postgres::customscan::basescan::projections::snippet::{
+    snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
+};
+use crate::postgres::customscan::basescan::projections::window_agg::{
+    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
+    WindowAggregateInfo,
+};
+use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
@@ -43,20 +57,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::exec_methods::{
-    fast_fields, normal::NormalScanExecState, ExecState,
-};
-use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
-use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
-use crate::postgres::customscan::pdbscan::projections::snippet::{
-    snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
-};
-use crate::postgres::customscan::pdbscan::projections::window_agg::{
-    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
-    WindowAggregateInfo,
-};
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
@@ -86,9 +86,9 @@ use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
 #[derive(Default)]
-pub struct PdbScan;
+pub struct BaseScan;
 
-impl PdbScan {
+impl BaseScan {
     // This is the core logic for (re-)initializing the search reader
     fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
@@ -192,7 +192,7 @@ impl PdbScan {
 
     #[allow(clippy::too_many_arguments)]
     unsafe fn extract_all_possible_quals(
-        builder: &mut CustomPathBuilder<PdbScan>,
+        builder: &mut CustomPathBuilder<BaseScan>,
         root: *mut pg_sys::PlannerInfo,
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
@@ -301,15 +301,15 @@ impl PdbScan {
     }
 }
 
-impl customscan::ExecMethod for PdbScan {
+impl customscan::ExecMethod for BaseScan {
     fn exec_methods() -> *const CustomExecMethods {
-        <PdbScan as ParallelQueryCapable>::exec_methods()
+        <BaseScan as ParallelQueryCapable>::exec_methods()
     }
 }
 
 /// Check if the query's target list contains window_agg() function calls
 ///
-/// This is called AFTER window function replacement in PdbScan's create_custom_path.
+/// This is called AFTER window function replacement in BaseScan's create_custom_path.
 /// It looks for FuncExpr nodes with window_agg() OID, NOT WindowFunc nodes.
 ///
 /// This is different from query_has_window_functions() in hook.rs which looks for WindowFunc
@@ -433,11 +433,11 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     }
 }
 
-impl CustomScan for PdbScan {
+impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
     type Args = RelPathlistHookArgs;
-    type State = PdbScanState;
+    type State = BaseScanState;
     type PrivateData = PrivateData;
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
@@ -1425,7 +1425,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
 /// NormalScanExecState if we fail to extract the superset of fields during planning time which was
 /// needed at execution time.
 ///
-fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
+fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData>) {
     match builder.custom_state_ref().exec_method_type.clone() {
         ExecMethodType::Normal => builder
             .custom_state()
@@ -1470,7 +1470,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
 /// we should fall back to the `Normal` execution mode.
 ///
 fn compute_exec_which_fast_fields(
-    builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
+    builder: &mut CustomScanStateBuilder<BaseScan, PrivateData>,
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
     let target_list = builder.target_list().as_ptr();
@@ -1526,7 +1526,7 @@ fn compute_exec_which_fast_fields(
 /// and if it exists return a formed [`TupleTableSlot`].
 #[inline(always)]
 fn check_visibility(
-    state: &mut CustomScanStateWrapper<PdbScan>,
+    state: &mut CustomScanStateWrapper<BaseScan>,
     ctid: u64,
     bslot: *mut pg_sys::BufferHeapTupleTableSlot,
 ) -> Option<*mut pg_sys::TupleTableSlot> {
@@ -1537,7 +1537,7 @@ fn check_visibility(
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
-unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<PdbScan>) {
+unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) {
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
@@ -1737,7 +1737,7 @@ impl PathKeyInfo {
 /// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
 /// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
 unsafe fn pullup_topn_pathkeys(
-    builder: &mut CustomPathBuilder<PdbScan>,
+    builder: &mut CustomPathBuilder<BaseScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
@@ -2088,7 +2088,7 @@ fn is_range_query_string(query_string: &str) -> bool {
 /// Project configured snippets (if any).
 ///
 /// Must be called inside the per-tuple `MemoryContext`.
-unsafe fn maybe_project_snippets(state: &PdbScanState, ctid: u64) {
+unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
     if !state.need_snippets() {
         return;
     }

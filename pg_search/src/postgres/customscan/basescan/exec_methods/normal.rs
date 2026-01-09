@@ -16,10 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::reader::index::MultiSegmentSearchResults;
-use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::is_block_all_visible;
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::is_block_all_visible;
+use crate::postgres::customscan::basescan::parallel::checkout_segment;
+use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
@@ -65,7 +65,7 @@ impl Drop for NormalScanExecState {
     }
 }
 impl ExecMethod for NormalScanExecState {
-    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
             self.heaprel = state.heaprel.clone();
             self.slot = pg_sys::MakeTupleTableSlot(
@@ -76,12 +76,12 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+    fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
         // if we don't return any actual fields, then we'll use the visibility map
         state.targetlist_len == 0
     }
 
-    fn query(&mut self, state: &mut PdbScanState) -> bool {
+    fn query(&mut self, state: &mut BaseScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
                 self.search_results = Some(
@@ -108,7 +108,7 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         let Some(search_results) = self.search_results.as_mut() else {
             return ExecState::Eof;
         };
@@ -167,7 +167,7 @@ impl ExecMethod for NormalScanExecState {
         }
     }
 
-    fn reset(&mut self, _state: &mut PdbScanState) {
+    fn reset(&mut self, _state: &mut BaseScanState) {
         // Reset state
         self.search_results = None;
         self.did_query = false;
@@ -179,7 +179,7 @@ impl ExecMethod for NormalScanExecState {
 
 impl NormalScanExecState {
     #[inline(always)]
-    fn do_query(&mut self, state: &PdbScanState) -> bool {
+    fn do_query(&mut self, state: &BaseScanState) -> bool {
         if self.did_query {
             return false;
         }

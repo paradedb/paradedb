@@ -133,7 +133,7 @@ fn citus_distributed_tables_with_subquery_limit(mut conn: PgConnection) {
         serde_json::to_string_pretty(&plan).unwrap()
     );
 
-    // Check for ParadeDB Custom Scan (PdbScan)
+    // Check for ParadeDB Custom Scan (BaseScan)
     assert!(
         plan_str.contains("ParadeDB Scan") || plan_str.contains("Custom Scan"),
         "EXPLAIN plan should contain ParadeDB Custom Scan, but got: {}",

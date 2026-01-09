@@ -17,9 +17,9 @@
 
 use crate::api::{AsCStr, Cardinality, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
-use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::AsPgCStr;

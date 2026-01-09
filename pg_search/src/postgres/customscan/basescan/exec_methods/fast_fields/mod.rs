@@ -24,11 +24,11 @@ use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::nodecast;
+use crate::postgres::customscan::basescan::privdat::PrivateData;
+use crate::postgres::customscan::basescan::projections::score::uses_scores;
+use crate::postgres::customscan::basescan::{scan_state::BaseScanState, BaseScan};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-use crate::postgres::customscan::pdbscan::projections::score::uses_scores;
-use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
@@ -86,7 +86,7 @@ impl FastFieldExecState {
         }
     }
 
-    fn init(&mut self, state: &mut PdbScanState, cstate: *mut CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut CustomScanState) {
         unsafe {
             self.heaprel = Some(Clone::clone(state.heaprel()));
             self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
@@ -104,7 +104,7 @@ impl FastFieldExecState {
         }
     }
 
-    pub fn reset(&mut self, state: &mut PdbScanState) {
+    pub fn reset(&mut self, state: &mut BaseScanState) {
         self.did_query = false;
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
     }
@@ -426,7 +426,7 @@ pub fn is_all_special_or_junk_fields<'a>(
 }
 
 /// Add nodes to `EXPLAIN` output to describe the "fast fields" being used by the query, if any
-pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
+pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explainer) {
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
     if let ExecMethodType::FastFieldMixed {

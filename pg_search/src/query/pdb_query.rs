@@ -672,18 +672,8 @@ fn proximity(
 
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
 
     let prox = ProximityQuery::new(search_field.field(), left, distance, right);
     Ok(Box::new(prox))
@@ -745,18 +735,9 @@ fn regex_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
 
     if let Some(slop) = slop {
@@ -1421,18 +1402,9 @@ fn tokenized_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
     let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
     let mut stream = tokenizer.token_stream(phrase);
@@ -1472,18 +1444,9 @@ fn phrase_prefix(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
     let terms = phrases.clone().into_iter().map(|phrase| {
         value_to_term(
@@ -1511,18 +1474,8 @@ fn phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
@@ -1574,18 +1527,8 @@ fn phrase_array(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if tokens.len() > 1 && !search_field.supports_positions() {
-        let tokenizer = search_field
-            .field_config()
-            .tokenizer()
-            .map(|t| t.name().to_string());
-        return Err(QueryError::TokenizerDoesNotSupportQueryType {
-            field: search_field.field_name().clone(),
-            tokenizer,
-        }
-        .into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::with_capacity(tokens.len());

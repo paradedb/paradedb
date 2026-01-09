@@ -34,6 +34,7 @@ use std::rc::Rc;
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
+use crate::query::QueryError;
 use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
@@ -467,15 +468,31 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
-    pub fn supports_positions(&self) -> bool {
+    pub fn with_positions(self) -> Result<Self, QueryError> {
+        if self.supports_positions() {
+            Ok(self)
+        } else {
+            let tokenizer = self
+                .field_config()
+                .tokenizer()
+                .map(|t| t.name().to_string());
+
+            Err(QueryError::TokenizerDoesNotSupportQueryType {
+                field: self.field_name().clone(),
+                tokenizer,
+            })
+        }
+    }
+
+    fn supports_positions(&self) -> bool {
         let tokenizer = self.field_config.tokenizer();
 
         // these tokenizers only emit one token, so they implicitly "support" positions
         #[allow(deprecated)]
         if matches!(
             tokenizer,
-            Some(SearchTokenizer::Keyword { .. })
-                | Some(SearchTokenizer::KeywordDeprecated { .. })
+            Some(SearchTokenizer::Keyword)
+                | Some(SearchTokenizer::KeywordDeprecated)
                 | Some(SearchTokenizer::Raw(..))
                 | Some(SearchTokenizer::LiteralNormalized(..))
         ) {

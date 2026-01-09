@@ -19,6 +19,7 @@
 use std::fmt::Write;
 
 use crate::icu::ICUTokenizer;
+use crate::ngram_with_positions::NgramTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
@@ -37,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, RawTokenizer,
     RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
@@ -375,6 +376,8 @@ pub enum SearchTokenizer {
         min_gram: usize,
         max_gram: usize,
         prefix_only: bool,
+        #[serde(default)]
+        positions: bool,
         filters: SearchTokenizerFilters,
     },
     ChineseLindera(SearchTokenizerFilters),
@@ -456,10 +459,15 @@ impl SearchTokenizer {
                     .map_err(|_| {
                         anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
                     })?;
+                let positions: bool = value
+                    .get("positions")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 Ok(SearchTokenizer::Ngram {
                     min_gram,
                     max_gram,
                     prefix_only,
+                    positions,
                     filters,
                 })
             }
@@ -537,10 +545,11 @@ impl SearchTokenizer {
                 min_gram,
                 max_gram,
                 prefix_only,
+                positions,
                 filters,
             } => add_filters!(
-                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
-                    .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
+                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only, *positions)
+                    .unwrap_or_else(|e| panic!("{}", e)),
                 filters
             ),
             SearchTokenizer::ChineseCompatible(filters) => {
@@ -678,7 +687,10 @@ impl SearchTokenizer {
                 max_gram,
                 prefix_only,
                 filters: _,
-            } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{filters_suffix}"),
+                positions: _,
+            } => format!(
+                "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{filters_suffix}"
+            ),
             SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
             SearchTokenizer::JapaneseLindera(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
@@ -764,6 +776,7 @@ mod tests {
                 min_gram: 20,
                 max_gram: 60,
                 prefix_only: true,
+                positions: false,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: Some(123),

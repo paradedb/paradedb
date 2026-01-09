@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767980626129,
+  "lastUpdate": 1767981571314,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20848,6 +20848,42 @@ window.BENCHMARK_DATA = {
             "value": 5.356050829494355,
             "unit": "median tps",
             "extra": "avg tps: 4.805095429863813, max tps: 5.986309600389185, count: 57732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2442693752d60dd57423a36e82e10a5df7f3d606",
+          "message": "fix: error if query needs positions but field doesn't have them (#3877)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-09T12:25:02-05:00",
+          "tree_id": "7fe803857d884c4e5ebbe570300de5aed4ac3440",
+          "url": "https://github.com/paradedb/paradedb/commit/2442693752d60dd57423a36e82e10a5df7f3d606"
+        },
+        "date": 1767981567823,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.6231858259455,
+            "unit": "median tps",
+            "extra": "avg tps: 6.5506891999002965, max tps: 9.825752888514714, count: 57566"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.374841034683769,
+            "unit": "median tps",
+            "extra": "avg tps: 4.822039611393208, max tps: 6.028761528802859, count: 57566"
           }
         ]
       }

@@ -22,6 +22,7 @@ mod const_score;
 mod eqeqeq;
 mod fuzzy;
 mod hashhashhash;
+mod jsonb_values;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
@@ -38,7 +39,7 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::catalog::lookup_type_name;
+use crate::postgres::catalog::{lookup_type_name, lookup_typoid};
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
@@ -51,6 +52,7 @@ use crate::postgres::var::{
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
+use crate::schema::{SearchFieldConfig, SearchFieldType};
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -65,6 +67,12 @@ enum RHSValue {
     TextArray(Vec<String>),
     PdbQuery(pdb::Query),
     ProximityClause(ProximityClause),
+}
+
+pub struct JsonbValuesInfo {
+    pub base_field: FieldName,
+    pub indexrel: PgSearchRelation,
+    pub sub_path: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -137,6 +145,10 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
         }
         oid
     }
+}
+
+pub fn type_is_jsonb_values(oid: pg_sys::Oid) -> bool {
+    Some(oid) == lookup_typoid(c"pdb", c"jsonb_values")
 }
 
 pub fn pdb_query_typoid() -> pg_sys::Oid {
@@ -213,6 +225,217 @@ pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     }
 }
 
+pub(crate) unsafe fn make_searchqueryinput_array(
+    elements: Vec<*mut pg_sys::Node>,
+) -> *mut pg_sys::ArrayExpr {
+    let element_typoid = searchqueryinput_typoid();
+    let array_typoid = pg_sys::get_array_type(element_typoid);
+    assert!(
+        array_typoid != pg_sys::Oid::INVALID,
+        "array type for SearchQueryInput should exist"
+    );
+
+    let mut element_list = PgList::<pg_sys::Node>::new();
+    for element in elements {
+        element_list.push(element);
+    }
+
+    let mut array_expr = PgBox::<pg_sys::ArrayExpr>::alloc_node(pg_sys::NodeTag::T_ArrayExpr);
+    array_expr.array_typeid = array_typoid;
+    array_expr.array_collid = pg_sys::Oid::INVALID;
+    array_expr.element_typeid = element_typoid;
+    array_expr.elements = element_list.into_pg();
+    array_expr.multidims = false;
+    array_expr.location = -1;
+
+    array_expr.into_pg()
+}
+
+pub(crate) unsafe fn make_boolean_should_expr(
+    should_elements: Vec<*mut pg_sys::Node>,
+) -> *mut pg_sys::FuncExpr {
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(make_searchqueryinput_array(Vec::new()).cast());
+    args.push(make_searchqueryinput_array(should_elements).cast());
+    args.push(make_searchqueryinput_array(Vec::new()).cast());
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid: direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.boolean(paradedb.searchqueryinput[], paradedb.searchqueryinput[], paradedb.searchqueryinput[])".into_datum()],
+        )
+        .expect("`paradedb.boolean(searchqueryinput[], searchqueryinput[], searchqueryinput[])` should exist"),
+        funcresulttype: searchqueryinput_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
+    .palloc()
+}
+
+pub unsafe fn detect_cast_to_jsonb_values(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Node> {
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if type_is_jsonb_values((*func).funcresulttype) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            return args.get_ptr(0);
+        }
+    }
+
+    if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        if type_is_jsonb_values((*coerce).resulttype) {
+            return Some((*coerce).arg.cast::<pg_sys::Node>());
+        }
+    }
+
+    None
+}
+
+pub unsafe fn unwrap_jsonb_values_cast(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<JsonbValuesInfo> {
+    let inner = detect_cast_to_jsonb_values(node)?;
+    let inner = if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, inner) {
+        (*coerce).arg.cast::<pg_sys::Node>()
+    } else {
+        inner
+    };
+
+    let (indexrel, field) = tantivy_field_name_from_node(root, inner)?;
+    let json_path = find_json_path(&VarContext::from_planner(root), inner);
+
+    let (base_field, sub_path) = if !json_path.is_empty() {
+        (
+            FieldName::from(json_path[0].clone()),
+            json_path[1..].to_vec(),
+        )
+    } else {
+        (field?, Vec::new())
+    };
+
+    Some(JsonbValuesInfo {
+        base_field,
+        indexrel,
+        sub_path,
+    })
+}
+
+pub fn get_jsonb_values_paths_for_jsonb_values(
+    jv_info: &JsonbValuesInfo,
+) -> Result<Vec<String>, String> {
+    let options = jv_info.indexrel.options();
+    let field_type = options.get_field_type(&jv_info.base_field).ok_or_else(|| {
+        format!(
+            "Field '{}' is not configured in the BM25 index",
+            jv_info.base_field
+        )
+    })?;
+
+    if !matches!(field_type, SearchFieldType::Json(_)) {
+        return Err(format!(
+            "pdb.jsonb_values can only be used with JSON/JSONB fields.\n\
+             HINT: Field '{}' is not a JSON field. Use regular search operators instead.",
+            jv_info.base_field
+        ));
+    }
+
+    let expand_dots = match options.field_config_or_default(&jv_info.base_field) {
+        SearchFieldConfig::Json { expand_dots, .. } => expand_dots,
+        _ => true,
+    };
+
+    if !expand_dots {
+        return Err(format!(
+            "jsonb_values requires expand_dots=true for field '{}'. \
+             Recreate index with expand_dots=true (default) or use explicit path queries.",
+            jv_info.base_field
+        ));
+    }
+
+    let configured_paths = options.jsonb_values_paths();
+    if configured_paths.is_empty() {
+        return Err(format!(
+            "jsonb_values_paths not configured for this index. \
+             HINT: ALTER INDEX {} SET (jsonb_values_paths = '{{\"{}\":[...]}}')",
+            jv_info.indexrel.name(),
+            jv_info.base_field
+        ));
+    }
+
+    let all_paths = configured_paths.get(&jv_info.base_field).ok_or_else(|| {
+        format!(
+            "Field '{}' is not configured in jsonb_values_paths. \
+             HINT: ALTER INDEX {} SET (jsonb_values_paths = '{{\"{}\":[...]}}')",
+            jv_info.base_field,
+            jv_info.indexrel.name(),
+            jv_info.base_field
+        )
+    })?;
+
+    if all_paths.is_empty() {
+        return Err(format!(
+            "jsonb_values_paths is empty for JSON field '{}'. \
+             HINT: Add at least one path: [\"color\", \"brand.name\"]",
+            jv_info.base_field
+        ));
+    }
+
+    let invalid_paths: Vec<&str> = all_paths
+        .iter()
+        .map(|p| p.as_str())
+        .filter(|p| p.trim().is_empty() || p.split('.').any(|seg| seg.is_empty()))
+        .collect();
+    if !invalid_paths.is_empty() {
+        return Err(format!(
+            "jsonb_values_paths contains empty or invalid path(s) for JSON field '{}': {:?}",
+            jv_info.base_field, invalid_paths
+        ));
+    }
+
+    let paths = if jv_info.sub_path.is_empty() {
+        all_paths.to_vec()
+    } else {
+        let prefix = jv_info.sub_path.join(".");
+        let dot_prefix = format!("{}.", prefix);
+        let filtered: Vec<String> = all_paths
+            .iter()
+            .filter(|p| p.starts_with(&dot_prefix) || p.as_str() == prefix.as_str())
+            .cloned()
+            .collect();
+
+        if filtered.is_empty() {
+            return Err(format!(
+                "No searchable paths found under '{}.{}'. \
+                 Configured paths: {:?}",
+                jv_info.base_field, prefix, all_paths
+            ));
+        }
+        filtered
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let paths: Vec<String> = paths
+        .into_iter()
+        .filter(|p| seen.insert(p.clone()))
+        .collect();
+
+    if paths.is_empty() {
+        return Err(format!(
+            "jsonb_values_paths is empty for JSON field '{}'",
+            jv_info.base_field
+        ));
+    }
+
+    Ok(paths)
+}
+
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
@@ -251,6 +474,71 @@ unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
         pg_sys::FreeTupleDesc(tupdesc);
     }
     typoid
+}
+
+/// Checks if a support function node represents a jsonb_values cast and extracts
+/// everything needed for query expansion.
+///
+/// Returns `(srs, jv_info, inner_lhs, rhs)` if this is a jsonb_values expansion case,
+/// or `None` if not applicable.
+pub(crate) unsafe fn try_jsonb_values_expansion(
+    node: *mut pg_sys::Node,
+) -> Option<(
+    *mut pg_sys::SupportRequestSimplify,
+    JsonbValuesInfo,
+    *mut pg_sys::Node,
+    *mut pg_sys::Node,
+)> {
+    let srs = nodecast!(SupportRequestSimplify, T_SupportRequestSimplify, node)?;
+    if (*srs).root.is_null() {
+        return None;
+    }
+    let input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
+    let lhs = input_args.get_ptr(0)?;
+    let rhs = input_args.get_ptr(1)?;
+
+    let jv_info = unwrap_jsonb_values_cast((*srs).root, lhs)?;
+    let inner_lhs = detect_cast_to_jsonb_values(lhs)
+        .expect("jsonb_values cast should unwrap to inner expression");
+
+    Some((srs, jv_info, inner_lhs, rhs))
+}
+
+pub(crate) unsafe fn build_jsonb_values_exec_boolean(
+    jv_info: &JsonbValuesInfo,
+    paths: Vec<String>,
+    rhs: *mut pg_sys::Node,
+    funcid: pg_sys::Oid,
+    mut add_args: impl FnMut(&mut PgList<pg_sys::Node>),
+) -> *mut pg_sys::Node {
+    let mut per_path = Vec::with_capacity(paths.len());
+    for path in paths {
+        let full_path = format!("{}.{}", jv_info.base_field, path);
+        let mut args = PgList::<pg_sys::Node>::new();
+        args.push(FieldName::from(full_path).into_const().cast());
+        args.push(pg_sys::copyObjectImpl(rhs.cast()).cast());
+        add_args(&mut args);
+
+        let func = pg_sys::FuncExpr {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_FuncExpr,
+            },
+            funcid,
+            funcresulttype: searchqueryinput_typoid(),
+            funcretset: false,
+            funcvariadic: false,
+            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            funccollid: pg_sys::Oid::INVALID,
+            inputcollid: pg_sys::Oid::INVALID,
+            args: args.into_pg(),
+            location: -1,
+        }
+        .palloc()
+        .cast();
+        per_path.push(func);
+    }
+
+    make_boolean_should_expr(per_path).cast()
 }
 
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.

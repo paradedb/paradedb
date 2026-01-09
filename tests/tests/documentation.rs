@@ -2437,22 +2437,20 @@ fn available_tokenizers(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    if cfg!(feature = "icu") {
-        r#"
-        CREATE INDEX search_idx ON mock_items
-        USING bm25 (id, description)
-        WITH (
-            key_field = 'id',
-            text_fields = '{
-                "description": {
-                "tokenizer": {"type": "icu"}
-                }
-            }'
-        );
-        DROP INDEX search_idx;
-        "#
-        .execute(&mut conn);
-    }
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "icu"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
 
     r#"
     SELECT * FROM paradedb.tokenizers();

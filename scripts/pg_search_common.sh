@@ -14,7 +14,7 @@
 set -Eeuo pipefail
 
 # Parse arguments for the --release flag
-BUILD_PARAMS=("--features=icu")
+BUILD_PARAMS=()
 
 # Loop through arguments
 i=1
@@ -60,7 +60,7 @@ set -x
 # Stop any existing pgrx server with this feature
 cargo pgrx stop "${FEATURE}" --package pg_search
 
-# Install pg_search extension with ICU support, conditionally using --release
+# Install pg_search extension, conditionally using --release
 cargo pgrx install --package pg_search "${BUILD_PARAMS[@]}" --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
 
 # Start the PostgreSQL server with the installed extension

@@ -207,7 +207,7 @@ jobs:
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }} --no-default-features
 
       - name: Configure PostgreSQL settings
         working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/

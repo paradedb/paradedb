@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767981576264,
+  "lastUpdate": 1767982556390,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30516,6 +30516,54 @@ window.BENCHMARK_DATA = {
             "value": 5.666677316036099,
             "unit": "median tps",
             "extra": "avg tps: 5.6409715884695455, max tps: 6.369061456844596, count: 56514"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2442693752d60dd57423a36e82e10a5df7f3d606",
+          "message": "fix: error if query needs positions but field doesn't have them (#3877)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-09T12:25:02-05:00",
+          "tree_id": "7fe803857d884c4e5ebbe570300de5aed4ac3440",
+          "url": "https://github.com/paradedb/paradedb/commit/2442693752d60dd57423a36e82e10a5df7f3d606"
+        },
+        "date": 1767982552763,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1131.108839667388,
+            "unit": "median tps",
+            "extra": "avg tps: 1137.8161641116724, max tps: 1193.4571839158448, count: 56650"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1193.557417159223,
+            "unit": "median tps",
+            "extra": "avg tps: 1193.9511551126373, max tps: 1227.6329607752268, count: 56650"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1906.5171472520874,
+            "unit": "median tps",
+            "extra": "avg tps: 1888.7410613105437, max tps: 2067.3898892157226, count: 56650"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.651667000835831,
+            "unit": "median tps",
+            "extra": "avg tps: 5.614240449670129, max tps: 6.400979339597391, count: 56650"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767964154666,
+  "lastUpdate": 1767966112609,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -46760,6 +46760,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 33054.1045,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f89302e2bb7ee628872d53ffbc6b64109c409ee3",
+          "message": "feat: Add composite type support for BM25 indexes (>32 fields) (#3776)\n\n## Summary\n\nFixes #3686\n\n- Adds support for indexing more than 32 columns using composite types\nwith `ROW(...)::type` expressions\n- Composite fields are searchable individually by their field names from\nthe type definition\n\n## Changes\n\n### Core Module (`pg_search/src/postgres/composite.rs`)\n- `CompositeSlotValues` - Unpacks composite values upfront during\nconstruction for field extraction\n- `CompositeFieldInfo` - Metadata struct for composite type fields  \n- `CompositeError` - Validation errors for nested composites, anonymous\nROW, and domain types\n- Helper functions: `is_composite_type`, `get_composite_type_fields`,\n`get_composite_fields_for_index`\n\n### Field Matching (`pg_search/src/api/operator.rs`)\n- `expr_matches_node` - New helper function for matching WHERE clause\nexpressions against indexed expressions\n- Extended `field_name_from_node` to detect composite type fields and\nmatch them by field name\n\n### Integration (`pg_search/src/postgres/utils.rs`)\n- `FieldSource::CompositeField` variant for composite-derived fields\n- `get_field_value` helper to extract individual fields from unpacked\ncomposites\n- Extended `extract_field_attributes` to detect and expand composite\nexpressions\n- Duplicate field name detection across composites and regular columns\n\n### Parallel Build & Insert\n- `build_parallel.rs` and `insert.rs` updated to use\n`CompositeSlotValues`\n- `mvcc.rs` updated for MVCC-aware composite unpacking\n\n## Usage Example\n\n```sql\n-- Create a composite type with the fields you want to index\nCREATE TYPE product_search AS (name TEXT, description TEXT, category TEXT);\n\n-- Create table with regular columns\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name TEXT,\n    description TEXT,\n    category TEXT\n);\n\n-- Create BM25 index using composite type\nCREATE INDEX idx_products ON products USING bm25 (\n    id,\n    (ROW(name, description, category)::product_search)\n) WITH (key_field = 'id');\n\n-- Search by individual field names from the composite type\nSELECT * FROM products WHERE name @@@ 'Widget';\nSELECT * FROM products WHERE description @@@ 'amazing';\n\n-- Or with pdb functions for more control\nSELECT * FROM products WHERE name @@@ pdb.term('Widget');\nSELECT * FROM products WHERE name @@@ pdb.fuzzy_term('Widgt', distance => 1);\n```\n\n## Test plan\n\n- 47 pg_regress test sections covering:\n- `composite.sql` (39 test sections): Basic indexing, >32 fields, 100\nfields, JSON/array fields, tokenizers, error cases, parallel builds,\nMVCC, and more\n- `composite_advanced.sql` (8 test sections): Field-level queries with\n`field @@@ query` syntax, pdb functions, scoring, snippets\n- `cargo fmt` and `cargo clippy` clean\n\n---------\n\nSigned-off-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-01-09T18:12:06+05:30",
+          "tree_id": "345640650875cbc4eba38574c6f4f102bec7acd8",
+          "url": "https://github.com/paradedb/paradedb/commit/f89302e2bb7ee628872d53ffbc6b64109c409ee3"
+        },
+        "date": 1767966108886,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1197.421,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 496.8605,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1465.761,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 519.4590000000001,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 517.0105000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1279.2595000000001,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 26643.464500000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 26770.105000000003,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 27013.2125,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

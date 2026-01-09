@@ -1655,8 +1655,7 @@ fn match_query(
     let mut analyzer = match tokenizer {
         Some(tokenizer) => SearchTokenizer::from_json_value(&tokenizer)?
             .to_tantivy_tokenizer()
-            .expect("tantivy should support tokenizer {tokenizer:?}")
-            .into(),
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => searcher.index().tokenizer_for_field(search_field.field())?,
     };
     let mut stream = analyzer.token_stream(value);

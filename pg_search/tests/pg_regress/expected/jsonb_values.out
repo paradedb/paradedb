@@ -85,7 +85,8 @@ WHERE metadata::pdb.jsonb_values ### 'air max'
 ORDER BY id;
  id 
 ----
-(0 rows)
+  1
+(1 row)
 
 SELECT id FROM jsonb_values_items
 WHERE metadata::pdb.jsonb_values ### ARRAY['ultra', 'boost']
@@ -311,7 +312,8 @@ ORDER BY id;
 EXECUTE jsonb_values_phrase('gel lyte');
  id 
 ----
-(0 rows)
+  5
+(1 row)
 
 DEALLOCATE jsonb_values_phrase;
 PREPARE jsonb_values_conj(text) AS
@@ -330,12 +332,15 @@ SELECT id FROM jsonb_values_items
 WHERE name::jsonb::pdb.jsonb_values === 'nike';
 ERROR:  pdb.jsonb_values can only be used with JSON/JSONB fields.
 HINT: Field 'name' is not a JSON field. Use regular search operators instead.
--- error: proximity not supported for jsonb_values
+-- proximity clause with jsonb_values (no matches in test data)
 SELECT id FROM jsonb_values_items
 WHERE metadata::pdb.jsonb_values @@@ pdb.prox_clause(
   pdb.prox_term('running'), 5, pdb.prox_term('shoes')
 );
-ERROR:  invalid tokenizer setting, expected paradedb.tokenizer()
+ id 
+----
+(0 rows)
+
 DROP INDEX jsonb_values_idx;
 -- error: field not in BM25 index
 CREATE INDEX jsonb_values_no_field_idx ON jsonb_values_items

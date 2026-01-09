@@ -187,7 +187,7 @@ DEALLOCATE jsonb_values_conj;
 SELECT id FROM jsonb_values_items
 WHERE name::jsonb::pdb.jsonb_values === 'nike';
 
--- error: proximity not supported for jsonb_values
+-- proximity clause with jsonb_values (no matches in test data)
 SELECT id FROM jsonb_values_items
 WHERE metadata::pdb.jsonb_values @@@ pdb.prox_clause(
   pdb.prox_term('running'), 5, pdb.prox_term('shoes')

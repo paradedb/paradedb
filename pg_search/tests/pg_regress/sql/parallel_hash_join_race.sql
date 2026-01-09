@@ -248,12 +248,37 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 
--- Execute multiple times
+-- Execute multiple times to trigger generic plan after 5 executions
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+-- 6th execution uses generic plan
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+
+-- Force generic plan
+SET plan_cache_mode = force_generic_plan;
+DEALLOCATE parallel_hash_join_query;
+
+PREPARE parallel_hash_join_query_generic(text, text, text, text, date, date) AS
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ $1
+  AND (c.author @@@ paradedb.match('author', $2)
+       OR c.author @@@ paradedb.match('author', $3)
+       OR c.author @@@ paradedb.match('author', $4))
+  AND DATE(c.date_time_combined) >= $5
+  AND DATE(c.date_time_combined) <= $6;
+
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+
+DEALLOCATE parallel_hash_join_query_generic;
 
 -- Reset settings
 RESET plan_cache_mode;

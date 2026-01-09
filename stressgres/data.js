@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1767963644772,
+  "lastUpdate": 1767963649898,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17346,6 +17346,126 @@ window.BENCHMARK_DATA = {
             "value": 50.8125,
             "unit": "median mem",
             "extra": "avg mem: 49.84261574743713, max mem: 62.03515625, count: 55309"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f89302e2bb7ee628872d53ffbc6b64109c409ee3",
+          "message": "feat: Add composite type support for BM25 indexes (>32 fields) (#3776)\n\n## Summary\n\nFixes #3686\n\n- Adds support for indexing more than 32 columns using composite types\nwith `ROW(...)::type` expressions\n- Composite fields are searchable individually by their field names from\nthe type definition\n\n## Changes\n\n### Core Module (`pg_search/src/postgres/composite.rs`)\n- `CompositeSlotValues` - Unpacks composite values upfront during\nconstruction for field extraction\n- `CompositeFieldInfo` - Metadata struct for composite type fields  \n- `CompositeError` - Validation errors for nested composites, anonymous\nROW, and domain types\n- Helper functions: `is_composite_type`, `get_composite_type_fields`,\n`get_composite_fields_for_index`\n\n### Field Matching (`pg_search/src/api/operator.rs`)\n- `expr_matches_node` - New helper function for matching WHERE clause\nexpressions against indexed expressions\n- Extended `field_name_from_node` to detect composite type fields and\nmatch them by field name\n\n### Integration (`pg_search/src/postgres/utils.rs`)\n- `FieldSource::CompositeField` variant for composite-derived fields\n- `get_field_value` helper to extract individual fields from unpacked\ncomposites\n- Extended `extract_field_attributes` to detect and expand composite\nexpressions\n- Duplicate field name detection across composites and regular columns\n\n### Parallel Build & Insert\n- `build_parallel.rs` and `insert.rs` updated to use\n`CompositeSlotValues`\n- `mvcc.rs` updated for MVCC-aware composite unpacking\n\n## Usage Example\n\n```sql\n-- Create a composite type with the fields you want to index\nCREATE TYPE product_search AS (name TEXT, description TEXT, category TEXT);\n\n-- Create table with regular columns\nCREATE TABLE products (\n    id SERIAL PRIMARY KEY,\n    name TEXT,\n    description TEXT,\n    category TEXT\n);\n\n-- Create BM25 index using composite type\nCREATE INDEX idx_products ON products USING bm25 (\n    id,\n    (ROW(name, description, category)::product_search)\n) WITH (key_field = 'id');\n\n-- Search by individual field names from the composite type\nSELECT * FROM products WHERE name @@@ 'Widget';\nSELECT * FROM products WHERE description @@@ 'amazing';\n\n-- Or with pdb functions for more control\nSELECT * FROM products WHERE name @@@ pdb.term('Widget');\nSELECT * FROM products WHERE name @@@ pdb.fuzzy_term('Widgt', distance => 1);\n```\n\n## Test plan\n\n- 47 pg_regress test sections covering:\n- `composite.sql` (39 test sections): Basic indexing, >32 fields, 100\nfields, JSON/array fields, tokenizers, error cases, parallel builds,\nMVCC, and more\n- `composite_advanced.sql` (8 test sections): Field-level queries with\n`field @@@ query` syntax, pdb functions, scoring, snippets\n- `cargo fmt` and `cargo clippy` clean\n\n---------\n\nSigned-off-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Ming Ying <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-01-09T18:12:06+05:30",
+          "tree_id": "345640650875cbc4eba38574c6f4f102bec7acd8",
+          "url": "https://github.com/paradedb/paradedb/commit/f89302e2bb7ee628872d53ffbc6b64109c409ee3"
+        },
+        "date": 1767963646265,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.271483169333583, max cpu: 19.21922, count: 55343"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.63604440432846, max mem: 68.80078125, count: 55343"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.56824107923351, max cpu: 9.486166, count: 55343"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.17337396158954, max mem: 35.296875, count: 55343"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.395137050984205, max cpu: 18.622696, count: 55343"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 58.092678415743634, max mem: 69.1640625, count: 55343"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.599561040450051, max cpu: 9.266409, count: 55343"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.04406348533238, max mem: 68.625, count: 55343"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5259276231896015, max cpu: 9.476802, count: 110686"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.91260747604711, max mem: 57.0703125, count: 110686"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1805,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1796.418878629637, max block_count: 3168.0, count: 55343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.499900619771244, max segment_count: 16.0, count: 55343"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4592680703315555, max cpu: 4.824121, count: 55343"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 49.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.34550877595179, max mem: 59.75, count: 55343"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.00285536254797, max cpu: 4.729064, count: 55343"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 49.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.15088509104584, max mem: 62.53515625, count: 55343"
           }
         ]
       }

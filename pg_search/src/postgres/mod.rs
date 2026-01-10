@@ -49,6 +49,7 @@ mod validate;
 
 mod build_parallel;
 pub mod catalog;
+pub mod composite;
 mod condition_variable;
 pub mod customscan;
 pub mod datetime;

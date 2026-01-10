@@ -17,7 +17,7 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};

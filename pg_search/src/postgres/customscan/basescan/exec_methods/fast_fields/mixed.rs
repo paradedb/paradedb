@@ -24,13 +24,13 @@ use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
+use crate::postgres::customscan::basescan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
-use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::is_block_all_visible;
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::is_block_all_visible;
+use crate::postgres::customscan::basescan::parallel::checkout_segment;
+use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::types_arrow::{arrow_array_to_datum, date_time_to_ts_nanos};
 
 use arrow_array::builder::{
@@ -256,7 +256,7 @@ impl ExecMethod for MixedFastFieldExecState {
     ///
     /// * `state` - The current scan state containing query information
     /// * `cstate` - PostgreSQL's custom scan state pointer
-    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Initialize the inner FastFieldExecState
         self.inner.init(state, cstate);
 
@@ -296,7 +296,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Returns
     ///
     /// `true` if there are results to process, `false` otherwise
-    fn query(&mut self, state: &mut PdbScanState) -> bool {
+    fn query(&mut self, state: &mut BaseScanState) -> bool {
         if self.try_join_batch() {
             // We collected another batch of ids from the SearchResult: construct a
             return true;
@@ -340,7 +340,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Returns
     ///
     /// The next execution state containing the result or EOF
-    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
         unsafe {
             // Process the next result from our optimized path
             match self.batch.next() {
@@ -428,7 +428,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Arguments
     ///
     /// * `state` - The current scan state
-    fn reset(&mut self, state: &mut PdbScanState) {
+    fn reset(&mut self, state: &mut BaseScanState) {
         // Reset inner FastFieldExecState
         self.inner.reset(state);
 

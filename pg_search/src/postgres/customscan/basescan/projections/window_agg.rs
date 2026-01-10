@@ -36,8 +36,8 @@
 //! We replace window functions at `planner_hook` (before path generation) rather than at
 //! `create_upper_paths_hook` with `UPPERREL_WINDOW` because:
 //!
-//! - **Simpler Integration**: Reuses existing `PdbScan` infrastructure without nested scans
-//! - **Avoids Complexity**: No need for `WindowCustomScan` wrapping `PdbScan`
+//! - **Simpler Integration**: Reuses existing `BaseScan` infrastructure without nested scans
+//! - **Avoids Complexity**: No need for `WindowCustomScan` wrapping `BaseScan`
 //! - **Single Scan**: Allows TopN + aggregation in one scan pass
 //!
 //! Note: `AggregateCustomScan` uses `create_upper_paths_hook` with `UPPERREL_GROUP_AGG`,

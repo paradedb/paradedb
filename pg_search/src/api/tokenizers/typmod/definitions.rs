@@ -47,6 +47,7 @@ pub struct NgramTypmod {
     pub min_gram: usize,
     pub max_gram: usize,
     pub prefix_only: bool,
+    pub positions: bool,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -117,6 +118,7 @@ impl TypmodRules for NgramTypmod {
                 positional = 1
             ),
             rule!("prefix_only", ValueConstraint::Boolean),
+            rule!("positions", ValueConstraint::Boolean),
         ]
     }
 }
@@ -220,11 +222,16 @@ impl TryFrom<i32> for NgramTypmod {
             .get("prefix_only")
             .and_then(|p| p.as_bool())
             .unwrap_or(false);
+        let positions = parsed
+            .get("positions")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
 
         Ok(NgramTypmod {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         })
     }

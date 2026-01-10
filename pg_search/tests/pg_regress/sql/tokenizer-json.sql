@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 DROP TABLE IF EXISTS index_json;
 CREATE TABLE index_json(
     id serial8 not null primary key,

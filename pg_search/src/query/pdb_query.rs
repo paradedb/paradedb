@@ -672,10 +672,8 @@ fn proximity(
 
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
-        return Err(QueryError::InvalidTokenizer.into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
 
     let prox = ProximityQuery::new(search_field.field(), left, distance, right);
     Ok(Box::new(prox))
@@ -737,7 +735,9 @@ fn regex_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
 
     if let Some(slop) = slop {
@@ -1399,15 +1399,14 @@ fn tokenized_phrase(
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
-) -> Box<dyn TantivyQuery> {
-    let tantivy_field = schema
-        .search_field(field)
-        .unwrap_or_else(|| core::panic!("Field `{field}` not found in tantivy schema"))
-        .field();
-    let mut tokenizer = searcher
-        .index()
-        .tokenizer_for_field(tantivy_field)
-        .unwrap_or_else(|e| core::panic!("{e}"));
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
+    let field_type = search_field.field_entry().field_type();
+    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
     let mut stream = tokenizer.token_stream(phrase);
 
     let mut tokens = Vec::new();
@@ -1434,7 +1433,9 @@ fn phrase_prefix(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
     let terms = phrases.clone().into_iter().map(|phrase| {
         value_to_term(
@@ -1462,7 +1463,8 @@ fn phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
@@ -1514,7 +1516,8 @@ fn phrase_array(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::with_capacity(tokens.len());
@@ -1639,13 +1642,9 @@ fn match_query(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let mut analyzer = match tokenizer {
-        Some(tokenizer) => {
-            let tokenizer = SearchTokenizer::from_json_value(&tokenizer)
-                .map_err(|_| QueryError::InvalidTokenizer)?;
-            tokenizer
-                .to_tantivy_tokenizer()
-                .ok_or(QueryError::InvalidTokenizer)?
-        }
+        Some(tokenizer) => SearchTokenizer::from_json_value(&tokenizer)?
+            .to_tantivy_tokenizer()
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => searcher.index().tokenizer_for_field(search_field.field())?,
     };
     let mut stream = analyzer.token_stream(value);

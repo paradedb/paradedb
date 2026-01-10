@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768007081906,
+  "lastUpdate": 1768008063921,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30846,6 +30846,54 @@ window.BENCHMARK_DATA = {
             "value": 5.651667000835831,
             "unit": "median tps",
             "extra": "avg tps: 5.614240449670129, max tps: 6.400979339597391, count: 56650"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642d8ee431bdfa1cf1cf0e4d24227701c700de00",
+          "message": "chore: Rename `pdbscan` to `basescan` (#3885)\n\n## What\n\nRename the `pdbscan` (\"ParadeDB Scan\") to `basescan`.\n\n## Why\n\nWhen we added the `aggregatescan`, the name of our original scan became\nless accurate. It's worth improving the situation before we add another\nscan in #2997.",
+          "timestamp": "2026-01-09T16:28:05-08:00",
+          "tree_id": "edc4a3c948dc75a5e8207665a3c8e5937e56490a",
+          "url": "https://github.com/paradedb/paradedb/commit/642d8ee431bdfa1cf1cf0e4d24227701c700de00"
+        },
+        "date": 1768008060193,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1127.834865218798,
+            "unit": "median tps",
+            "extra": "avg tps: 1127.7265302992412, max tps: 1178.2747698802375, count: 56126"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1276.6762437753675,
+            "unit": "median tps",
+            "extra": "avg tps: 1261.768998427548, max tps: 1290.31981953506, count: 56126"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1802.594527283708,
+            "unit": "median tps",
+            "extra": "avg tps: 1785.8558027570537, max tps: 1935.62694765304, count: 56126"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.483935341493284,
+            "unit": "median tps",
+            "extra": "avg tps: 5.493841486410836, max tps: 6.55368178256658, count: 56126"
           }
         ]
       }

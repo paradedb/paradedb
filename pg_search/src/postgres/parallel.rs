@@ -117,7 +117,7 @@ pub unsafe fn maybe_init_parallel_scan(
     Some(unsafe { pg_sys::ParallelWorkerNumber })
 }
 
-/// Claim (steal) a segment from the shared pool.
+/// Claim a segment from the shared pool.
 /// Both leader and workers use this to get work.
 /// All participants wait for initialization before attempting to claim.
 pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {

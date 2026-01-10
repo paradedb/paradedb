@@ -36,6 +36,13 @@ jobs:
           components: rustfmt, clippy
           cache: false
 
+      - name: Check Cargo.lock
+        run: cargo metadata --format-version 1 --locked > /dev/null
+
+      # Required by Stressgres
+      - name: Install fontconfig
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
+
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/

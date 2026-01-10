@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768006110969,
+  "lastUpdate": 1768007076747,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21070,6 +21070,42 @@ window.BENCHMARK_DATA = {
             "value": 5.374841034683769,
             "unit": "median tps",
             "extra": "avg tps: 4.822039611393208, max tps: 6.028761528802859, count: 57566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642d8ee431bdfa1cf1cf0e4d24227701c700de00",
+          "message": "chore: Rename `pdbscan` to `basescan` (#3885)\n\n## What\n\nRename the `pdbscan` (\"ParadeDB Scan\") to `basescan`.\n\n## Why\n\nWhen we added the `aggregatescan`, the name of our original scan became\nless accurate. It's worth improving the situation before we add another\nscan in #2997.",
+          "timestamp": "2026-01-09T16:28:05-08:00",
+          "tree_id": "edc4a3c948dc75a5e8207665a3c8e5937e56490a",
+          "url": "https://github.com/paradedb/paradedb/commit/642d8ee431bdfa1cf1cf0e4d24227701c700de00"
+        },
+        "date": 1768007072994,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.692876661222761,
+            "unit": "median tps",
+            "extra": "avg tps: 6.581225842769301, max tps: 9.852528756662757, count: 57813"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.376745328366917,
+            "unit": "median tps",
+            "extra": "avg tps: 4.826696841153086, max tps: 6.007196024762691, count: 57813"
           }
         ]
       }

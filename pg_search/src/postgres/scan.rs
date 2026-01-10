@@ -228,6 +228,11 @@ pub extern "C-unwind" fn amrescan(
 #[pg_guard]
 pub extern "C-unwind" fn amendscan(scan: pg_sys::IndexScanDesc) {
     unsafe {
+        // Safety check: opaque might be NULL if amrescan was never called
+        // This can happen in parallel workers that are terminated early
+        if scan.is_null() || (*scan).opaque.is_null() {
+            return;
+        }
         let scan_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
         drop(scan_state);
     }

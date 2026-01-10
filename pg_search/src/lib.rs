@@ -79,7 +79,15 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // of threading concerns
     std::env::set_var("RUST_LOG", "warn");
     std::env::set_var("RUST_LOG_STYLE", "never");
-    env_logger::init();
+    // Use try_init() instead of init() because parallel workers may call _PG_init() multiple times
+    // and init() panics if called more than once
+    let _ = env_logger::try_init();
+
+    // Skip most initialization for parallel workers - they inherit state from the leader
+    // and re-running initialization can cause issues
+    if pg_sys::ParallelWorkerNumber >= 0 {
+        return;
+    }
 
     if cfg!(not(any(feature = "pg17", feature = "pg18")))
         && !pg_sys::process_shared_preload_libraries_in_progress

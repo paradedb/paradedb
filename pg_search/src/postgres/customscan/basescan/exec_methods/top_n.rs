@@ -25,11 +25,11 @@ use crate::index::reader::index::{
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
+use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
+use crate::postgres::customscan::basescan::parallel::checkout_segment;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
-use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
@@ -176,7 +176,7 @@ impl TopNScanExecState {
         }
     }
 
-    fn prepare_aggregations(&self, state: &mut PdbScanState) -> Option<PreparedAggregations> {
+    fn prepare_aggregations(&self, state: &mut BaseScanState) -> Option<PreparedAggregations> {
         if self.window_aggregates.is_empty() || state.window_aggregate_results.is_some() {
             // There are no aggregates, or we already executed them and stashed their results.
             return None;
@@ -288,7 +288,7 @@ impl TopNScanExecState {
 
 impl ExecMethod for TopNScanExecState {
     /// Initialize the exec method with data from the scan state
-    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
         // Call the default init behavior first
         self.reset(state);
 
@@ -304,7 +304,7 @@ impl ExecMethod for TopNScanExecState {
     /// * Some of the results that we returned were not visible, and so the `chunk_size`, or
     ///   `offset` values have changed.
     ///
-    fn query(&mut self, state: &mut PdbScanState) -> bool {
+    fn query(&mut self, state: &mut BaseScanState) -> bool {
         self.did_query = true;
 
         if self.found >= self.limit || self.exhausted {
@@ -441,7 +441,7 @@ impl ExecMethod for TopNScanExecState {
         self.found += 1;
     }
 
-    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
         loop {
             check_for_interrupts!();
 
@@ -486,7 +486,7 @@ impl ExecMethod for TopNScanExecState {
         }
     }
 
-    fn reset(&mut self, state: &mut PdbScanState) {
+    fn reset(&mut self, state: &mut BaseScanState) {
         // Reset state
         self.claimed_segments.take();
         self.did_query = false;

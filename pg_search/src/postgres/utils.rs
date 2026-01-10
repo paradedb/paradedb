@@ -23,7 +23,10 @@ use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::customscan::pdbscan::text_lower_funcoid;
+use crate::postgres::composite::{
+    get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
+};
+use crate::postgres::customscan::basescan::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
@@ -232,8 +235,98 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
 
 #[derive(Copy, Clone, Debug)]
 pub enum FieldSource {
+    /// Direct column from heap tuple
     Heap { attno: usize },
+
+    /// Expression index (scalar result)
     Expression { att_idx: usize },
+
+    /// Field extracted from a composite type
+    CompositeField {
+        /// Index attribute number (slot in values[] array for aminsert/build_callback)
+        index_attno: usize,
+
+        /// Expression index (position in expr_results[] array for MVCC build)
+        expression_idx: usize,
+
+        /// Field position within the composite (0-indexed)
+        field_idx: usize,
+
+        /// OID of the named composite type
+        composite_type_oid: pg_sys::Oid,
+    },
+}
+
+/// Collect composite slot info from categorized fields for upfront unpacking.
+///
+/// Returns a lazy iterator of (slot_index, datum, is_null, type_oid) for each unique
+/// composite slot in the categorized fields.
+///
+/// # Safety
+/// - `values` and `isnull` pointers are dereferenced lazily during iteration,
+///   not at call time. Caller must ensure these pointers remain valid until
+///   the returned iterator is fully consumed.
+/// - The iterator should be consumed immediately (e.g., via `from_composites()`).
+///   Storing the iterator and consuming it later risks UB if the underlying
+///   slot arrays have been invalidated.
+pub unsafe fn collect_composites_for_unpacking<'a>(
+    categorized_fields: impl Iterator<Item = &'a CategorizedFieldData> + 'a,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+) -> impl Iterator<Item = (usize, pg_sys::Datum, bool, pg_sys::Oid)> + 'a {
+    let mut seen = rustc_hash::FxHashSet::default();
+
+    categorized_fields.filter_map(move |cat| {
+        if let FieldSource::CompositeField {
+            index_attno,
+            composite_type_oid,
+            ..
+        } = cat.source
+        {
+            if seen.insert(index_attno) {
+                let datum = *values.add(index_attno);
+                let is_null = *isnull.add(index_attno);
+                return Some((index_attno, datum, is_null, composite_type_oid));
+            }
+        }
+        None
+    })
+}
+
+/// Helper to extract field value from values[] array, handling composite fields.
+///
+/// **Works for**: aminsert (INSERT) and build_callback (CREATE INDEX) paths.
+/// **Does NOT work for**: MVCC build (which uses expr_results[] instead).
+///
+/// # Arguments
+/// * `source` - The field source (Heap, Expression, or CompositeField)
+/// * `index_attno` - Index attribute position (slot in values[] array)
+/// * `values` - Array of datums from PostgreSQL
+/// * `isnull` - Array of null flags from PostgreSQL
+/// * `unpacked_composites` - Pre-unpacked composite values
+///
+/// # Returns
+/// Tuple of (datum, is_null) for the field
+///
+/// # Safety
+/// Caller must ensure values and isnull pointers are valid.
+pub unsafe fn get_field_value(
+    source: &FieldSource,
+    index_attno: usize,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    unpacked_composites: &CompositeSlotValues,
+) -> (pg_sys::Datum, bool) {
+    match source {
+        FieldSource::Heap { .. } | FieldSource::Expression { .. } => {
+            (*values.add(index_attno), *isnull.add(index_attno))
+        }
+        FieldSource::CompositeField {
+            index_attno: comp_index_attno,
+            field_idx,
+            ..
+        } => unpacked_composites.get(*comp_index_attno, *field_idx),
+    }
 }
 
 /// Represents the metadata extracted from an index attribute
@@ -285,6 +378,56 @@ pub unsafe fn extract_field_attributes(
                 let mut typmod = -1;
                 let mut inner_typoid = typoid;
                 let mut normalizer = None;
+
+                // Check if this expression is a composite type
+                if is_composite_type(typoid) {
+                    // Get composite fields (validates for nested composites, etc.)
+                    let composite_fields =
+                        get_composite_fields_for_index(typoid).unwrap_or_else(|e| panic!("{e}"));
+
+                    // Add each field from the composite to the index
+                    for comp_field in composite_fields {
+                        if comp_field.is_dropped {
+                            continue;
+                        }
+
+                        // Check for duplicate field name (reuse existing logic)
+                        if field_attributes.contains_key(&FieldName::from(&comp_field.field_name)) {
+                            panic!(
+                                "indexed attribute {} defined more than once",
+                                comp_field.field_name
+                            );
+                        }
+
+                        let pg_type = PgOid::from_untagged(comp_field.type_oid);
+                        let tantivy_type = SearchFieldType::try_from((
+                            pg_type,
+                            comp_field.typmod,
+                            comp_field.type_oid,
+                        ))
+                        .unwrap_or_else(|e| panic!("{e}"));
+
+                        field_attributes.insert(
+                            comp_field.field_name.clone().into(),
+                            ExtractedFieldAttribute {
+                                attno: attno as usize,
+                                source: FieldSource::CompositeField {
+                                    index_attno: attno as usize,
+                                    expression_idx,
+                                    field_idx: comp_field.field_index,
+                                    composite_type_oid: typoid,
+                                },
+                                pg_type,
+                                tantivy_type,
+                                inner_typoid: comp_field.type_oid,
+                                normalizer: None,
+                            },
+                        );
+                    }
+
+                    // Skip normal expression handling for composite types
+                    continue;
+                }
 
                 if type_is_tokenizer(typoid) {
                     typmod = pg_sys::exprTypmod(node);

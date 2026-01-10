@@ -27,6 +27,7 @@ use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
 pub mod aggregatescan;
+pub mod basescan;
 mod builders;
 mod dsm;
 mod exec;
@@ -35,7 +36,6 @@ mod explainer;
 mod hook;
 mod opexpr;
 mod path;
-pub mod pdbscan;
 pub mod projections;
 mod pushdown;
 pub mod qual_inspect;

@@ -19,7 +19,7 @@ pub(crate) mod fast_fields;
 pub(crate) mod normal;
 pub(crate) mod top_n;
 
-use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use pgrx::pg_sys;
 use tantivy::{DocAddress, Score};
 
@@ -47,17 +47,17 @@ pub trait ExecMethod {
     /// By default this method calls `reset`, which is the behavior you will want if you do not
     /// want to differentiate "being created from scratch" from "preserving some state but
     /// starting over from the beginning of the scan".
-    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
         self.reset(state)
     }
 
-    fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
+    fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
         true
     }
 
-    fn query(&mut self, state: &mut PdbScanState) -> bool;
+    fn query(&mut self, state: &mut BaseScanState) -> bool;
 
-    fn next(&mut self, state: &mut PdbScanState) -> ExecState {
+    fn next(&mut self, state: &mut BaseScanState) -> ExecState {
         loop {
             match self.internal_next(state) {
                 ExecState::Eof => {
@@ -70,7 +70,7 @@ pub trait ExecMethod {
         }
     }
 
-    fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState;
+    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState;
 
     fn increment_visible(&mut self) {
         // default of noop
@@ -82,32 +82,32 @@ pub trait ExecMethod {
     ///     * instead, parallel workers are re-created during re-scans, and so will have `init`
     ///       called.
     ///
-    /// [`PdbScanState::reset()`] will already have been called for you.
-    fn reset(&mut self, state: &mut PdbScanState);
+    /// [`BaseScanState::reset()`] will already have been called for you.
+    fn reset(&mut self, state: &mut BaseScanState);
 }
 
 struct UnknownScanStyle;
 
 impl ExecMethod for UnknownScanStyle {
-    fn init(&mut self, _state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, _state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::init()` should never be called"
         )
     }
 
-    fn query(&mut self, _state: &mut PdbScanState) -> bool {
+    fn query(&mut self, _state: &mut BaseScanState) -> bool {
         unimplemented!(
             "logic error in pg_search: `UnknownScanStyle::query()` should never be called"
         )
     }
 
-    fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
+    fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::internal_next()` should never be called"
         )
     }
 
-    fn reset(&mut self, _state: &mut PdbScanState) {
+    fn reset(&mut self, _state: &mut BaseScanState) {
         unimplemented!(
             "logic error in pg_search:  `UnknownScanStyle::reset()` should never be called"
         )

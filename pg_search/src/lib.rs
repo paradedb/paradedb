@@ -95,7 +95,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
-    customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    customscan::register_rel_pathlist(customscan::basescan::BaseScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
 
     // Register global planner hook for window function support

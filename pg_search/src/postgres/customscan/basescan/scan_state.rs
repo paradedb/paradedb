@@ -20,11 +20,11 @@ use std::cell::UnsafeCell;
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
+use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
+use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
-use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
-use crate::postgres::customscan::pdbscan::projections::snippet::pdb::IntArray2D;
-use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
@@ -38,7 +38,7 @@ use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
 
 #[derive(Default)]
-pub struct PdbScanState {
+pub struct BaseScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
     pub parallel_explain_data: Option<ParallelExplainData>,
 
@@ -104,7 +104,7 @@ pub struct PdbScanState {
     exec_method_name: String,
 }
 
-impl CustomScanState for PdbScanState {
+impl CustomScanState for BaseScanState {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
         unsafe {
             // SAFETY: inner_scan_state is always initialized and call to `init()` could never move `self`
@@ -113,7 +113,7 @@ impl CustomScanState for PdbScanState {
     }
 }
 
-impl PdbScanState {
+impl BaseScanState {
     pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {
@@ -228,14 +228,14 @@ impl PdbScanState {
     pub fn heaprel(&self) -> &PgSearchRelation {
         self.heaprel
             .as_ref()
-            .expect("PdbScanState: heaprel should be initialized")
+            .expect("BaseScanState: heaprel should be initialized")
     }
 
     #[inline(always)]
     pub fn indexrel(&self) -> &PgSearchRelation {
         self.indexrel
             .as_ref()
-            .expect("PdbScanState: indexrel should be initialized")
+            .expect("BaseScanState: indexrel should be initialized")
     }
 
     #[inline(always)]
@@ -471,7 +471,7 @@ impl PdbScanState {
     }
 }
 
-impl SolvePostgresExpressions for PdbScanState {
+impl SolvePostgresExpressions for BaseScanState {
     fn init_search_query_input(&mut self) {
         self.search_query_input = self.base_search_query_input.clone();
     }

@@ -28,7 +28,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::projections::snippet::{
+use crate::postgres::customscan::basescan::projections::snippet::{
     extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
     snippet_positions_funcoids, SnippetType,
 };
@@ -58,7 +58,7 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// This is called AFTER replace_aggrefs_in_target_list has replaced Aggrefs with FuncExprs.
 /// For wrapped expressions, we replace those FuncExprs with Const nodes that will be
 /// mutated with actual aggregate values before each ExecBuildProjectionInfo call.
-/// This follows the pdbscan pattern where Const values are baked in when projection is built.
+/// This follows the basescan pattern where Const values are baked in when projection is built.
 ///
 /// Returns: (placeholder_targetlist, const_nodes, needs_projection)
 /// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes
@@ -240,7 +240,7 @@ unsafe fn expr_contains_placeholder_funcexpr(
 /// Create a placeholder Const node from a FuncExpr placeholder.
 /// The Const will be initialized with NULL value and will be mutated with actual
 /// aggregate values before each ExecBuildProjectionInfo call. This follows the
-/// pdbscan pattern where Const values are baked in when projection is built per-row.
+/// basescan pattern where Const values are baked in when projection is built per-row.
 unsafe fn make_placeholder_const_from_funcexpr(
     funcexpr: *mut pg_sys::FuncExpr,
 ) -> *mut pg_sys::Const {

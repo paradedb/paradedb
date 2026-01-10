@@ -43,7 +43,7 @@ pub struct AggregateScanState {
     /// Used for expression projection when aggregates are wrapped in functions.
     /// The Const nodes are mutated with actual aggregate values before each
     /// ExecBuildProjectionInfo call, which bakes the current values into the
-    /// compiled projection. This follows the pdbscan pattern.
+    /// compiled projection. This follows the basescan pattern.
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
 
     /// Pointers to Const nodes in placeholder_targetlist, indexed by target entry position.
@@ -70,7 +70,7 @@ impl AggregateScanState {
         self.indexrel
             .as_ref()
             .map(|(_, rel)| rel)
-            .expect("PdbScanState: indexrel should be initialized")
+            .expect("BaseScanState: indexrel should be initialized")
     }
 }
 

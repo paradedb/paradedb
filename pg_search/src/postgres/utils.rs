@@ -26,7 +26,7 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::composite::{
     get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
 };
-use crate::postgres::customscan::pdbscan::text_lower_funcoid;
+use crate::postgres::customscan::basescan::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;

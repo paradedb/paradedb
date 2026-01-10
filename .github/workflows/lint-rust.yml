@@ -36,6 +36,9 @@ jobs:
           components: rustfmt, clippy
           cache: false
 
+      - name: Check Cargo.lock
+        run: cargo metadata --format-version 1 --locked > /dev/null
+
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/

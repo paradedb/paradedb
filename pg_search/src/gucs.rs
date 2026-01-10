@@ -32,6 +32,9 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to toggle the use of our "ParadeDB Join Scan".
+static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -113,6 +116,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_custom_scan",
+        c"Enable ParadeDB's experimental join custom scan",
+        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -288,6 +300,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_join_custom_scan() -> bool {
+    ENABLE_JOIN_CUSTOM_SCAN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768007076747,
+  "lastUpdate": 1768007081906,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26498,6 +26498,66 @@ window.BENCHMARK_DATA = {
             "value": 89,
             "unit": "median segment_count",
             "extra": "avg segment_count: 94.23830038564431, max segment_count: 157.0, count: 57566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642d8ee431bdfa1cf1cf0e4d24227701c700de00",
+          "message": "chore: Rename `pdbscan` to `basescan` (#3885)\n\n## What\n\nRename the `pdbscan` (\"ParadeDB Scan\") to `basescan`.\n\n## Why\n\nWhen we added the `aggregatescan`, the name of our original scan became\nless accurate. It's worth improving the situation before we add another\nscan in #2997.",
+          "timestamp": "2026-01-09T16:28:05-08:00",
+          "tree_id": "edc4a3c948dc75a5e8207665a3c8e5937e56490a",
+          "url": "https://github.com/paradedb/paradedb/commit/642d8ee431bdfa1cf1cf0e4d24227701c700de00"
+        },
+        "date": 1768007078118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.886894113248363, max cpu: 43.636364, count: 57813"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.39128067000502, max mem: 233.92578125, count: 57813"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.347195501475507, max cpu: 33.300297, count: 57813"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.80801909280785, max mem: 172.046875, count: 57813"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49095,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48662.80767301472, max block_count: 51044.0, count: 57813"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 89,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 94.44038538045076, max segment_count: 157.0, count: 57813"
           }
         ]
       }

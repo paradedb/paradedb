@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768009019478,
+  "lastUpdate": 1768009945425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -58634,6 +58634,54 @@ window.BENCHMARK_DATA = {
             "value": 109.19833356585656,
             "unit": "median tps",
             "extra": "avg tps: 107.5129419681659, max tps: 153.915421526276, count: 107564"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642d8ee431bdfa1cf1cf0e4d24227701c700de00",
+          "message": "chore: Rename `pdbscan` to `basescan` (#3885)\n\n## What\n\nRename the `pdbscan` (\"ParadeDB Scan\") to `basescan`.\n\n## Why\n\nWhen we added the `aggregatescan`, the name of our original scan became\nless accurate. It's worth improving the situation before we add another\nscan in #2997.",
+          "timestamp": "2026-01-09T16:28:05-08:00",
+          "tree_id": "edc4a3c948dc75a5e8207665a3c8e5937e56490a",
+          "url": "https://github.com/paradedb/paradedb/commit/642d8ee431bdfa1cf1cf0e4d24227701c700de00"
+        },
+        "date": 1768009941418,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 550.1856939296097,
+            "unit": "median tps",
+            "extra": "avg tps: 554.9074371606125, max tps: 702.8710995820912, count: 53773"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 610.0595767578759,
+            "unit": "median tps",
+            "extra": "avg tps: 617.9673976947807, max tps: 832.823610582673, count: 53773"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.00811193188176,
+            "unit": "median tps",
+            "extra": "avg tps: 86.1974013371384, max tps: 92.98105896634642, count: 53773"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.86662395378777,
+            "unit": "median tps",
+            "extra": "avg tps: 106.98743705269673, max tps: 181.64324836132815, count: 107546"
           }
         ]
       }

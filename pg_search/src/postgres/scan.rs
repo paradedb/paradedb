@@ -16,15 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::searchqueryinput_typoid;
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::{parallel, ScanStrategy};
+use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
+use tantivy::index::SegmentId;
 
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
@@ -145,26 +147,55 @@ pub extern "C-unwind" fn amrescan(
 
     let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
 
-    // For parallel scans, ALL participants use Snapshot visibility.
-    // This avoids:
-    // 1. Deadlocks (no waiting for specific participant to initialize)
-    // 2. Segment ID mismatches (all see same segments with Snapshot)
+    // Parallel scan coordination:
+    // - The leader opens with Snapshot visibility to see all currently-visible segments
+    // - The leader then populates shared state with its segment list
+    // - Workers WAIT for the leader to initialize, then get segment IDs from shared state
+    // - Workers open with ParallelWorker visibility, which restricts them to ONLY those segments
     //
-    // The first participant to acquire the mutex initializes the shared state.
-    // Others find it already initialized and proceed.
-    let search_reader = SearchIndexReader::open(
-        &indexrel,
-        search_query_input,
-        false,
-        MvccSatisfies::Snapshot,
-    )
-    .expect("amrescan: should be able to open a SearchIndexReader");
-
-    // For parallel scans, initialize state if needed (first one wins).
+    // This ensures all participants see the exact same segment list, even if segment merges
+    // occur between when the leader opens and when workers open. The segment FILES remain
+    // on disk (pinned by the leader), so workers can access them.
+    //
     // DON'T claim segments here - claim lazily in amgettuple/amgetbitmap.
     // Reason: PostgreSQL might call amrescan for a worker but never call amgettuple/amgetbitmap,
     // which would leave claimed segments unprocessed, causing data loss.
-    unsafe { parallel::maybe_init_parallel_scan(scan, &search_reader) };
+    let search_reader = unsafe {
+        let is_parallel = !(*scan).parallel_scan.is_null();
+        let is_worker = pg_sys::ParallelWorkerNumber >= 0;
+
+        if is_parallel && is_worker {
+            // Workers use ParallelWorker visibility with the segment IDs from shared state.
+            // This is because workers pick specific segments to query that are known to be
+            // held open/pinned by the leader, but might not pass a ::Snapshot visibility
+            // test due to concurrent merges/garbage collects.
+            let segment_ids = wait_for_segment_ids(scan);
+            SearchIndexReader::open(
+                &indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::ParallelWorker(segment_ids),
+            )
+            .expect("amrescan: worker should be able to open a SearchIndexReader")
+        } else {
+            // The leader (ParallelWorkerNumber == -1) or non-parallel scans use Snapshot
+            // visibility to see all currently snapshot-visible segments.
+            let reader = SearchIndexReader::open(
+                &indexrel,
+                search_query_input,
+                false,
+                MvccSatisfies::Snapshot,
+            )
+            .expect("amrescan: should be able to open a SearchIndexReader");
+
+            // For parallel scans, leader initializes shared state with its segment list
+            if is_parallel {
+                parallel::maybe_init_parallel_scan(scan, &reader);
+            }
+
+            reader
+        }
+    };
 
     unsafe {
         let results = if (*scan).parallel_scan.is_null() {
@@ -373,6 +404,41 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     }
 
     cnt
+}
+
+/// Wait for parallel scan state to be initialized by the leader, then return the segment IDs.
+/// This ensures workers see the exact same segments as the leader, preventing race conditions
+/// where workers might see different segments due to concurrent merges.
+unsafe fn wait_for_segment_ids(scan: IndexScanDesc) -> HashSet<SegmentId> {
+    let state = get_parallel_scan_state(scan)
+        .expect("wait_for_segment_ids called but no parallel scan state");
+
+    // segments() internally calls wait_for_initialization() and returns segment IDs
+    state.segments(0).keys().cloned().collect()
+}
+
+/// Get the parallel scan state from an IndexScanDesc, if it's a parallel scan.
+unsafe fn get_parallel_scan_state(scan: IndexScanDesc) -> Option<&'static mut ParallelScanState> {
+    if (*scan).parallel_scan.is_null() {
+        return None;
+    }
+
+    let ps = (*scan).parallel_scan;
+    let offset = {
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+        {
+            (*ps).ps_offset
+        }
+        #[cfg(feature = "pg18")]
+        {
+            (*ps).ps_offset_am
+        }
+    };
+
+    ps.cast::<std::ffi::c_void>()
+        .add(offset)
+        .cast::<ParallelScanState>()
+        .as_mut()
 }
 
 // if there's a segment to be claimed for parallel query execution, do that now

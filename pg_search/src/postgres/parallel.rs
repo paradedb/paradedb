@@ -95,9 +95,10 @@ unsafe fn bm25_shared_state(
 }
 
 /// Initialize parallel scan state if not already done.
-/// The first participant to acquire the mutex and see uninitialized state
-/// will populate the segment pool. Segments are NOT claimed here - they're
-/// claimed lazily in amgettuple/amgetbitmap via maybe_claim_segment.
+/// Only the leader calls this function to populate the segment pool with its
+/// snapshot-visible segments. Workers wait for this initialization and then
+/// use ParallelWorker visibility to see the same segments.
+/// Segments are NOT claimed here - they're claimed lazily in amgettuple/amgetbitmap.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,

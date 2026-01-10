@@ -427,10 +427,10 @@ impl ParallelScanState {
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
-    /// Used by Index Scan where the first participant to arrive initializes the segment pool.
+    /// Used by Index Scan where the leader initializes the segment pool.
     ///
     /// Caller must hold the mutex. After populating, broadcasts to wake any workers
-    /// waiting in `wait_for_leader_init()`.
+    /// waiting in `wait_for_initialization()`.
     fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
         self.payload.init(segments, query, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
@@ -448,11 +448,11 @@ impl ParallelScanState {
 
     /// Phase 1: Create the mutex but mark state as uninitialized.
     /// This is called by `aminitparallelscan` before any participants are launched.
-    /// The first participant to arrive will call `populate` to set up the segment data.
+    /// The leader will call `populate` to set up the segment data; workers wait for that.
     pub fn create(&mut self) {
         self.mutex.init();
         self.init_cv.init();
-        // Mark as uninitialized so participants know to wait for initialization
+        // Mark as uninitialized so workers know to wait for the leader
         self.mark_uninitialized();
     }
 
@@ -690,7 +690,7 @@ impl ParallelScanState {
         segments
     }
 
-    /// Wait for parallel state to be initialized (by whichever participant arrives first).
+    /// Wait for parallel state to be initialized by the leader.
     fn wait_for_initialization(&mut self) {
         loop {
             // Check for interrupts to allow query cancellation

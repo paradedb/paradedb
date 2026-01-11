@@ -74,14 +74,18 @@ pub fn available_parallelism() -> usize {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn _PG_init() {
-    // initialize environment logging (to stderr) for dependencies that do logging
-    // we can't implement our own logger that sends messages to Postgres `ereport()` because
-    // of threading concerns
-    std::env::set_var("RUST_LOG", "warn");
-    std::env::set_var("RUST_LOG_STYLE", "never");
-    // Use try_init() instead of init() because parallel workers may call _PG_init() multiple times
-    // and init() panics if called more than once
-    let _ = env_logger::try_init();
+    // Optional: initialize env_logger for dependency debug output (tantivy, lindera, etc.)
+    // Enable with: cargo build --features debug-logging
+    // Without this feature, log! macros (to stderr) in dependencies become no-ops.
+    // We can't implement our own logger that sends messages to Postgres `ereport()` because
+    // of threading concerns.
+    #[cfg(feature = "debug-logging")]
+    {
+        std::env::set_var("RUST_LOG", "warn");
+        std::env::set_var("RUST_LOG_STYLE", "never");
+        // Use try_init() because parallel workers may call _PG_init() multiple times
+        let _ = env_logger::try_init();
+    }
 
     // Skip most initialization for parallel workers - they inherit state from the leader
     // Parallel workers are forked from the leader and inherit its initialized state.

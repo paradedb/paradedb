@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768009951153,
+  "lastUpdate": 1768111060177,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6326,6 +6326,72 @@ window.BENCHMARK_DATA = {
             "value": 148.7974998865512,
             "unit": "median tps",
             "extra": "avg tps: 171.16530627885714, max tps: 448.1578680906136, count: 55447"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99922ba1ff6618a83d5ff750569b2b2ce82b0604",
+          "message": "fix: race condition in parallel index scans (#3872)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes an intermittent issue where parallel index scans in hash join\nscenarios return zero results instead of the expected count (~50%\nfailure rate reported).\n\n## Why\n\nIn Parallel Hash Join scenarios, workers could reach the probe-side\nindex scan before the leader. The previous implementation had two\nproblems:\n\n1. **Leader-only initialization**: Only the leader (worker number -1)\ncould initialize the parallel scan state, causing workers to wait\nindefinitely if they arrived first\n2. **Eager segment claiming**: Segments were claimed in `amrescan`, but\nPostgreSQL doesn't guarantee `amgettuple` will be called for every\nparticipant that ran `amrescan` — leaving claimed segments unprocessed\n\n## How\n\n- **Atomic counters**: Changed `remaining_segments` and `nsegments` to\n`AtomicUsize` for proper cross-process visibility\n- **First-wins initialization**: Any participant (leader or worker) can\nnow initialize the shared state — first to acquire the mutex wins\n- **Lazy segment claiming**: Segments are now claimed in\n`amgettuple`/`amgetbitmap` instead of `amrescan`, ensuring only active\nparticipants claim work\n\n## Tests\n\nAdded `parallel_hash_join_race` regression test.",
+          "timestamp": "2026-01-10T21:39:05-08:00",
+          "tree_id": "7d95c76f8753e2227de3c9e1ee9ba1d57f67ca56",
+          "url": "https://github.com/paradedb/paradedb/commit/99922ba1ff6618a83d5ff750569b2b2ce82b0604"
+        },
+        "date": 1768111056800,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 562.205941595165,
+            "unit": "median tps",
+            "extra": "avg tps: 565.5022301775724, max tps: 714.7164544604346, count: 54653"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3013.211382343228,
+            "unit": "median tps",
+            "extra": "avg tps: 3000.197358346253, max tps: 3182.674575328357, count: 54653"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 568.228717880831,
+            "unit": "median tps",
+            "extra": "avg tps: 570.88050028752, max tps: 655.0783376965474, count: 54653"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 489.64791427127045,
+            "unit": "median tps",
+            "extra": "avg tps: 490.3472210945466, max tps: 522.5930719064096, count: 54653"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3394.6759191634073,
+            "unit": "median tps",
+            "extra": "avg tps: 3372.9301468298277, max tps: 3449.8767239642675, count: 109306"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2162.626180165782,
+            "unit": "median tps",
+            "extra": "avg tps: 2156.412111749378, max tps: 2170.608760894564, count: 54653"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 156.0586962350166,
+            "unit": "median tps",
+            "extra": "avg tps: 162.13336287642574, max tps: 342.21863875199267, count: 54653"
           }
         ]
       }

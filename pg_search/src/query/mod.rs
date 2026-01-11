@@ -457,6 +457,54 @@ impl ExplainFormat for SearchQueryInput {
     }
 }
 
+impl SearchQueryInput {
+    pub unsafe fn from_datum(datum: pg_sys::Datum, is_null: bool) -> Option<SearchQueryInput> {
+        if is_null {
+            return None;
+        }
+
+        // First, detoast the datum if needed. This MUST happen before we try to read
+        // any varlena fields, as toasted values have a different header structure.
+        // PostgreSQL memory context handles cleanup of the detoasted copy.
+        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+
+        // Now check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
+        // We can safely read the ArrayType fields now that we've detoasted.
+        let array = detoasted.cast::<pg_sys::ArrayType>();
+        let is_sqi_array = (*array).ndim >= 1
+            && (*array).ndim <= pg_sys::MAXDIM as i32
+            && (*array).elemtype == searchqueryinput_typoid();
+
+        if is_sqi_array {
+            if let Some(elements) = FromDatum::from_polymorphic_datum(
+                pg_sys::Datum::from(detoasted),
+                false,
+                searchqueryinput_typoid(),
+            ) {
+                return Some(Self::boolean_disjunction(elements));
+            }
+        }
+
+        let bytes = varlena_to_byte_slice(detoasted);
+
+        serde_cbor::from_slice::<SearchQueryInput>(bytes)
+            .or_else(|_| serde_json::from_slice::<SearchQueryInput>(bytes))
+            .ok()
+    }
+
+    pub fn boolean_disjunction(mut elements: Vec<SearchQueryInput>) -> SearchQueryInput {
+        match elements.len() {
+            0 => SearchQueryInput::Empty,
+            1 => elements.pop().unwrap(),
+            _ => SearchQueryInput::Boolean {
+                must: vec![],
+                should: elements,
+                must_not: vec![],
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TermInput {
     pub field: FieldName,

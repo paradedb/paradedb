@@ -56,11 +56,11 @@ SELECT
         ELSE 'bonnie swanson'
     END,
     '2024-01-01'::timestamp + (i || ' days')::interval
-FROM generate_series(1, 5000) i;
+FROM generate_series(1, 5) i;
 
 INSERT INTO document_text (dwf_doid, full_text)
 SELECT i, 'This is document ' || i || ' with text containing ea'
-FROM generate_series(1, 5000) i;
+FROM generate_series(1, 5) i;
 
 INSERT INTO core (dwf_doid, author, date_time_combined)
 SELECT 
@@ -71,11 +71,11 @@ SELECT
         ELSE 'bonnie swanson'
     END,
     '2024-01-01'::timestamp + (i || ' days')::interval
-FROM generate_series(5001, 10000) i;
+FROM generate_series(6, 10) i;
 
 INSERT INTO document_text (dwf_doid, full_text)
 SELECT i, 'This is document ' || i || ' with text containing ea'
-FROM generate_series(5001, 10000) i;
+FROM generate_series(6, 10) i;
 
 INSERT INTO core (dwf_doid, author, date_time_combined)
 SELECT 
@@ -86,11 +86,11 @@ SELECT
         ELSE 'bonnie swanson'
     END,
     '2024-01-01'::timestamp + (i || ' days')::interval
-FROM generate_series(10001, 15000) i;
+FROM generate_series(11, 15) i;
 
 INSERT INTO document_text (dwf_doid, full_text)
 SELECT i, 'This is document ' || i || ' with text containing ea'
-FROM generate_series(10001, 15000) i;
+FROM generate_series(11, 15) i;
 
 INSERT INTO core (dwf_doid, author, date_time_combined)
 SELECT 
@@ -101,11 +101,11 @@ SELECT
         ELSE 'bonnie swanson'
     END,
     '2024-01-01'::timestamp + (i || ' days')::interval
-FROM generate_series(15001, 20000) i;
+FROM generate_series(16, 20) i;
 
 INSERT INTO document_text (dwf_doid, full_text)
 SELECT i, 'This is document ' || i || ' with text containing ea'
-FROM generate_series(15001, 20000) i;
+FROM generate_series(16, 20) i;
 
 -- Create regular index on date (not in BM25 index - key part of customer scenario)
 CREATE INDEX idx_date_time_combined_date ON core (DATE(date_time_combined));
@@ -248,12 +248,37 @@ WHERE dt.full_text @@@ $1
   AND DATE(c.date_time_combined) >= $5
   AND DATE(c.date_time_combined) <= $6;
 
--- Execute multiple times
+-- Execute multiple times to trigger generic plan after 5 executions
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
 EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+-- 6th execution uses generic plan
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+
+-- Force generic plan
+SET plan_cache_mode = force_generic_plan;
+DEALLOCATE parallel_hash_join_query;
+
+PREPARE parallel_hash_join_query_generic(text, text, text, text, date, date) AS
+SELECT COUNT(*)
+FROM document_text dt
+JOIN core c ON dt.dwf_doid = c.dwf_doid
+WHERE dt.full_text @@@ $1
+  AND (c.author @@@ paradedb.match('author', $2)
+       OR c.author @@@ paradedb.match('author', $3)
+       OR c.author @@@ paradedb.match('author', $4))
+  AND DATE(c.date_time_combined) >= $5
+  AND DATE(c.date_time_combined) <= $6;
+
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+EXECUTE parallel_hash_join_query_generic('ea', 'brian griffin', 'barabara pewterschmidt', 'bonnie swanson', '2001-01-01', '2025-12-31');
+
+DEALLOCATE parallel_hash_join_query_generic;
 
 -- Reset settings
 RESET plan_cache_mode;

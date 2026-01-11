@@ -19,7 +19,6 @@ use std::alloc::Layout;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::api::HashMap;
 use crate::gucs;
@@ -400,11 +399,11 @@ pub struct ParallelScanState {
     /// Workers sleep on this CV instead of busy-waiting, and are woken
     /// when the leader calls `populate()`.
     init_cv: ConditionVariable,
-    /// Remaining segments to be claimed. Uses atomic for cross-process visibility.
-    remaining_segments: AtomicUsize,
+    /// Remaining segments to be claimed. Protected by mutex.
+    remaining_segments: usize,
     /// Number of segments. Set to PARALLEL_STATE_UNINITIALIZED until leader initializes.
-    /// Uses atomic for cross-process visibility.
-    nsegments: AtomicUsize,
+    /// Protected by mutex.
+    nsegments: usize,
     queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
@@ -434,15 +433,11 @@ impl ParallelScanState {
     fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
         self.payload.init(segments, query, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
-
-        // Set remaining_segments first
-        self.remaining_segments
-            .store(segments.len(), Ordering::Release);
-
+        self.remaining_segments = segments.len();
         // Set nsegments LAST - this signals initialization is complete
-        self.nsegments.store(segments.len(), Ordering::Release);
+        self.nsegments = segments.len();
 
-        // Wake up any workers waiting in `wait_for_leader_init()`.
+        // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
     }
 
@@ -459,9 +454,8 @@ impl ParallelScanState {
     /// Mark the state as uninitialized to signal that a new scan is starting.
     /// Called by amparallelrescan before rescans.
     pub fn mark_uninitialized(&mut self) {
-        self.nsegments
-            .store(PARALLEL_STATE_UNINITIALIZED, Ordering::Release);
-        self.remaining_segments.store(0, Ordering::Release);
+        self.nsegments = PARALLEL_STATE_UNINITIALIZED;
+        self.remaining_segments = 0;
     }
 
     pub fn acquire_mutex(&mut self) -> impl Drop {
@@ -469,8 +463,8 @@ impl ParallelScanState {
     }
 
     fn decrement_remaining_segments(&mut self) -> usize {
-        // Atomic decrement returns the previous value, we return the new value
-        self.remaining_segments.fetch_sub(1, Ordering::AcqRel) - 1
+        self.remaining_segments -= 1;
+        self.remaining_segments
     }
 
     fn query_count(&mut self, parallel_worker_number: i32) -> Option<&mut u16> {
@@ -516,7 +510,7 @@ impl ParallelScanState {
             > (agg_data.len() - agg_header.serialized_aggregations_len);
 
         agg_header.received_count += segment_count;
-        let all_received = agg_header.received_count == self.nsegments.load(Ordering::Acquire);
+        let all_received = agg_header.received_count == self.nsegments;
 
         // If there is a room in the buffer, and we have not received all of the requests,
         // serialize it.
@@ -600,7 +594,7 @@ impl ParallelScanState {
                 .payload
                 .aggregates_header()
                 .expect("cannot wait for aggregations without an aggregations payload");
-            if agg_header.received_count != self.nsegments.load(Ordering::Acquire) {
+            if agg_header.received_count != self.nsegments {
                 std::mem::drop(lock);
                 self.aggregation_cv.sleep();
                 continue;
@@ -640,8 +634,7 @@ impl ParallelScanState {
 
         loop {
             let _mutex = self.acquire_mutex();
-            // Atomic read for cross-process visibility
-            let remaining = self.remaining_segments.load(Ordering::Acquire);
+            let remaining = self.remaining_segments;
             if remaining == 0 {
                 break None;
             }
@@ -656,7 +649,7 @@ impl ParallelScanState {
             #[cfg(not(any(feature = "pg14", feature = "pg15")))]
             if unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1
-                && remaining == self.nsegments.load(Ordering::Acquire)
+                && remaining == self.nsegments
                 && std::time::Instant::now() < deadline
             {
                 continue;
@@ -682,9 +675,8 @@ impl ParallelScanState {
         self.wait_for_initialization();
 
         let _mutex = self.acquire_mutex();
-        let nseg = self.nsegments.load(Ordering::Acquire);
         let mut segments = HashMap::default();
-        for i in 0..nseg {
+        for i in 0..self.nsegments {
             segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
@@ -704,7 +696,7 @@ impl ParallelScanState {
             // See whether the state has been initialized: if not, keep waiting.
             {
                 let _mutex = self.acquire_mutex();
-                if self.nsegments.load(Ordering::Acquire) != PARALLEL_STATE_UNINITIALIZED {
+                if self.nsegments != PARALLEL_STATE_UNINITIALIZED {
                     ConditionVariable::cancel_sleep();
                     return;
                 }
@@ -715,7 +707,7 @@ impl ParallelScanState {
     }
 
     pub fn is_initialized(&self) -> bool {
-        self.nsegments.load(Ordering::Acquire) != PARALLEL_STATE_UNINITIALIZED
+        self.nsegments != PARALLEL_STATE_UNINITIALIZED
     }
 
     /// Returns per-worker `ParallelExplainData`.
@@ -769,8 +761,7 @@ impl ParallelScanState {
 
     /// Reset remaining_segments for a rescan. Called by amparallelrescan.
     pub fn reset(&mut self) {
-        let nseg = self.nsegments.load(Ordering::Acquire);
-        self.remaining_segments.store(nseg, Ordering::Release);
+        self.remaining_segments = self.nsegments;
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.
     }

@@ -269,6 +269,11 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
     "#
     .execute(&mut conn);
 
+    // Try to force parallel mode - use the appropriate GUC for each PG version
+    // PG14-17: force_parallel_mode, PG18+: debug_parallel_query
+    let _ = "SET force_parallel_mode = on".execute_result(&mut conn);
+    let _ = "SET debug_parallel_query = on".execute_result(&mut conn);
+
     let query = r#"
         SELECT COUNT(*)
         FROM document_text dt

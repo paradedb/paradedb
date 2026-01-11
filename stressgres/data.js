@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768112019148,
+  "lastUpdate": 1768112983026,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31176,6 +31176,54 @@ window.BENCHMARK_DATA = {
             "value": 5.483935341493284,
             "unit": "median tps",
             "extra": "avg tps: 5.493841486410836, max tps: 6.55368178256658, count: 56126"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99922ba1ff6618a83d5ff750569b2b2ce82b0604",
+          "message": "fix: race condition in parallel index scans (#3872)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes an intermittent issue where parallel index scans in hash join\nscenarios return zero results instead of the expected count (~50%\nfailure rate reported).\n\n## Why\n\nIn Parallel Hash Join scenarios, workers could reach the probe-side\nindex scan before the leader. The previous implementation had two\nproblems:\n\n1. **Leader-only initialization**: Only the leader (worker number -1)\ncould initialize the parallel scan state, causing workers to wait\nindefinitely if they arrived first\n2. **Eager segment claiming**: Segments were claimed in `amrescan`, but\nPostgreSQL doesn't guarantee `amgettuple` will be called for every\nparticipant that ran `amrescan` — leaving claimed segments unprocessed\n\n## How\n\n- **Atomic counters**: Changed `remaining_segments` and `nsegments` to\n`AtomicUsize` for proper cross-process visibility\n- **First-wins initialization**: Any participant (leader or worker) can\nnow initialize the shared state — first to acquire the mutex wins\n- **Lazy segment claiming**: Segments are now claimed in\n`amgettuple`/`amgetbitmap` instead of `amrescan`, ensuring only active\nparticipants claim work\n\n## Tests\n\nAdded `parallel_hash_join_race` regression test.",
+          "timestamp": "2026-01-10T21:39:05-08:00",
+          "tree_id": "7d95c76f8753e2227de3c9e1ee9ba1d57f67ca56",
+          "url": "https://github.com/paradedb/paradedb/commit/99922ba1ff6618a83d5ff750569b2b2ce82b0604"
+        },
+        "date": 1768112979449,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1143.2932160219284,
+            "unit": "median tps",
+            "extra": "avg tps: 1148.2338174305098, max tps: 1209.0954258986833, count: 56680"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1209.1254244496374,
+            "unit": "median tps",
+            "extra": "avg tps: 1198.885315883238, max tps: 1218.6149608668475, count: 56680"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1925.8081377516583,
+            "unit": "median tps",
+            "extra": "avg tps: 1898.8089017210425, max tps: 2099.7804453416347, count: 56680"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.5708039997041086,
+            "unit": "median tps",
+            "extra": "avg tps: 5.5591593630167555, max tps: 6.637037456563355, count: 56680"
           }
         ]
       }

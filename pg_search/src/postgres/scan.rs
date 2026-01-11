@@ -423,7 +423,7 @@ unsafe fn wait_for_segment_ids(scan: IndexScanDesc) -> HashSet<SegmentId> {
         .expect("wait_for_segment_ids called but no parallel scan state");
 
     // segments() internally calls wait_for_initialization() and returns segment IDs
-    state.segments(0).keys().cloned().collect()
+    state.segments().into_keys().collect()
 }
 
 /// Get the parallel scan state from an IndexScanDesc, if it's a parallel scan.

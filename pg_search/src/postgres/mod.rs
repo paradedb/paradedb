@@ -670,7 +670,7 @@ impl ParallelScanState {
     /// This method will wait (spin) until the leader has initialized the segment data.
     /// This is necessary for parallel index scans where workers may call this before
     /// the leader has finished initializing the parallel state.
-    pub fn segments(&mut self, _expected_scan_id: u64) -> HashMap<SegmentId, u32> {
+    pub fn segments(&mut self) -> HashMap<SegmentId, u32> {
         // Wait for initialization, then read segment data while holding the mutex.
         self.wait_for_initialization();
 

@@ -74,12 +74,18 @@ pub fn available_parallelism() -> usize {
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn _PG_init() {
-    // initialize environment logging (to stderr) for dependencies that do logging
-    // we can't implement our own logger that sends messages to Postgres `ereport()` because
-    // of threading concerns
-    std::env::set_var("RUST_LOG", "warn");
-    std::env::set_var("RUST_LOG_STYLE", "never");
-    env_logger::init();
+    // Optional: initialize env_logger for dependency debug output (tantivy, lindera, etc.)
+    // Enable with: cargo build --features debug-logging
+    // Without this feature, log! macros (to stderr) in dependencies become no-ops.
+    // We can't implement our own logger that sends messages to Postgres `ereport()` because
+    // of threading concerns.
+    #[cfg(feature = "debug-logging")]
+    {
+        std::env::set_var("RUST_LOG", "warn");
+        std::env::set_var("RUST_LOG_STYLE", "never");
+        // Use try_init() because parallel workers may call _PG_init() multiple times
+        let _ = env_logger::try_init();
+    }
 
     if cfg!(not(any(feature = "pg17", feature = "pg18")))
         && !pg_sys::process_shared_preload_libraries_in_progress

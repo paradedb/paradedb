@@ -620,7 +620,7 @@ impl ParallelScanState {
         }
     }
 
-    /// Claim (steal) a segment from the shared pool.
+    /// Claim a segment from the shared pool.
     /// Waits for initialization if needed, then returns None if no segments remain.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
         let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };

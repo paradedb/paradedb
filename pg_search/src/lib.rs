@@ -84,7 +84,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     let _ = env_logger::try_init();
 
     // Skip most initialization for parallel workers - they inherit state from the leader
-    // and re-running initialization can cause issues
+    // Parallel workers are forked from the leader and inherit its initialized state.
+    // Re-registering planner hooks or reinitializing GUCs in workers causes crashes
+    // due to duplicate hook registration and corrupted global state.
     if pg_sys::ParallelWorkerNumber >= 0 {
         return;
     }

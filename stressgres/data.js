@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768112983026,
+  "lastUpdate": 1768112987962,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -40414,6 +40414,108 @@ window.BENCHMARK_DATA = {
             "value": 159.91796875,
             "unit": "median mem",
             "extra": "avg mem: 179.08244438295085, max mem: 220.2734375, count: 56126"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99922ba1ff6618a83d5ff750569b2b2ce82b0604",
+          "message": "fix: race condition in parallel index scans (#3872)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes an intermittent issue where parallel index scans in hash join\nscenarios return zero results instead of the expected count (~50%\nfailure rate reported).\n\n## Why\n\nIn Parallel Hash Join scenarios, workers could reach the probe-side\nindex scan before the leader. The previous implementation had two\nproblems:\n\n1. **Leader-only initialization**: Only the leader (worker number -1)\ncould initialize the parallel scan state, causing workers to wait\nindefinitely if they arrived first\n2. **Eager segment claiming**: Segments were claimed in `amrescan`, but\nPostgreSQL doesn't guarantee `amgettuple` will be called for every\nparticipant that ran `amrescan` — leaving claimed segments unprocessed\n\n## How\n\n- **Atomic counters**: Changed `remaining_segments` and `nsegments` to\n`AtomicUsize` for proper cross-process visibility\n- **First-wins initialization**: Any participant (leader or worker) can\nnow initialize the shared state — first to acquire the mutex wins\n- **Lazy segment claiming**: Segments are now claimed in\n`amgettuple`/`amgetbitmap` instead of `amrescan`, ensuring only active\nparticipants claim work\n\n## Tests\n\nAdded `parallel_hash_join_race` regression test.",
+          "timestamp": "2026-01-10T21:39:05-08:00",
+          "tree_id": "7d95c76f8753e2227de3c9e1ee9ba1d57f67ca56",
+          "url": "https://github.com/paradedb/paradedb/commit/99922ba1ff6618a83d5ff750569b2b2ce82b0604"
+        },
+        "date": 1768112984333,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0763408609738885, max background_merging: 2.0, count: 56680"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706702489887246, max cpu: 9.514371, count: 56680"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 23.706495622353565, max mem: 23.71875, count: 56680"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.88889348593731, max cpu: 9.657948, count: 56680"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.36565098193807, max mem: 165.95703125, count: 56680"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 65102,
+            "unit": "median block_count",
+            "extra": "avg block_count: 65024.591884262525, max block_count: 65102.0, count: 56680"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 45.50892731122089, max segment_count: 60.0, count: 56680"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5976089915877925, max cpu: 9.375, count: 56680"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.44876630590596, max mem: 139.984375, count: 56680"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752104339056078, max cpu: 9.523809, count: 56680"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.59013210127029, max mem: 165.56640625, count: 56680"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.626987525031296, max cpu: 33.870968, count: 56680"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.6758002023421, max mem: 219.98046875, count: 56680"
           }
         ]
       }

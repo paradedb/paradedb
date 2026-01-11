@@ -34,8 +34,12 @@ pub struct VisibilityChecker {
 impl Drop for VisibilityChecker {
     fn drop(&mut self) {
         unsafe {
-            if !crate::postgres::utils::IsTransactionState() {
-                // we are not in a transaction, so we can't do things like release buffers and close relations
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            // PostgreSQL functions can raise ERRORs (converted to panics by pgrx),
+            // and panicking during unwinding causes abort.
+            if !crate::postgres::utils::IsTransactionState() || std::thread::panicking() {
+                // we are not in a transaction or are unwinding from a panic,
+                // so we can't do things like release buffers and close relations
                 return;
             }
 
@@ -124,8 +128,12 @@ impl HeapFetchState {
 impl Drop for HeapFetchState {
     fn drop(&mut self) {
         unsafe {
-            if !crate::postgres::utils::IsTransactionState() {
-                // we are not in a transaction, so we can't do things like release buffers
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            // PostgreSQL functions can raise ERRORs (converted to panics by pgrx),
+            // and panicking during unwinding causes abort.
+            if !crate::postgres::utils::IsTransactionState() || std::thread::panicking() {
+                // we are not in a transaction or are unwinding from a panic,
+                // so we can't do things like release buffers
                 return;
             }
 

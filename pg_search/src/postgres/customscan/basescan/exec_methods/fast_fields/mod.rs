@@ -63,7 +63,9 @@ pub struct FastFieldExecState {
 impl Drop for FastFieldExecState {
     fn drop(&mut self) {
         unsafe {
+            // Skip cleanup during panic unwinding to prevent double-panics.
             if crate::postgres::utils::IsTransactionState()
+                && !std::thread::panicking()
                 && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
             {
                 pg_sys::ReleaseBuffer(self.vmbuff);

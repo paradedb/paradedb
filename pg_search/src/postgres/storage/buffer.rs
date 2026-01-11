@@ -273,7 +273,11 @@ impl Deref for BufferMut {
 impl Drop for BufferMut {
     fn drop(&mut self) {
         unsafe {
-            if crate::postgres::utils::IsTransactionState() && self.dirty {
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            if crate::postgres::utils::IsTransactionState()
+                && !std::thread::panicking()
+                && self.dirty
+            {
                 pg_sys::MarkBufferDirty(self.inner.pg_buffer);
             }
         }
@@ -364,7 +368,8 @@ impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
             block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-            if crate::postgres::utils::IsTransactionState() {
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
                 pg_sys::ReleaseBuffer(self.pg_buffer);
             }
         }
@@ -403,7 +408,8 @@ impl BorrowedBuffer {
 impl Drop for BorrowedBuffer {
     fn drop(&mut self) {
         unsafe {
-            if crate::postgres::utils::IsTransactionState() {
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
                 // Only unlock, don't release
                 pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
             }

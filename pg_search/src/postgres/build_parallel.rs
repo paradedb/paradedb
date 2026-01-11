@@ -552,6 +552,11 @@ pub(super) fn build_index(
     impl Drop for SnapshotDropper {
         fn drop(&mut self) {
             unsafe {
+                // Skip cleanup during panic unwinding to prevent double-panics.
+                if std::thread::panicking() {
+                    return;
+                }
+
                 let snapshot = self.0;
                 // if it's an mvcc snapshot we must unregister it
                 if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC

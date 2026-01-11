@@ -105,7 +105,10 @@ impl Drop for PgSearchRelation {
             return;
         };
         unsafe {
-            if need_close && pg_sys::IsTransactionState() {
+            // Skip cleanup during panic unwinding to prevent double-panics.
+            // PostgreSQL functions like relation_close can raise ERRORs (converted to panics
+            // by pgrx), and panicking during unwinding causes abort.
+            if need_close && pg_sys::IsTransactionState() && !std::thread::panicking() {
                 match lockmode {
                     Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
                     None => pg_sys::RelationClose(relation.as_ptr()),

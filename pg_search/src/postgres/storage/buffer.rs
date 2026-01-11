@@ -86,6 +86,12 @@ mod block_tracker {
                                 || matches!(blockno, block_tracker::TrackedBlock::Read(_))
                                 || matches!(blockno, block_tracker::TrackedBlock::Write(_))
                                 || matches!(blockno, block_tracker::TrackedBlock::Conditional(_))
+                                // Allow ConditionalCleanup/Cleanup from Pinned because:
+                                // 1. Multiple segments can share the same pintest_blockno
+                                // 2. After one segment pins the block, another segment's recyclable()
+                                //    check may try to get a conditional cleanup lock on the same block
+                                || matches!(blockno, block_tracker::TrackedBlock::ConditionalCleanup(_))
+                                || matches!(blockno, block_tracker::TrackedBlock::Cleanup(_))
                         }
                         block_tracker::TrackedBlock::Read(_) => {
                             matches!(blockno, block_tracker::TrackedBlock::Pinned(_))

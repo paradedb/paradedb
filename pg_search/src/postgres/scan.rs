@@ -127,6 +127,15 @@ pub extern "C-unwind" fn amrescan(
         assert!(!keys.is_null());
         assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
+        // Clean up any previous scan state before creating a new one.
+        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
+        // without calling amendscan in between.
+        if !(*scan).opaque.is_null() {
+            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+            drop(old_state);
+            (*scan).opaque = std::ptr::null_mut();
+        }
+
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 
@@ -419,7 +428,7 @@ unsafe fn wait_for_segment_ids(scan: IndexScanDesc) -> HashSet<SegmentId> {
         .expect("wait_for_segment_ids called but no parallel scan state");
 
     // segments() internally calls wait_for_initialization() and returns segment IDs
-    state.segments(0).keys().cloned().collect()
+    state.segments().into_keys().collect()
 }
 
 /// Get the parallel scan state from an IndexScanDesc, if it's a parallel scan.

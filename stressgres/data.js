@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768123970974,
+  "lastUpdate": 1768123976040,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27062,6 +27062,66 @@ window.BENCHMARK_DATA = {
             "value": 88,
             "unit": "median segment_count",
             "extra": "avg segment_count: 93.10864485981308, max segment_count: 155.0, count: 57352"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfdbf5ea9cb8c47cb22ce58940fe17708401923a",
+          "message": "fix: crash in parallel hash joins with generic plans (#3881)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFix a crash that occurs when executing prepared statements with parallel\nhash joins on BM25 indexes after PostgreSQL switches to a generic plan\n(6th execution).\n\n## Why\n\nQueries using parallel hash joins with BM25 indexes crash when\nPostgreSQL transitions from custom plans to generic plans. This affects\nany prepared statement executed 6+ times with parallel workers enabled.\n\n## How\n\nThe crash occurs due to memory/state issues when parallel workers are\nspawned for queries involving our index access method. The issue\nmanifests after multiple query executions, suggesting state leakage or\nimproper memory handling between executions.\n\n## Tests\n\nAdded regression test `parallel_hash_join_race.sql` that reproduces the\ncrash.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-01-11T00:57:51-08:00",
+          "tree_id": "50472873df82f7a997255766d0d838b7fbf8a5c4",
+          "url": "https://github.com/paradedb/paradedb/commit/dfdbf5ea9cb8c47cb22ce58940fe17708401923a"
+        },
+        "date": 1768123972300,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.123836024142356, max cpu: 42.772278, count: 57920"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 232.45111738173344, max mem: 234.00390625, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43156026681053, max cpu: 33.366436, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 172.29944629985326, max mem: 172.64453125, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49030,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48769.05359116022, max block_count: 51190.0, count: 57920"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 89,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 94.19846339779005, max segment_count: 159.0, count: 57920"
           }
         ]
       }

@@ -469,23 +469,28 @@ impl SearchQueryInput {
             return None;
         }
 
-        // Check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
-        // Without this check, FromDatum would panic with "cache lookup failed" on non-array datums.
-        let array = datum.cast_mut_ptr::<pg_sys::ArrayType>();
+        // First, detoast the datum if needed. This MUST happen before we try to read
+        // any varlena fields, as toasted values have a different header structure.
+        // PostgreSQL memory context handles cleanup of the detoasted copy.
+        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
+
+        // Now check if this is a SearchQueryInput array (ScalarArrayOpExpr case).
+        // We can safely read the ArrayType fields now that we've detoasted.
+        let array = detoasted.cast::<pg_sys::ArrayType>();
         let is_sqi_array = (*array).ndim >= 1
             && (*array).ndim <= pg_sys::MAXDIM as i32
             && (*array).elemtype == searchqueryinput_typoid();
 
         if is_sqi_array {
-            if let Some(elements) =
-                FromDatum::from_polymorphic_datum(datum, false, searchqueryinput_typoid())
-            {
+            if let Some(elements) = FromDatum::from_polymorphic_datum(
+                pg_sys::Datum::from(detoasted),
+                false,
+                searchqueryinput_typoid(),
+            ) {
                 return Some(Self::boolean_disjunction(elements));
             }
         }
 
-        // Detoast if needed (PostgreSQL memory context handles cleanup)
-        let detoasted = pg_sys::pg_detoast_datum(datum.cast_mut_ptr());
         let bytes = varlena_to_byte_slice(detoasted);
 
         serde_cbor::from_slice::<SearchQueryInput>(bytes)

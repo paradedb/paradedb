@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768112014339,
+  "lastUpdate": 1768112019148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26780,6 +26780,66 @@ window.BENCHMARK_DATA = {
             "value": 89,
             "unit": "median segment_count",
             "extra": "avg segment_count: 94.44038538045076, max segment_count: 157.0, count: 57813"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99922ba1ff6618a83d5ff750569b2b2ce82b0604",
+          "message": "fix: race condition in parallel index scans (#3872)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixes an intermittent issue where parallel index scans in hash join\nscenarios return zero results instead of the expected count (~50%\nfailure rate reported).\n\n## Why\n\nIn Parallel Hash Join scenarios, workers could reach the probe-side\nindex scan before the leader. The previous implementation had two\nproblems:\n\n1. **Leader-only initialization**: Only the leader (worker number -1)\ncould initialize the parallel scan state, causing workers to wait\nindefinitely if they arrived first\n2. **Eager segment claiming**: Segments were claimed in `amrescan`, but\nPostgreSQL doesn't guarantee `amgettuple` will be called for every\nparticipant that ran `amrescan` — leaving claimed segments unprocessed\n\n## How\n\n- **Atomic counters**: Changed `remaining_segments` and `nsegments` to\n`AtomicUsize` for proper cross-process visibility\n- **First-wins initialization**: Any participant (leader or worker) can\nnow initialize the shared state — first to acquire the mutex wins\n- **Lazy segment claiming**: Segments are now claimed in\n`amgettuple`/`amgetbitmap` instead of `amrescan`, ensuring only active\nparticipants claim work\n\n## Tests\n\nAdded `parallel_hash_join_race` regression test.",
+          "timestamp": "2026-01-10T21:39:05-08:00",
+          "tree_id": "7d95c76f8753e2227de3c9e1ee9ba1d57f67ca56",
+          "url": "https://github.com/paradedb/paradedb/commit/99922ba1ff6618a83d5ff750569b2b2ce82b0604"
+        },
+        "date": 1768112015639,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.56594955751888, max cpu: 43.417088, count: 57352"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.33731373252022, max mem: 233.90234375, count: 57352"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.26897173046685, max cpu: 33.267326, count: 57352"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.77997422986556, max mem: 172.171875, count: 57352"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 49169,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48624.968510252475, max block_count: 50714.0, count: 57352"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 88,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 93.10864485981308, max segment_count: 155.0, count: 57352"
           }
         ]
       }

@@ -159,8 +159,5 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
-    // For custom scan, initialization is synchronous (create_and_populate),
-    // so we don't need to track scan_id. Pass 0 which will always satisfy
-    // the wait condition since scan_id starts at 1.
     (*pscan_state).segments().into_keys().collect()
 }

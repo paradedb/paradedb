@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768125895367,
+  "lastUpdate": 1768126835859,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -59918,6 +59918,54 @@ window.BENCHMARK_DATA = {
             "value": 104.8031707642237,
             "unit": "median tps",
             "extra": "avg tps: 104.25054730401006, max tps: 139.82139978032015, count: 107564"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfdbf5ea9cb8c47cb22ce58940fe17708401923a",
+          "message": "fix: crash in parallel hash joins with generic plans (#3881)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFix a crash that occurs when executing prepared statements with parallel\nhash joins on BM25 indexes after PostgreSQL switches to a generic plan\n(6th execution).\n\n## Why\n\nQueries using parallel hash joins with BM25 indexes crash when\nPostgreSQL transitions from custom plans to generic plans. This affects\nany prepared statement executed 6+ times with parallel workers enabled.\n\n## How\n\nThe crash occurs due to memory/state issues when parallel workers are\nspawned for queries involving our index access method. The issue\nmanifests after multiple query executions, suggesting state leakage or\nimproper memory handling between executions.\n\n## Tests\n\nAdded regression test `parallel_hash_join_race.sql` that reproduces the\ncrash.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-01-11T00:57:51-08:00",
+          "tree_id": "50472873df82f7a997255766d0d838b7fbf8a5c4",
+          "url": "https://github.com/paradedb/paradedb/commit/dfdbf5ea9cb8c47cb22ce58940fe17708401923a"
+        },
+        "date": 1768126832397,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 579.4899910518805,
+            "unit": "median tps",
+            "extra": "avg tps: 580.9034550373962, max tps: 695.5559163373852, count: 53808"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 650.8597119023808,
+            "unit": "median tps",
+            "extra": "avg tps: 652.7205760284121, max tps: 763.9868267732165, count: 53808"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.72784085623263,
+            "unit": "median tps",
+            "extra": "avg tps: 84.8719942357522, max tps: 95.60952915318592, count: 53808"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.7447031033974,
+            "unit": "median tps",
+            "extra": "avg tps: 106.07672469813615, max tps: 133.07153317588993, count: 107616"
           }
         ]
       }

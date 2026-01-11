@@ -127,6 +127,15 @@ pub extern "C-unwind" fn amrescan(
         assert!(!keys.is_null());
         assert!(nkeys > 0); // Ensure there's at least one key provided for the search.
 
+        // Clean up any previous scan state before creating a new one.
+        // This is necessary for rescans - PostgreSQL may call amrescan multiple times
+        // without calling amendscan in between.
+        if !(*scan).opaque.is_null() {
+            let old_state = (*(*scan).opaque.cast::<Option<Bm25ScanState>>()).take();
+            drop(old_state);
+            (*scan).opaque = std::ptr::null_mut();
+        }
+
         let indexrel = (*scan).indexRelation;
         let keys = std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys as usize);
 

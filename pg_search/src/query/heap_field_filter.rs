@@ -25,6 +25,7 @@ use crate::query::PostgresPointer;
 use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
+use tantivy::index::SegmentId;
 use tantivy::schema::Field;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
@@ -279,7 +280,24 @@ unsafe impl Sync for HeapFilterWeight {}
 
 impl Weight for HeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        let segment_id = reader.segment_id();
+        let num_docs = reader.num_docs();
+        let max_doc = reader.max_doc();
+
+        pgrx::debug1!(
+            "HeapFilterWeight::scorer: creating scorer for segment {:?}, num_docs={}, max_doc={}",
+            segment_id,
+            num_docs,
+            max_doc
+        );
+
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        let initial_doc = indexed_scorer.doc();
+
+        pgrx::debug1!(
+            "HeapFilterWeight::scorer: indexed_scorer created, initial doc={}",
+            initial_doc
+        );
 
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
@@ -292,6 +310,13 @@ impl Weight for HeapFilterWeight {
             self.rel_oid,
             self.expr_context,
             self.planstate,
+            segment_id,
+            max_doc,
+        );
+
+        pgrx::debug1!(
+            "HeapFilterWeight::scorer: HeapFilterScorer created, current_doc={}",
+            scorer.current_doc
         );
 
         Ok(Box::new(scorer))
@@ -311,6 +336,9 @@ struct HeapFilterScorer {
     current_doc: DocId,
     expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
+    // Debug info for crash diagnosis
+    segment_id: SegmentId,
+    max_doc: u32,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -318,6 +346,7 @@ unsafe impl Send for HeapFilterScorer {}
 unsafe impl Sync for HeapFilterScorer {}
 
 impl HeapFilterScorer {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         indexed_scorer: Box<dyn Scorer>,
         field_filters: Vec<HeapFieldFilter>,
@@ -325,7 +354,16 @@ impl HeapFilterScorer {
         rel_oid: pg_sys::Oid,
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
+        segment_id: SegmentId,
+        max_doc: u32,
     ) -> Self {
+        pgrx::debug1!(
+            "HeapFilterScorer::new: segment={:?}, rel_oid={}, num_filters={}",
+            segment_id,
+            rel_oid.to_u32(),
+            field_filters.len()
+        );
+
         let mut scorer = Self {
             indexed_scorer,
             field_filters,
@@ -334,6 +372,8 @@ impl HeapFilterScorer {
             current_doc: TERMINATED,
             expr_context,
             planstate,
+            segment_id,
+            max_doc,
         };
 
         // Position at the first valid document
@@ -345,7 +385,26 @@ impl HeapFilterScorer {
 
     fn find_first_valid_document(&mut self) {
         // For initialization, check the current document first
-        self.current_doc = self.indexed_scorer.doc();
+        let initial_doc = self.indexed_scorer.doc();
+
+        pgrx::debug1!(
+            "HeapFilterScorer::find_first_valid_document: segment={:?}, indexed_scorer.doc()={}, max_doc={}",
+            self.segment_id,
+            initial_doc,
+            self.max_doc
+        );
+
+        // Validate doc_id is within bounds
+        if initial_doc != TERMINATED && initial_doc >= self.max_doc {
+            pgrx::warning!(
+                "HeapFilterScorer: indexed_scorer.doc() returned {} which is >= max_doc {} for segment {:?}. This indicates a bug.",
+                initial_doc,
+                self.max_doc,
+                self.segment_id
+            );
+        }
+
+        self.current_doc = initial_doc;
 
         if self.current_doc != TERMINATED && self.passes_heap_filters(self.current_doc) {
             return;
@@ -356,9 +415,34 @@ impl HeapFilterScorer {
     }
 
     fn passes_heap_filters(&mut self, doc_id: DocId) -> bool {
+        // Validate doc_id is within expected bounds
+        if doc_id >= self.max_doc {
+            pgrx::warning!(
+                "HeapFilterScorer::passes_heap_filters: doc_id {} >= max_doc {} for segment {:?}",
+                doc_id,
+                self.max_doc,
+                self.segment_id
+            );
+        }
+
         // Extract ctid from the current document
         let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) else {
-            panic!("Could not get ctid for doc_id: {doc_id}");
+            // Log detailed diagnostic info before failing
+            pgrx::warning!(
+                "HeapFilterScorer: Could not get ctid for doc_id={} in segment {:?} (max_doc={}). \
+                 This may indicate index corruption or a race condition.",
+                doc_id,
+                self.segment_id,
+                self.max_doc
+            );
+            // Use pgrx::error! to raise a clean PostgreSQL ERROR instead of panic
+            pgrx::error!(
+                "Could not get ctid for doc_id {}. This indicates index corruption or a bug. \
+                 Segment: {:?}, max_doc: {}. Please run REINDEX on the affected index.",
+                doc_id,
+                self.segment_id,
+                self.max_doc
+            );
         };
         // Convert u64 ctid back to ItemPointer
         let mut item_pointer = pg_sys::ItemPointerData::default();
@@ -383,6 +467,19 @@ impl HeapFilterScorer {
     }
 }
 
+impl Drop for HeapFilterScorer {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            pgrx::warning!(
+                "HeapFilterScorer::drop called during panic unwind: segment={:?}, current_doc={}, max_doc={}",
+                self.segment_id,
+                self.current_doc,
+                self.max_doc
+            );
+        }
+    }
+}
+
 impl Scorer for HeapFilterScorer {
     fn score(&mut self) -> Score {
         // Return the score from the indexed query (preserving BM25 scores)
@@ -398,6 +495,16 @@ impl DocSet for HeapFilterScorer {
             if doc == TERMINATED {
                 self.current_doc = TERMINATED;
                 return TERMINATED;
+            }
+
+            // Validate doc_id is within bounds
+            if doc >= self.max_doc {
+                pgrx::warning!(
+                    "HeapFilterScorer::advance: indexed_scorer.advance() returned {} which is >= max_doc {} for segment {:?}",
+                    doc,
+                    self.max_doc,
+                    self.segment_id
+                );
             }
 
             if self.passes_heap_filters(doc) {

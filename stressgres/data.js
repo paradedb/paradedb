@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768123018663,
+  "lastUpdate": 1768123023752,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18090,6 +18090,126 @@ window.BENCHMARK_DATA = {
             "value": 50.421875,
             "unit": "median mem",
             "extra": "avg mem: 50.19406013851024, max mem: 62.83203125, count: 54653"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfdbf5ea9cb8c47cb22ce58940fe17708401923a",
+          "message": "fix: crash in parallel hash joins with generic plans (#3881)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFix a crash that occurs when executing prepared statements with parallel\nhash joins on BM25 indexes after PostgreSQL switches to a generic plan\n(6th execution).\n\n## Why\n\nQueries using parallel hash joins with BM25 indexes crash when\nPostgreSQL transitions from custom plans to generic plans. This affects\nany prepared statement executed 6+ times with parallel workers enabled.\n\n## How\n\nThe crash occurs due to memory/state issues when parallel workers are\nspawned for queries involving our index access method. The issue\nmanifests after multiple query executions, suggesting state leakage or\nimproper memory handling between executions.\n\n## Tests\n\nAdded regression test `parallel_hash_join_race.sql` that reproduces the\ncrash.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-01-11T00:57:51-08:00",
+          "tree_id": "50472873df82f7a997255766d0d838b7fbf8a5c4",
+          "url": "https://github.com/paradedb/paradedb/commit/dfdbf5ea9cb8c47cb22ce58940fe17708401923a"
+        },
+        "date": 1768123020029,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4434916274773, max cpu: 18.991098, count: 55261"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.97666937917338, max mem: 69.3359375, count: 55261"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.551255027471769, max cpu: 9.4395275, count: 55261"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.1499491475679, max mem: 35.46484375, count: 55261"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.440567444134566, max cpu: 19.335348, count: 55261"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.295754606548925, max mem: 69.62890625, count: 55261"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5323572414512405, max cpu: 4.819277, count: 55261"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.23526650802555, max mem: 69.0546875, count: 55261"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588720481112337, max cpu: 9.448819, count: 110522"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.06973247549131, max mem: 57.22265625, count: 110522"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1797,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1794.5435478909176, max block_count: 3176.0, count: 55261"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.372088814896582, max segment_count: 30.0, count: 55261"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589610328086418, max cpu: 9.580839, count: 55261"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.5894064784613, max mem: 59.5546875, count: 55261"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.4558975604680047, max cpu: 4.7197638, count: 55261"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.907339008296994, max mem: 63.47265625, count: 55261"
           }
         ]
       }

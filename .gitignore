@@ -47,3 +47,7 @@ node_modules/
 
 # Cursor
 .cursor/
+
+# Claude
+.claude/
+CLAUDE.md

@@ -825,29 +825,33 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let month = val
-            .month()
-            .try_into()
-            .map_err(|err: time::error::ComponentRange| {
-                TantivyValueError::DateOutOfRange(val, err.to_string())
-            })?;
-        let min_date = tantivy::DateTime::MIN.into_primitive();
-        let max_date = tantivy::DateTime::MAX.into_primitive();
-        let date = time::Date::from_calendar_date(val.year(), month, val.day())
-            .map(|date| time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT))
-            .ok()
-            .filter(|date| (min_date..=max_date).contains(date))
-            .ok_or_else(|| {
-                TantivyValueError::DateOutOfRange(
+        use once_cell::sync::Lazy;
+        static VALID_DATE_RANGE: Lazy<std::ops::RangeInclusive<time::Date>> = Lazy::new(|| {
+            let min = tantivy::DateTime::MIN;
+            let max = tantivy::DateTime::MAX;
+            // Min does not include midnight, so skip to the next day.
+            // Max is always past the midnight.
+            debug_assert_ne!(min.into_primitive().time(), time::Time::MIDNIGHT);
+            let min_date = min.into_primitive().date().next_day().unwrap();
+            let max_date = max.into_primitive().date();
+            min_date..=max_date
+        });
+
+        let try_op = |(res, overflow)| {
+            if overflow {
+                Err(TantivyValueError::DateOutOfRange(
                     val,
-                    format!(
-                        "date must be in the range {}..{}",
-                        min_date.date(),
-                        max_date.date()
-                    ),
-                )
-            })?;
-        let tantivy_date = tantivy::DateTime::from_primitive(date);
+                    format!("date must be in the range {:?}", *VALID_DATE_RANGE),
+                ))
+            } else {
+                Ok(res)
+            }
+        };
+        let days = i64::from(val.to_unix_epoch_days());
+        let secs = try_op(days.overflowing_mul(24 * 3600))?;
+        let nanos = try_op(secs.overflowing_mul(1_000_000_000))?;
+        let tantivy_date = tantivy::DateTime::from_timestamp_nanos(nanos);
+        try_op((0, tantivy_date.into_utc().year() != val.year()))?;
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }

@@ -495,9 +495,9 @@
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres.",
+      "twitter:description": "Developer docs for ParadeDB: Simple, Elastic-Quality Search for Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
+      "twitter:image:alt": "ParadeDB: Simple, Elastic-Quality Search for Postgres."
     },
     "indexing": "navigable"
   }

@@ -17,7 +17,7 @@ if [ "$2" = "" ]; then
 fi
 
 cd "${MANIFESTDIR}" || exit
-cargo pgrx install --profile prof --manifest-path "${MANIFEST}" --package ${EXTENSION} --features=icu --pg-config ${PGRX_HOME}/${PGVER}/pgrx-install/bin/pg_config || exit $?
+cargo pgrx install --profile prof --manifest-path "${MANIFEST}" --package ${EXTENSION} --pg-config ${PGRX_HOME}/${PGVER}/pgrx-install/bin/pg_config || exit $?
 
 cd "${HERE}" || exit
 pwd

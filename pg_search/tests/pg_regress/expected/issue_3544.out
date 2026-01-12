@@ -3,9 +3,19 @@ DROP TABLE IF EXISTS issue_3544_test;
 CREATE TABLE issue_3544_test (id SERIAL PRIMARY KEY, dates DATE, info TEXT);
 INSERT INTO issue_3544_test (dates, info) VALUES ('57439-03-01', 'test');
 CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
-ERROR:  could not parse field `dates`: date 03-01-57439 is out of range: date must be in the range 1677-09-21..2262-04-11
+ERROR:  could not parse field `dates`: date 03-01-57439 is out of range: date must be in the range 1677-09-22..=2262-04-11
+DELETE FROM issue_3544_test;
+INSERT INTO issue_3544_test (dates, info) VALUES ('1677-09-21', 'test');
+CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
+ERROR:  could not parse field `dates`: date 09-21-1677 is out of range: date must be in the range 1677-09-22..=2262-04-11
+DELETE FROM issue_3544_test;
+INSERT INTO issue_3544_test (dates, info) VALUES ('2262-04-12', 'test');
+CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
+ERROR:  could not parse field `dates`: date 04-12-2262 is out of range: date must be in the range 1677-09-22..=2262-04-11
 DELETE FROM issue_3544_test;
 INSERT INTO issue_3544_test (dates, info) VALUES ('2020-01-01', 'test');
+INSERT INTO issue_3544_test (dates, info) VALUES ('1677-09-22', 'test');
+INSERT INTO issue_3544_test (dates, info) VALUES ('2262-04-11', 'test');
 CREATE INDEX ON issue_3544_test USING bm25 (id, dates, info) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) SELECT count(*) FROM issue_3544_test WHERE info ||| 'xyz' AND dates <@ '[1677-09-22, 2262-04-10]'::daterange;
                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                           

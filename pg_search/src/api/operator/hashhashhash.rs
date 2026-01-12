@@ -18,10 +18,13 @@ use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    boost_typoid, get_expr_result_type, pdb_query_typoid, request_simplify,
+    searchqueryinput_typoid, slop_typoid, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
+use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -65,6 +68,62 @@ fn search_with_phrase_slop(_field: AnyElement, terms_to_tokenize: SlopType) -> b
     )
 }
 
+#[pg_extern(immutable, parallel_safe, name = "phrase")]
+fn phrase_query(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    match query {
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut query = *query;
+            if let pdb::Query::UnclassifiedString {
+                string, slop_data, ..
+            } = query
+            {
+                query = phrase_string(string);
+                query.apply_slop_data(slop_data);
+            } else if let pdb::Query::UnclassifiedArray {
+                array, slop_data, ..
+            } = query
+            {
+                query = phrase_array(array);
+                query.apply_slop_data(slop_data);
+            }
+            to_search_query_input(
+                field,
+                pdb::Query::ScoreAdjusted {
+                    query: Box::new(query),
+                    score,
+                },
+            )
+        }
+        pdb::Query::UnclassifiedString {
+            string, slop_data, ..
+        } => {
+            let mut query = phrase_string(string);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        pdb::Query::UnclassifiedArray {
+            array, slop_data, ..
+        } => {
+            let mut query = phrase_array(array);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        _ => panic!(
+            "The right-hand side of the `###` operator must be text, text[], or an unclassified pdb.* value."
+        ),
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "phrase")]
+fn phrase_boost(field: FieldName, query: BoostType) -> SearchQueryInput {
+    phrase_query(field, query.into())
+}
+
+#[pg_extern(immutable, parallel_safe, name = "phrase")]
+fn phrase_slop(field: FieldName, query: SlopType) -> SearchQueryInput {
+    phrase_query(field, query.into())
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
@@ -79,45 +138,62 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, phrase_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
-                        query = phrase_string(string);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array,  slop_data, ..} = query {
-                        query = phrase_array(array);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, slop_data, ..}) => {
-                    let mut query = phrase_string(string);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, slop_data, .. }) => {
-                    let mut query = phrase_array(array);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                _ => panic!("The right-hand side of the `###(field, TEXT)` operator must be a text value."),
+                RHSValue::PdbQuery(query) => phrase_query(field, query),
+                _ => panic!(
+                    "The right-hand side of the `###` operator must be text, text[], or an unclassified pdb.* value."
+                ),
             }
         }, |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "###");
             let field = field.expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
-            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `###(field, TEXT)` operator must be a text value");
-            let mut args = PgList::<pg_sys::Node>::new();
+            let expr_type = get_expr_result_type(rhs);
+            let is_text = expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID;
+            let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
+            let is_pdb_query = expr_type == pdb_query_typoid();
+            let is_boost = expr_type == boost_typoid();
+            let is_slop = expr_type == slop_typoid();
+            assert!(
+                is_text || is_array || is_pdb_query || is_boost || is_slop,
+                "The right-hand side of the `###` operator must be text, text[], or a pdb.* value"
+            );
 
+            let mut args = PgList::<pg_sys::Node>::new();
             args.push(field.into_const().cast());
             args.push(rhs.cast());
 
             pg_sys::FuncExpr {
                 xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
-                funcid: direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"paradedb.phrase(paradedb.fieldname, text)".into_datum()],
-                )
-                    .expect("`paradedb.phrase(paradedb.fieldname, text)` should exist"),
+                funcid: if is_array {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.phrase_array(paradedb.fieldname, text[])".into_datum()],
+                    )
+                    .expect("`paradedb.phrase_array(paradedb.fieldname, text[])` should exist")
+                } else if is_text {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.phrase(paradedb.fieldname, text)".into_datum()],
+                    )
+                    .expect("`paradedb.phrase(paradedb.fieldname, text)` should exist")
+                } else if is_pdb_query {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.phrase(paradedb.fieldname, pdb.query)".into_datum()],
+                    )
+                    .expect("`paradedb.phrase(paradedb.fieldname, pdb.query)` should exist")
+                } else if is_boost {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.phrase(paradedb.fieldname, pdb.boost)".into_datum()],
+                    )
+                    .expect("`paradedb.phrase(paradedb.fieldname, pdb.boost)` should exist")
+                } else {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.phrase(paradedb.fieldname, pdb.slop)".into_datum()],
+                    )
+                    .expect("`paradedb.phrase(paradedb.fieldname, pdb.slop)` should exist")
+                },
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,
                 funcvariadic: false,

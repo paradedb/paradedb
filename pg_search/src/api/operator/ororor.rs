@@ -18,10 +18,12 @@ use crate::api::builder_fns::{match_disjunction, match_disjunction_array, term_s
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    boost_typoid, fuzzy_typoid, get_expr_result_type, pdb_query_typoid, request_simplify,
+    searchqueryinput_typoid, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
 };
+use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -68,6 +70,84 @@ fn search_with_match_disjunction_fuzzy(_field: AnyElement, terms_to_tokenize: Fu
     )
 }
 
+#[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
+fn match_disjunction_query(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    match query {
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut query = *query;
+            if let pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            } = query
+            {
+                query = match_disjunction(string);
+                query.apply_fuzzy_data(fuzzy_data);
+                query.apply_slop_data(slop_data);
+            } else if let pdb::Query::UnclassifiedArray {
+                array,
+                fuzzy_data,
+                slop_data,
+            } = query
+            {
+                query = match_disjunction_array(array);
+                query.apply_fuzzy_data(fuzzy_data);
+                query.apply_slop_data(slop_data);
+            }
+            to_search_query_input(
+                field,
+                pdb::Query::ScoreAdjusted {
+                    query: Box::new(query),
+                    score,
+                },
+            )
+        }
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = match_disjunction(string);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        pdb::Query::UnclassifiedArray {
+            array,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = term_set_str(array);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+
+            assert!(matches!(query, pdb::Query::MatchArray { .. }));
+            let pdb::Query::MatchArray {
+                conjunction_mode, ..
+            } = &mut query
+            else {
+                unreachable!()
+            };
+            *conjunction_mode = Some(false);
+
+            to_search_query_input(field, query)
+        }
+        _ => panic!(
+            "The right-hand side of the `|||` operator must be text, text[], or an unclassified pdb.* value."
+        ),
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
+fn match_disjunction_boost(field: FieldName, query: BoostType) -> SearchQueryInput {
+    match_disjunction_query(field, query.into())
+}
+
+#[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
+fn match_disjunction_fuzzy(field: FieldName, query: FuzzyType) -> SearchQueryInput {
+    match_disjunction_query(field, query.into())
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
@@ -81,56 +161,62 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::TextArray(tokens) => {
                     to_search_query_input(field, match_disjunction_array(tokens))
                 }
-                RHSValue::PdbQuery(pdb::Query::ScoreAdjusted { query, score}) => {
-                    let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
-                        query = match_disjunction(string);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    } else if let pdb::Query::UnclassifiedArray {array, fuzzy_data, slop_data} = query {
-                        query = match_disjunction_array(array);
-                        query.apply_fuzzy_data(fuzzy_data);
-                        query.apply_slop_data(slop_data);
-                    }
-                    to_search_query_input(field, pdb::Query::ScoreAdjusted { query: Box::new(query), score})
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
-                    let mut query = match_disjunction(string);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-                    to_search_query_input(field, query)
-                }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedArray { array, fuzzy_data, slop_data }) => {
-                    let mut query = term_set_str(array);
-                    query.apply_fuzzy_data(fuzzy_data);
-                    query.apply_slop_data(slop_data);
-
-                    assert!(matches!(query, pdb::Query::MatchArray{..}));
-                    let pdb::Query::MatchArray { conjunction_mode, .. } = &mut query else {
-                        unreachable!()
-                    };
-                    *conjunction_mode = Some(false);
-
-                    to_search_query_input(field, query)
-                }
-                _ => panic!("The right-hand side of the `|||(field, TEXT)` operator must be a text value."),
+                RHSValue::PdbQuery(query) => match_disjunction_query(field, query),
+                _ => panic!(
+                    "The right-hand side of the `|||` operator must be text, text[], or an unclassified pdb.* value."
+                ),
             }
         }, |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "|||");
             let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
-            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `|||(field, TEXT)` operator must be a text value");
-            let mut args = PgList::<pg_sys::Node>::new();
+            let expr_type = get_expr_result_type(rhs);
+            let is_text = expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID;
+            let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
+            let is_pdb_query = expr_type == pdb_query_typoid();
+            let is_boost = expr_type == boost_typoid();
+            let is_fuzzy = expr_type == fuzzy_typoid();
+            assert!(
+                is_text || is_array || is_pdb_query || is_boost || is_fuzzy,
+                "The right-hand side of the `|||` operator must be text, text[], or a pdb.* value"
+            );
 
+            let mut args = PgList::<pg_sys::Node>::new();
             args.push(field.into_const().cast());
             args.push(rhs.cast());
 
             pg_sys::FuncExpr {
                 xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
-                funcid: direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"paradedb.match_disjunction(paradedb.fieldname, text)".into_datum()],
-                )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, text)` should exist"),
+                funcid: if is_array {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.match_disjunction(paradedb.fieldname, text[])".into_datum()],
+                    )
+                    .expect("`paradedb.match_disjunction(paradedb.fieldname, text[])` should exist")
+                } else if is_text {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.match_disjunction(paradedb.fieldname, text)".into_datum()],
+                    )
+                    .expect("`paradedb.match_disjunction(paradedb.fieldname, text)` should exist")
+                } else if is_pdb_query {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.query)".into_datum()],
+                    )
+                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.query)` should exist")
+                } else if is_boost {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.boost)".into_datum()],
+                    )
+                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.boost)` should exist")
+                } else {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.fuzzy)".into_datum()],
+                    )
+                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.fuzzy)` should exist")
+                },
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,
                 funcvariadic: false,

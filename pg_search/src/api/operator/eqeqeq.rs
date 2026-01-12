@@ -18,10 +18,12 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid,
-    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    boost_typoid, fuzzy_typoid, get_expr_result_type, pdb_query_typoid, request_simplify,
+    searchqueryinput_typoid, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
 };
+use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -55,6 +57,74 @@ fn search_with_term_boost(_field: AnyElement, term: BoostType) -> bool {
 #[opname(pg_catalog.===)]
 fn search_with_term_fuzzy(_field: AnyElement, term: FuzzyType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, fuzzy)` operator: `{term:?}`")
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+fn term_query(field: FieldName, term: pdb::Query) -> SearchQueryInput {
+    match term {
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut query = *query;
+            if let pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            } = query
+            {
+                query = term_str(string);
+                query.apply_fuzzy_data(fuzzy_data);
+                query.apply_slop_data(slop_data);
+            } else if let pdb::Query::UnclassifiedArray {
+                array,
+                fuzzy_data,
+                slop_data,
+            } = query
+            {
+                query = term_set_str(array);
+                query.apply_fuzzy_data(fuzzy_data);
+                query.apply_slop_data(slop_data);
+            }
+            to_search_query_input(
+                field,
+                pdb::Query::ScoreAdjusted {
+                    query: Box::new(query),
+                    score,
+                },
+            )
+        }
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = term_str(string);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        pdb::Query::UnclassifiedArray {
+            array,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = term_set_str(array);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        _ => panic!(
+            "The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value."
+        ),
+    }
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+fn term_boost(field: FieldName, term: BoostType) -> SearchQueryInput {
+    term_query(field, term.into())
+}
+
+#[pg_extern(immutable, parallel_safe, name = "term")]
+fn term_fuzzy(field: FieldName, term: FuzzyType) -> SearchQueryInput {
+    term_query(field, term.into())
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -94,16 +164,23 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                     query.apply_slop_data(slop_data);
                     to_search_query_input(field, query)
                 }
-                _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
+                _ => unreachable!(
+                    "The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value."
+                )
             }
         }, |field, lhs, rhs| {
             validate_lhs_type_as_text_compatible(lhs, "===");
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
             let expr_type = get_expr_result_type(rhs);
-            assert!({
-                        expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
-                    }, "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value");
+            let is_text = expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID;
             let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
+            let is_pdb_query = expr_type == pdb_query_typoid();
+            let is_boost = expr_type == boost_typoid();
+            let is_fuzzy = expr_type == fuzzy_typoid();
+            assert!(
+                is_text || is_array || is_pdb_query || is_boost || is_fuzzy,
+                "The right-hand side of the `===` operator must be text, text[], or a pdb.* value"
+            );
 
             let mut args = PgList::<pg_sys::Node>::new();
             args.push(field.into_const().cast());
@@ -116,13 +193,31 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                         pg_sys::regprocedurein,
                         &[c"paradedb.term_set(paradedb.fieldname, text[])".into_datum()],
                     )
-                        .expect("`paradedb.term_set(paradedb.fieldname, text[])` should exist")
-                } else {
+                    .expect("`paradedb.term_set(paradedb.fieldname, text[])` should exist")
+                } else if is_text {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.term(paradedb.fieldname, text)".into_datum()],
                     )
-                        .expect("`paradedb.term(paradedb.fieldname, text)` should exist")
+                    .expect("`paradedb.term(paradedb.fieldname, text)` should exist")
+                } else if is_pdb_query {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.term(paradedb.fieldname, pdb.query)".into_datum()],
+                    )
+                    .expect("`paradedb.term(paradedb.fieldname, pdb.query)` should exist")
+                } else if is_boost {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.term(paradedb.fieldname, pdb.boost)".into_datum()],
+                    )
+                    .expect("`paradedb.term(paradedb.fieldname, pdb.boost)` should exist")
+                } else {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.term(paradedb.fieldname, pdb.fuzzy)".into_datum()],
+                    )
+                    .expect("`paradedb.term(paradedb.fieldname, pdb.fuzzy)` should exist")
                 },
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,

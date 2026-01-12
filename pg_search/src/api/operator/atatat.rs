@@ -17,8 +17,8 @@
 
 use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
-    get_expr_result_type, pdb_query_typoid, request_simplify, searchqueryinput_typoid, RHSValue,
-    ReturnedNodePointer,
+    get_expr_result_type, pdb_proximityclause_typoid, pdb_query_typoid, request_simplify,
+    searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
@@ -87,7 +87,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 }
                 _ => {
                     unreachable!(
-                        "atatat_support should only ever be called with a text value"
+                        "atatat_support should only ever be called with text, pdb.query, or pdb.ProximityClause values"
                     )
                 }
             },
@@ -96,31 +96,40 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 let pdb_query_typoid = pdb_query_typoid();
                 let expr_type = get_expr_result_type(rhs);
                 let is_pdb_query = expr_type == pdb_query_typoid;
+                let is_prox = expr_type == pdb_proximityclause_typoid();
 
                 assert!(
-                    expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || is_pdb_query,
-                    "The right-hand side of the `@@@` operator must be a text value"
+                    expr_type == pg_sys::TEXTOID
+                        || expr_type == pg_sys::VARCHAROID
+                        || is_pdb_query
+                        || is_prox,
+                    "The right-hand side of the `@@@` operator must be text, pdb.query, or pdb.ProximityClause"
                 );
-
 
                 let funcid = if is_pdb_query {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)".into_datum()],
                     )
-                        .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
+                    .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
+                } else if is_prox {
+                    direct_function_call::<pg_sys::Oid>(
+                        pg_sys::regprocedurein,
+                        &[c"paradedb.proximity(paradedb.fieldname, pdb.proximityclause)".into_datum()],
+                    )
+                    .expect("`paradedb.proximity(paradedb.fieldname, pdb.proximityclause)` should exist")
                 } else if field.is_some() {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
                     )
-                        .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
+                    .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist")
                 } else {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
                         &[c"paradedb.parse(text, bool, bool)".into_datum()],
                     )
-                        .expect("`paradedb.parse(text, bool, bool)` should exist")
+                    .expect("`paradedb.parse(text, bool, bool)` should exist")
                 };
 
                 match field {
@@ -130,7 +139,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                         args.push(field.into_const().cast());
                         args.push(rhs.cast());
 
-                        if !is_pdb_query {
+                        if !is_pdb_query && !is_prox {
                             args.push(pg_sys::makeBoolConst(false, true));
                             args.push(pg_sys::makeBoolConst(false, true));
                         }
@@ -153,7 +162,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
 
                     // here we call the `paradedb.parse` function without a FieldName
                     None => {
-                        assert!(!is_pdb_query);
+                        assert!(!is_pdb_query && !is_prox);
 
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(rhs.cast());

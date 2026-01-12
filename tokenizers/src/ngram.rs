@@ -94,6 +94,19 @@ impl TokenStream for NgramTokenStream<'_> {
 mod tests {
     use super::*;
 
+    fn assert_token(token: &Token, position: usize, text: &str, from: usize, to: usize) {
+        assert_eq!(
+            token.position, position,
+            "expected position {position} but {token:?}"
+        );
+        assert_eq!(token.text, text, "expected text {text} but {token:?}");
+        assert_eq!(
+            token.offset_from, from,
+            "expected offset_from {from} but {token:?}"
+        );
+        assert_eq!(token.offset_to, to, "expected offset_to {to} but {token:?}");
+    }
+
     #[test]
     fn test_positions_enabled_fixed_gram() {
         let mut tokenizer = NgramTokenizer::new(3, 3, false, true).unwrap();

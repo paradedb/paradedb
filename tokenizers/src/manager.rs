@@ -19,7 +19,7 @@
 use std::fmt::Write;
 
 use crate::icu::ICUTokenizer;
-use crate::ngram_with_positions::NgramTokenizer;
+use crate::ngram::NgramTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
@@ -38,8 +38,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, RawTokenizer,
-    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, RawTokenizer, RegexTokenizer,
+    SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]

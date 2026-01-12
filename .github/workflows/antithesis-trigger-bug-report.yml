@@ -1,11 +1,11 @@
-# workflows/antithesis-run-bug-report.yml
+# workflows/antithesis-trigger-bug-report-generation.yml
 #
-# Antithesis - Run Bug Report
+# Antithesis - Trigger Bug Report Generation
 # Trigger a bug report for an input moment associated with a bug found by Antithesis. This
 # will send an email to the provided email recipients with a link to the bug report. An example
 # bug report can be found here: https://public.antithesis.com/report/ZsfkRkU58VYYW1yRVF8zsvUz/MX3yyG71sJvDM8cVzXljvRGAmjQLb9weaaqkELjaQRI.html
 
-name: Antithesis - Run Bug Report
+name: Antithesis - Trigger Bug Report Generation
 
 on:
   workflow_dispatch:
@@ -23,9 +23,11 @@ on:
         required: true
         description: Email recipients (default notifies developers@paradedb.com)
 
+# No concurrency group since we want to allow multiple bug report generations to run simultaneously
+
 jobs:
-  antithesis-run-bug-report:
-    name: Trigger Bug Reporting for an Antithesis Moment
+  antithesis-trigger-bug-report-generation:
+    name: Trigger Bug Report Generation for an Antithesis Moment
     runs-on: ubuntu-latest
 
     steps:

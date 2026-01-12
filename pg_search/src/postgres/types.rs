@@ -851,7 +851,6 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
         let secs = try_op(days.overflowing_mul(24 * 3600))?;
         let nanos = try_op(secs.overflowing_mul(1_000_000_000))?;
         let tantivy_date = tantivy::DateTime::from_timestamp_nanos(nanos);
-        try_op((0, tantivy_date.into_utc().year() != val.year()))?;
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }

@@ -1,10 +1,10 @@
-# workflows/antithesis-trigger-run.yml
+# workflows/antithesis-trigger-test-run.yml
 #
-# Antithesis - Trigger Run
+# Antithesis - Trigger Test Run
 # Build the current commits of pg_search and Stressgres as Docker images, push them to
 # Antithesis, and trigger an Antithesis test run.
 
-name: Antithesis - Trigger Run
+name: Antithesis - Trigger Test Run
 
 on:
   schedule:
@@ -14,7 +14,7 @@ on:
       duration:
         type: string
         required: false
-        description: Test duration (minutes, default 30)
+        description: Test duration (minutes, default 480, i.e., 8 hours)
       notebook:
         type: string
         required: false
@@ -24,12 +24,10 @@ on:
         required: false
         description: Email recipients (default notifies developers@paradedb.com)
 
-concurrency:
-  group: antithesis-trigger-run-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+# No concurrency group since we want to allow multiple test runs to run simultaneously
 
 jobs:
-  antithesis-trigger-run:
+  antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
     runs-on: ubicloud-standard-8-ubuntu-2404
     strategy:
@@ -134,7 +132,7 @@ jobs:
           tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}
           labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}
 
-      # antithesis.duration is in minutes
+      # antithesis.duration is in minutes, 480 minutes = 8 hours
       - name: Trigger Antithesis Test
         uses: antithesishq/antithesis-trigger-action@main
         with:
@@ -148,4 +146,4 @@ jobs:
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
-            antithesis.duration=${{ github.event.inputs.duration || '30' }}
+            antithesis.duration=${{ github.event.inputs.duration || '480' }}

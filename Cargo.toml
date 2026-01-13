@@ -28,7 +28,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "a0c6da462c72b55abf36e0452852a2448c66c22f", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "03f09a2b5be7828918b04a50523e966cfc132835", features = [
   "quickwit",                  # for sstable support
   "stopwords",
   "lz4-compression",

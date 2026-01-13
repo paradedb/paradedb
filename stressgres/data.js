@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768333993461,
+  "lastUpdate": 1768333998486,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27908,6 +27908,66 @@ window.BENCHMARK_DATA = {
             "value": 89,
             "unit": "median segment_count",
             "extra": "avg segment_count: 93.6415019421666, max segment_count: 156.0, count: 57925"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768333995014,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.127245310272958, max cpu: 42.772278, count: 57804"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 233.1046323432418, max mem: 234.67578125, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.393883486142812, max cpu: 33.3996, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 172.42472325660853, max mem: 172.9296875, count: 57804"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33954,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33301.20218323991, max block_count: 36020.0, count: 57804"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.67519548820151, max segment_count: 129.0, count: 57804"
           }
         ]
       }

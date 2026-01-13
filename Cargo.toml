@@ -32,6 +32,7 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "quickwit",        # for sstable support
   "stopwords",
   "lz4-compression",
+  "columnar-zstd-compression"
 ], default-features = false }
 pgrx = "=0.16.1"
 pgrx-tests = "=0.16.1"

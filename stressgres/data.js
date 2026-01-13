@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768318782797,
+  "lastUpdate": 1768333033029,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6590,6 +6590,72 @@ window.BENCHMARK_DATA = {
             "value": 508.8703760113383,
             "unit": "median tps",
             "extra": "avg tps: 506.9074902155463, max tps: 559.4319765045351, count: 55233"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768333029645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 599.3570229711115,
+            "unit": "median tps",
+            "extra": "avg tps: 597.0367080254301, max tps: 730.064910602158, count: 55273"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3060.689124842819,
+            "unit": "median tps",
+            "extra": "avg tps: 3059.727340847704, max tps: 3126.722302868497, count: 55273"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 575.9793333288225,
+            "unit": "median tps",
+            "extra": "avg tps: 572.5958341359901, max tps: 693.2972650683433, count: 55273"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 492.7403517573648,
+            "unit": "median tps",
+            "extra": "avg tps: 490.9766202709442, max tps: 527.7777325956563, count: 55273"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3302.9147055310727,
+            "unit": "median tps",
+            "extra": "avg tps: 3342.8043423318327, max tps: 3433.5463456327025, count: 110546"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2194.292617453801,
+            "unit": "median tps",
+            "extra": "avg tps: 2186.4746883459075, max tps: 2200.3402642204396, count: 55273"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 115.67551168692432,
+            "unit": "median tps",
+            "extra": "avg tps: 114.65900875185676, max tps: 717.6345044410812, count: 55273"
           }
         ]
       }

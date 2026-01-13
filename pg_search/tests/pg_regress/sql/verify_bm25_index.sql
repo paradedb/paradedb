@@ -231,40 +231,41 @@ FROM pdb.verify_index('corruption_idx', heapallindexed := true, on_error_stop :=
 DROP TABLE corruption_test CASCADE;
 
 -- Test 17: pdb.verify_all_indexes with mixed healthy and corrupted indexes
-DROP TABLE IF EXISTS healthy_table, corrupted_table CASCADE;
+DROP TABLE IF EXISTS verify_healthy_table, verify_corrupted_table CASCADE;
 
 -- Create healthy table and index with multiple segments
-CREATE TABLE healthy_table (id serial PRIMARY KEY, content text);
-CREATE INDEX healthy_idx ON healthy_table USING bm25 (id, content) 
+CREATE TABLE verify_healthy_table (id serial PRIMARY KEY, content text);
+CREATE INDEX verify_healthy_idx ON verify_healthy_table USING bm25 (id, content) 
     WITH (key_field = 'id', mutable_segment_rows = 10);
-INSERT INTO healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
-INSERT INTO healthy_table (content) SELECT 'more healthy ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_healthy_table (content) SELECT 'more healthy ' || i FROM generate_series(1, 20) i;
 
 -- Create corrupted table and index with multiple segments
-CREATE TABLE corrupted_table (id serial PRIMARY KEY, content text);
-CREATE INDEX corrupted_idx ON corrupted_table USING bm25 (id, content) 
+CREATE TABLE verify_corrupted_table (id serial PRIMARY KEY, content text);
+CREATE INDEX verify_corrupted_idx ON verify_corrupted_table USING bm25 (id, content) 
     WITH (key_field = 'id', mutable_segment_rows = 10);
-INSERT INTO corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
-INSERT INTO corrupted_table (content) SELECT 'more corrupted ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_corrupted_table (content) SELECT 'more corrupted ' || i FROM generate_series(1, 20) i;
 
 -- Corrupt the second index
-ALTER TABLE corrupted_table DISABLE TRIGGER ALL;
-DELETE FROM corrupted_table WHERE id <= 3;
-ALTER TABLE corrupted_table ENABLE TRIGGER ALL;
+ALTER TABLE verify_corrupted_table DISABLE TRIGGER ALL;
+DELETE FROM verify_corrupted_table WHERE id <= 3;
+ALTER TABLE verify_corrupted_table ENABLE TRIGGER ALL;
 
 -- verify_all should show healthy passing and corrupted failing
+-- Use specific pattern to avoid matching indexes from other tests
 SELECT indexname, check_name, passed
-FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true)
+FROM pdb.verify_all_indexes(index_pattern := 'verify_%_idx', heapallindexed := true)
 WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
 ORDER BY indexname, check_name;
 
 -- Test 18: verify_all with on_error_stop should stop at first corrupted index
 SELECT indexname, check_name, passed
-FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true, on_error_stop := true)
+FROM pdb.verify_all_indexes(index_pattern := 'verify_%_idx', heapallindexed := true, on_error_stop := true)
 WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
 ORDER BY indexname, check_name;
 
-DROP TABLE healthy_table, corrupted_table CASCADE;
+DROP TABLE verify_healthy_table, verify_corrupted_table CASCADE;
 
 -- =============================================================================
 -- ADDITIONAL COVERAGE TESTS

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768335010168,
+  "lastUpdate": 1768335015272,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42142,6 +42142,108 @@ window.BENCHMARK_DATA = {
             "value": 160.125,
             "unit": "median mem",
             "extra": "avg mem: 178.23250897344062, max mem: 220.4921875, count: 56016"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768335011678,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07939676993832222, max background_merging: 2.0, count: 56098"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.732259635603706, max cpu: 9.523809, count: 56098"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.409394538909588, max mem: 26.42578125, count: 56098"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.009124664685227, max cpu: 9.667674, count: 56098"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.617549868088, max mem: 166.08203125, count: 56098"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50812,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50672.7435202681, max block_count: 50812.0, count: 56098"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 44,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.43661093087098, max segment_count: 62.0, count: 56098"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6455436041541756, max cpu: 9.448819, count: 56098"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 113.43335421383115, max mem: 136.39453125, count: 56098"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794020982762276, max cpu: 9.67742, count: 56098"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.12841060510178, max mem: 165.73046875, count: 56098"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.906057776096578, max cpu: 33.267326, count: 56098"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.4277246960676, max mem: 220.84765625, count: 56098"
           }
         ]
       }

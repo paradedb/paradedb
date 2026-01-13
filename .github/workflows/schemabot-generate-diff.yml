@@ -165,7 +165,7 @@ jobs:
             echo "Checking if migration file contains all schema changes (order-independent)..."
 
             # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
-            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE"; then
+            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE" --debug; then
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."
               echo "Please ensure all the schema changes shown above are in your migration file."

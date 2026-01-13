@@ -164,7 +164,8 @@ jobs:
             echo "Checking if migration file contains the exact schema diff as a contiguous block..."
 
             # Check if the entire diff content exists as a contiguous sequence in the migration file
-            if ! grep -Fzo "$(cat ~/diff.sql)" "$MIGRATION_FILE" > /dev/null 2>&1; then
+            # Using Python for reliable multiline substring matching (grep -z is unreliable for this)
+            if ! python3 -c "import sys; diff=open('$HOME/diff.sql').read().strip(); mig=open('$MIGRATION_FILE').read(); sys.exit(0 if diff in mig else 1)"; then
               echo "❌ ERROR: Migration file does not contain the exact schema diff as a contiguous block."
               echo
               echo "The migration file at $MIGRATION_FILE needs to be updated."

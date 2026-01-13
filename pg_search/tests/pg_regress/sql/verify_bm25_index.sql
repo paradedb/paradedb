@@ -1,6 +1,9 @@
 -- Test paradedb.verify_bm25_index function
 -- This tests the amcheck-style index verification for BM25 indexes
 
+-- Setup: Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 -- Setup: Create a test table and index
 DROP TABLE IF EXISTS verify_test CASCADE;
 CREATE TABLE verify_test (

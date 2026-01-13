@@ -1,8 +1,9 @@
 -- Test paradedb.verify_bm25_index function
 -- This tests the amcheck-style index verification for BM25 indexes
+-- Setup: Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Setup: Create a test table and index
 DROP TABLE IF EXISTS verify_test CASCADE;
-NOTICE:  table "verify_test" does not exist, skipping
 CREATE TABLE verify_test (
     id SERIAL PRIMARY KEY,
     content TEXT,
@@ -132,7 +133,6 @@ DROP TABLE verify_test CASCADE;
 -- Test 8: Test with sampling (for large indexes)
 -- Create a larger table to test sampling
 DROP TABLE IF EXISTS verify_sampling_test CASCADE;
-NOTICE:  table "verify_sampling_test" does not exist, skipping
 CREATE TABLE verify_sampling_test (id SERIAL PRIMARY KEY, content TEXT);
 CREATE INDEX verify_sampling_idx ON verify_sampling_test USING bm25 (id, content) WITH (key_field = 'id');
 INSERT INTO verify_sampling_test (content)
@@ -151,7 +151,6 @@ DROP TABLE verify_sampling_test CASCADE;
 -- Test 9: Test with segment_ids for manual parallelization
 -- Create a table and force multiple segments by doing separate inserts (each is its own transaction)
 DROP TABLE IF EXISTS verify_parallel_test CASCADE;
-NOTICE:  table "verify_parallel_test" does not exist, skipping
 CREATE TABLE verify_parallel_test (id SERIAL PRIMARY KEY, content TEXT);
 -- Create index with low mutable_segment_rows to ensure segments are created
 CREATE INDEX verify_parallel_idx ON verify_parallel_test 

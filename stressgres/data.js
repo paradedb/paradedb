@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768317807695,
+  "lastUpdate": 1768318777562,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61202,6 +61202,54 @@ window.BENCHMARK_DATA = {
             "value": 108.40585427677226,
             "unit": "median tps",
             "extra": "avg tps: 107.90135067950858, max tps: 197.84139974944597, count: 107592"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9af25fd2b2ec302288bf83cbb201e27afb16de9",
+          "message": "fix: SchemaBot migration validation (#3908)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed the SchemaBot CI workflow to properly detect when migration files\nare missing required schema changes.\n\n## Why\n\nThe previous implementation used `grep -Fzo` for multiline substring\nmatching, which was unreliable and could incorrectly pass validation\neven when the migration file didn't contain the required schema diff\n(here's an example:\nhttps://github.com/paradedb/paradedb/actions/runs/20949137818/job/60198136293).\nThis allowed PRs with incomplete migration files to pass CI.\n\n## How\n\nReplaced `grep -Fzo` with a Python one-liner that performs reliable\nmultiline substring matching:\n\n```python\npython3 -c \"import sys; diff=open('$HOME/diff.sql').read().strip(); mig=open('$MIGRATION_FILE').read(); sys.exit(0 if diff in mig else 1)\"\n```\n\n## Tests\n\nVerified on PR #3907 that the check now correctly fails when the\nmigration file is missing the schema diff content.",
+          "timestamp": "2026-01-13T09:13:40-05:00",
+          "tree_id": "f0d09b8b768263f404d59e6eb4545cc63e149afd",
+          "url": "https://github.com/paradedb/paradedb/commit/c9af25fd2b2ec302288bf83cbb201e27afb16de9"
+        },
+        "date": 1768318773847,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 532.9290200636277,
+            "unit": "median tps",
+            "extra": "avg tps: 537.5120938455286, max tps: 686.2967787683236, count: 53794"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 626.6710825386617,
+            "unit": "median tps",
+            "extra": "avg tps: 631.8124742829715, max tps: 836.3997288127954, count: 53794"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.30462368739609,
+            "unit": "median tps",
+            "extra": "avg tps: 85.45449892487017, max tps: 93.77681186503818, count: 53794"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 106.64926290267393,
+            "unit": "median tps",
+            "extra": "avg tps: 105.15201138370618, max tps: 183.17303079869873, count: 107588"
           }
         ]
       }

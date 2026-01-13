@@ -6396,6 +6396,7 @@ dependencies = [
  "tantivy-bitpacker",
  "tantivy-common",
  "tantivy-fst",
+ "zstd",
 ]
 
 [[package]]

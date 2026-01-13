@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768316863206,
+  "lastUpdate": 1768316870508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41710,6 +41710,108 @@ window.BENCHMARK_DATA = {
             "value": 159.96484375,
             "unit": "median mem",
             "extra": "avg mem: 180.56847548141414, max mem: 220.53515625, count: 56656"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9af25fd2b2ec302288bf83cbb201e27afb16de9",
+          "message": "fix: SchemaBot migration validation (#3908)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed the SchemaBot CI workflow to properly detect when migration files\nare missing required schema changes.\n\n## Why\n\nThe previous implementation used `grep -Fzo` for multiline substring\nmatching, which was unreliable and could incorrectly pass validation\neven when the migration file didn't contain the required schema diff\n(here's an example:\nhttps://github.com/paradedb/paradedb/actions/runs/20949137818/job/60198136293).\nThis allowed PRs with incomplete migration files to pass CI.\n\n## How\n\nReplaced `grep -Fzo` with a Python one-liner that performs reliable\nmultiline substring matching:\n\n```python\npython3 -c \"import sys; diff=open('$HOME/diff.sql').read().strip(); mig=open('$MIGRATION_FILE').read(); sys.exit(0 if diff in mig else 1)\"\n```\n\n## Tests\n\nVerified on PR #3907 that the check now correctly fails when the\nmigration file is missing the schema diff content.",
+          "timestamp": "2026-01-13T09:13:40-05:00",
+          "tree_id": "f0d09b8b768263f404d59e6eb4545cc63e149afd",
+          "url": "https://github.com/paradedb/paradedb/commit/c9af25fd2b2ec302288bf83cbb201e27afb16de9"
+        },
+        "date": 1768316866818,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07895958297629249, max background_merging: 2.0, count: 56016"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.676769316577796, max cpu: 11.812962, count: 56016"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 22.660790904049737, max mem: 22.6796875, count: 56016"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.967184499483717, max cpu: 9.825998, count: 56016"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.4983959661079, max mem: 166.0234375, count: 56016"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 64552,
+            "unit": "median block_count",
+            "extra": "avg block_count: 64466.49123464724, max block_count: 64552.0, count: 56016"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 47,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 44.56626678091974, max segment_count: 59.0, count: 56016"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.515150519858956, max cpu: 9.458128, count: 56016"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 119.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 109.50629926047915, max mem: 136.0078125, count: 56016"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.754727125490449, max cpu: 9.746192, count: 56016"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.28801982915596, max mem: 165.55078125, count: 56016"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.6896863073029, max cpu: 33.300297, count: 56016"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.125,
+            "unit": "median mem",
+            "extra": "avg mem: 178.23250897344062, max mem: 220.4921875, count: 56016"
           }
         ]
       }

@@ -838,6 +838,82 @@ fn verify_bm25_index(
     Ok(TableIterator::new(results))
 }
 
+/// List all segments in a BM25 index.
+///
+/// Returns information about each segment, useful for:
+/// - Understanding index structure
+/// - Planning parallel verification with `verify_bm25_index(..., segment_ids := ...)`
+/// - Automating multi-client index checks
+///
+/// # Example
+/// ```sql
+/// -- List all segments
+/// SELECT * FROM paradedb.bm25_index_segments('my_index');
+///
+/// -- Automate parallel verification: split segments across N workers
+/// -- Worker 1:
+/// SELECT * FROM paradedb.verify_bm25_index('my_index',
+///     heapallindexed := true,
+///     segment_ids := (SELECT array_agg(segment_idx) FROM paradedb.bm25_index_segments('my_index')
+///                     WHERE segment_idx % 2 = 0));
+/// -- Worker 2:
+/// SELECT * FROM paradedb.verify_bm25_index('my_index',
+///     heapallindexed := true,
+///     segment_ids := (SELECT array_agg(segment_idx) FROM paradedb.bm25_index_segments('my_index')
+///                     WHERE segment_idx % 2 = 1));
+/// ```
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn bm25_index_segments(
+    index: PgRelation,
+) -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(partition_name, String),
+            name!(segment_idx, i32),
+            name!(segment_id, String),
+            name!(num_docs, i64),
+            name!(num_deleted, i64),
+            name!(max_doc, i64),
+        ),
+    >,
+> {
+    let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index_rel.clone())?;
+
+    let mut results = Vec::new();
+
+    for partition in index_kind.partitions() {
+        let partition_name = partition.name().to_owned();
+
+        // Try to open the index reader
+        let search_reader = match SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot) {
+            Ok(reader) => reader,
+            Err(_) => continue,
+        };
+
+        // Collect segment information
+        for (idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
+            let segment_id = segment_reader.segment_id().short_uuid_string();
+            let num_docs = segment_reader.num_docs() as i64;
+            let max_doc = segment_reader.max_doc() as i64;
+            let num_deleted = segment_reader.num_deleted_docs() as i64;
+
+            results.push((
+                partition_name.clone(),
+                idx as i32,
+                segment_id,
+                num_docs,
+                num_deleted,
+                max_doc,
+            ));
+        }
+    }
+
+    Ok(TableIterator::new(results))
+}
+
 type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.

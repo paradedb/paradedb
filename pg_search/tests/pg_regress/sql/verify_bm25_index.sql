@@ -122,5 +122,22 @@ SELECT check_name, details LIKE '%0 of%' as shows_zero_of_total
 FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := ARRAY[999])
 WHERE check_name LIKE '%segment_metadata%';
 
+-- Test 10: Test bm25_index_segments function for listing segments
+-- This function helps with automated multi-client verification
+SELECT COUNT(*) >= 2 as has_segments FROM paradedb.bm25_index_segments('verify_parallel_idx');
+
+-- Verify segment_idx values are sequential starting from 0
+SELECT bool_and(segment_idx >= 0) as valid_indices,
+       COUNT(DISTINCT segment_idx) = COUNT(*) as unique_indices
+FROM paradedb.bm25_index_segments('verify_parallel_idx');
+
+-- Example of using bm25_index_segments to automate parallel verification
+-- Verify only even-indexed segments
+SELECT check_name, passed, details LIKE '%of%' as is_partial
+FROM paradedb.verify_bm25_index('verify_parallel_idx',
+    heapallindexed := true,
+    segment_ids := (SELECT array_agg(segment_idx) FROM paradedb.bm25_index_segments('verify_parallel_idx') WHERE segment_idx % 2 = 0))
+WHERE check_name LIKE '%segment_metadata%';
+
 DROP TABLE verify_parallel_test CASCADE;
 

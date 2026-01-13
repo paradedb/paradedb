@@ -29,9 +29,10 @@ debug = true
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "03f09a2b5be7828918b04a50523e966cfc132835", features = [
-  "quickwit",        # for sstable support
+  "quickwit",                  # for sstable support
   "stopwords",
   "lz4-compression",
+  "columnar-zstd-compression",
 ], default-features = false }
 pgrx = "=0.16.1"
 pgrx-tests = "=0.16.1"

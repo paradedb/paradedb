@@ -449,9 +449,12 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 /// -- For large indexes: sample 10% of documents with progress reporting
 /// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, sample_rate := 0.1, report_progress := true);
 ///
+/// -- Verbose mode: show segment list and resume hints (useful for resuming after connection drop)
+/// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, report_progress := true, verbose := true);
+///
 /// -- Manual parallelization: run these queries from separate database connections
 /// -- First, get the segment count:
-/// --   SELECT (details->>'segment_count')::int FROM paradedb.index_info('my_index') LIMIT 1;
+/// --   SELECT COUNT(*) FROM paradedb.index_info('my_index');
 /// -- Then split verification across connections:
 /// -- Connection 1: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[0,1,2]);
 /// -- Connection 2: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[3,4,5]);
@@ -463,6 +466,7 @@ fn verify_bm25_index(
     heapallindexed: default!(bool, false),
     sample_rate: default!(f64, 1.0),
     report_progress: default!(bool, false),
+    verbose: default!(bool, false),
     segment_ids: default!(Option<Vec<i32>>, "NULL"),
 ) -> Result<
     TableIterator<
@@ -603,13 +607,13 @@ fn verify_bm25_index(
             .filter(|(idx, _)| {
                 segment_filter
                     .as_ref()
-                    .map_or(true, |filter| filter.contains(idx))
+                    .is_none_or(|filter| filter.contains(idx))
             })
             .cloned()
             .collect();
 
-        // Log segment list at the start for resumability
-        if report_progress {
+        // Log segment list at the start for resumability (only in verbose mode)
+        if verbose {
             let all_segment_list: Vec<String> = all_segments
                 .iter()
                 .map(|(idx, id)| format!("{}:{}", idx, id))
@@ -643,6 +647,17 @@ fn verify_bm25_index(
                     remaining_indices.join(", ")
                 );
             }
+        } else if report_progress {
+            // Basic progress: just show segment count
+            if segment_filter.is_some() {
+                pgrx::warning!(
+                    "verify_bm25_index: Verifying {} of {} segments",
+                    segments_to_process.len(),
+                    num_segments
+                );
+            } else {
+                pgrx::warning!("verify_bm25_index: Verifying {} segments", num_segments);
+            }
         }
 
         for (idx, segment_reader) in segment_readers.iter().enumerate() {
@@ -659,7 +674,7 @@ fn verify_bm25_index(
             let max_doc = segment_reader.max_doc();
 
             // Log progress for each segment
-            if report_progress {
+            if verbose {
                 pgrx::warning!(
                     "verify_bm25_index: Processing segment {}/{} (index={}, id={}, docs={})",
                     segments_checked,
@@ -687,8 +702,8 @@ fn verify_bm25_index(
                 ));
             }
 
-            // Log completion and resume hint after each segment
-            if report_progress {
+            // Log completion and resume hint after each segment (verbose mode only)
+            if verbose {
                 let remaining: Vec<String> = segments_to_process
                     .iter()
                     .filter(|(i, _)| *i > idx)
@@ -756,6 +771,7 @@ fn verify_bm25_index(
                 &search_reader,
                 sample_rate,
                 report_progress,
+                verbose,
                 &segment_filter,
             );
             match heap_check_result {
@@ -831,6 +847,7 @@ fn verify_heap_references(
     search_reader: &SearchIndexReader,
     sample_rate: f64,
     report_progress: bool,
+    verbose: bool,
     segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
     use crate::index::fast_fields_helper::FFType;
@@ -870,7 +887,7 @@ fn verify_heap_references(
         .filter(|(idx, _)| {
             segment_filter
                 .as_ref()
-                .map_or(true, |filter| filter.contains(idx))
+                .is_none_or(|filter| filter.contains(idx))
         })
         .map(|(_, r)| r.num_docs() as usize)
         .sum();
@@ -887,7 +904,7 @@ fn verify_heap_references(
         .filter(|(idx, _)| {
             segment_filter
                 .as_ref()
-                .map_or(true, |filter| filter.contains(idx))
+                .is_none_or(|filter| filter.contains(idx))
         })
         .map(|(idx, _)| idx)
         .collect();
@@ -907,7 +924,7 @@ fn verify_heap_references(
         let ctid_column = FFType::new_ctid(fast_fields);
         let alive_bitset = segment_reader.alive_bitset();
 
-        if report_progress {
+        if verbose {
             pgrx::warning!(
                 "verify_bm25_index: Heap check - starting segment {}/{} (index={}, id={}, {} docs)",
                 segments_completed + 1,
@@ -988,9 +1005,9 @@ fn verify_heap_references(
             }
         }
 
-        // Log segment completion with resume hint
+        // Log segment completion with resume hint (verbose mode only)
         segments_completed += 1;
-        if report_progress {
+        if verbose {
             let remaining: Vec<String> = segments_to_check
                 .iter()
                 .filter(|&&i| i > seg_idx)

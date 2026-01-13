@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768317802469,
+  "lastUpdate": 1768317807695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -57066,6 +57066,114 @@ window.BENCHMARK_DATA = {
             "value": 171.88671875,
             "unit": "median mem",
             "extra": "avg mem: 168.51181846668646, max mem: 173.5078125, count: 55548"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9af25fd2b2ec302288bf83cbb201e27afb16de9",
+          "message": "fix: SchemaBot migration validation (#3908)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed the SchemaBot CI workflow to properly detect when migration files\nare missing required schema changes.\n\n## Why\n\nThe previous implementation used `grep -Fzo` for multiline substring\nmatching, which was unreliable and could incorrectly pass validation\neven when the migration file didn't contain the required schema diff\n(here's an example:\nhttps://github.com/paradedb/paradedb/actions/runs/20949137818/job/60198136293).\nThis allowed PRs with incomplete migration files to pass CI.\n\n## How\n\nReplaced `grep -Fzo` with a Python one-liner that performs reliable\nmultiline substring matching:\n\n```python\npython3 -c \"import sys; diff=open('$HOME/diff.sql').read().strip(); mig=open('$MIGRATION_FILE').read(); sys.exit(0 if diff in mig else 1)\"\n```\n\n## Tests\n\nVerified on PR #3907 that the check now correctly fails when the\nmigration file is missing the schema diff content.",
+          "timestamp": "2026-01-13T09:13:40-05:00",
+          "tree_id": "f0d09b8b768263f404d59e6eb4545cc63e149afd",
+          "url": "https://github.com/paradedb/paradedb/commit/c9af25fd2b2ec302288bf83cbb201e27afb16de9"
+        },
+        "date": 1768317804002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.69261631784878, max cpu: 41.860466, count: 55516"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 140.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.54679021306922, max mem: 164.1953125, count: 55516"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.74656725467363, max cpu: 46.10951, count: 55516"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 116.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 115.35416964534998, max mem: 116.5546875, count: 55516"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.808381163238605, max cpu: 9.448819, count: 55516"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 124.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.19783352152983, max mem: 148.42578125, count: 55516"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13950,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14001.425480942431, max block_count: 23973.0, count: 55516"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.507796558531763, max cpu: 4.669261, count: 55516"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 97.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.14986297587632, max mem: 126.4609375, count: 55516"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.168888248432886, max segment_count: 38.0, count: 55516"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.847501182748124, max cpu: 46.69261, count: 111032"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 146.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 135.0193765930092, max mem: 160.828125, count: 111032"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.665166195748263, max cpu: 27.799229, count: 55516"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.9113285612481, max mem: 172.9765625, count: 55516"
           }
         ]
       }

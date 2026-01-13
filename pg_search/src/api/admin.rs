@@ -416,6 +416,311 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     ))
 }
 
+/// Verify the integrity of a BM25 index, similar to PostgreSQL's amcheck extension.
+///
+/// This function performs various verification checks on the index:
+/// - Segment checksum validation (using Tantivy's built-in checksums)
+/// - Segment metadata consistency
+/// - Schema validation
+/// - Optionally, heap reference validation (when `heapallindexed` is true)
+///
+/// # Arguments
+/// * `index` - The BM25 index to verify
+/// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table
+///
+/// # Returns
+/// A table with columns:
+/// - `check_name`: Name of the verification check
+/// - `passed`: Whether the check passed
+/// - `details`: Additional details about the check result
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn verify_bm25_index(
+    index: PgRelation,
+    heapallindexed: default!(bool, false),
+) -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(check_name, String),
+            name!(passed, bool),
+            name!(details, Option<String>),
+        ),
+    >,
+> {
+    let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    let index_kind = IndexKind::for_index(index_rel.clone())?;
+
+    let mut results = Vec::new();
+
+    // We process each partition of the index
+    for partition in index_kind.partitions() {
+        let partition_name = partition.name().to_owned();
+
+        // Check 1: Schema validation
+        let schema_result = partition.schema();
+        match &schema_result {
+            Ok(_schema) => {
+                results.push((
+                    format!("{}: schema_valid", partition_name),
+                    true,
+                    Some("Index schema loaded successfully".to_string()),
+                ));
+            }
+            Err(e) => {
+                results.push((
+                    format!("{}: schema_valid", partition_name),
+                    false,
+                    Some(format!("Failed to load index schema: {}", e)),
+                ));
+                // If schema fails, we can't do much more for this partition
+                continue;
+            }
+        }
+
+        // Check 2: Open index reader
+        let reader_result = SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot);
+        let search_reader = match reader_result {
+            Ok(reader) => {
+                results.push((
+                    format!("{}: index_readable", partition_name),
+                    true,
+                    Some("Index reader opened successfully".to_string()),
+                ));
+                reader
+            }
+            Err(e) => {
+                results.push((
+                    format!("{}: index_readable", partition_name),
+                    false,
+                    Some(format!("Failed to open index reader: {}", e)),
+                ));
+                continue;
+            }
+        };
+
+        // Check 3: Segment checksum validation
+        let checksum_result = search_reader.validate_checksum();
+        match checksum_result {
+            Ok(failed_checksums) => {
+                if failed_checksums.is_empty() {
+                    results.push((
+                        format!("{}: checksums_valid", partition_name),
+                        true,
+                        Some("All segment checksums validated successfully".to_string()),
+                    ));
+                } else {
+                    let failed_files: Vec<_> = failed_checksums
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect();
+                    results.push((
+                        format!("{}: checksums_valid", partition_name),
+                        false,
+                        Some(format!(
+                            "Checksum validation failed for {} files: {}",
+                            failed_files.len(),
+                            failed_files.join(", ")
+                        )),
+                    ));
+                }
+            }
+            Err(e) => {
+                results.push((
+                    format!("{}: checksums_valid", partition_name),
+                    false,
+                    Some(format!("Checksum validation error: {}", e)),
+                ));
+            }
+        }
+
+        // Check 4: Segment metadata consistency
+        let segment_readers = search_reader.segment_readers();
+        let num_segments = segment_readers.len();
+        let mut segment_issues = Vec::new();
+
+        for (idx, segment_reader) in segment_readers.iter().enumerate() {
+            let segment_id = segment_reader.segment_id().short_uuid_string();
+            let num_docs = segment_reader.num_docs();
+            let max_doc = segment_reader.max_doc();
+
+            // Basic sanity check: num_docs should not exceed max_doc
+            if num_docs > max_doc {
+                segment_issues.push(format!(
+                    "Segment {} ({}): num_docs ({}) exceeds max_doc ({})",
+                    idx, segment_id, num_docs, max_doc
+                ));
+            }
+
+            // Check if fast fields are accessible (specifically ctid)
+            let fast_fields = segment_reader.fast_fields();
+            if fast_fields.u64("ctid").is_err() {
+                segment_issues.push(format!(
+                    "Segment {} ({}): ctid fast field not accessible",
+                    idx, segment_id
+                ));
+            }
+        }
+
+        if segment_issues.is_empty() {
+            results.push((
+                format!("{}: segment_metadata_valid", partition_name),
+                true,
+                Some(format!(
+                    "{} segments validated successfully",
+                    num_segments
+                )),
+            ));
+        } else {
+            results.push((
+                format!("{}: segment_metadata_valid", partition_name),
+                false,
+                Some(segment_issues.join("; ")),
+            ));
+        }
+
+        // Check 5: Heap reference validation (optional, expensive)
+        if heapallindexed {
+            let heap_check_result =
+                verify_heap_references(&partition, &search_reader);
+            match heap_check_result {
+                Ok((total_checked, missing_ctids)) => {
+                    if missing_ctids.is_empty() {
+                        results.push((
+                            format!("{}: heap_references_valid", partition_name),
+                            true,
+                            Some(format!(
+                                "All {} indexed ctids exist in heap",
+                                total_checked
+                            )),
+                        ));
+                    } else {
+                        // Limit the number of reported missing ctids
+                        let sample: Vec<_> = missing_ctids
+                            .iter()
+                            .take(10)
+                            .map(|ctid| format!("{:?}", ctid))
+                            .collect();
+                        let more = if missing_ctids.len() > 10 {
+                            format!(" (and {} more)", missing_ctids.len() - 10)
+                        } else {
+                            String::new()
+                        };
+                        results.push((
+                            format!("{}: heap_references_valid", partition_name),
+                            false,
+                            Some(format!(
+                                "{} of {} indexed ctids missing from heap: {}{}",
+                                missing_ctids.len(),
+                                total_checked,
+                                sample.join(", "),
+                                more
+                            )),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    results.push((
+                        format!("{}: heap_references_valid", partition_name),
+                        false,
+                        Some(format!("Heap reference check failed: {}", e)),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(TableIterator::new(results))
+}
+
+/// Helper function to verify that all indexed ctids exist in the heap.
+/// Returns (total_checked, missing_ctids)
+fn verify_heap_references(
+    index_rel: &PgSearchRelation,
+    search_reader: &SearchIndexReader,
+) -> Result<(usize, Vec<(u32, u16)>)> {
+    use crate::index::fast_fields_helper::FFType;
+    use crate::postgres::utils::u64_to_item_pointer;
+
+    // Get the heap relation OID from the index
+    let heap_oid = index_rel
+        .rel_oid()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine heap relation for index"))?;
+
+    // Open the heap relation
+    let heap_rel = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
+
+    // Set up heap fetch state
+    let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
+    let slot = unsafe {
+        pg_sys::MakeTupleTableSlot(
+            pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
+            &pg_sys::TTSOpsBufferHeapTuple,
+        )
+    };
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
+    let mut total_checked = 0usize;
+    let mut missing_ctids = Vec::new();
+
+    // Iterate through all segments and all documents
+    for segment_reader in search_reader.segment_readers() {
+        let fast_fields = segment_reader.fast_fields();
+        let ctid_column = FFType::new_ctid(fast_fields);
+        let alive_bitset = segment_reader.alive_bitset();
+
+        // Iterate through all document IDs in this segment
+        for doc_id in 0..segment_reader.max_doc() {
+            // Skip deleted documents
+            if let Some(bitset) = &alive_bitset {
+                if !bitset.is_alive(doc_id) {
+                    continue;
+                }
+            }
+
+            // Get the ctid for this document
+            let ctid_u64 = match ctid_column.as_u64(doc_id) {
+                Some(val) => val,
+                None => continue, // Skip if ctid is not available
+            };
+
+            total_checked += 1;
+
+            // Convert u64 to ItemPointerData
+            let mut tid = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(ctid_u64, &mut tid);
+
+            // Check if the tuple exists in the heap
+            let mut call_again = false;
+            let mut all_dead = false;
+            let found = unsafe {
+                pg_sys::ExecClearTuple(slot);
+                pg_sys::table_index_fetch_tuple(
+                    scan,
+                    &mut tid,
+                    snapshot,
+                    slot,
+                    &mut call_again,
+                    &mut all_dead,
+                )
+            };
+
+            if !found {
+                let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
+                missing_ctids.push((block, offset));
+            }
+        }
+    }
+
+    // Clean up
+    unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+        pg_sys::table_index_fetch_end(scan);
+    }
+
+    Ok((total_checked, missing_ctids))
+}
+
 #[pg_extern(sql = "")]
 fn create_bm25_jsonb() {}
 

@@ -4,7 +4,7 @@
 -- Setup: Create the extension first
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
--- Setup: Create a test table and index
+-- Setup: Create a test table and index with multiple segments
 DROP TABLE IF EXISTS verify_test CASCADE;
 CREATE TABLE verify_test (
     id SERIAL PRIMARY KEY,
@@ -13,15 +13,22 @@ CREATE TABLE verify_test (
     score INT
 );
 
-CREATE INDEX verify_test_idx ON verify_test USING bm25 (id, content, category, score) WITH (key_field = 'id');
+CREATE INDEX verify_test_idx ON verify_test USING bm25 (id, content, category, score) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 
--- Insert some test data
+-- Insert data in multiple batches to create multiple segments
 INSERT INTO verify_test (content, category, score) VALUES
     ('hello world', 'greeting', 10),
     ('goodbye world', 'farewell', 20),
     ('search engine', 'technology', 30),
     ('full text search', 'technology', 40),
     ('paradedb postgres', 'database', 50);
+INSERT INTO verify_test (content, category, score) VALUES
+    ('additional content', 'misc', 60),
+    ('more data here', 'misc', 70),
+    ('testing segments', 'test', 80),
+    ('multiple batches', 'test', 90),
+    ('segment creation', 'test', 100);
 
 -- Test 1: Basic verification without heapallindexed option
 -- Should return schema_valid, index_readable, checksums_valid, segment_metadata_valid
@@ -70,12 +77,16 @@ SELECT id, content FROM verify_test WHERE content @@@ 'test' ORDER BY id LIMIT 5
 DROP TABLE verify_test CASCADE;
 
 -- Test 8: Test with sampling (for large indexes)
--- Create a larger table to test sampling
+-- Create a larger table with multiple segments to test sampling
 DROP TABLE IF EXISTS verify_sampling_test CASCADE;
 CREATE TABLE verify_sampling_test (id SERIAL PRIMARY KEY, content TEXT);
-CREATE INDEX verify_sampling_idx ON verify_sampling_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO verify_sampling_test (content)
-SELECT 'test content ' || i FROM generate_series(1, 1000) i;
+CREATE INDEX verify_sampling_idx ON verify_sampling_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 100);
+-- Insert in batches to create multiple segments
+INSERT INTO verify_sampling_test (content) SELECT 'batch1 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch2 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch3 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch4 content ' || i FROM generate_series(1, 250) i;
 
 -- Test sampling at 50% - should check approximately half the documents
 SELECT check_name, passed, 
@@ -102,12 +113,12 @@ INSERT INTO verify_parallel_test (content) SELECT 'batch3 ' || i FROM generate_s
 INSERT INTO verify_parallel_test (content) SELECT 'batch4 ' || i FROM generate_series(1, 50) i;
 
 -- Get the segment count - should have multiple segments now (typically 4-8)
-SELECT COUNT(*) >= 2 as has_multiple_segments FROM pdb.index_segments('verify_parallel_idx');
+SELECT COUNT(*) >= 4 as has_multiple_segments FROM pdb.index_segments('verify_parallel_idx');
 
--- Test verifying with segment_ids parameter (verify only segments 0 and 1)
--- The segment_metadata details should show "2 of N" for filtering
-SELECT check_name, passed, details LIKE '%2 of%' as shows_partial_segments
-FROM pdb.verify_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0, 1])
+-- Test verifying with segment_ids parameter (verify only segment 0)
+-- The segment_metadata details should show "1 of N" for filtering
+SELECT check_name, passed, details LIKE '%1 of%' as shows_partial_segments
+FROM pdb.verify_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0])
 WHERE check_name LIKE '%segment_metadata%';
 
 -- Test with empty segment_ids array (should check 0 segments)
@@ -127,7 +138,7 @@ WHERE check_name LIKE '%segment_metadata%';
 
 -- Test 10: Test pdb.index_segments function for listing segments
 -- This function helps with automated multi-client verification
-SELECT COUNT(*) >= 2 as has_segments FROM pdb.index_segments('verify_parallel_idx');
+SELECT COUNT(*) >= 4 as has_segments FROM pdb.index_segments('verify_parallel_idx');
 
 -- Verify segment_idx values are sequential starting from 0
 SELECT bool_and(segment_idx >= 0) as valid_indices,
@@ -147,12 +158,16 @@ DROP TABLE verify_parallel_test CASCADE;
 -- Test 11: Test pdb.indexes() function for listing all BM25 indexes
 DROP TABLE IF EXISTS test_all_idx1, test_all_idx2;
 CREATE TABLE test_all_idx1 (id serial, content text);
-CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
 INSERT INTO test_all_idx1 (content) SELECT 'test' || i FROM generate_series(1,10) i;
+INSERT INTO test_all_idx1 (content) SELECT 'more' || i FROM generate_series(1,10) i;
 
 CREATE TABLE test_all_idx2 (id serial, title text);
-CREATE INDEX test_all_idx2_idx ON test_all_idx2 USING bm25 (id, title) WITH (key_field = 'id');
-INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,5) i;
+CREATE INDEX test_all_idx2_idx ON test_all_idx2 USING bm25 (id, title) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,10) i;
+INSERT INTO test_all_idx2 (title) SELECT 'file' || i FROM generate_series(1,10) i;
 
 -- List all BM25 indexes
 SELECT schemaname, tablename, indexname, num_segments > 0 as has_segments, total_docs > 0 as has_docs
@@ -180,8 +195,11 @@ DROP TABLE test_all_idx1, test_all_idx2;
 -- Disable triggers and delete rows to create "dangling" index entries
 DROP TABLE IF EXISTS corruption_test CASCADE;
 CREATE TABLE corruption_test (id serial PRIMARY KEY, content text);
-CREATE INDEX corruption_idx ON corruption_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(1, 50) i;
+CREATE INDEX corruption_idx ON corruption_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Insert in batches to create multiple segments
+INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(1, 25) i;
+INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(26, 50) i;
 
 -- Verify healthy state first
 SELECT 'Before corruption' as state, check_name, passed
@@ -215,15 +233,19 @@ DROP TABLE corruption_test CASCADE;
 -- Test 17: pdb.verify_all_indexes with mixed healthy and corrupted indexes
 DROP TABLE IF EXISTS healthy_table, corrupted_table CASCADE;
 
--- Create healthy table and index
+-- Create healthy table and index with multiple segments
 CREATE TABLE healthy_table (id serial PRIMARY KEY, content text);
-CREATE INDEX healthy_idx ON healthy_table USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX healthy_idx ON healthy_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 INSERT INTO healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
+INSERT INTO healthy_table (content) SELECT 'more healthy ' || i FROM generate_series(1, 20) i;
 
--- Create corrupted table and index
+-- Create corrupted table and index with multiple segments
 CREATE TABLE corrupted_table (id serial PRIMARY KEY, content text);
-CREATE INDEX corrupted_idx ON corrupted_table USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX corrupted_idx ON corrupted_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 INSERT INTO corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
+INSERT INTO corrupted_table (content) SELECT 'more corrupted ' || i FROM generate_series(1, 20) i;
 
 -- Corrupt the second index
 ALTER TABLE corrupted_table DISABLE TRIGGER ALL;
@@ -252,8 +274,10 @@ DROP TABLE healthy_table, corrupted_table CASCADE;
 -- Progress messages are emitted via WARNING, we just verify it doesn't error
 DROP TABLE IF EXISTS progress_test CASCADE;
 CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
-CREATE INDEX progress_idx ON progress_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
+CREATE INDEX progress_idx ON progress_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
 -- Should complete without error and emit progress warnings
 SELECT check_name, passed
@@ -267,8 +291,10 @@ DROP TABLE progress_test CASCADE;
 -- We suppress WARNINGs in the test output since segment IDs are random
 DROP TABLE IF EXISTS verbose_test CASCADE;
 CREATE TABLE verbose_test (id serial PRIMARY KEY, content text);
-CREATE INDEX verbose_idx ON verbose_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO verbose_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+CREATE INDEX verbose_idx ON verbose_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO verbose_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO verbose_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 
 -- Suppress WARNINGs to avoid random segment IDs in output
 SET client_min_messages TO error;
@@ -291,12 +317,16 @@ CREATE SCHEMA test_schema_a;
 CREATE SCHEMA test_schema_b;
 
 CREATE TABLE test_schema_a.test_table (id serial, content text);
-CREATE INDEX test_a_idx ON test_schema_a.test_table USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO test_schema_a.test_table (content) SELECT 'a' || i FROM generate_series(1, 5) i;
+CREATE INDEX test_a_idx ON test_schema_a.test_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_schema_a.test_table (content) SELECT 'a' || i FROM generate_series(1, 10) i;
+INSERT INTO test_schema_a.test_table (content) SELECT 'aa' || i FROM generate_series(1, 10) i;
 
 CREATE TABLE test_schema_b.test_table (id serial, content text);
-CREATE INDEX test_b_idx ON test_schema_b.test_table USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO test_schema_b.test_table (content) SELECT 'b' || i FROM generate_series(1, 5) i;
+CREATE INDEX test_b_idx ON test_schema_b.test_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_schema_b.test_table (content) SELECT 'b' || i FROM generate_series(1, 10) i;
+INSERT INTO test_schema_b.test_table (content) SELECT 'bb' || i FROM generate_series(1, 10) i;
 
 -- Filter by schema_pattern - should only return schema_a
 SELECT schemaname, indexname, check_name, passed
@@ -316,7 +346,8 @@ DROP SCHEMA test_schema_b CASCADE;
 -- Test 22: Test empty index verification
 DROP TABLE IF EXISTS empty_test CASCADE;
 CREATE TABLE empty_test (id serial PRIMARY KEY, content text);
-CREATE INDEX empty_idx ON empty_test USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX empty_idx ON empty_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 
 -- Verify empty index works
 SELECT check_name, passed
@@ -333,7 +364,8 @@ DROP TABLE empty_test CASCADE;
 -- Test 23: Test index_segments on empty index
 DROP TABLE IF EXISTS empty_segments_test CASCADE;
 CREATE TABLE empty_segments_test (id serial PRIMARY KEY, content text);
-CREATE INDEX empty_segments_idx ON empty_segments_test USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX empty_segments_idx ON empty_segments_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 
 -- Should return 0 rows for empty index
 SELECT COUNT(*) as segment_count FROM pdb.index_segments('empty_segments_idx');
@@ -343,8 +375,10 @@ DROP TABLE empty_segments_test CASCADE;
 -- Test 24: Test index_segments column values
 DROP TABLE IF EXISTS segment_columns_test CASCADE;
 CREATE TABLE segment_columns_test (id serial PRIMARY KEY, content text);
-CREATE INDEX segment_columns_idx ON segment_columns_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO segment_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
+CREATE INDEX segment_columns_idx ON segment_columns_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO segment_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO segment_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
 -- Delete some rows to test num_deleted column
 DELETE FROM segment_columns_test WHERE id <= 10;
@@ -365,8 +399,10 @@ DROP TABLE segment_columns_test CASCADE;
 -- Test 25: Test sample_rate edge cases
 DROP TABLE IF EXISTS sample_edge_test CASCADE;
 CREATE TABLE sample_edge_test (id serial PRIMARY KEY, content text);
-CREATE INDEX sample_edge_idx ON sample_edge_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO sample_edge_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
+CREATE INDEX sample_edge_idx ON sample_edge_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO sample_edge_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO sample_edge_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
 -- sample_rate = 0.0 should check 0 documents
 SELECT check_name, passed, details LIKE '%0 of 0%' as checked_zero
@@ -393,8 +429,10 @@ DROP TABLE sample_edge_test CASCADE;
 -- Test 26: Test indexes() returns correct column values
 DROP TABLE IF EXISTS indexes_columns_test CASCADE;
 CREATE TABLE indexes_columns_test (id serial PRIMARY KEY, content text);
-CREATE INDEX indexes_columns_idx ON indexes_columns_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO indexes_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+CREATE INDEX indexes_columns_idx ON indexes_columns_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO indexes_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO indexes_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 
 SELECT 
     schemaname = 'public' as correct_schema,
@@ -411,8 +449,10 @@ DROP TABLE indexes_columns_test CASCADE;
 -- Test 27: Test verify_all_indexes with heapallindexed and sample_rate
 DROP TABLE IF EXISTS verify_all_options_test CASCADE;
 CREATE TABLE verify_all_options_test (id serial PRIMARY KEY, content text);
-CREATE INDEX verify_all_options_idx ON verify_all_options_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO verify_all_options_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
+CREATE INDEX verify_all_options_idx ON verify_all_options_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO verify_all_options_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_all_options_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
 
 -- Test with heapallindexed and sample_rate
 SELECT indexname, check_name, passed, details LIKE '%sampled%' as is_sampled
@@ -477,8 +517,10 @@ DROP TABLE basic_progress_test CASCADE;
 -- works correctly by verifying a healthy index returns all checks
 DROP TABLE IF EXISTS error_stop_healthy_test CASCADE;
 CREATE TABLE error_stop_healthy_test (id serial PRIMARY KEY, content text);
-CREATE INDEX error_stop_healthy_idx ON error_stop_healthy_test USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX error_stop_healthy_idx ON error_stop_healthy_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
 INSERT INTO error_stop_healthy_test (content) SELECT 'content ' || i FROM generate_series(1, 20) i;
+INSERT INTO error_stop_healthy_test (content) SELECT 'more content ' || i FROM generate_series(1, 20) i;
 
 -- on_error_stop on healthy index should return all checks
 SELECT COUNT(*) as check_count
@@ -496,8 +538,10 @@ FROM pdb.verify_all_indexes(schema_pattern := 'nonexistent_schema_%');
 -- Test 32: Test that details column contains meaningful information
 DROP TABLE IF EXISTS details_test CASCADE;
 CREATE TABLE details_test (id serial PRIMARY KEY, content text);
-CREATE INDEX details_idx ON details_test USING bm25 (id, content) WITH (key_field = 'id');
-INSERT INTO details_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+CREATE INDEX details_idx ON details_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO details_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO details_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
 
 SELECT check_name, 
        passed,

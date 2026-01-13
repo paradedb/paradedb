@@ -951,13 +951,6 @@ pub mod pdb {
     ///     heapallindexed := true,
     ///     segment_ids := ARRAY[3,4,5]);
     ///
-    /// -- Or automate the split for N workers:
-    /// SELECT * FROM pdb.verify_index('my_index',
-    ///     heapallindexed := true,
-    ///     segment_ids := (SELECT array_agg(segment_idx)
-    ///                     FROM pdb.index_segments('my_index')
-    ///                     WHERE segment_idx % 2 = 0));
-    ///
     /// -- Stop on first error (like pg_amcheck --on-error-stop)
     /// SELECT * FROM pdb.verify_index('my_index', on_error_stop := true);
     /// ```

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768268790649,
+  "lastUpdate": 1768269714441,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -60560,6 +60560,54 @@ window.BENCHMARK_DATA = {
             "value": 108.7447031033974,
             "unit": "median tps",
             "extra": "avg tps: 106.07672469813615, max tps: 133.07153317588993, count: 107616"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d93cc8baac03a3c8f2143a8e8f8beef5350c9419",
+          "message": "chore: Incorporate Tantivy with index sorting (#3906)\n\n## What\n\nThis is a clone of #2691 which does not actually begin using a `ctid`\nsort, and just incorporates https://github.com/paradedb/tantivy/pull/92\n.\n\n## Why\n\nTo enable work on https://github.com/paradedb/paradedb/issues/3053.",
+          "timestamp": "2026-01-12T16:38:23-08:00",
+          "tree_id": "d1fecf1de3ea8543121eb3d9caa26cf25d049d80",
+          "url": "https://github.com/paradedb/paradedb/commit/d93cc8baac03a3c8f2143a8e8f8beef5350c9419"
+        },
+        "date": 1768269710859,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 550.8338293762888,
+            "unit": "median tps",
+            "extra": "avg tps: 550.592548840116, max tps: 701.7989194156409, count: 53796"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 643.8772541824446,
+            "unit": "median tps",
+            "extra": "avg tps: 642.3723025568643, max tps: 817.7955584705423, count: 53796"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.74831527596906,
+            "unit": "median tps",
+            "extra": "avg tps: 86.82744614941885, max tps: 92.10067856736642, count: 53796"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.40585427677226,
+            "unit": "median tps",
+            "extra": "avg tps: 107.90135067950858, max tps: 197.84139974944597, count: 107592"
           }
         ]
       }

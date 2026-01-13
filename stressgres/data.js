@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768333998486,
+  "lastUpdate": 1768335010168,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32496,6 +32496,54 @@ window.BENCHMARK_DATA = {
             "value": 5.523009174482747,
             "unit": "median tps",
             "extra": "avg tps: 5.516318725679388, max tps: 6.25086531509915, count: 56016"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768335006589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1134.9578666132675,
+            "unit": "median tps",
+            "extra": "avg tps: 1136.1415017352733, max tps: 1184.2005256940547, count: 56098"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1268.2293930362116,
+            "unit": "median tps",
+            "extra": "avg tps: 1261.039925605951, max tps: 1285.8002672008836, count: 56098"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1909.9611869307305,
+            "unit": "median tps",
+            "extra": "avg tps: 1887.427503661226, max tps: 2060.9870554670624, count: 56098"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.571005335114259,
+            "unit": "median tps",
+            "extra": "avg tps: 5.547849973977952, max tps: 7.219623085715135, count: 56098"
           }
         ]
       }

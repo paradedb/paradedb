@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768126841042,
+  "lastUpdate": 1768265927110,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6458,6 +6458,72 @@ window.BENCHMARK_DATA = {
             "value": 207.34841755057136,
             "unit": "median tps",
             "extra": "avg tps: 222.40730062738953, max tps: 519.417739639434, count: 55261"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d93cc8baac03a3c8f2143a8e8f8beef5350c9419",
+          "message": "chore: Incorporate Tantivy with index sorting (#3906)\n\n## What\n\nThis is a clone of #2691 which does not actually begin using a `ctid`\nsort, and just incorporates https://github.com/paradedb/tantivy/pull/92\n.\n\n## Why\n\nTo enable work on https://github.com/paradedb/paradedb/issues/3053.",
+          "timestamp": "2026-01-12T16:38:23-08:00",
+          "tree_id": "d1fecf1de3ea8543121eb3d9caa26cf25d049d80",
+          "url": "https://github.com/paradedb/paradedb/commit/d93cc8baac03a3c8f2143a8e8f8beef5350c9419"
+        },
+        "date": 1768265923472,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 560.2294086306838,
+            "unit": "median tps",
+            "extra": "avg tps: 560.0421888365195, max tps: 729.6740530454616, count: 55350"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3063.940669146906,
+            "unit": "median tps",
+            "extra": "avg tps: 3056.966871919007, max tps: 3088.5468825913526, count: 55350"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 595.5372818227427,
+            "unit": "median tps",
+            "extra": "avg tps: 593.983379656926, max tps: 694.6722441291786, count: 55350"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 489.7353615370113,
+            "unit": "median tps",
+            "extra": "avg tps: 488.3937475100628, max tps: 494.7229206453747, count: 55350"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3306.941989696858,
+            "unit": "median tps",
+            "extra": "avg tps: 3299.794812394958, max tps: 3362.1138282060697, count: 110700"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2131.5124281492335,
+            "unit": "median tps",
+            "extra": "avg tps: 2119.782955041738, max tps: 2137.4996146810504, count: 55350"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 84.44293558523249,
+            "unit": "median tps",
+            "extra": "avg tps: 85.85822614110049, max tps: 396.74604761587364, count: 55350"
           }
         ]
       }

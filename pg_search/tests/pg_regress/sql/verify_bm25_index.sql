@@ -82,3 +82,45 @@ WHERE check_name LIKE '%heap_references%';
 
 DROP TABLE verify_sampling_test CASCADE;
 
+-- Test 9: Test with segment_ids for manual parallelization
+-- Create a table and force multiple segments by doing separate inserts (each is its own transaction)
+DROP TABLE IF EXISTS verify_parallel_test CASCADE;
+CREATE TABLE verify_parallel_test (id SERIAL PRIMARY KEY, content TEXT);
+
+-- Create index with low mutable_segment_rows to ensure segments are created
+CREATE INDEX verify_parallel_idx ON verify_parallel_test 
+  USING bm25 (id, content) 
+  WITH (key_field = 'id', mutable_segment_rows = 10);
+
+-- Insert data in multiple separate statements (each creates a new segment)
+INSERT INTO verify_parallel_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch2 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch3 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch4 ' || i FROM generate_series(1, 50) i;
+
+-- Get the segment count - should have multiple segments now (typically 4-8)
+SELECT COUNT(*) >= 2 as has_multiple_segments FROM paradedb.index_info('verify_parallel_idx');
+
+-- Test verifying with segment_ids parameter (verify only segments 0 and 1)
+-- The segment_metadata details should show "2 of N" for filtering
+SELECT check_name, passed, details LIKE '%2 of%' as shows_partial_segments
+FROM paradedb.verify_bm25_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0, 1])
+WHERE check_name LIKE '%segment_metadata%';
+
+-- Test with empty segment_ids array (should check 0 segments)
+SELECT check_name, passed, details LIKE '%0 of%' as verifies_none
+FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := ARRAY[]::int[])
+WHERE check_name LIKE '%segment_metadata%';
+
+-- Test with NULL segment_ids (default behavior - checks all segments, no "of" in details)
+SELECT check_name, passed, details NOT LIKE '% of %' as no_partial_indicator
+FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := NULL)
+WHERE check_name LIKE '%segment_metadata%';
+
+-- Test verifying a non-existent segment (should show 0 of N segments validated)
+SELECT check_name, details LIKE '%0 of%' as shows_zero_of_total
+FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := ARRAY[999])
+WHERE check_name LIKE '%segment_metadata%';
+
+DROP TABLE verify_parallel_test CASCADE;
+

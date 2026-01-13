@@ -429,6 +429,8 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 /// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table
 /// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0, default 1.0 = 100%)
 /// * `report_progress` - If true, emit progress messages via WARNING for long-running checks
+/// * `segment_ids` - Optional array of segment indices to verify (0-based). If NULL, verify all segments.
+///                   Use this for manual parallelization across multiple database connections.
 ///
 /// # Returns
 /// A table with columns:
@@ -446,6 +448,13 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 ///
 /// -- For large indexes: sample 10% of documents with progress reporting
 /// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, sample_rate := 0.1, report_progress := true);
+///
+/// -- Manual parallelization: run these queries from separate database connections
+/// -- First, get the segment count:
+/// --   SELECT (details->>'segment_count')::int FROM paradedb.index_info('my_index') LIMIT 1;
+/// -- Then split verification across connections:
+/// -- Connection 1: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[0,1,2]);
+/// -- Connection 2: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[3,4,5]);
 /// ```
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -454,6 +463,7 @@ fn verify_bm25_index(
     heapallindexed: default!(bool, false),
     sample_rate: default!(f64, 1.0),
     report_progress: default!(bool, false),
+    segment_ids: default!(Option<Vec<i32>>, "NULL"),
 ) -> Result<
     TableIterator<
         'static,
@@ -466,6 +476,14 @@ fn verify_bm25_index(
 > {
     // Validate sample_rate
     let sample_rate = sample_rate.clamp(0.0, 1.0);
+
+    // Convert segment_ids to a HashSet for O(1) lookup
+    let segment_filter: Option<HashSet<usize>> = segment_ids.map(|ids| {
+        ids.into_iter()
+            .filter(|&id| id >= 0)
+            .map(|id| id as usize)
+            .collect()
+    });
 
     let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let index_kind = IndexKind::for_index(index_rel.clone())?;
@@ -570,8 +588,17 @@ fn verify_bm25_index(
         let segment_readers = search_reader.segment_readers();
         let num_segments = segment_readers.len();
         let mut segment_issues = Vec::new();
+        let mut segments_checked = 0usize;
 
         for (idx, segment_reader) in segment_readers.iter().enumerate() {
+            // Skip segments not in the filter (if filter is specified)
+            if let Some(ref filter) = segment_filter {
+                if !filter.contains(&idx) {
+                    continue;
+                }
+            }
+
+            segments_checked += 1;
             let segment_id = segment_reader.segment_id().short_uuid_string();
             let num_docs = segment_reader.num_docs();
             let max_doc = segment_reader.max_doc();
@@ -594,11 +621,20 @@ fn verify_bm25_index(
             }
         }
 
+        let segment_info = if segment_filter.is_some() {
+            format!(
+                "{} of {} segments validated successfully",
+                segments_checked, num_segments
+            )
+        } else {
+            format!("{} segments validated successfully", num_segments)
+        };
+
         if segment_issues.is_empty() {
             results.push((
                 format!("{}: segment_metadata_valid", partition_name),
                 true,
-                Some(format!("{} segments validated successfully", num_segments)),
+                Some(segment_info),
             ));
         } else {
             results.push((
@@ -611,14 +647,25 @@ fn verify_bm25_index(
         // Check 5: Heap reference validation (optional, expensive)
         if heapallindexed {
             if report_progress {
+                let segment_info = if segment_filter.is_some() {
+                    format!(" for {} selected segments", segments_checked)
+                } else {
+                    String::new()
+                };
                 pgrx::warning!(
-                    "verify_bm25_index: Starting heap reference check for {} (sample_rate: {:.0}%)",
+                    "verify_bm25_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
                     partition_name,
-                    sample_rate * 100.0
+                    sample_rate * 100.0,
+                    segment_info
                 );
             }
-            let heap_check_result =
-                verify_heap_references(&partition, &search_reader, sample_rate, report_progress);
+            let heap_check_result = verify_heap_references(
+                &partition,
+                &search_reader,
+                sample_rate,
+                report_progress,
+                &segment_filter,
+            );
             match heap_check_result {
                 Ok((total_checked, total_docs, missing_ctids)) => {
                     let sample_info = if sample_rate < 1.0 {
@@ -692,6 +739,7 @@ fn verify_heap_references(
     search_reader: &SearchIndexReader,
     sample_rate: f64,
     report_progress: bool,
+    segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
     use crate::index::fast_fields_helper::FFType;
     use crate::postgres::utils::u64_to_item_pointer;
@@ -722,11 +770,17 @@ fn verify_heap_references(
     // This ensures reproducible results for the same sample_rate
     let sample_threshold = (sample_rate * u32::MAX as f64) as u32;
 
-    // Calculate total docs for progress reporting
+    // Calculate total docs for progress reporting (only for segments we'll check)
     let total_alive_docs: usize = search_reader
         .segment_readers()
         .iter()
-        .map(|r| r.num_docs() as usize)
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .map_or(true, |filter| filter.contains(idx))
+        })
+        .map(|(_, r)| r.num_docs() as usize)
         .sum();
 
     // Progress reporting interval (report every ~5% or every 100k docs, whichever is larger)
@@ -735,6 +789,13 @@ fn verify_heap_references(
 
     // Iterate through all segments and all documents
     for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
+        // Skip segments not in the filter (if filter is specified)
+        if let Some(ref filter) = segment_filter {
+            if !filter.contains(&seg_idx) {
+                continue;
+            }
+        }
+
         let fast_fields = segment_reader.fast_fields();
         let ctid_column = FFType::new_ctid(fast_fields);
         let alive_bitset = segment_reader.alive_bitset();

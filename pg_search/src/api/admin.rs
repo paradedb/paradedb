@@ -31,6 +31,7 @@ use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
+use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
@@ -1536,8 +1537,6 @@ pub mod pdb {
         ORDER BY n.nspname, t.relname, i.relname
     "#;
 
-        use pgrx::datum::DatumWithOid;
-
         Spi::connect(|client| {
             let args: [DatumWithOid; 0] = [];
             let result = client.select(query, None, &args)?;
@@ -1696,8 +1695,6 @@ pub mod pdb {
         query.push_str(" ORDER BY n.nspname, i.relname");
 
         // Collect indexes to verify
-        use pgrx::datum::DatumWithOid;
-
         let indexes: Vec<(String, String, pg_sys::Oid)> = Spi::connect(|client| {
             let mut indexes = Vec::new();
 

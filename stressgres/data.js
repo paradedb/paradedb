@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768265932789,
+  "lastUpdate": 1768266883386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21736,6 +21736,42 @@ window.BENCHMARK_DATA = {
             "value": 5.384046961458523,
             "unit": "median tps",
             "extra": "avg tps: 4.822997487870032, max tps: 6.012005224555674, count: 57920"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d93cc8baac03a3c8f2143a8e8f8beef5350c9419",
+          "message": "chore: Incorporate Tantivy with index sorting (#3906)\n\n## What\n\nThis is a clone of #2691 which does not actually begin using a `ctid`\nsort, and just incorporates https://github.com/paradedb/tantivy/pull/92\n.\n\n## Why\n\nTo enable work on https://github.com/paradedb/paradedb/issues/3053.",
+          "timestamp": "2026-01-12T16:38:23-08:00",
+          "tree_id": "d1fecf1de3ea8543121eb3d9caa26cf25d049d80",
+          "url": "https://github.com/paradedb/paradedb/commit/d93cc8baac03a3c8f2143a8e8f8beef5350c9419"
+        },
+        "date": 1768266879669,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.4391769980058395,
+            "unit": "median tps",
+            "extra": "avg tps: 6.3858522678212, max tps: 9.675041514323324, count: 57802"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.32633481326211,
+            "unit": "median tps",
+            "extra": "avg tps: 4.788208237364313, max tps: 5.946602350648194, count: 57802"
           }
         ]
       }

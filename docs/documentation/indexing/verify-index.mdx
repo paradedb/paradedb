@@ -105,7 +105,10 @@ SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 
 ## Parallel Verification
 
-For very large indexes, you can distribute verification across multiple connections by specifying which segments to check.
+A single `verify_index` call processes segments sequentially within one PostgreSQL backend.
+For very large indexes, you can distribute verification across multiple database connections
+by specifying which segments each connection should check using the `segment_ids` parameter.
+This allows you to utilize multiple CPU cores by running verification in parallel processes.
 
 ### Listing Segments
 
@@ -212,28 +215,28 @@ SELECT * FROM pdb.indexes();
 
 Verifies a single BM25 index.
 
-| Parameter         | Type     | Default    | Description                                             |
-| ----------------- | -------- | ---------- | ------------------------------------------------------- |
-| `index`           | regclass | (required) | The index to verify                                     |
-| `heapallindexed`  | boolean  | `false`    | Check that all indexed ctids exist in the heap          |
-| `sample_rate`     | float    | `1.0`      | Fraction of documents to check (0.0-1.0)                |
-| `report_progress` | boolean  | `false`    | Emit progress messages                                  |
-| `verbose`         | boolean  | `false`    | Emit detailed segment-level progress                    |
-| `on_error_stop`   | boolean  | `false`    | Stop on first error found                               |
-| `segment_ids`     | int[]    | `NULL`     | Specific segment indices to check (for parallelization) |
+| Parameter         | Type     | Default    | Description                                                |
+| ----------------- | -------- | ---------- | ---------------------------------------------------------- |
+| `index`           | regclass | (required) | The index to verify                                        |
+| `heapallindexed`  | boolean  | `false`    | Check that all indexed ctids exist in the heap             |
+| `sample_rate`     | float    | `NULL`     | Fraction of documents to check (0.0-1.0). NULL = check all |
+| `report_progress` | boolean  | `false`    | Emit progress messages                                     |
+| `verbose`         | boolean  | `false`    | Emit detailed segment-level progress and resume hints      |
+| `on_error_stop`   | boolean  | `false`    | Stop on first error found                                  |
+| `segment_ids`     | int[]    | `NULL`     | Specific segment indices to check. NULL = all segments     |
 
 ### `pdb.verify_all_indexes`
 
 Verifies all BM25 indexes in the database.
 
-| Parameter         | Type    | Default | Description                                    |
-| ----------------- | ------- | ------- | ---------------------------------------------- |
-| `schema_pattern`  | text    | `NULL`  | Filter by schema name (SQL LIKE pattern)       |
-| `index_pattern`   | text    | `NULL`  | Filter by index name (SQL LIKE pattern)        |
-| `heapallindexed`  | boolean | `false` | Check that all indexed ctids exist in the heap |
-| `sample_rate`     | float   | `1.0`   | Fraction of documents to check (0.0-1.0)       |
-| `report_progress` | boolean | `false` | Emit progress messages                         |
-| `on_error_stop`   | boolean | `false` | Stop on first error found                      |
+| Parameter         | Type    | Default | Description                                                |
+| ----------------- | ------- | ------- | ---------------------------------------------------------- |
+| `schema_pattern`  | text    | `NULL`  | Filter by schema name (SQL LIKE pattern). NULL = all       |
+| `index_pattern`   | text    | `NULL`  | Filter by index name (SQL LIKE pattern). NULL = all        |
+| `heapallindexed`  | boolean | `false` | Check that all indexed ctids exist in the heap             |
+| `sample_rate`     | float   | `NULL`  | Fraction of documents to check (0.0-1.0). NULL = check all |
+| `report_progress` | boolean | `false` | Emit progress messages                                     |
+| `on_error_stop`   | boolean | `false` | Stop on first error found                                  |
 
 ### `pdb.index_segments`
 

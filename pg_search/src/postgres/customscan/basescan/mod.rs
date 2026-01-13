@@ -721,7 +721,6 @@ impl CustomScan for BaseScan {
                     total_rows,
                     segment_count,
                     quals.contains_external_var(),
-                    quals.contains_exec_param(),
                 )
             } else {
                 0

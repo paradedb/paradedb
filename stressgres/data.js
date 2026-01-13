@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768266883386,
+  "lastUpdate": 1768266888516,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27344,6 +27344,66 @@ window.BENCHMARK_DATA = {
             "value": 89,
             "unit": "median segment_count",
             "extra": "avg segment_count: 94.19846339779005, max segment_count: 159.0, count: 57920"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d93cc8baac03a3c8f2143a8e8f8beef5350c9419",
+          "message": "chore: Incorporate Tantivy with index sorting (#3906)\n\n## What\n\nThis is a clone of #2691 which does not actually begin using a `ctid`\nsort, and just incorporates https://github.com/paradedb/tantivy/pull/92\n.\n\n## Why\n\nTo enable work on https://github.com/paradedb/paradedb/issues/3053.",
+          "timestamp": "2026-01-12T16:38:23-08:00",
+          "tree_id": "d1fecf1de3ea8543121eb3d9caa26cf25d049d80",
+          "url": "https://github.com/paradedb/paradedb/commit/d93cc8baac03a3c8f2143a8e8f8beef5350c9419"
+        },
+        "date": 1768266884815,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.24449869116482, max cpu: 43.243244, count: 57802"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 232.1469564877729, max mem: 233.734375, count: 57802"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43819743626533, max cpu: 33.300297, count: 57802"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 171.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.68896600950228, max mem: 172.08203125, count: 57802"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 48734,
+            "unit": "median block_count",
+            "extra": "avg block_count: 48501.887910452926, max block_count: 50606.0, count: 57802"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 88,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 93.53693643818553, max segment_count: 155.0, count: 57802"
           }
         ]
       }

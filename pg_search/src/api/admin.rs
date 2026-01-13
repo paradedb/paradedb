@@ -1213,19 +1213,19 @@ pub mod pdb {
                         .collect();
                     if remaining.is_empty() {
                         pgrx::warning!(
-                        "verify_index: Completed segment {} (index={}, id={}). All segments done.",
-                        segments_checked,
-                        idx,
-                        segment_id
-                    );
+                            "verify_index: Completed segment {} (index={}, id={}). All segments done.",
+                            segments_checked,
+                            idx,
+                            segment_id
+                        );
                     } else {
                         pgrx::warning!(
-                        "verify_index: Completed segment {} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
-                        segments_checked,
-                        idx,
-                        segment_id,
-                        remaining.join(", ")
-                    );
+                            "verify_index: Completed segment {} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                            segments_checked,
+                            idx,
+                            segment_id,
+                            remaining.join(", ")
+                        );
                     }
                 }
             }
@@ -1265,11 +1265,11 @@ pub mod pdb {
                         String::new()
                     };
                     pgrx::warning!(
-                    "verify_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
-                    partition_name,
-                    sample_rate * 100.0,
-                    segment_info
-                );
+                        "verify_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
+                        partition_name,
+                        sample_rate * 100.0,
+                        segment_info
+                    );
                 }
                 let heap_check_result = super::verify_heap_references(
                     &partition,

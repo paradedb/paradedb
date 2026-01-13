@@ -102,7 +102,7 @@ INSERT INTO verify_parallel_test (content) SELECT 'batch3 ' || i FROM generate_s
 INSERT INTO verify_parallel_test (content) SELECT 'batch4 ' || i FROM generate_series(1, 50) i;
 
 -- Get the segment count - should have multiple segments now (typically 4-8)
-SELECT COUNT(*) >= 2 as has_multiple_segments FROM paradedb.index_info('verify_parallel_idx');
+SELECT COUNT(*) >= 2 as has_multiple_segments FROM paradedb.bm25_index_segments('verify_parallel_idx');
 
 -- Test verifying with segment_ids parameter (verify only segments 0 and 1)
 -- The segment_metadata details should show "2 of N" for filtering

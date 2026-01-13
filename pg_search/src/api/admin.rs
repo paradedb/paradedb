@@ -453,9 +453,9 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 /// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, report_progress := true, verbose := true);
 ///
 /// -- Manual parallelization: run these queries from separate database connections
-/// -- First, get the segment count:
-/// --   SELECT COUNT(*) FROM paradedb.index_info('my_index');
-/// -- Then split verification across connections:
+/// -- First, list all segments:
+/// --   SELECT * FROM paradedb.bm25_index_segments('my_index');
+/// -- Then split verification across connections using segment_idx values:
 /// -- Connection 1: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[0,1,2]);
 /// -- Connection 2: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[3,4,5]);
 ///

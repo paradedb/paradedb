@@ -66,3 +66,19 @@ SELECT id, content FROM verify_test WHERE content @@@ 'test' ORDER BY id LIMIT 5
 -- Cleanup
 DROP TABLE verify_test CASCADE;
 
+-- Test 8: Test with sampling (for large indexes)
+-- Create a larger table to test sampling
+DROP TABLE IF EXISTS verify_sampling_test CASCADE;
+CREATE TABLE verify_sampling_test (id SERIAL PRIMARY KEY, content TEXT);
+CREATE INDEX verify_sampling_idx ON verify_sampling_test USING bm25 (id, content) WITH (key_field = 'id');
+INSERT INTO verify_sampling_test (content)
+SELECT 'test content ' || i FROM generate_series(1, 1000) i;
+
+-- Test sampling at 50% - should check approximately half the documents
+SELECT check_name, passed, 
+       details LIKE '%sampled%' as is_sampled
+FROM paradedb.verify_bm25_index('verify_sampling_idx', heapallindexed := true, sample_rate := 0.5) 
+WHERE check_name LIKE '%heap_references%';
+
+DROP TABLE verify_sampling_test CASCADE;
+

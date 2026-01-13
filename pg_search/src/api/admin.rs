@@ -427,17 +427,33 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 /// # Arguments
 /// * `index` - The BM25 index to verify
 /// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table
+/// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0, default 1.0 = 100%)
+/// * `report_progress` - If true, emit progress messages via WARNING for long-running checks
 ///
 /// # Returns
 /// A table with columns:
 /// - `check_name`: Name of the verification check
 /// - `passed`: Whether the check passed
 /// - `details`: Additional details about the check result
+///
+/// # Example
+/// ```sql
+/// -- Basic verification
+/// SELECT * FROM paradedb.verify_bm25_index('my_index');
+///
+/// -- With heap reference validation
+/// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true);
+///
+/// -- For large indexes: sample 10% of documents with progress reporting
+/// SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, sample_rate := 0.1, report_progress := true);
+/// ```
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 fn verify_bm25_index(
     index: PgRelation,
     heapallindexed: default!(bool, false),
+    sample_rate: default!(f64, 1.0),
+    report_progress: default!(bool, false),
 ) -> Result<
     TableIterator<
         'static,
@@ -448,6 +464,9 @@ fn verify_bm25_index(
         ),
     >,
 > {
+    // Validate sample_rate
+    let sample_rate = sample_rate.clamp(0.0, 1.0);
+
     let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let index_kind = IndexKind::for_index(index_rel.clone())?;
 
@@ -456,6 +475,13 @@ fn verify_bm25_index(
     // We process each partition of the index
     for partition in index_kind.partitions() {
         let partition_name = partition.name().to_owned();
+
+        if report_progress {
+            pgrx::warning!(
+                "verify_bm25_index: Starting verification of {}",
+                partition_name
+            );
+        }
 
         // Check 1: Schema validation
         let schema_result = partition.schema();
@@ -500,6 +526,12 @@ fn verify_bm25_index(
         };
 
         // Check 3: Segment checksum validation
+        if report_progress {
+            pgrx::warning!(
+                "verify_bm25_index: Validating checksums for {}",
+                partition_name
+            );
+        }
         let checksum_result = search_reader.validate_checksum();
         match checksum_result {
             Ok(failed_checksums) => {
@@ -566,10 +598,7 @@ fn verify_bm25_index(
             results.push((
                 format!("{}: segment_metadata_valid", partition_name),
                 true,
-                Some(format!(
-                    "{} segments validated successfully",
-                    num_segments
-                )),
+                Some(format!("{} segments validated successfully", num_segments)),
             ));
         } else {
             results.push((
@@ -581,17 +610,30 @@ fn verify_bm25_index(
 
         // Check 5: Heap reference validation (optional, expensive)
         if heapallindexed {
+            if report_progress {
+                pgrx::warning!(
+                    "verify_bm25_index: Starting heap reference check for {} (sample_rate: {:.0}%)",
+                    partition_name,
+                    sample_rate * 100.0
+                );
+            }
             let heap_check_result =
-                verify_heap_references(&partition, &search_reader);
+                verify_heap_references(&partition, &search_reader, sample_rate, report_progress);
             match heap_check_result {
-                Ok((total_checked, missing_ctids)) => {
+                Ok((total_checked, total_docs, missing_ctids)) => {
+                    let sample_info = if sample_rate < 1.0 {
+                        format!(" (sampled {} of {} total docs)", total_checked, total_docs)
+                    } else {
+                        String::new()
+                    };
+
                     if missing_ctids.is_empty() {
                         results.push((
                             format!("{}: heap_references_valid", partition_name),
                             true,
                             Some(format!(
-                                "All {} indexed ctids exist in heap",
-                                total_checked
+                                "All {} indexed ctids exist in heap{}",
+                                total_checked, sample_info
                             )),
                         ));
                     } else {
@@ -610,9 +652,10 @@ fn verify_bm25_index(
                             format!("{}: heap_references_valid", partition_name),
                             false,
                             Some(format!(
-                                "{} of {} indexed ctids missing from heap: {}{}",
+                                "{} of {} indexed ctids missing from heap{}: {}{}",
                                 missing_ctids.len(),
                                 total_checked,
+                                sample_info,
                                 sample.join(", "),
                                 more
                             )),
@@ -628,17 +671,28 @@ fn verify_bm25_index(
                 }
             }
         }
+
+        if report_progress {
+            pgrx::warning!(
+                "verify_bm25_index: Completed verification of {}",
+                partition_name
+            );
+        }
     }
 
     Ok(TableIterator::new(results))
 }
 
+type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
+
 /// Helper function to verify that all indexed ctids exist in the heap.
-/// Returns (total_checked, missing_ctids)
+/// Returns (total_checked, total_docs, missing_ctids)
 fn verify_heap_references(
     index_rel: &PgSearchRelation,
     search_reader: &SearchIndexReader,
-) -> Result<(usize, Vec<(u32, u16)>)> {
+    sample_rate: f64,
+    report_progress: bool,
+) -> HeapCheckResult {
     use crate::index::fast_fields_helper::FFType;
     use crate::postgres::utils::u64_to_item_pointer;
 
@@ -661,19 +715,55 @@ fn verify_heap_references(
     let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
 
     let mut total_checked = 0usize;
+    let mut total_docs = 0usize;
     let mut missing_ctids = Vec::new();
 
+    // For sampling, we use a simple deterministic approach based on doc_id
+    // This ensures reproducible results for the same sample_rate
+    let sample_threshold = (sample_rate * u32::MAX as f64) as u32;
+
+    // Calculate total docs for progress reporting
+    let total_alive_docs: usize = search_reader
+        .segment_readers()
+        .iter()
+        .map(|r| r.num_docs() as usize)
+        .sum();
+
+    // Progress reporting interval (report every ~5% or every 100k docs, whichever is larger)
+    let progress_interval = (total_alive_docs / 20).max(100_000);
+    let mut last_progress_report = 0usize;
+
     // Iterate through all segments and all documents
-    for segment_reader in search_reader.segment_readers() {
+    for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
         let fast_fields = segment_reader.fast_fields();
         let ctid_column = FFType::new_ctid(fast_fields);
         let alive_bitset = segment_reader.alive_bitset();
+
+        if report_progress {
+            pgrx::warning!(
+                "verify_bm25_index: Processing segment {}/{} ({} docs)",
+                seg_idx + 1,
+                search_reader.segment_readers().len(),
+                segment_reader.num_docs()
+            );
+        }
 
         // Iterate through all document IDs in this segment
         for doc_id in 0..segment_reader.max_doc() {
             // Skip deleted documents
             if let Some(bitset) = &alive_bitset {
                 if !bitset.is_alive(doc_id) {
+                    continue;
+                }
+            }
+
+            total_docs += 1;
+
+            // Apply sampling: use a hash of the doc_id for deterministic sampling
+            if sample_rate < 1.0 {
+                // Simple hash: multiply by a prime and take modulo
+                let hash = doc_id.wrapping_mul(2654435761);
+                if hash > sample_threshold {
                     continue;
                 }
             }
@@ -685,6 +775,18 @@ fn verify_heap_references(
             };
 
             total_checked += 1;
+
+            // Report progress periodically
+            if report_progress && total_checked - last_progress_report >= progress_interval {
+                let pct = (total_docs as f64 / total_alive_docs as f64 * 100.0).min(100.0);
+                pgrx::warning!(
+                    "verify_bm25_index: Progress {:.1}% ({} docs checked, {} missing so far)",
+                    pct,
+                    total_checked,
+                    missing_ctids.len()
+                );
+                last_progress_report = total_checked;
+            }
 
             // Convert u64 to ItemPointerData
             let mut tid = pg_sys::ItemPointerData::default();
@@ -709,6 +811,11 @@ fn verify_heap_references(
                 let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
                 missing_ctids.push((block, offset));
             }
+
+            // Check for interrupts periodically (every 10k docs)
+            if total_checked.is_multiple_of(10_000) {
+                pgrx::check_for_interrupts!();
+            }
         }
     }
 
@@ -718,7 +825,16 @@ fn verify_heap_references(
         pg_sys::table_index_fetch_end(scan);
     }
 
-    Ok((total_checked, missing_ctids))
+    if report_progress {
+        pgrx::warning!(
+            "verify_bm25_index: Heap check complete. Checked {} of {} docs, {} missing.",
+            total_checked,
+            total_docs,
+            missing_ctids.len()
+        );
+    }
+
+    Ok((total_checked, total_docs, missing_ctids))
 }
 
 #[pg_extern(sql = "")]

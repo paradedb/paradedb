@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768335015272,
+  "lastUpdate": 1768335984935,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47366,6 +47366,60 @@ window.BENCHMARK_DATA = {
             "value": 14.593081969064523,
             "unit": "median tps",
             "extra": "avg tps: 14.432840002573656, max tps: 20.836377614921112, count: 55516"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768335981314,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.948552673390893,
+            "unit": "median tps",
+            "extra": "avg tps: 31.68981528806198, max tps: 33.529739846357245, count: 55566"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.94662541288272,
+            "unit": "median tps",
+            "extra": "avg tps: 261.0728966624619, max tps: 2702.33213720106, count: 55566"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1924.6466080519672,
+            "unit": "median tps",
+            "extra": "avg tps: 1907.6725350220415, max tps: 2187.738184049848, count: 55566"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.1784075219322,
+            "unit": "median tps",
+            "extra": "avg tps: 196.0044123711061, max tps: 1736.809896635747, count: 111132"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.000511992161064,
+            "unit": "median tps",
+            "extra": "avg tps: 15.10170000278361, max tps: 21.944253251654775, count: 55566"
           }
         ]
       }

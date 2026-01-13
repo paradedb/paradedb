@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768335989926,
+  "lastUpdate": 1768336957211,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61844,6 +61844,54 @@ window.BENCHMARK_DATA = {
             "value": 106.64926290267393,
             "unit": "median tps",
             "extra": "avg tps: 105.15201138370618, max tps: 183.17303079869873, count: 107588"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768336953560,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 557.1581770550873,
+            "unit": "median tps",
+            "extra": "avg tps: 561.0501444126618, max tps: 694.5591373221921, count: 53769"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 627.6301615354641,
+            "unit": "median tps",
+            "extra": "avg tps: 633.6617550671845, max tps: 783.0609473954229, count: 53769"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.12809014250274,
+            "unit": "median tps",
+            "extra": "avg tps: 85.36001728331993, max tps: 90.89845038734086, count: 53769"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.28883498057633,
+            "unit": "median tps",
+            "extra": "avg tps: 105.52940780915799, max tps: 175.61890842985653, count: 107538"
           }
         ]
       }

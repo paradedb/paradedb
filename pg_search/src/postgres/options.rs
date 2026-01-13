@@ -895,7 +895,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
                 fast: true,
             }
         }
-        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => SearchFieldConfig::Text {
+        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) | SearchFieldType::Ltree(_) => SearchFieldConfig::Text {
             indexed: true,
             fast: true,
             fieldnorms: false,

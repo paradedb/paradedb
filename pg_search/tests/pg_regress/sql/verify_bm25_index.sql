@@ -171,3 +171,76 @@ FROM paradedb.verify_bm25_index('test_all_idx1_idx', on_error_stop := true);
 
 DROP TABLE test_all_idx1, test_all_idx2;
 
+-- =============================================================================
+-- CORRUPTION DETECTION TESTS
+-- These tests verify that the verification functions correctly detect corruption
+-- =============================================================================
+
+-- Test 14: Heap reference corruption detection
+-- Disable triggers and delete rows to create "dangling" index entries
+DROP TABLE IF EXISTS corruption_test CASCADE;
+CREATE TABLE corruption_test (id serial PRIMARY KEY, content text);
+CREATE INDEX corruption_idx ON corruption_test USING bm25 (id, content) WITH (key_field = 'id');
+INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(1, 50) i;
+
+-- Verify healthy state first
+SELECT 'Before corruption' as state, check_name, passed
+FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%';
+
+-- Induce corruption: delete rows without updating the index
+ALTER TABLE corruption_test DISABLE TRIGGER ALL;
+DELETE FROM corruption_test WHERE id <= 5;
+ALTER TABLE corruption_test ENABLE TRIGGER ALL;
+
+-- Verify corruption is detected
+SELECT 'After corruption' as state, check_name, passed, 
+       details LIKE '%5 of 50%' as detected_5_missing
+FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%';
+
+-- Test 15: Sampling with corruption
+-- With 100% sampling, corruption should always be detected
+SELECT '100% sample' as test, passed, details LIKE '%missing%' as found_missing
+FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true, sample_rate := 1.0)
+WHERE check_name LIKE '%heap%';
+
+-- Test 16: on_error_stop with corruption
+-- Should return results up to and including the first failure
+SELECT check_name, passed
+FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true, on_error_stop := true);
+
+DROP TABLE corruption_test CASCADE;
+
+-- Test 17: verify_all_bm25_indexes with mixed healthy and corrupted indexes
+DROP TABLE IF EXISTS healthy_table, corrupted_table CASCADE;
+
+-- Create healthy table and index
+CREATE TABLE healthy_table (id serial PRIMARY KEY, content text);
+CREATE INDEX healthy_idx ON healthy_table USING bm25 (id, content) WITH (key_field = 'id');
+INSERT INTO healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
+
+-- Create corrupted table and index
+CREATE TABLE corrupted_table (id serial PRIMARY KEY, content text);
+CREATE INDEX corrupted_idx ON corrupted_table USING bm25 (id, content) WITH (key_field = 'id');
+INSERT INTO corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
+
+-- Corrupt the second index
+ALTER TABLE corrupted_table DISABLE TRIGGER ALL;
+DELETE FROM corrupted_table WHERE id <= 3;
+ALTER TABLE corrupted_table ENABLE TRIGGER ALL;
+
+-- verify_all should show healthy passing and corrupted failing
+SELECT indexname, check_name, passed
+FROM paradedb.verify_all_bm25_indexes(index_pattern := '%_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%'
+ORDER BY indexname;
+
+-- Test 18: verify_all with on_error_stop should stop at first corrupted index
+SELECT indexname, check_name, passed
+FROM paradedb.verify_all_bm25_indexes(index_pattern := '%_idx', heapallindexed := true, on_error_stop := true)
+WHERE check_name LIKE '%heap%'
+ORDER BY indexname;
+
+DROP TABLE healthy_table, corrupted_table CASCADE;
+

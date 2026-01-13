@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768269719347,
+  "lastUpdate": 1768314850398,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6524,6 +6524,72 @@ window.BENCHMARK_DATA = {
             "value": 84.44293558523249,
             "unit": "median tps",
             "extra": "avg tps: 85.85822614110049, max tps: 396.74604761587364, count: 55350"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9af25fd2b2ec302288bf83cbb201e27afb16de9",
+          "message": "fix: SchemaBot migration validation (#3908)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nFixed the SchemaBot CI workflow to properly detect when migration files\nare missing required schema changes.\n\n## Why\n\nThe previous implementation used `grep -Fzo` for multiline substring\nmatching, which was unreliable and could incorrectly pass validation\neven when the migration file didn't contain the required schema diff\n(here's an example:\nhttps://github.com/paradedb/paradedb/actions/runs/20949137818/job/60198136293).\nThis allowed PRs with incomplete migration files to pass CI.\n\n## How\n\nReplaced `grep -Fzo` with a Python one-liner that performs reliable\nmultiline substring matching:\n\n```python\npython3 -c \"import sys; diff=open('$HOME/diff.sql').read().strip(); mig=open('$MIGRATION_FILE').read(); sys.exit(0 if diff in mig else 1)\"\n```\n\n## Tests\n\nVerified on PR #3907 that the check now correctly fails when the\nmigration file is missing the schema diff content.",
+          "timestamp": "2026-01-13T09:13:40-05:00",
+          "tree_id": "f0d09b8b768263f404d59e6eb4545cc63e149afd",
+          "url": "https://github.com/paradedb/paradedb/commit/c9af25fd2b2ec302288bf83cbb201e27afb16de9"
+        },
+        "date": 1768314846787,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 556.4565300321027,
+            "unit": "median tps",
+            "extra": "avg tps: 558.8482499794914, max tps: 671.4820885510289, count: 55233"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3134.8470349248314,
+            "unit": "median tps",
+            "extra": "avg tps: 3139.3245078356535, max tps: 3181.730192935691, count: 55233"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 564.2673166162344,
+            "unit": "median tps",
+            "extra": "avg tps: 567.7353730363566, max tps: 651.2772964597343, count: 55233"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 455.45319044040764,
+            "unit": "median tps",
+            "extra": "avg tps: 460.1398816529029, max tps: 516.1181561976745, count: 55233"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3299.303923965821,
+            "unit": "median tps",
+            "extra": "avg tps: 3289.5314244664223, max tps: 3324.1784387303424, count: 110466"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2159.4280239613718,
+            "unit": "median tps",
+            "extra": "avg tps: 2145.157511293962, max tps: 2167.8701943224833, count: 55233"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 508.8703760113383,
+            "unit": "median tps",
+            "extra": "avg tps: 506.9074902155463, max tps: 559.4319765045351, count: 55233"
           }
         ]
       }

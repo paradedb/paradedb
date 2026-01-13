@@ -458,6 +458,9 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
 /// -- Then split verification across connections:
 /// -- Connection 1: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[0,1,2]);
 /// -- Connection 2: SELECT * FROM paradedb.verify_bm25_index('my_index', heapallindexed := true, segment_ids := ARRAY[3,4,5]);
+///
+/// -- Stop on first error (like pg_amcheck --on-error-stop)
+/// SELECT * FROM paradedb.verify_bm25_index('my_index', on_error_stop := true);
 /// ```
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -467,6 +470,7 @@ fn verify_bm25_index(
     sample_rate: default!(f64, 1.0),
     report_progress: default!(bool, false),
     verbose: default!(bool, false),
+    on_error_stop: default!(bool, false),
     segment_ids: default!(Option<Vec<i32>>, "NULL"),
 ) -> Result<
     TableIterator<
@@ -522,6 +526,9 @@ fn verify_bm25_index(
                     Some(format!("Failed to load index schema: {}", e)),
                 ));
                 // If schema fails, we can't do much more for this partition
+                if on_error_stop {
+                    return Ok(TableIterator::new(results));
+                }
                 continue;
             }
         }
@@ -543,6 +550,9 @@ fn verify_bm25_index(
                     false,
                     Some(format!("Failed to open index reader: {}", e)),
                 ));
+                if on_error_stop {
+                    return Ok(TableIterator::new(results));
+                }
                 continue;
             }
         };
@@ -555,6 +565,7 @@ fn verify_bm25_index(
             );
         }
         let checksum_result = search_reader.validate_checksum();
+        let mut checksum_failed = false;
         match checksum_result {
             Ok(failed_checksums) => {
                 if failed_checksums.is_empty() {
@@ -564,6 +575,7 @@ fn verify_bm25_index(
                         Some("All segment checksums validated successfully".to_string()),
                     ));
                 } else {
+                    checksum_failed = true;
                     let failed_files: Vec<_> = failed_checksums
                         .iter()
                         .map(|p| p.display().to_string())
@@ -580,12 +592,16 @@ fn verify_bm25_index(
                 }
             }
             Err(e) => {
+                checksum_failed = true;
                 results.push((
                     format!("{}: checksums_valid", partition_name),
                     false,
                     Some(format!("Checksum validation error: {}", e)),
                 ));
             }
+        }
+        if on_error_stop && checksum_failed {
+            return Ok(TableIterator::new(results));
         }
 
         // Check 4: Segment metadata consistency
@@ -749,6 +765,9 @@ fn verify_bm25_index(
                 false,
                 Some(segment_issues.join("; ")),
             ));
+            if on_error_stop {
+                return Ok(TableIterator::new(results));
+            }
         }
 
         // Check 5: Heap reference validation (optional, expensive)
@@ -815,6 +834,9 @@ fn verify_bm25_index(
                                 more
                             )),
                         ));
+                        if on_error_stop {
+                            return Ok(TableIterator::new(results));
+                        }
                     }
                 }
                 Err(e) => {
@@ -823,6 +845,9 @@ fn verify_bm25_index(
                         false,
                         Some(format!("Heap reference check failed: {}", e)),
                     ));
+                    if on_error_stop {
+                        return Ok(TableIterator::new(results));
+                    }
                 }
             }
         }
@@ -909,6 +934,310 @@ fn bm25_index_segments(
                 max_doc,
             ));
         }
+    }
+
+    Ok(TableIterator::new(results))
+}
+
+/// List all BM25 indexes in the current database.
+///
+/// Similar to pg_amcheck's `--index` pattern matching, this function discovers
+/// all BM25 indexes so they can be checked.
+///
+/// # Example
+/// ```sql
+/// -- List all BM25 indexes
+/// SELECT * FROM paradedb.bm25_indexes();
+///
+/// -- Verify all BM25 indexes
+/// SELECT v.* FROM paradedb.bm25_indexes() i
+/// CROSS JOIN LATERAL paradedb.verify_bm25_index(i.indexrelid) v;
+///
+/// -- Verify all BM25 indexes in a specific schema
+/// SELECT v.* FROM paradedb.bm25_indexes() i
+/// CROSS JOIN LATERAL paradedb.verify_bm25_index(i.indexrelid) v
+/// WHERE i.schemaname = 'public';
+/// ```
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn bm25_indexes() -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(schemaname, String),
+            name!(tablename, String),
+            name!(indexname, String),
+            name!(indexrelid, pg_sys::Oid),
+            name!(num_segments, i32),
+            name!(total_docs, i64),
+        ),
+    >,
+> {
+    let mut results = Vec::new();
+
+    // Query pg_index joined with pg_class to find all BM25 indexes
+    let query = r#"
+        SELECT 
+            n.nspname::text AS schemaname,
+            t.relname::text AS tablename,
+            i.relname::text AS indexname,
+            i.oid AS indexrelid
+        FROM pg_index idx
+        JOIN pg_class i ON idx.indexrelid = i.oid
+        JOIN pg_class t ON idx.indrelid = t.oid
+        JOIN pg_namespace n ON i.relnamespace = n.oid
+        JOIN pg_am am ON i.relam = am.oid
+        WHERE am.amname = 'bm25'
+        ORDER BY n.nspname, t.relname, i.relname
+    "#;
+
+    use pgrx::datum::DatumWithOid;
+
+    Spi::connect(|client| {
+        let args: [DatumWithOid; 0] = [];
+        let result = client.select(query, None, &args)?;
+
+        for row in result {
+            let schemaname: String = row.get_by_name("schemaname")?.unwrap_or_default();
+            let tablename: String = row.get_by_name("tablename")?.unwrap_or_default();
+            let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
+            let indexrelid: pg_sys::Oid =
+                row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
+
+            // Open the index to get segment information
+            let index_rel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+            let index_kind = match IndexKind::for_index(index_rel.clone()) {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+
+            let mut num_segments = 0i32;
+            let mut total_docs = 0i64;
+
+            for partition in index_kind.partitions() {
+                if let Ok(search_reader) =
+                    SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot)
+                {
+                    for segment_reader in search_reader.segment_readers().iter() {
+                        num_segments += 1;
+                        total_docs += segment_reader.num_docs() as i64;
+                    }
+                }
+            }
+
+            results.push((
+                schemaname,
+                tablename,
+                indexname,
+                indexrelid,
+                num_segments,
+                total_docs,
+            ));
+        }
+
+        Ok::<_, pgrx::spi::Error>(())
+    })?;
+
+    Ok(TableIterator::new(results))
+}
+
+/// Verify all BM25 indexes in the current database.
+///
+/// Similar to pg_amcheck's `--all` option, this function discovers and verifies
+/// all BM25 indexes in the database.
+///
+/// # Arguments
+/// * `schema_pattern` - Optional schema pattern to filter indexes (SQL LIKE pattern)
+/// * `index_pattern` - Optional index name pattern to filter indexes (SQL LIKE pattern)
+/// * `heapallindexed` - Check that all heap tuples are present in the index
+/// * `sample_rate` - Fraction of documents to check (0.0-1.0)
+/// * `report_progress` - Emit progress messages via NOTICE
+/// * `on_error_stop` - Stop checking after first error is found
+///
+/// # Example
+/// ```sql
+/// -- Verify all BM25 indexes
+/// SELECT * FROM paradedb.verify_all_bm25_indexes();
+///
+/// -- Verify only indexes in 'public' schema with full heap check
+/// SELECT * FROM paradedb.verify_all_bm25_indexes(
+///     schema_pattern := 'public',
+///     heapallindexed := true
+/// );
+///
+/// -- Quick spot check with 10% sampling
+/// SELECT * FROM paradedb.verify_all_bm25_indexes(
+///     sample_rate := 0.1,
+///     report_progress := true
+/// );
+/// ```
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+fn verify_all_bm25_indexes(
+    schema_pattern: default!(Option<String>, "NULL"),
+    index_pattern: default!(Option<String>, "NULL"),
+    heapallindexed: default!(bool, false),
+    sample_rate: default!(f64, 1.0),
+    report_progress: default!(bool, false),
+    on_error_stop: default!(bool, false),
+) -> Result<
+    TableIterator<
+        'static,
+        (
+            name!(schemaname, String),
+            name!(indexname, String),
+            name!(check_name, String),
+            name!(passed, bool),
+            name!(details, Option<String>),
+        ),
+    >,
+> {
+    let sample_rate = sample_rate.clamp(0.0, 1.0);
+    let mut results = Vec::new();
+
+    // Build query with optional pattern filters
+    let mut query = String::from(
+        r#"
+        SELECT 
+            n.nspname::text AS schemaname,
+            i.relname::text AS indexname,
+            i.oid AS indexrelid
+        FROM pg_index idx
+        JOIN pg_class i ON idx.indexrelid = i.oid
+        JOIN pg_class t ON idx.indrelid = t.oid
+        JOIN pg_namespace n ON i.relnamespace = n.oid
+        JOIN pg_am am ON i.relam = am.oid
+        WHERE am.amname = 'bm25'
+    "#,
+    );
+
+    if schema_pattern.is_some() {
+        query.push_str(" AND n.nspname LIKE $1");
+    }
+    if index_pattern.is_some() {
+        query.push_str(if schema_pattern.is_some() {
+            " AND i.relname LIKE $2"
+        } else {
+            " AND i.relname LIKE $1"
+        });
+    }
+    query.push_str(" ORDER BY n.nspname, i.relname");
+
+    // Collect indexes to verify
+    use pgrx::datum::DatumWithOid;
+
+    let indexes: Vec<(String, String, pg_sys::Oid)> = Spi::connect(|client| {
+        let mut indexes = Vec::new();
+
+        let result = match (&schema_pattern, &index_pattern) {
+            (Some(sp), Some(ip)) => {
+                let args = unsafe {
+                    [
+                        DatumWithOid::new(sp.clone().into_datum(), pg_sys::TEXTOID),
+                        DatumWithOid::new(ip.clone().into_datum(), pg_sys::TEXTOID),
+                    ]
+                };
+                client.select(&query, None, &args)?
+            }
+            (Some(sp), None) => {
+                let args = unsafe { [DatumWithOid::new(sp.clone().into_datum(), pg_sys::TEXTOID)] };
+                client.select(&query, None, &args)?
+            }
+            (None, Some(ip)) => {
+                let args = unsafe { [DatumWithOid::new(ip.clone().into_datum(), pg_sys::TEXTOID)] };
+                client.select(&query, None, &args)?
+            }
+            (None, None) => {
+                let args: [DatumWithOid; 0] = [];
+                client.select(&query, None, &args)?
+            }
+        };
+
+        for row in result {
+            let schemaname: String = row.get_by_name("schemaname")?.unwrap_or_default();
+            let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
+            let indexrelid: pg_sys::Oid =
+                row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
+            indexes.push((schemaname, indexname, indexrelid));
+        }
+
+        Ok::<_, pgrx::spi::Error>(indexes)
+    })?;
+
+    let total_indexes = indexes.len();
+    if report_progress {
+        pgrx::warning!(
+            "verify_all_bm25_indexes: Found {} BM25 indexes to verify",
+            total_indexes
+        );
+    }
+
+    // Verify each index
+    for (idx_num, (schemaname, indexname, indexrelid)) in indexes.into_iter().enumerate() {
+        if report_progress {
+            pgrx::warning!(
+                "verify_all_bm25_indexes: Verifying {}/{}: {}.{}",
+                idx_num + 1,
+                total_indexes,
+                schemaname,
+                indexname
+            );
+        }
+
+        // Call verify_bm25_index for this index
+        let index_rel = unsafe { PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _) };
+        let verification = verify_bm25_index(
+            index_rel,
+            heapallindexed,
+            sample_rate,
+            false, // Don't double-report progress
+            false, // Not verbose for bulk checks
+            on_error_stop,
+            None, // Check all segments
+        );
+
+        match verification {
+            Ok(iter) => {
+                let mut had_error = false;
+                for (check_name, passed, details) in iter {
+                    if !passed {
+                        had_error = true;
+                    }
+                    results.push((
+                        schemaname.clone(),
+                        indexname.clone(),
+                        check_name,
+                        passed,
+                        details,
+                    ));
+                }
+                if on_error_stop && had_error {
+                    return Ok(TableIterator::new(results));
+                }
+            }
+            Err(e) => {
+                results.push((
+                    schemaname.clone(),
+                    indexname.clone(),
+                    "verification_error".to_string(),
+                    false,
+                    Some(format!("Failed to verify index: {}", e)),
+                ));
+                if on_error_stop {
+                    return Ok(TableIterator::new(results));
+                }
+            }
+        }
+    }
+
+    if report_progress {
+        let passed_count = results.iter().filter(|(_, _, _, p, _)| *p).count();
+        let failed_count = results.len() - passed_count;
+        pgrx::warning!(
+            "verify_all_bm25_indexes: Complete. {} checks passed, {} failed",
+            passed_count,
+            failed_count
+        );
     }
 
     Ok(TableIterator::new(results))

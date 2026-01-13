@@ -141,3 +141,30 @@ WHERE check_name LIKE '%segment_metadata%';
 
 DROP TABLE verify_parallel_test CASCADE;
 
+-- Test 11: Test bm25_indexes() function for listing all BM25 indexes
+DROP TABLE IF EXISTS test_all_idx1, test_all_idx2;
+CREATE TABLE test_all_idx1 (id serial, content text);
+CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING bm25 (id, content) WITH (key_field = 'id');
+INSERT INTO test_all_idx1 (content) SELECT 'test' || i FROM generate_series(1,10) i;
+
+CREATE TABLE test_all_idx2 (id serial, title text);
+CREATE INDEX test_all_idx2_idx ON test_all_idx2 USING bm25 (id, title) WITH (key_field = 'id');
+INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,5) i;
+
+-- List all BM25 indexes
+SELECT schemaname, tablename, indexname, num_segments > 0 as has_segments, total_docs > 0 as has_docs
+FROM paradedb.bm25_indexes()
+WHERE indexname LIKE 'test_all%'
+ORDER BY indexname;
+
+-- Test 12: Test verify_all_bm25_indexes() function
+SELECT schemaname, indexname, check_name, passed
+FROM paradedb.verify_all_bm25_indexes(index_pattern := 'test_all%')
+ORDER BY indexname, check_name;
+
+-- Test 13: Test on_error_stop parameter (should complete all checks since no errors)
+SELECT check_name, passed
+FROM paradedb.verify_bm25_index('test_all_idx1_idx', on_error_stop := true);
+
+DROP TABLE test_all_idx1, test_all_idx2;
+

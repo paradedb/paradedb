@@ -1,4 +1,4 @@
--- Test paradedb.verify_bm25_index function
+-- Test pdb.verify_index and related functions
 -- This tests the amcheck-style index verification for BM25 indexes
 
 -- Setup: Create the extension first
@@ -25,11 +25,11 @@ INSERT INTO verify_test (content, category, score) VALUES
 
 -- Test 1: Basic verification without heapallindexed option
 -- Should return schema_valid, index_readable, checksums_valid, segment_metadata_valid
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx') ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
 
 -- Test 2: Verification with heapallindexed option
 -- Should also check heap references
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
 
 -- Test 3: Verify after more data is added
 INSERT INTO verify_test (content, category, score)
@@ -40,10 +40,10 @@ SELECT
 FROM generate_series(1, 100) i;
 
 -- Verify the index is still valid after inserts
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx') ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
 
 -- Test 4: Verify with heapallindexed after more data
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
 
 -- Test 5: Verify after some deletes
 DELETE FROM verify_test WHERE id <= 3;
@@ -55,10 +55,10 @@ SELECT pg_sleep(0.1);
 VACUUM verify_test;
 
 -- Verify index still valid after deletes and vacuum
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx') ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
 
 -- Test 6: Verify with heapallindexed after deletes
-SELECT check_name, passed FROM paradedb.verify_bm25_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
 
 -- Test 7: Verify that the index can still be used for searches after verification
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -80,7 +80,7 @@ SELECT 'test content ' || i FROM generate_series(1, 1000) i;
 -- Test sampling at 50% - should check approximately half the documents
 SELECT check_name, passed, 
        details LIKE '%sampled%' as is_sampled
-FROM paradedb.verify_bm25_index('verify_sampling_idx', heapallindexed := true, sample_rate := 0.5) 
+FROM pdb.verify_index('verify_sampling_idx', heapallindexed := true, sample_rate := 0.5) 
 WHERE check_name LIKE '%heap_references%';
 
 DROP TABLE verify_sampling_test CASCADE;
@@ -102,49 +102,49 @@ INSERT INTO verify_parallel_test (content) SELECT 'batch3 ' || i FROM generate_s
 INSERT INTO verify_parallel_test (content) SELECT 'batch4 ' || i FROM generate_series(1, 50) i;
 
 -- Get the segment count - should have multiple segments now (typically 4-8)
-SELECT COUNT(*) >= 2 as has_multiple_segments FROM paradedb.bm25_index_segments('verify_parallel_idx');
+SELECT COUNT(*) >= 2 as has_multiple_segments FROM pdb.index_segments('verify_parallel_idx');
 
 -- Test verifying with segment_ids parameter (verify only segments 0 and 1)
 -- The segment_metadata details should show "2 of N" for filtering
 SELECT check_name, passed, details LIKE '%2 of%' as shows_partial_segments
-FROM paradedb.verify_bm25_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0, 1])
+FROM pdb.verify_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0, 1])
 WHERE check_name LIKE '%segment_metadata%';
 
 -- Test with empty segment_ids array (should check 0 segments)
 SELECT check_name, passed, details LIKE '%0 of%' as verifies_none
-FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := ARRAY[]::int[])
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := ARRAY[]::int[])
 WHERE check_name LIKE '%segment_metadata%';
 
 -- Test with NULL segment_ids (default behavior - checks all segments, no "of" in details)
 SELECT check_name, passed, details NOT LIKE '% of %' as no_partial_indicator
-FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := NULL)
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := NULL)
 WHERE check_name LIKE '%segment_metadata%';
 
 -- Test verifying a non-existent segment (should show 0 of N segments validated)
 SELECT check_name, details LIKE '%0 of%' as shows_zero_of_total
-FROM paradedb.verify_bm25_index('verify_parallel_idx', segment_ids := ARRAY[999])
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := ARRAY[999])
 WHERE check_name LIKE '%segment_metadata%';
 
--- Test 10: Test bm25_index_segments function for listing segments
+-- Test 10: Test pdb.index_segments function for listing segments
 -- This function helps with automated multi-client verification
-SELECT COUNT(*) >= 2 as has_segments FROM paradedb.bm25_index_segments('verify_parallel_idx');
+SELECT COUNT(*) >= 2 as has_segments FROM pdb.index_segments('verify_parallel_idx');
 
 -- Verify segment_idx values are sequential starting from 0
 SELECT bool_and(segment_idx >= 0) as valid_indices,
        COUNT(DISTINCT segment_idx) = COUNT(*) as unique_indices
-FROM paradedb.bm25_index_segments('verify_parallel_idx');
+FROM pdb.index_segments('verify_parallel_idx');
 
--- Example of using bm25_index_segments to automate parallel verification
+-- Example of using pdb.index_segments to automate parallel verification
 -- Verify only even-indexed segments
 SELECT check_name, passed, details LIKE '%of%' as is_partial
-FROM paradedb.verify_bm25_index('verify_parallel_idx',
+FROM pdb.verify_index('verify_parallel_idx',
     heapallindexed := true,
-    segment_ids := (SELECT array_agg(segment_idx) FROM paradedb.bm25_index_segments('verify_parallel_idx') WHERE segment_idx % 2 = 0))
+    segment_ids := (SELECT array_agg(segment_idx) FROM pdb.index_segments('verify_parallel_idx') WHERE segment_idx % 2 = 0))
 WHERE check_name LIKE '%segment_metadata%';
 
 DROP TABLE verify_parallel_test CASCADE;
 
--- Test 11: Test bm25_indexes() function for listing all BM25 indexes
+-- Test 11: Test pdb.indexes() function for listing all BM25 indexes
 DROP TABLE IF EXISTS test_all_idx1, test_all_idx2;
 CREATE TABLE test_all_idx1 (id serial, content text);
 CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING bm25 (id, content) WITH (key_field = 'id');
@@ -156,18 +156,18 @@ INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,5) i;
 
 -- List all BM25 indexes
 SELECT schemaname, tablename, indexname, num_segments > 0 as has_segments, total_docs > 0 as has_docs
-FROM paradedb.bm25_indexes()
+FROM pdb.indexes()
 WHERE indexname LIKE 'test_all%'
 ORDER BY indexname;
 
--- Test 12: Test verify_all_bm25_indexes() function
+-- Test 12: Test pdb.verify_all_indexes() function
 SELECT schemaname, indexname, check_name, passed
-FROM paradedb.verify_all_bm25_indexes(index_pattern := 'test_all%')
+FROM pdb.verify_all_indexes(index_pattern := 'test_all%')
 ORDER BY indexname, check_name;
 
 -- Test 13: Test on_error_stop parameter (should complete all checks since no errors)
 SELECT check_name, passed
-FROM paradedb.verify_bm25_index('test_all_idx1_idx', on_error_stop := true);
+FROM pdb.verify_index('test_all_idx1_idx', on_error_stop := true);
 
 DROP TABLE test_all_idx1, test_all_idx2;
 
@@ -185,7 +185,7 @@ INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_seri
 
 -- Verify healthy state first
 SELECT 'Before corruption' as state, check_name, passed
-FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true)
+FROM pdb.verify_index('corruption_idx', heapallindexed := true)
 WHERE check_name LIKE '%heap%';
 
 -- Induce corruption: delete rows without updating the index
@@ -196,23 +196,23 @@ ALTER TABLE corruption_test ENABLE TRIGGER ALL;
 -- Verify corruption is detected
 SELECT 'After corruption' as state, check_name, passed, 
        details LIKE '%5 of 50%' as detected_5_missing
-FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true)
+FROM pdb.verify_index('corruption_idx', heapallindexed := true)
 WHERE check_name LIKE '%heap%';
 
 -- Test 15: Sampling with corruption
 -- With 100% sampling, corruption should always be detected
 SELECT '100% sample' as test, passed, details LIKE '%missing%' as found_missing
-FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true, sample_rate := 1.0)
+FROM pdb.verify_index('corruption_idx', heapallindexed := true, sample_rate := 1.0)
 WHERE check_name LIKE '%heap%';
 
 -- Test 16: on_error_stop with corruption
 -- Should return results up to and including the first failure
 SELECT check_name, passed
-FROM paradedb.verify_bm25_index('corruption_idx', heapallindexed := true, on_error_stop := true);
+FROM pdb.verify_index('corruption_idx', heapallindexed := true, on_error_stop := true);
 
 DROP TABLE corruption_test CASCADE;
 
--- Test 17: verify_all_bm25_indexes with mixed healthy and corrupted indexes
+-- Test 17: pdb.verify_all_indexes with mixed healthy and corrupted indexes
 DROP TABLE IF EXISTS healthy_table, corrupted_table CASCADE;
 
 -- Create healthy table and index
@@ -232,13 +232,13 @@ ALTER TABLE corrupted_table ENABLE TRIGGER ALL;
 
 -- verify_all should show healthy passing and corrupted failing
 SELECT indexname, check_name, passed
-FROM paradedb.verify_all_bm25_indexes(index_pattern := '%_idx', heapallindexed := true)
+FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true)
 WHERE check_name LIKE '%heap%'
 ORDER BY indexname;
 
 -- Test 18: verify_all with on_error_stop should stop at first corrupted index
 SELECT indexname, check_name, passed
-FROM paradedb.verify_all_bm25_indexes(index_pattern := '%_idx', heapallindexed := true, on_error_stop := true)
+FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true, on_error_stop := true)
 WHERE check_name LIKE '%heap%'
 ORDER BY indexname;
 

@@ -14,10 +14,10 @@ These functions are useful for:
 
 ## Basic Verification
 
-The `verify_bm25_index` function performs structural integrity checks on a BM25 index:
+The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
 
 ```sql
-SELECT * FROM paradedb.verify_bm25_index('search_idx');
+SELECT * FROM pdb.verify_index('search_idx');
 ```
 
 This returns a table with three columns:
@@ -44,7 +44,7 @@ This returns a table with three columns:
 To verify that all indexed entries still exist in the heap table, use the `heapallindexed` option:
 
 ```sql
-SELECT * FROM paradedb.verify_bm25_index('search_idx', heapallindexed := true);
+SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
 ```
 
 This adds an additional check that validates every indexed `ctid` (tuple identifier) references a valid row in the table.
@@ -64,7 +64,7 @@ For large indexes, you can check a random sample of documents instead of all doc
 
 ```sql
 -- Check 10% of documents
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     sample_rate := 0.1
 );
@@ -75,7 +75,7 @@ SELECT * FROM paradedb.verify_bm25_index('search_idx',
 For long-running verifications, enable progress reporting to see status updates:
 
 ```sql
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true
 );
@@ -88,7 +88,7 @@ Progress messages are emitted via PostgreSQL's `WARNING` channel.
 For detailed logging including segment-by-segment progress and resume hints, enable verbose mode:
 
 ```sql
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true,
     verbose := true
@@ -100,7 +100,7 @@ SELECT * FROM paradedb.verify_bm25_index('search_idx',
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
 
 ```sql
-SELECT * FROM paradedb.verify_bm25_index('search_idx', on_error_stop := true);
+SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 ```
 
 ## Parallel Verification
@@ -112,7 +112,7 @@ For very large indexes, you can distribute verification across multiple connecti
 First, list all segments in the index:
 
 ```sql
-SELECT * FROM paradedb.bm25_index_segments('search_idx');
+SELECT * FROM pdb.index_segments('search_idx');
 ```
 
 ```
@@ -130,13 +130,13 @@ Then verify specific segments using the `segment_ids` parameter:
 
 ```sql
 -- Worker 1: Verify even segments
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     segment_ids := ARRAY[0, 2]
 );
 
 -- Worker 2: Verify odd segments
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     segment_ids := ARRAY[1, 3]
 );
@@ -149,15 +149,15 @@ Distribute verification across N workers:
 ```sql
 -- Get segments for worker 0 (of 4 workers)
 SELECT array_agg(segment_idx) AS segments
-FROM paradedb.bm25_index_segments('search_idx')
+FROM pdb.index_segments('search_idx')
 WHERE segment_idx % 4 = 0;
 
 -- Run verification with those segments
-SELECT * FROM paradedb.verify_bm25_index('search_idx',
+SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     segment_ids := (
         SELECT array_agg(segment_idx)
-        FROM paradedb.bm25_index_segments('search_idx')
+        FROM pdb.index_segments('search_idx')
         WHERE segment_idx % 4 = 0
     )
 );
@@ -168,7 +168,7 @@ SELECT * FROM paradedb.verify_bm25_index('search_idx',
 To verify all BM25 indexes in the database at once:
 
 ```sql
-SELECT * FROM paradedb.verify_all_bm25_indexes();
+SELECT * FROM pdb.verify_all_indexes();
 ```
 
 ### Filtering by Pattern
@@ -177,13 +177,13 @@ Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
 ```sql
 -- Verify indexes in the 'public' schema only
-SELECT * FROM paradedb.verify_all_bm25_indexes(schema_pattern := 'public');
+SELECT * FROM pdb.verify_all_indexes(schema_pattern := 'public');
 
 -- Verify indexes matching a name pattern
-SELECT * FROM paradedb.verify_all_bm25_indexes(index_pattern := 'search_%');
+SELECT * FROM pdb.verify_all_indexes(index_pattern := 'search_%');
 
 -- Combine filters
-SELECT * FROM paradedb.verify_all_bm25_indexes(
+SELECT * FROM pdb.verify_all_indexes(
     schema_pattern := 'app_%',
     index_pattern := '%_idx',
     heapallindexed := true
@@ -195,7 +195,7 @@ SELECT * FROM paradedb.verify_all_bm25_indexes(
 To see all BM25 indexes in the database with summary statistics:
 
 ```sql
-SELECT * FROM paradedb.bm25_indexes();
+SELECT * FROM pdb.indexes();
 ```
 
 ```
@@ -208,7 +208,7 @@ SELECT * FROM paradedb.bm25_indexes();
 
 ## Function Reference
 
-### `paradedb.verify_bm25_index`
+### `pdb.verify_index`
 
 Verifies a single BM25 index.
 
@@ -222,7 +222,7 @@ Verifies a single BM25 index.
 | `on_error_stop`   | boolean  | `false`    | Stop on first error found                               |
 | `segment_ids`     | int[]    | `NULL`     | Specific segment indices to check (for parallelization) |
 
-### `paradedb.verify_all_bm25_indexes`
+### `pdb.verify_all_indexes`
 
 Verifies all BM25 indexes in the database.
 
@@ -235,7 +235,7 @@ Verifies all BM25 indexes in the database.
 | `report_progress` | boolean | `false` | Emit progress messages                         |
 | `on_error_stop`   | boolean | `false` | Stop on first error found                      |
 
-### `paradedb.bm25_index_segments`
+### `pdb.index_segments`
 
 Lists all segments in a BM25 index.
 
@@ -254,7 +254,7 @@ Returns:
 | `num_deleted`    | bigint | Number of deleted documents                      |
 | `max_doc`        | bigint | Maximum document ID                              |
 
-### `paradedb.bm25_indexes`
+### `pdb.indexes`
 
 Lists all BM25 indexes in the database.
 

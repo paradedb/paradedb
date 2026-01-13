@@ -431,7 +431,7 @@ type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 fn verify_heap_references(
     index_rel: &PgSearchRelation,
     search_reader: &SearchIndexReader,
-    sample_rate: f64,
+    sample_rate: Option<f64>,
     report_progress: bool,
     verbose: bool,
     segment_filter: &Option<HashSet<usize>>,
@@ -460,7 +460,8 @@ fn verify_heap_references(
 
     // For sampling, we use a simple deterministic approach based on doc_id
     // This ensures reproducible results for the same sample_rate
-    let sample_threshold = (sample_rate * u32::MAX as f64) as u32;
+    // None means check all (no sampling)
+    let sample_threshold = sample_rate.map(|r| (r * u32::MAX as f64) as u32);
 
     // Calculate total docs for progress reporting (only for segments we'll check)
     let total_alive_docs: usize = search_reader
@@ -528,10 +529,11 @@ fn verify_heap_references(
             }
 
             // Apply sampling: use a hash of the doc_id for deterministic sampling
-            if sample_rate < 1.0 {
+            // None means check all (no sampling)
+            if let Some(threshold) = sample_threshold {
                 // Simple hash: multiply by a prime and take modulo
                 let hash = doc_id.wrapping_mul(2654435761);
-                if hash > sample_threshold {
+                if hash > threshold {
                     continue;
                 }
             }
@@ -903,7 +905,7 @@ pub mod pdb {
     /// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table.
     ///   This is expensive but thorough. Default: false
     /// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0).
-    ///   Default: 1.0 (100%). Use lower values for quick spot checks.
+    ///   Default: NULL (100%). Use lower values for quick spot checks.
     /// * `report_progress` - If true, emit progress messages via WARNING. Default: false
     /// * `verbose` - If true, show detailed segment-by-segment progress and resume hints.
     ///   Useful for resuming after connection drops. Default: false
@@ -959,7 +961,7 @@ pub mod pdb {
     pub fn verify_index(
         index: PgRelation,
         heapallindexed: default!(bool, false),
-        sample_rate: default!(f64, 1.0),
+        sample_rate: default!(Option<f64>, "NULL"),
         report_progress: default!(bool, false),
         verbose: default!(bool, false),
         on_error_stop: default!(bool, false),
@@ -974,8 +976,8 @@ pub mod pdb {
             ),
         >,
     > {
-        // Validate sample_rate
-        let sample_rate = sample_rate.clamp(0.0, 1.0);
+        // Validate sample_rate (None means check all)
+        let sample_rate = sample_rate.map(|r| r.clamp(0.0, 1.0));
 
         // Convert segment_ids to a HashSet for O(1) lookup
         let segment_filter: Option<HashSet<usize>> = segment_ids.map(|ids| {
@@ -1264,10 +1266,11 @@ pub mod pdb {
                     } else {
                         String::new()
                     };
+                    let sample_pct = sample_rate.map(|r| r * 100.0).unwrap_or(100.0);
                     pgrx::warning!(
                         "verify_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
                         partition_name,
-                        sample_rate * 100.0,
+                        sample_pct,
                         segment_info
                     );
                 }
@@ -1281,7 +1284,7 @@ pub mod pdb {
                 );
                 match heap_check_result {
                     Ok((total_checked, total_docs, missing_ctids)) => {
-                        let sample_info = if sample_rate < 1.0 {
+                        let sample_info = if sample_rate.is_some_and(|r| r < 1.0) {
                             format!(" (sampled {} of {} docs)", total_checked, total_docs)
                         } else {
                             String::new()
@@ -1597,7 +1600,7 @@ pub mod pdb {
     ///   Example: 'search_%' or '%_idx'
     /// * `heapallindexed` - If true, verify all indexed ctids exist in the heap.
     ///   Default: false
-    /// * `sample_rate` - Fraction of documents to check (0.0-1.0). Default: 1.0
+    /// * `sample_rate` - Fraction of documents to check (0.0-1.0). Default: NULL (100%)
     /// * `report_progress` - Emit progress messages. Default: false
     /// * `on_error_stop` - Stop on first error found. Default: false
     ///
@@ -1645,7 +1648,7 @@ pub mod pdb {
         schema_pattern: default!(Option<String>, "NULL"),
         index_pattern: default!(Option<String>, "NULL"),
         heapallindexed: default!(bool, false),
-        sample_rate: default!(f64, 1.0),
+        sample_rate: default!(Option<f64>, "NULL"),
         report_progress: default!(bool, false),
         on_error_stop: default!(bool, false),
     ) -> Result<
@@ -1660,7 +1663,8 @@ pub mod pdb {
             ),
         >,
     > {
-        let sample_rate = sample_rate.clamp(0.0, 1.0);
+        // Validate sample_rate (None means check all)
+        let sample_rate = sample_rate.map(|r| r.clamp(0.0, 1.0));
         let mut results = Vec::new();
 
         // Build query with optional pattern filters

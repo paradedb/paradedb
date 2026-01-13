@@ -173,13 +173,21 @@ pub struct Buffer {
     pub(super) pg_buffer: pg_sys::Buffer,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
+// must run unconditionally (even during panic) for correct bookkeeping. The macro would
+// skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
             if self.pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                // block_tracker bookkeeping must run unconditionally
                 block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-                // if it's not we're likely unwinding the stack due to a panic and unlocking buffers isn't possible anymore
-                if pg_sys::InterruptHoldoffCount > 0 && crate::postgres::utils::IsTransactionState()
+
+                // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
+                // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
+                if !std::thread::panicking()
+                    && pg_sys::InterruptHoldoffCount > 0
+                    && crate::postgres::utils::IsTransactionState()
                 {
                     pg_sys::UnlockReleaseBuffer(self.pg_buffer);
                 }
@@ -358,6 +366,9 @@ pub struct PinnedBuffer {
     pg_buffer: pg_sys::Buffer,
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here because `block_tracker::forget!`
+// must run unconditionally (even during panic) for correct bookkeeping. The macro would
+// skip the entire body during panic, but we only want to skip the PostgreSQL API call.
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {

@@ -31,22 +31,13 @@ pub struct VisibilityChecker {
     _heaprel: PgSearchRelation,
 }
 
-impl Drop for VisibilityChecker {
-    fn drop(&mut self) {
-        unsafe {
-            // Skip cleanup during panic unwinding to prevent double-panics.
-            // PostgreSQL functions can raise ERRORs (converted to panics by pgrx),
-            // and panicking during unwinding causes abort.
-            if !crate::postgres::utils::IsTransactionState() || std::thread::panicking() {
-                // we are not in a transaction or are unwinding from a panic,
-                // so we can't do things like release buffers and close relations
-                return;
-            }
-
+crate::impl_safe_drop!(VisibilityChecker, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
             pg_sys::table_index_fetch_end(self.scan);
         }
     }
-}
+});
 
 impl VisibilityChecker {
     /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
@@ -125,23 +116,14 @@ impl HeapFetchState {
     }
 }
 
-impl Drop for HeapFetchState {
-    fn drop(&mut self) {
-        unsafe {
-            // Skip cleanup during panic unwinding to prevent double-panics.
-            // PostgreSQL functions can raise ERRORs (converted to panics by pgrx),
-            // and panicking during unwinding causes abort.
-            if !crate::postgres::utils::IsTransactionState() || std::thread::panicking() {
-                // we are not in a transaction or are unwinding from a panic,
-                // so we can't do things like release buffers
-                return;
-            }
-
+crate::impl_safe_drop!(HeapFetchState, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
             pg_sys::ExecDropSingleTupleTableSlot(self.slot.cast());
             pg_sys::table_index_fetch_end(self.scan);
         }
     }
-}
+});
 
 /// A wrapper for expression evaluation state.
 #[derive(Debug)]

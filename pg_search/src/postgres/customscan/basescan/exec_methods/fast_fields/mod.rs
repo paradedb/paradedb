@@ -60,19 +60,15 @@ pub struct FastFieldExecState {
     did_query: bool,
 }
 
-impl Drop for FastFieldExecState {
-    fn drop(&mut self) {
-        unsafe {
-            // Skip cleanup during panic unwinding to prevent double-panics.
-            if crate::postgres::utils::IsTransactionState()
-                && !std::thread::panicking()
-                && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
-            {
-                pg_sys::ReleaseBuffer(self.vmbuff);
-            }
+crate::impl_safe_drop!(FastFieldExecState, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState()
+            && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
+        {
+            pg_sys::ReleaseBuffer(self.vmbuff);
         }
     }
-}
+});
 
 impl FastFieldExecState {
     pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {

@@ -270,19 +270,13 @@ impl Deref for BufferMut {
     }
 }
 
-impl Drop for BufferMut {
-    fn drop(&mut self) {
-        unsafe {
-            // Skip cleanup during panic unwinding to prevent double-panics.
-            if crate::postgres::utils::IsTransactionState()
-                && !std::thread::panicking()
-                && self.dirty
-            {
-                pg_sys::MarkBufferDirty(self.inner.pg_buffer);
-            }
+crate::impl_safe_drop!(BufferMut, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() && self.dirty {
+            pg_sys::MarkBufferDirty(self.inner.pg_buffer);
         }
     }
-}
+});
 
 impl BufferMut {
     pub fn init_page(&mut self) -> PageMut<'_> {
@@ -367,8 +361,10 @@ pub struct PinnedBuffer {
 impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
+            // block_tracker bookkeeping must run unconditionally
             block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
-            // Skip cleanup during panic unwinding to prevent double-panics.
+
+            // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics
             if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
                 pg_sys::ReleaseBuffer(self.pg_buffer);
             }
@@ -405,17 +401,14 @@ impl BorrowedBuffer {
     }
 }
 
-impl Drop for BorrowedBuffer {
-    fn drop(&mut self) {
-        unsafe {
-            // Skip cleanup during panic unwinding to prevent double-panics.
-            if crate::postgres::utils::IsTransactionState() && !std::thread::panicking() {
-                // Only unlock, don't release
-                pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
-            }
+crate::impl_safe_drop!(BorrowedBuffer, |self| {
+    unsafe {
+        if crate::postgres::utils::IsTransactionState() {
+            // Only unlock, don't release
+            pg_sys::LockBuffer(self.pg_buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
         }
     }
-}
+});
 
 pub struct Page<'a> {
     pg_page: pg_sys::Page,

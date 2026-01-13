@@ -186,7 +186,7 @@ INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_seri
 -- Verify healthy state first
 SELECT 'Before corruption' as state, check_name, passed
 FROM pdb.verify_index('corruption_idx', heapallindexed := true)
-WHERE check_name LIKE '%heap%';
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%';
 
 -- Induce corruption: delete rows without updating the index
 ALTER TABLE corruption_test DISABLE TRIGGER ALL;
@@ -197,7 +197,7 @@ ALTER TABLE corruption_test ENABLE TRIGGER ALL;
 SELECT 'After corruption' as state, check_name, passed, 
        details LIKE '%5 of 50%' as detected_5_missing
 FROM pdb.verify_index('corruption_idx', heapallindexed := true)
-WHERE check_name LIKE '%heap%';
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%';
 
 -- Test 15: Sampling with corruption
 -- With 100% sampling, corruption should always be detected
@@ -233,14 +233,14 @@ ALTER TABLE corrupted_table ENABLE TRIGGER ALL;
 -- verify_all should show healthy passing and corrupted failing
 SELECT indexname, check_name, passed
 FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true)
-WHERE check_name LIKE '%heap%'
-ORDER BY indexname;
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
+ORDER BY indexname, check_name;
 
 -- Test 18: verify_all with on_error_stop should stop at first corrupted index
 SELECT indexname, check_name, passed
 FROM pdb.verify_all_indexes(index_pattern := '%_idx', heapallindexed := true, on_error_stop := true)
-WHERE check_name LIKE '%heap%'
-ORDER BY indexname;
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
+ORDER BY indexname, check_name;
 
 DROP TABLE healthy_table, corrupted_table CASCADE;
 

@@ -17,6 +17,7 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
+use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -25,7 +26,7 @@ use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::item_pointer_to_u64;
+use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
 use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
@@ -416,10 +417,15 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     ))
 }
 
-type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
+/// Result of heap reference check: (total_checked, total_docs, missing_ctids, docs_without_ctid)
+/// - total_checked: number of documents actually checked (may be less due to sampling)
+/// - total_docs: total number of live documents in the index
+/// - missing_ctids: list of (block, offset) pairs for ctids not found in heap
+/// - docs_without_ctid: count of documents missing ctid in the index (indicates corruption)
+type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>, usize)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.
-/// Returns (total_checked, total_docs, missing_ctids)
+/// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
 fn verify_heap_references(
     index_rel: &PgSearchRelation,
     search_reader: &SearchIndexReader,
@@ -428,9 +434,6 @@ fn verify_heap_references(
     verbose: bool,
     segment_filter: &Option<HashSet<usize>>,
 ) -> HeapCheckResult {
-    use crate::index::fast_fields_helper::FFType;
-    use crate::postgres::utils::u64_to_item_pointer;
-
     // Get the heap relation OID from the index
     let heap_oid = index_rel
         .rel_oid()
@@ -452,6 +455,7 @@ fn verify_heap_references(
     let mut total_checked = 0usize;
     let mut total_docs = 0usize;
     let mut missing_ctids = Vec::new();
+    let mut docs_without_ctid = 0usize;
 
     // For sampling, we use a simple deterministic approach based on doc_id
     // This ensures reproducible results for the same sample_rate
@@ -534,9 +538,13 @@ fn verify_heap_references(
             }
 
             // Get the ctid for this document
+            // Every indexed document MUST have a ctid - if missing, the index is corrupted
             let ctid_u64 = match ctid_column.as_u64(doc_id) {
                 Some(val) => val,
-                None => continue, // Skip if ctid is not available
+                None => {
+                    docs_without_ctid += 1;
+                    continue;
+                }
             };
 
             total_checked += 1;
@@ -620,14 +628,15 @@ fn verify_heap_references(
 
     if report_progress {
         pgrx::warning!(
-            "verify_index: Heap check complete. Checked {} of {} docs, {} missing.",
+            "verify_index: Heap check complete. Checked {} of {} docs, {} missing, {} without ctid.",
             total_checked,
             total_docs,
-            missing_ctids.len()
+            missing_ctids.len(),
+            docs_without_ctid
         );
     }
 
-    Ok((total_checked, total_docs, missing_ctids))
+    Ok((total_checked, total_docs, missing_ctids, docs_without_ctid))
 }
 
 #[pg_extern(sql = "")]
@@ -1274,12 +1283,36 @@ pub mod pdb {
                     &segment_filter,
                 );
                 match heap_check_result {
-                    Ok((total_checked, total_docs, missing_ctids)) => {
+                    Ok((total_checked, total_docs, missing_ctids, docs_without_ctid)) => {
                         let sample_info = if sample_rate < 1.0 {
                             format!(" (sampled {} of {} total docs)", total_checked, total_docs)
                         } else {
                             String::new()
                         };
+
+                        // Check for documents without ctid (indicates index corruption)
+                        if docs_without_ctid > 0 {
+                            results.push((
+                                format!("{}: ctid_field_valid", partition_name),
+                                false,
+                                Some(format!(
+                                    "{} documents missing ctid in index (corruption detected)",
+                                    docs_without_ctid
+                                )),
+                            ));
+                            if on_error_stop {
+                                return Ok(TableIterator::new(results));
+                            }
+                        } else {
+                            results.push((
+                                format!("{}: ctid_field_valid", partition_name),
+                                true,
+                                Some(format!(
+                                    "All {} documents have valid ctid{}",
+                                    total_checked, sample_info
+                                )),
+                            ));
+                        }
 
                         if missing_ctids.is_empty() {
                             results.push((

@@ -2,8 +2,9 @@
 
 /* pg_search::api::admin::pdb */
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/admin.rs:1507
+-- pg_search/src/api/admin.rs:1508
 -- pg_search::api::admin::pdb::indexes
 CREATE  FUNCTION pdb."indexes"() RETURNS TABLE (
 	"schemaname" TEXT,  /* alloc::string::String */
@@ -17,27 +18,9 @@ STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'indexes_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/admin.rs:960
--- pg_search::api::admin::pdb::verify_index
-CREATE  FUNCTION pdb."verify_index"(
-	"index" regclass, /* pgrx::rel::PgRelation */
-	"heapallindexed" bool DEFAULT false, /* bool */
-	"sample_rate" double precision DEFAULT NULL, /* core::option::Option<f64> */
-	"report_progress" bool DEFAULT false, /* bool */
-	"verbose" bool DEFAULT false, /* bool */
-	"on_error_stop" bool DEFAULT false, /* bool */
-	"segment_ids" INT[] DEFAULT NULL /* core::option::Option<alloc::vec::Vec<i32>> */
-) RETURNS TABLE (
-	"check_name" TEXT,  /* alloc::string::String */
-	"passed" bool,  /* bool */
-	"details" TEXT  /* core::option::Option<alloc::string::String> */
-)
-LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'verify_index_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/admin.rs:1424
+-- pg_search/src/api/admin.rs:1425
 -- pg_search::api::admin::pdb::index_segments
 CREATE  FUNCTION pdb."index_segments"(
 	"index" regclass /* pgrx::rel::PgRelation */
@@ -53,8 +36,9 @@ STRICT
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'index_segments_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/admin.rs:1646
+-- pg_search/src/api/admin.rs:1645
 -- pg_search::api::admin::pdb::verify_all_indexes
 CREATE  FUNCTION pdb."verify_all_indexes"(
 	"schema_pattern" TEXT DEFAULT NULL, /* core::option::Option<alloc::string::String> */
@@ -72,3 +56,24 @@ CREATE  FUNCTION pdb."verify_all_indexes"(
 )
 LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'verify_all_indexes_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/admin.rs:961
+-- pg_search::api::admin::pdb::verify_index
+CREATE  FUNCTION pdb."verify_index"(
+	"index" regclass, /* pgrx::rel::PgRelation */
+	"heapallindexed" bool DEFAULT false, /* bool */
+	"sample_rate" double precision DEFAULT NULL, /* core::option::Option<f64> */
+	"report_progress" bool DEFAULT false, /* bool */
+	"verbose" bool DEFAULT false, /* bool */
+	"on_error_stop" bool DEFAULT false, /* bool */
+	"segment_ids" INT[] DEFAULT NULL /* core::option::Option<alloc::vec::Vec<i32>> */
+) RETURNS TABLE (
+	"check_name" TEXT,  /* alloc::string::String */
+	"passed" bool,  /* bool */
+	"details" TEXT  /* core::option::Option<alloc::string::String> */
+)
+LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'verify_index_wrapper';
+

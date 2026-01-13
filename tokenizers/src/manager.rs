@@ -55,6 +55,8 @@ pub struct SearchTokenizerFilters {
     pub ascii_folding: Option<bool>,
     pub trim: Option<bool>,
     pub normalizer: Option<SearchNormalizer>,
+    /// Table name for query-time synonym expansion (e.g., "synonyms")
+    pub synonyms_table: Option<String>,
 }
 
 impl SearchTokenizerFilters {
@@ -75,6 +77,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            synonyms_table: None,
         }
     }
 
@@ -90,6 +93,7 @@ impl SearchTokenizerFilters {
             alpha_num_only: None,
             trim: None,
             normalizer: Some(SearchNormalizer::Raw),
+            synonyms_table: None,
         }
     }
 
@@ -187,7 +191,6 @@ impl SearchTokenizerFilters {
                 )
             })?);
         }
-
         Ok(filters)
     }
 
@@ -602,7 +605,7 @@ impl SearchTokenizer {
         Some(analyzer)
     }
 
-    fn filters(&self) -> &SearchTokenizerFilters {
+    pub fn filters(&self) -> &SearchTokenizerFilters {
         match self {
             SearchTokenizer::Simple(filters) => filters,
             SearchTokenizer::Keyword => SearchTokenizerFilters::keyword(),
@@ -775,6 +778,7 @@ mod tests {
                     trim: None,
                     normalizer: None,
                     alpha_num_only: None,
+                    synonyms_table: None,
                 }
             }
         );
@@ -800,6 +804,7 @@ mod tests {
                 trim: None,
                 normalizer: None,
                 alpha_num_only: None,
+                synonyms_table: None,
             },
         };
 

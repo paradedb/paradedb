@@ -236,6 +236,7 @@ impl TypmodSchema {
                     ValueConstraint::StringChoiceMultiple(LANGUAGES.values().cloned().collect())
                 ),
                 rule!("stopwords", ValueConstraint::String),
+                rule!("synonyms_table", ValueConstraint::String),
                 rule!("alpha_num_only", ValueConstraint::Boolean),
                 rule!("ascii_folding", ValueConstraint::Boolean),
                 rule!("trim", ValueConstraint::Boolean),

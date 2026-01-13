@@ -23,6 +23,7 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
+pub mod synonym;
 
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
@@ -1465,6 +1466,7 @@ mod tests {
                 transposition_cost_one: None,
                 prefix: None,
                 conjunction_mode: None,
+                synonyms_table: None,
             },
         }
     }

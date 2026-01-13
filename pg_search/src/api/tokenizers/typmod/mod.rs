@@ -381,6 +381,11 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
             trim: value.get("trim").and_then(|p| p.as_bool()),
             normalizer: value.get("normalizer").and_then(|p| p.as_normalizer()),
+            // Store table name for query-time synonym expansion (not loaded at index time)
+            synonyms_table: value
+                .get("synonyms_table")
+                .and_then(|p| p.as_str())
+                .map(|s| s.to_string()),
         }
     }
 }

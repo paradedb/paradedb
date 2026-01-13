@@ -590,6 +590,61 @@ fn verify_bm25_index(
         let mut segment_issues = Vec::new();
         let mut segments_checked = 0usize;
 
+        // Build list of all segments with their IDs for progress reporting
+        let all_segments: Vec<(usize, String)> = segment_readers
+            .iter()
+            .enumerate()
+            .map(|(idx, r)| (idx, r.segment_id().short_uuid_string()))
+            .collect();
+
+        // Determine which segments will be processed
+        let segments_to_process: Vec<(usize, String)> = all_segments
+            .iter()
+            .filter(|(idx, _)| {
+                segment_filter
+                    .as_ref()
+                    .map_or(true, |filter| filter.contains(idx))
+            })
+            .cloned()
+            .collect();
+
+        // Log segment list at the start for resumability
+        if report_progress {
+            let all_segment_list: Vec<String> = all_segments
+                .iter()
+                .map(|(idx, id)| format!("{}:{}", idx, id))
+                .collect();
+            pgrx::warning!(
+                "verify_bm25_index: {} has {} segments: [{}]",
+                partition_name,
+                num_segments,
+                all_segment_list.join(", ")
+            );
+
+            if segment_filter.is_some() {
+                let to_process_list: Vec<String> = segments_to_process
+                    .iter()
+                    .map(|(idx, id)| format!("{}:{}", idx, id))
+                    .collect();
+                pgrx::warning!(
+                    "verify_bm25_index: Will process {} of {} segments: [{}]",
+                    segments_to_process.len(),
+                    num_segments,
+                    to_process_list.join(", ")
+                );
+
+                // Log which segments to use for resuming if connection drops
+                let remaining_indices: Vec<String> = segments_to_process
+                    .iter()
+                    .map(|(idx, _)| idx.to_string())
+                    .collect();
+                pgrx::warning!(
+                    "verify_bm25_index: To resume from start, use: segment_ids := ARRAY[{}]",
+                    remaining_indices.join(", ")
+                );
+            }
+        }
+
         for (idx, segment_reader) in segment_readers.iter().enumerate() {
             // Skip segments not in the filter (if filter is specified)
             if let Some(ref filter) = segment_filter {
@@ -602,6 +657,18 @@ fn verify_bm25_index(
             let segment_id = segment_reader.segment_id().short_uuid_string();
             let num_docs = segment_reader.num_docs();
             let max_doc = segment_reader.max_doc();
+
+            // Log progress for each segment
+            if report_progress {
+                pgrx::warning!(
+                    "verify_bm25_index: Processing segment {}/{} (index={}, id={}, docs={})",
+                    segments_checked,
+                    segments_to_process.len(),
+                    idx,
+                    segment_id,
+                    num_docs
+                );
+            }
 
             // Basic sanity check: num_docs should not exceed max_doc
             if num_docs > max_doc {
@@ -618,6 +685,31 @@ fn verify_bm25_index(
                     "Segment {} ({}): ctid fast field not accessible",
                     idx, segment_id
                 ));
+            }
+
+            // Log completion and resume hint after each segment
+            if report_progress {
+                let remaining: Vec<String> = segments_to_process
+                    .iter()
+                    .filter(|(i, _)| *i > idx)
+                    .map(|(i, _)| i.to_string())
+                    .collect();
+                if remaining.is_empty() {
+                    pgrx::warning!(
+                        "verify_bm25_index: Completed segment {} (index={}, id={}). All segments done.",
+                        segments_checked,
+                        idx,
+                        segment_id
+                    );
+                } else {
+                    pgrx::warning!(
+                        "verify_bm25_index: Completed segment {} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                        segments_checked,
+                        idx,
+                        segment_id,
+                        remaining.join(", ")
+                    );
+                }
             }
         }
 
@@ -787,6 +879,20 @@ fn verify_heap_references(
     let progress_interval = (total_alive_docs / 20).max(100_000);
     let mut last_progress_report = 0usize;
 
+    // Build list of segments to process for progress logging
+    let segments_to_check: Vec<usize> = search_reader
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .map_or(true, |filter| filter.contains(idx))
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+    let mut segments_completed = 0usize;
+
     // Iterate through all segments and all documents
     for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
         // Skip segments not in the filter (if filter is specified)
@@ -796,15 +902,18 @@ fn verify_heap_references(
             }
         }
 
+        let segment_id = segment_reader.segment_id().short_uuid_string();
         let fast_fields = segment_reader.fast_fields();
         let ctid_column = FFType::new_ctid(fast_fields);
         let alive_bitset = segment_reader.alive_bitset();
 
         if report_progress {
             pgrx::warning!(
-                "verify_bm25_index: Processing segment {}/{} ({} docs)",
-                seg_idx + 1,
-                search_reader.segment_readers().len(),
+                "verify_bm25_index: Heap check - starting segment {}/{} (index={}, id={}, {} docs)",
+                segments_completed + 1,
+                segments_to_check.len(),
+                seg_idx,
+                segment_id,
                 segment_reader.num_docs()
             );
         }
@@ -876,6 +985,34 @@ fn verify_heap_references(
             // Check for interrupts periodically (every 10k docs)
             if total_checked.is_multiple_of(10_000) {
                 pgrx::check_for_interrupts!();
+            }
+        }
+
+        // Log segment completion with resume hint
+        segments_completed += 1;
+        if report_progress {
+            let remaining: Vec<String> = segments_to_check
+                .iter()
+                .filter(|&&i| i > seg_idx)
+                .map(|i| i.to_string())
+                .collect();
+            if remaining.is_empty() {
+                pgrx::warning!(
+                    "verify_bm25_index: Heap check - completed segment {}/{} (index={}, id={}). All segments done.",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id
+                );
+            } else {
+                pgrx::warning!(
+                    "verify_bm25_index: Heap check - completed segment {}/{} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id,
+                    remaining.join(", ")
+                );
             }
         }
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768333038490,
+  "lastUpdate": 1768333993461,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22180,6 +22180,42 @@ window.BENCHMARK_DATA = {
             "value": 5.388873622452048,
             "unit": "median tps",
             "extra": "avg tps: 4.834515326272947, max tps: 6.0441886340963515, count: 57925"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aad2a3b35d57b5e79d5581eeba84d95aafd63eab",
+          "message": "fix: Enable `columnar-zstd-compression` (#3912)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nBecause of https://github.com/quickwit-oss/tantivy/pull/2633 we need to\nexplicitly enable this feature\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-13T14:16:49-05:00",
+          "tree_id": "86eb08bac72eac18d4b2eba8bee228f44b7c3ce1",
+          "url": "https://github.com/paradedb/paradedb/commit/aad2a3b35d57b5e79d5581eeba84d95aafd63eab"
+        },
+        "date": 1768333989906,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.573030989780888,
+            "unit": "median tps",
+            "extra": "avg tps: 6.496201080133978, max tps: 9.750636901952255, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.46303637725032,
+            "unit": "median tps",
+            "extra": "avg tps: 4.89171719540738, max tps: 6.147309455717825, count: 57804"
           }
         ]
       }

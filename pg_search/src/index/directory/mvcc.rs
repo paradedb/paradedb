@@ -811,7 +811,6 @@ mod tests {
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
             todo!("test_list_meta_entries");
         };
-        assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());

@@ -417,12 +417,14 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     ))
 }
 
-/// Result of heap reference check: (total_checked, total_docs, missing_ctids, docs_without_ctid)
-/// - total_checked: number of documents actually checked (may be less due to sampling)
-/// - total_docs: total number of live documents in the index
+/// Result of heap reference check: (total_checked, total_docs, missing_ctids)
+/// - total_checked: number of documents successfully checked
+/// - total_docs: number of documents attempted (after sampling)
 /// - missing_ctids: list of (block, offset) pairs for ctids not found in heap
-/// - docs_without_ctid: count of documents missing ctid in the index (indicates corruption)
-type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>, usize)>;
+///
+/// Note: if total_checked < total_docs, then (total_docs - total_checked) documents
+/// had missing ctid fields, indicating index corruption.
+type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
 
 /// Helper function to verify that all indexed ctids exist in the heap.
 /// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
@@ -455,7 +457,6 @@ fn verify_heap_references(
     let mut total_checked = 0usize;
     let mut total_docs = 0usize;
     let mut missing_ctids = Vec::new();
-    let mut docs_without_ctid = 0usize;
 
     // For sampling, we use a simple deterministic approach based on doc_id
     // This ensures reproducible results for the same sample_rate
@@ -526,8 +527,6 @@ fn verify_heap_references(
                 }
             }
 
-            total_docs += 1;
-
             // Apply sampling: use a hash of the doc_id for deterministic sampling
             if sample_rate < 1.0 {
                 // Simple hash: multiply by a prime and take modulo
@@ -537,14 +536,14 @@ fn verify_heap_references(
                 }
             }
 
+            // Count documents we're attempting to check (after sampling)
+            total_docs += 1;
+
             // Get the ctid for this document
             // Every indexed document MUST have a ctid - if missing, the index is corrupted
             let ctid_u64 = match ctid_column.as_u64(doc_id) {
                 Some(val) => val,
-                None => {
-                    docs_without_ctid += 1;
-                    continue;
-                }
+                None => continue, // Will be detected as total_docs > total_checked
             };
 
             total_checked += 1;
@@ -627,16 +626,21 @@ fn verify_heap_references(
     }
 
     if report_progress {
+        let without_ctid = total_docs - total_checked;
         pgrx::warning!(
-            "verify_index: Heap check complete. Checked {} of {} docs, {} missing, {} without ctid.",
+            "verify_index: Heap check complete. Checked {} of {} docs, {} missing{}",
             total_checked,
             total_docs,
             missing_ctids.len(),
-            docs_without_ctid
+            if without_ctid > 0 {
+                format!(", {} without ctid (corruption)", without_ctid)
+            } else {
+                String::new()
+            }
         );
     }
 
-    Ok((total_checked, total_docs, missing_ctids, docs_without_ctid))
+    Ok((total_checked, total_docs, missing_ctids))
 }
 
 #[pg_extern(sql = "")]
@@ -1283,14 +1287,16 @@ pub mod pdb {
                     &segment_filter,
                 );
                 match heap_check_result {
-                    Ok((total_checked, total_docs, missing_ctids, docs_without_ctid)) => {
+                    Ok((total_checked, total_docs, missing_ctids)) => {
                         let sample_info = if sample_rate < 1.0 {
-                            format!(" (sampled {} of {} total docs)", total_checked, total_docs)
+                            format!(" (sampled {} of {} docs)", total_checked, total_docs)
                         } else {
                             String::new()
                         };
 
                         // Check for documents without ctid (indicates index corruption)
+                        // This is detected when total_checked < total_docs
+                        let docs_without_ctid = total_docs - total_checked;
                         if docs_without_ctid > 0 {
                             results.push((
                                 format!("{}: ctid_field_valid", partition_name),

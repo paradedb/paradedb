@@ -184,14 +184,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Extract pgrx Version
-        id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
-
-      - name: Rust Cache
+      - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-benchmarks-rust-cache"
@@ -200,26 +193,17 @@ jobs:
           cache-all-crates: true
           cache-on-failure: true
 
-      - name: Cache cargo-pgrx binary
-        id: cache-pgrx-bin
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}
-
-      - name: Cache pgrx init
-        id: cache-pgrx-init
-        uses: actions/cache@v4
-        with:
-          path: ~/.pgrx
-          key: pgrx-init-pg${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
       - name: Install cargo-pgrx
-        if: steps.cache-pgrx-bin.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize cargo-pgrx environment
-        if: steps.cache-pgrx-init.outputs.cache-hit != 'true'
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension

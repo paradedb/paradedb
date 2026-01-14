@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768358968334,
+  "lastUpdate": 1768359976695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33156,6 +33156,54 @@ window.BENCHMARK_DATA = {
             "value": 5.3262175937812986,
             "unit": "median tps",
             "extra": "avg tps: 5.351125755859267, max tps: 7.912918646808618, count: 56367"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70739df74fe3290b5c1270d15b95431f0e7a7e26",
+          "message": "fix: SchemaBot migration validation for order-independent comparison (#3917)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nRewrote the SchemaBot migration file validation to compare SQL\nstatements in an order-independent way, since `pg-schema-diff` output\norder is non-deterministic.\n\n## Why\n\nThe previous implementation used exact substring matching (`grep -Fzo`\nand later a simple Python `in` check), which:\n1. Failed when `pg-schema-diff` generated the same functions in a\ndifferent order\n2. Was unreliable with multiline content matching\n3. Couldn't handle missing end markers or extra workflow output\n\n## How\n\nCreated `.github/scripts/check_migration_diff.py` that:\n- **Strips all comments** - Both `-- ...` and `/* ... */` are removed\n- **Strips workflow markers** - `--- BEGIN/END SUGGESTED UPGRADE SCRIPT\n---`\n- **Strips psql commands** - `\\echo`, `\\quit`, etc.\n- **Extracts SQL statements** - Parses `CREATE`, `ALTER`, `DROP`\nstatements\n- **Compares as sets** - Order-independent comparison of normalized\nstatements\n- **Debug mode** - `--debug` flag shows exactly what statements are\nbeing compared\n\n**Note:** The `--debug` flag is currently enabled in CI to verify\nstability of the new comparison logic. It will be removed once we\nconfirm it works reliably.\n\n## Tests\n\nVerified manually that the check correctly on\nhttps://github.com/paradedb/paradedb/pull/3907:\n- Passes when all schema changes are present (regardless of order)\n- Fails when schema changes are missing",
+          "timestamp": "2026-01-13T18:13:01-08:00",
+          "tree_id": "ffe8f420f3e1722b088b24eeb928c44a836e86d2",
+          "url": "https://github.com/paradedb/paradedb/commit/70739df74fe3290b5c1270d15b95431f0e7a7e26"
+        },
+        "date": 1768359972835,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1109.8139099368643,
+            "unit": "median tps",
+            "extra": "avg tps: 1110.5506659767882, max tps: 1153.6603846485725, count: 56109"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1240.3280098868215,
+            "unit": "median tps",
+            "extra": "avg tps: 1235.499125247236, max tps: 1256.7892922263038, count: 56109"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1846.3289563958529,
+            "unit": "median tps",
+            "extra": "avg tps: 1824.2023169283661, max tps: 1987.832876772988, count: 56109"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.532174981959419,
+            "unit": "median tps",
+            "extra": "avg tps: 5.519073377144205, max tps: 6.635113704143774, count: 56109"
           }
         ]
       }

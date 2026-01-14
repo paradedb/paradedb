@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768359976695,
+  "lastUpdate": 1768359982053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -43006,6 +43006,108 @@ window.BENCHMARK_DATA = {
             "value": 159.9296875,
             "unit": "median mem",
             "extra": "avg mem: 178.892521264104, max mem: 220.3671875, count: 56367"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70739df74fe3290b5c1270d15b95431f0e7a7e26",
+          "message": "fix: SchemaBot migration validation for order-independent comparison (#3917)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nRewrote the SchemaBot migration file validation to compare SQL\nstatements in an order-independent way, since `pg-schema-diff` output\norder is non-deterministic.\n\n## Why\n\nThe previous implementation used exact substring matching (`grep -Fzo`\nand later a simple Python `in` check), which:\n1. Failed when `pg-schema-diff` generated the same functions in a\ndifferent order\n2. Was unreliable with multiline content matching\n3. Couldn't handle missing end markers or extra workflow output\n\n## How\n\nCreated `.github/scripts/check_migration_diff.py` that:\n- **Strips all comments** - Both `-- ...` and `/* ... */` are removed\n- **Strips workflow markers** - `--- BEGIN/END SUGGESTED UPGRADE SCRIPT\n---`\n- **Strips psql commands** - `\\echo`, `\\quit`, etc.\n- **Extracts SQL statements** - Parses `CREATE`, `ALTER`, `DROP`\nstatements\n- **Compares as sets** - Order-independent comparison of normalized\nstatements\n- **Debug mode** - `--debug` flag shows exactly what statements are\nbeing compared\n\n**Note:** The `--debug` flag is currently enabled in CI to verify\nstability of the new comparison logic. It will be removed once we\nconfirm it works reliably.\n\n## Tests\n\nVerified manually that the check correctly on\nhttps://github.com/paradedb/paradedb/pull/3907:\n- Passes when all schema changes are present (regardless of order)\n- Fails when schema changes are missing",
+          "timestamp": "2026-01-13T18:13:01-08:00",
+          "tree_id": "ffe8f420f3e1722b088b24eeb928c44a836e86d2",
+          "url": "https://github.com/paradedb/paradedb/commit/70739df74fe3290b5c1270d15b95431f0e7a7e26"
+        },
+        "date": 1768359978164,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08171594574845391, max background_merging: 2.0, count: 56109"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.71678100526943, max cpu: 9.523809, count: 56109"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.107235679102285, max mem: 24.203125, count: 56109"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.036680917513216, max cpu: 9.667674, count: 56109"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.8568176868907, max mem: 166.32421875, count: 56109"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51224,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51060.12040849061, max block_count: 51224.0, count: 56109"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.73699406512324, max segment_count: 60.0, count: 56109"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6049903686141755, max cpu: 9.448819, count: 56109"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 116.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 107.54189278903563, max mem: 134.140625, count: 56109"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.755000816009843, max cpu: 9.514371, count: 56109"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.13548384895918, max mem: 165.74609375, count: 56109"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.957162638783995, max cpu: 33.566433, count: 56109"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 178.41092212813453, max mem: 220.5, count: 56109"
           }
         ]
       }

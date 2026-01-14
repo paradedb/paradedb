@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768358002575,
+  "lastUpdate": 1768358008327,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19020,6 +19020,126 @@ window.BENCHMARK_DATA = {
             "value": 50.82421875,
             "unit": "median mem",
             "extra": "avg mem: 50.00479853273138, max mem: 63.27734375, count: 55375"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "70739df74fe3290b5c1270d15b95431f0e7a7e26",
+          "message": "fix: SchemaBot migration validation for order-independent comparison (#3917)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nRewrote the SchemaBot migration file validation to compare SQL\nstatements in an order-independent way, since `pg-schema-diff` output\norder is non-deterministic.\n\n## Why\n\nThe previous implementation used exact substring matching (`grep -Fzo`\nand later a simple Python `in` check), which:\n1. Failed when `pg-schema-diff` generated the same functions in a\ndifferent order\n2. Was unreliable with multiline content matching\n3. Couldn't handle missing end markers or extra workflow output\n\n## How\n\nCreated `.github/scripts/check_migration_diff.py` that:\n- **Strips all comments** - Both `-- ...` and `/* ... */` are removed\n- **Strips workflow markers** - `--- BEGIN/END SUGGESTED UPGRADE SCRIPT\n---`\n- **Strips psql commands** - `\\echo`, `\\quit`, etc.\n- **Extracts SQL statements** - Parses `CREATE`, `ALTER`, `DROP`\nstatements\n- **Compares as sets** - Order-independent comparison of normalized\nstatements\n- **Debug mode** - `--debug` flag shows exactly what statements are\nbeing compared\n\n**Note:** The `--debug` flag is currently enabled in CI to verify\nstability of the new comparison logic. It will be removed once we\nconfirm it works reliably.\n\n## Tests\n\nVerified manually that the check correctly on\nhttps://github.com/paradedb/paradedb/pull/3907:\n- Passes when all schema changes are present (regardless of order)\n- Fails when schema changes are missing",
+          "timestamp": "2026-01-13T18:13:01-08:00",
+          "tree_id": "ffe8f420f3e1722b088b24eeb928c44a836e86d2",
+          "url": "https://github.com/paradedb/paradedb/commit/70739df74fe3290b5c1270d15b95431f0e7a7e26"
+        },
+        "date": 1768358004540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6829267,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.621893930651651, max cpu: 19.21922, count: 54722"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.82947536239995, max mem: 68.45703125, count: 54722"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.585766194943241, max cpu: 9.356726, count: 54722"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 34.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.76568460525474, max mem: 35.921875, count: 54722"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.550471742484282, max cpu: 19.21922, count: 54722"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.097096817207884, max mem: 68.68359375, count: 54722"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605705544484439, max cpu: 4.83871, count: 54722"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.157373576897776, max mem: 68.1484375, count: 54722"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.573244295715766, max cpu: 9.504951, count: 109444"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 46.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 46.07155764306403, max mem: 56.77734375, count: 109444"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1723,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1722.229176565184, max block_count: 3032.0, count: 54722"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.48496034501663, max segment_count: 17.0, count: 54722"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.443284766057432, max cpu: 4.843592, count: 54722"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.60801457252111, max mem: 59.2109375, count: 54722"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.902368112364462, max cpu: 4.6829267, count: 54722"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.03816064037316, max mem: 62.73046875, count: 54722"
           }
         ]
       }

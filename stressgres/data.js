@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768351982134,
+  "lastUpdate": 1768352959955,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -32826,6 +32826,54 @@ window.BENCHMARK_DATA = {
             "value": 5.571005335114259,
             "unit": "median tps",
             "extra": "avg tps: 5.547849973977952, max tps: 7.219623085715135, count: 56098"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768352956294,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1118.715316583085,
+            "unit": "median tps",
+            "extra": "avg tps: 1122.0310690780298, max tps: 1164.8461858960177, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1307.527335852075,
+            "unit": "median tps",
+            "extra": "avg tps: 1300.1272022845837, max tps: 1316.3136468844498, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1875.1445738772254,
+            "unit": "median tps",
+            "extra": "avg tps: 1853.860280798179, max tps: 2012.049267160114, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.3262175937812986,
+            "unit": "median tps",
+            "extra": "avg tps: 5.351125755859267, max tps: 7.912918646808618, count: 56367"
           }
         ]
       }

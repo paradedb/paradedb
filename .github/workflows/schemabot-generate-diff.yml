@@ -13,7 +13,6 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
-      - ".github/workflows/reusable-pgrx-schema.yml"
       - ".github/scripts/check_migration_diff.py"
       - "pg_search/**"
       - "!pg_search/README.md"
@@ -24,73 +23,94 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Generate schema from PR head (runs in parallel with base)
-  schema-head:
-    name: Schema (PR)
-    uses: ./.github/workflows/reusable-pgrx-schema.yml
-    with:
-      git_ref: ${{ github.event.pull_request.head.ref || github.ref }}
-      pg_version: "14"
-      artifact_name: schema-head
-
-  # Generate schema from base branch (runs in parallel with head)
-  schema-base:
-    name: Schema (Base)
-    uses: ./.github/workflows/reusable-pgrx-schema.yml
-    with:
-      git_ref: ${{ github.event.pull_request.base.ref }}
-      pg_version: "14"
-      artifact_name: schema-base
-
-  # Compare schemas and validate migration
-  compare:
-    name: Compare & Validate
-    needs: [schema-head, schema-base]
-    runs-on: ubuntu-latest
+  schemabot-generate-diff:
+    name: SchemaBot
+    runs-on: ubicloud-standard-8-ubuntu-2404
     defaults:
       run:
         shell: bash -eo pipefail {0}
+    strategy:
+      matrix:
+        pg_version: [14] # pg_search's minimum supported Postgres version
 
     steps:
-      - name: Checkout PR branch
+      - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0 # Fetch the entire history
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
-      - name: Download head schema
-        uses: actions/download-artifact@v4
-        with:
-          name: schema-head
-          path: ~/head
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Download base schema
-        uses: actions/download-artifact@v4
-        with:
-          name: schema-base
-          path: ~/base
-
-      - name: Cache pg-schema-diff
-        id: cache-diff-tool
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/pg-schema-diff
-          key: pg-schema-diff-v1
-
-      - name: Install Rust (for pg-schema-diff)
-        if: steps.cache-diff-tool.outputs.cache-hit != 'true'
+      - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Install pg-schema-diff
-        if: steps.cache-diff-tool.outputs.cache-hit != 'true'
-        run: cargo install --git https://github.com/paradedb/pg-schema-diff.git --debug
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
+          cache-all-crates: true
 
-      - name: Generate Schema Diff
+      - name: Install & Configure Supported PostgreSQL Version
         run: |
-          set +e
-          ~/.cargo/bin/pg-schema-diff diff ~/base/schema.sql ~/head/schema.sql > ~/diff.sql 2>&1
-          PG_SCHEMA_DIFF_EXIT=$?
-          set -e
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      - name: Install pg-schema-diff and its Required Dependencies
+        run: |
+          sudo apt install clang llvm diffutils
+          cargo install --git https://github.com/paradedb/pg-schema-diff.git --debug --force
+
+      - name: Install cargo-pgrx
+        run: |
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+          # Save the pgrx version for comparison later
+          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+
+      - name: Generate Schema from this git rev
+        run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
+
+      - name: Switch to Base git rev and Generate Schema Again
+        run: |
+          # Switch to the base git rev
+          git checkout .
+          git checkout ${{ github.event.pull_request.base.ref }}
+
+          # See if we need a different cargo-pgrx and install it if so
+          THIS_PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if [[ "${THIS_PGRX_VERSION}" != "${FIRST_PGRX_VERSION}" ]]; then
+            # Install cargo-pgrx
+            cargo install -j $(nproc) --locked cargo-pgrx --version ${THIS_PGRX_VERSION} --force --debug
+
+            # Initialize it (again) -- probably unnecessary, but might as well in case ~/.pgrx/config.toml ever changes
+            cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          fi
+
+          # Generate schema
+          cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/old.sql
+
+      - name: Generate Schema Diffs
+        run: |
+          # Run pg-schema-diff and capture its exit code
+          # Note: Only capture stdout (the actual diff), stderr goes to terminal for debugging
+          set +e  # Temporarily disable exit on error
+          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql 2>&1
+          PG_SCHEMA_DIFF_EXIT=$?
+          set -e  # Re-enable exit on error
+
+          # Check if pg-schema-diff crashed or had an error
           if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
             echo "❌ ERROR: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
             echo "Output:"
@@ -98,13 +118,20 @@ jobs:
             exit 1
           fi
 
+          # Show the schema diff
           echo "Schema diff generated successfully:"
           cat ~/diff.sql
 
-          # Remove trailing newlines for comparison
+          # Remove trailing newlines from diff for comparison
           perl -i -pe 'chomp if eof' ~/diff.sql
 
-      - name: Validate Migration
+      - name: Switch Back to PR Branch
+        run: |
+          # Switch back to the PR branch to check the migration file
+          git checkout ${{ github.event.pull_request.head.ref || github.ref }}
+
+      - name: Check Schema Diff and Validate Migration
+        id: check_schema_diff
         run: |
           if test -s ~/diff.sql; then
             echo "=========================================="
@@ -150,4 +177,5 @@ jobs:
             fi
           else
             echo "✅ No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
           fi

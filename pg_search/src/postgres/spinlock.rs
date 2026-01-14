@@ -63,6 +63,9 @@ impl AcquiredSpinLock {
     }
 }
 
+// NOTE: We intentionally do NOT use `impl_safe_drop!` here. Spinlocks must be released
+// even during panic unwinding to avoid deadlocks. SpinLockRelease is just an atomic
+// operation that cannot raise PostgreSQL errors, so it's safe to call during unwinding.
 impl Drop for AcquiredSpinLock {
     #[inline(always)]
     fn drop(&mut self) {

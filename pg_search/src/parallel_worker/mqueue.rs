@@ -24,15 +24,13 @@ struct MessageQueueHandle {
     handle: NonNull<pg_sys::shm_mq_handle>,
 }
 
-impl Drop for MessageQueueHandle {
-    fn drop(&mut self) {
-        unsafe {
-            if pg_sys::IsInParallelMode() {
-                pg_sys::shm_mq_detach(self.handle.as_ptr());
-            }
+crate::impl_safe_drop!(MessageQueueHandle, |self| {
+    unsafe {
+        if pg_sys::IsInParallelMode() {
+            pg_sys::shm_mq_detach(self.handle.as_ptr());
         }
     }
-}
+});
 
 impl MessageQueueHandle {
     unsafe fn attach_sender(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {

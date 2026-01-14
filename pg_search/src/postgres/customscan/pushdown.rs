@@ -114,8 +114,8 @@ impl PushdownField {
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident, $maybe_terms:ident) => {{
-        make_opexpr($attname, $opexpr, $operator, $rhs, $maybe_terms).map(|funcexpr| {
+    ($attname:expr, $opexpr:expr, $operator:expr, $field:ident, $field_is_array:ident) => {{
+        make_opexpr($attname, $opexpr, $operator, $field, $field_is_array).map(|funcexpr| {
             if !is_complex(funcexpr.cast()) {
                 Qual::PushdownExpr { funcexpr }
             } else {

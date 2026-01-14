@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768352959955,
+  "lastUpdate": 1768352965117,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -42574,6 +42574,108 @@ window.BENCHMARK_DATA = {
             "value": 160.375,
             "unit": "median mem",
             "extra": "avg mem: 179.4277246960676, max mem: 220.84765625, count: 56098"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768352961398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07887593804885837, max background_merging: 2.0, count: 56367"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768914670198034, max cpu: 9.866392, count: 56367"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 22.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 22.849929507735023, max mem: 22.859375, count: 56367"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.017846436131306, max cpu: 9.846154, count: 56367"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.29178503157877, max mem: 165.828125, count: 56367"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51604,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51463.41432043572, max block_count: 51604.0, count: 56367"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.095534621320986, max segment_count: 62.0, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643349486499644, max cpu: 9.542743, count: 56367"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.57627488989569, max mem: 136.46484375, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.788334166294723, max cpu: 9.542743, count: 56367"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.02148316224475, max mem: 165.4765625, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.86792935183524, max cpu: 33.366436, count: 56367"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 159.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 178.892521264104, max mem: 220.3671875, count: 56367"
           }
         ]
       }

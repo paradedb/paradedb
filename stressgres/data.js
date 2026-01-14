@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768353892899,
+  "lastUpdate": 1768354829554,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -62486,6 +62486,54 @@ window.BENCHMARK_DATA = {
             "value": 108.28883498057633,
             "unit": "median tps",
             "extra": "avg tps: 105.52940780915799, max tps: 175.61890842985653, count: 107538"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768354825802,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 557.0948669837753,
+            "unit": "median tps",
+            "extra": "avg tps: 554.7541667751117, max tps: 659.2115444289876, count: 53771"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 617.5682601877596,
+            "unit": "median tps",
+            "extra": "avg tps: 616.5802575148608, max tps: 771.4409340200069, count: 53771"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.86602020879316,
+            "unit": "median tps",
+            "extra": "avg tps: 85.89028757790875, max tps: 93.60036837701344, count: 53771"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.04902692103168,
+            "unit": "median tps",
+            "extra": "avg tps: 106.59673760398127, max tps: 153.47440195174164, count: 107542"
           }
         ]
       }

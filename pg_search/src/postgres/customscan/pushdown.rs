@@ -28,7 +28,8 @@ use crate::postgres::customscan::qual_inspect::{contains_exec_param, Qual};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_vars, VarContext};
 use crate::schema::SearchField;
-use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
+use pgrx::pg_sys::NodeTag::T_Const;
+use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -113,8 +114,8 @@ impl PushdownField {
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
-        make_opexpr($attname, $opexpr, $operator, $rhs).map(|funcexpr| {
+    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident, $maybe_terms:ident) => {{
+        make_opexpr($attname, $opexpr, $operator, $rhs, $maybe_terms).map(|funcexpr| {
             if !is_complex(funcexpr.cast()) {
                 Qual::PushdownExpr { funcexpr }
             } else {
@@ -149,7 +150,17 @@ pub unsafe fn try_pushdown_inner(
         return None;
     }
 
-    let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
+    // if <field> is an array, 'literal' = ANY(<field>) the value appears on the lhs
+    // in all other pushdown scenarios, the value is on the rhs
+    let (maybe_field, maybe_value, field_is_array) = if is_a(lhs, T_Const)
+        && nodecast!(Var, T_Var, rhs)
+            .is_some_and(|var| pg_sys::type_is_array(unsafe { (*var).vartype }))
+    {
+        (rhs, lhs, true)
+    } else {
+        (lhs, rhs, false)
+    };
+    let pushdown = PushdownField::try_new(root, maybe_field, indexrel)?;
     let search_field = pushdown.search_field();
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
@@ -172,7 +183,7 @@ pub unsafe fn try_pushdown_inner(
 
             // the `opexpr` is one we can pushdown
             if pushdown.varno() == rti {
-                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs)?;
+                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, maybe_value, field_is_array)?;
                 // and it's in this RTI, so we can use it directly
                 Some(pushed_down_qual)
             } else {
@@ -215,13 +226,17 @@ unsafe fn make_opexpr(
     orig_opexor: OpExpr,
     operator: &str,
     value: *mut pg_sys::Node,
+    field_is_array: bool,
 ) -> Option<*mut pg_sys::FuncExpr> {
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*paradedb_funcexpr).funcid = match orig_opexor {
-        OpExpr::Array(_) => terms_with_operator_procid()?,
-        OpExpr::Single(_) => term_with_operator_procid(),
+    // if the field is an array, we actually want to do a term query, not a term set query
+    // term set queries are for queries where the value is an array, not if the field is an array
+    (*paradedb_funcexpr).funcid = if matches!(orig_opexor, OpExpr::Array(_)) && !field_is_array {
+        terms_with_operator_procid()?
+    } else {
+        term_with_operator_procid()
     };
     (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
     (*paradedb_funcexpr).funcretset = false;

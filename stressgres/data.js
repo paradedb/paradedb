@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768336962479,
+  "lastUpdate": 1768350977240,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6656,6 +6656,72 @@ window.BENCHMARK_DATA = {
             "value": 115.67551168692432,
             "unit": "median tps",
             "extra": "avg tps: 114.65900875185676, max tps: 717.6345044410812, count: 55273"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768350973610,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 553.5329279145126,
+            "unit": "median tps",
+            "extra": "avg tps: 551.3153477258669, max tps: 663.9894401648919, count: 55375"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3109.996349384196,
+            "unit": "median tps",
+            "extra": "avg tps: 3109.8441406199604, max tps: 3152.702259924538, count: 55375"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 616.3499616889105,
+            "unit": "median tps",
+            "extra": "avg tps: 610.2335851267253, max tps: 674.4624938601431, count: 55375"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 480.00851035782006,
+            "unit": "median tps",
+            "extra": "avg tps: 475.78511133891, max tps: 525.9020827185141, count: 55375"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3334.8318320521594,
+            "unit": "median tps",
+            "extra": "avg tps: 3342.1714554977398, max tps: 3400.4336420627897, count: 110750"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2172.392639332751,
+            "unit": "median tps",
+            "extra": "avg tps: 2166.4263511119625, max tps: 2185.7463346004765, count: 55375"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 88.88247959071354,
+            "unit": "median tps",
+            "extra": "avg tps: 92.0885568108957, max tps: 403.9216755478945, count: 55375"
           }
         ]
       }

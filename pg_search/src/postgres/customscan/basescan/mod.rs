@@ -433,6 +433,80 @@ unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> 
     }
 }
 
+/// Returns true if LIMIT 1 was injected by PostgreSQL's MIN/MAX optimization.
+///
+/// This is intentionally strict to avoid suppressing warnings for user-written LIMITs.
+unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
+    let root = match root.as_ref() {
+        Some(root) => root,
+        None => return false,
+    };
+    let parse = match root.parse.as_ref() {
+        Some(parse) => parse,
+        None => return false,
+    };
+    let parent_root = match root.parent_root.as_ref() {
+        Some(parent_root) => parent_root,
+        None => return false,
+    };
+    let parent_parse = match parent_root.parse.as_ref() {
+        Some(parent_parse) => parent_parse,
+        None => return false,
+    };
+
+    if parse.hasAggs || !parent_parse.hasAggs || !parse.limitOffset.is_null() {
+        return false;
+    }
+
+    let limit_const = match nodecast!(Const, T_Const, parse.limitCount) {
+        Some(limit) => limit,
+        None => return false,
+    };
+    if (*limit_const).constisnull || (*limit_const).consttype != pg_sys::INT8OID {
+        return false;
+    }
+    let limit_value = match i64::from_datum((*limit_const).constvalue, (*limit_const).constisnull) {
+        Some(value) => value,
+        None => return false,
+    };
+    if limit_value != 1 {
+        return false;
+    }
+
+    if parse.targetList.is_null() || parse.sortClause.is_null() {
+        return false;
+    }
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    if target_list.len() != 1 {
+        return false;
+    }
+    let target_entry = match target_list.get_ptr(0) {
+        Some(entry) => entry,
+        None => return false,
+    };
+    if (*target_entry).resname.is_null() {
+        return false;
+    }
+    let resname = CStr::from_ptr((*target_entry).resname);
+    if resname.to_bytes() != b"agg_target" {
+        return false;
+    }
+
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg(parse.sortClause);
+    if sort_list.len() != 1 {
+        return false;
+    }
+    let sort_clause = match sort_list.get_ptr(0) {
+        Some(sort) => sort,
+        None => return false,
+    };
+    if (*sort_clause).tleSortGroupRef != (*target_entry).ressortgroupref {
+        return false;
+    }
+
+    true
+}
+
 impl CustomScan for BaseScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
@@ -592,6 +666,7 @@ impl CustomScan for BaseScan {
             #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             let baserels = (*builder.args().root).all_query_rels;
 
+            let is_minmax_implicit = is_minmax_implicit_limit(builder.args().root);
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
                 // Check if this is a single relation or a partitioned table setup
                 let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
@@ -688,6 +763,12 @@ impl CustomScan for BaseScan {
 
             // Choose the exec method type, and make claims about whether it is sorted.
             let exec_method_type = choose_exec_method(&custom_private, &topn_pathkey_info);
+            validate_topn_expectation(
+                &custom_private,
+                &topn_pathkey_info,
+                limit.is_some() && !is_minmax_implicit,
+                &exec_method_type,
+            );
             custom_private.set_exec_method_type(exec_method_type);
             if custom_private.exec_method_type().is_sorted_topn() {
                 // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
@@ -1393,6 +1474,7 @@ impl CustomScan for BaseScan {
 fn validate_topn_expectation(
     privdata: &PrivateData,
     topn_pathkey_info: &PathKeyInfo,
+    limit_is_explicit: bool,
     chosen_method: &ExecMethodType,
 ) {
     // Fast path: if validation is disabled, return immediately
@@ -1406,7 +1488,7 @@ fn validate_topn_expectation(
     let no_group_by = privdata.window_aggregates().is_empty();
 
     // TopN is expected when we have: LIMIT + search query + no GROUP BY
-    let should_use_topn = has_limit && has_search_query && no_group_by;
+    let should_use_topn = has_limit && limit_is_explicit && has_search_query && no_group_by;
 
     // Check if we actually got TopN
     let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
@@ -1440,16 +1522,17 @@ fn validate_topn_expectation(
                 format!(
                     "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
                     matched.len(),
-                    privdata.maybe_orderby_info().as_ref().map_or(0, |o| o.len())
+                    privdata
+                        .maybe_orderby_info()
+                        .as_ref()
+                        .map_or(0, |o| o.len())
                 )
             }
             PathKeyInfo::None => {
                 // This case should normally use TopN with no ordering
                 "unknown reason (no pathkeys but should still use TopN)".to_string()
             }
-            PathKeyInfo::UsableAll(_) => {
-                "unknown reason (pathkeys are usable)".to_string()
-            }
+            PathKeyInfo::UsableAll(_) => "unknown reason (pathkeys are usable)".to_string(),
         };
 
         pgrx::warning!(
@@ -1503,9 +1586,6 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
         // Else, fall back to normal execution
         ExecMethodType::Normal
     };
-
-    // Validate TopN expectations before returning
-    validate_topn_expectation(privdata, topn_pathkey_info, &chosen);
 
     chosen
 }

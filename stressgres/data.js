@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768352965117,
+  "lastUpdate": 1768353887793,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47852,6 +47852,60 @@ window.BENCHMARK_DATA = {
             "value": 15.000511992161064,
             "unit": "median tps",
             "extra": "avg tps: 15.10170000278361, max tps: 21.944253251654775, count: 55566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768353884085,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.81972117527495,
+            "unit": "median tps",
+            "extra": "avg tps: 30.798794400157643, max tps: 36.99434594241975, count: 55418"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 249.69650829907215,
+            "unit": "median tps",
+            "extra": "avg tps: 275.41314041914103, max tps: 2777.2360361975493, count: 55418"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1910.6293483722702,
+            "unit": "median tps",
+            "extra": "avg tps: 1912.2435335779853, max tps: 2378.874569080596, count: 55418"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.2161758088539,
+            "unit": "median tps",
+            "extra": "avg tps: 199.8519125650875, max tps: 1710.7737614016562, count: 110836"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.68161228560076,
+            "unit": "median tps",
+            "extra": "avg tps: 14.63899691863846, max tps: 19.35902275653125, count: 55418"
           }
         ]
       }

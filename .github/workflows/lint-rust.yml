@@ -50,13 +50,30 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Install Rust Cache
+      - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
+
+      - name: Cache cargo binaries
+        id: cache-cargo-bins
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-pgrx
+            ~/.cargo/bin/cargo-machete
+            ~/.cargo/bin/taplo
+          key: lint-cargo-bins-pgrx-${{ steps.pgrx.outputs.version }}-v1
+
+      - name: Cache pgrx init
+        id: cache-pgrx-init
+        uses: actions/cache@v4
+        with:
+          path: ~/.pgrx
+          key: pgrx-init-pg${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -66,9 +83,11 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
+        if: steps.cache-cargo-bins.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.cache-pgrx-init.outputs.cache-hit != 'true'
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run Rustfmt
@@ -78,9 +97,11 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
       - name: Install cargo-machete
+        if: steps.cache-cargo-bins.outputs.cache-hit != 'true'
         run: cargo install cargo-machete --locked --debug
 
       - name: Install taplo
+        if: steps.cache-cargo-bins.outputs.cache-hit != 'true'
         run: cargo install taplo-cli --version ^0.9 --locked --debug
 
       - name: Run cargo-machete

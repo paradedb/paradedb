@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768350977240,
+  "lastUpdate": 1768350982785,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18834,6 +18834,126 @@ window.BENCHMARK_DATA = {
             "value": 51.375,
             "unit": "median mem",
             "extra": "avg mem: 50.64717211895953, max mem: 63.60546875, count: 55273"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c83dcc6aae6819aa34100dd8417f3b53ff2a494c",
+          "message": "fix: avoid double-panic crashes during query execution (#3895)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds `std::thread::panicking()` checks to all `Drop` implementations\nthat call PostgreSQL functions, preventing double-panics that cause\nSIGABRT crashes.\n\n## Why\n\nWhen a panic occurs during query execution (e.g., inside tantivy's\nboolean query scorer construction), Rust unwinds the stack and calls\n`Drop` on partially-constructed objects. Some of our `Drop`\nimplementations call PostgreSQL functions like `relation_close`,\n`ReleaseBuffer`, or `table_index_fetch_end`. If any of these raise a\nPostgreSQL ERROR (which pgrx converts to a panic), we get a\ndouble-panic—Rust aborts the process with SIGABRT.\n\n## How\n\nSkip cleanup in `Drop` when `std::thread::panicking()` returns true. The\n\"leaked\" resources (relations, buffers, snapshots) are cleaned up\nmoments later by PostgreSQL's transaction abort mechanism\n(`AtEOXact_RelationCache`, `AtEOXact_Buffers`, etc.), so there's no\nactual leak.\n\nThis follows the same pattern already used by `ExprContextGuard::drop`.\n\n## Tests\n\n- Build passes\n- Existing tests pass\n- The fix is defensive and doesn't change behavior during normal\noperation—it only affects cleanup during panic unwinding",
+          "timestamp": "2026-01-13T16:17:31-08:00",
+          "tree_id": "4f3354b03ed6a0ed39861a5dac12ce6288d1b989",
+          "url": "https://github.com/paradedb/paradedb/commit/c83dcc6aae6819aa34100dd8417f3b53ff2a494c"
+        },
+        "date": 1768350979128,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.572978630768697, max cpu: 18.953604, count: 55375"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.09591852426637, max mem: 69.234375, count: 55375"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.647517020635006, max cpu: 9.486166, count: 55375"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.51662591704289, max mem: 35.2734375, count: 55375"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.355122470376824, max cpu: 18.640776, count: 55375"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.33246769187359, max mem: 69.42578125, count: 55375"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510845812794075, max cpu: 4.743083, count: 55375"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.48494892776524, max mem: 68.9765625, count: 55375"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.610131873019496, max cpu: 9.458128, count: 110750"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.2475258535553, max mem: 56.1484375, count: 110750"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1745,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1766.0489751693003, max block_count: 3116.0, count: 55375"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.488306997742663, max segment_count: 30.0, count: 55375"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.596598705984108, max cpu: 4.8144436, count: 55375"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.90313515801354, max mem: 58.55859375, count: 55375"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.392017469360864, max cpu: 4.738401, count: 55375"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 50.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.00479853273138, max mem: 63.27734375, count: 55375"
           }
         ]
       }

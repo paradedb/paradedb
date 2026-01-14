@@ -47,9 +47,9 @@ SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
 (6 rows)
 
 -- Test sorting by ltree column (lexicographic order)
-SELECT id, category FROM tbl_ltree WHERE id @@@ 'id:*' ORDER BY category ASC NULLS LAST;
- id |            category             
-----+---------------------------------
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
+ id |              category              
+----+------------------------------------
   4 | Top.Collections.Pictures
   5 | Top.Collections.Pictures.Astronomy
   6 | Top.Hobbies.Photography

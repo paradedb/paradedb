@@ -35,7 +35,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
 
 -- Test sorting by ltree column (lexicographic order)
-SELECT id, category FROM tbl_ltree WHERE id @@@ 'id:*' ORDER BY category ASC NULLS LAST;
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
 
 -- Test ltree as key field
 DROP TABLE IF EXISTS tbl_ltree_key;

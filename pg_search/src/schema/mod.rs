@@ -32,8 +32,8 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
-use crate::postgres::catalog::type_is_ltree;
 use crate::index::utils::load_index_schema;
+use crate::postgres::catalog::type_is_ltree;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::QueryError;
 use anyhow::Result;

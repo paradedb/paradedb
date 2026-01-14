@@ -536,19 +536,17 @@ pub(super) fn build_index(
     concurrent: bool,
 ) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
-    impl Drop for SnapshotDropper {
-        fn drop(&mut self) {
-            unsafe {
-                let snapshot = self.0;
-                // if it's an mvcc snapshot we must unregister it
-                if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
-                    || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
-                {
-                    pg_sys::UnregisterSnapshot(snapshot);
-                }
+    crate::impl_safe_drop!(SnapshotDropper, |self| {
+        unsafe {
+            let snapshot = self.0;
+            // if it's an mvcc snapshot we must unregister it
+            if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
+                || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
+            {
+                pg_sys::UnregisterSnapshot(snapshot);
             }
         }
-    }
+    });
 
     let snapshot = SnapshotDropper(unsafe {
         if concurrent {

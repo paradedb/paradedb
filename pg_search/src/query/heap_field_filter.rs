@@ -414,4 +414,11 @@ impl DocSet for HeapFilterScorer {
     fn size_hint(&self) -> u32 {
         self.indexed_scorer.size_hint()
     }
+
+    fn cost(&self) -> u64 {
+        // Advancing a heap filter is orders of magnitude slower than advancing a TermQuery: we set
+        // our cost to a large multiple of the size hint to encourage a heap filter to be executed
+        // last in an intersection. See https://github.com/quickwit-oss/tantivy/issues/2531.
+        (self.size_hint() as u64) * 64
+    }
 }

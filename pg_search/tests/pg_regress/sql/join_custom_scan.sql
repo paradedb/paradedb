@@ -176,9 +176,17 @@ SET paradedb.enable_join_custom_scan = on;
 -- TEST 6: ORDER BY pdb.score() - Single Feature join pattern
 -- =============================================================================
 
--- This is the canonical "Single Feature" join pattern from the TopN spec
--- NOTE: Score propagation through JoinScan is not yet implemented in M1.
--- The score() function returns NULL for now. This will be addressed in M2.
+-- -- This is the canonical "Single Feature" join pattern from the TopN spec
+-- -- NOTE: Score propagation through JoinScan is not yet implemented in M1.
+-- -- The score() function returns NULL for now. This will be addressed in M2.
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'wireless'
+-- ORDER BY paradedb.score(p.id) DESC
+-- LIMIT 5;
+
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -303,15 +311,15 @@ LIMIT 3;
 -- TEST 11: Aggregate Score pattern - OR across tables (without LIMIT)
 -- =============================================================================
 
--- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
--- there's a join-level search predicate (OR spanning both relations).
--- This is the "Aggregate Score" pattern from the spec (planned for M3).
--- Currently falls back to Hash Join since M1 only handles LIMIT cases.
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
+-- -- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
+-- -- there's a join-level search predicate (OR spanning both relations).
+-- -- This is the "Aggregate Score" pattern from the spec (planned for M3).
+-- -- Currently falls back to Hash Join since M1 only handles LIMIT cases.
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

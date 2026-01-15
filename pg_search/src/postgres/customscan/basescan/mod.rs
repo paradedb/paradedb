@@ -687,7 +687,10 @@ impl CustomScan for BaseScan {
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let exec_method_type = choose_exec_method(&custom_private, &topn_pathkey_info);
+            let limit_is_explicit =
+                limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
+            let exec_method_type =
+                choose_exec_method(&custom_private, &topn_pathkey_info, limit_is_explicit);
             custom_private.set_exec_method_type(exec_method_type);
             if custom_private.exec_method_type().is_sorted_topn() {
                 // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
@@ -1365,6 +1368,63 @@ impl CustomScan for BaseScan {
     }
 }
 
+/// Returns true if LIMIT 1 was injected by PostgreSQL's MIN/MAX optimization.
+///
+/// PostgreSQL rewrites `SELECT MIN(col) FROM t` into a subquery like:
+/// `SELECT col AS agg_target FROM t ORDER BY col LIMIT 1`
+///
+/// This detection is intentionally strict to avoid suppressing warnings for user-written LIMITs.
+unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
+    let Some(root) = root.as_ref() else {
+        return false;
+    };
+    let Some(parse) = root.parse.as_ref() else {
+        return false;
+    };
+
+    // Must be a subquery (has parent) where parent has aggregates but this subquery doesn't.
+    // This matches MIN/MAX rewrite: parent has the aggregate, child is the LIMIT 1 subquery.
+    let Some(parent_parse) = root.parent_root.as_ref().and_then(|p| p.parse.as_ref()) else {
+        return false;
+    };
+    if parse.hasAggs || !parent_parse.hasAggs || !parse.limitOffset.is_null() {
+        return false;
+    }
+
+    // Must have LIMIT 1 as a constant int8 (PostgreSQL's MIN/MAX always uses exactly LIMIT 1).
+    let Some(limit_const) = nodecast!(Const, T_Const, parse.limitCount) else {
+        return false;
+    };
+    if (*limit_const).constisnull
+        || (*limit_const).consttype != pg_sys::INT8OID
+        || i64::from_datum((*limit_const).constvalue, false) != Some(1)
+    {
+        return false;
+    }
+
+    // Must have exactly one target column named "agg_target" - PostgreSQL's internal name
+    // for the synthetic column created during MIN/MAX rewrite.
+    if parse.targetList.is_null() || parse.sortClause.is_null() {
+        return false;
+    }
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    let Some(target_entry) = target_list.get_ptr(0).filter(|_| target_list.len() == 1) else {
+        return false;
+    };
+    if (*target_entry).resname.is_null()
+        || CStr::from_ptr((*target_entry).resname).to_bytes() != b"agg_target"
+    {
+        return false;
+    }
+
+    // Sort clause must reference the single target column (ORDER BY for MIN/MAX).
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg(parse.sortClause);
+    let Some(sort_clause) = sort_list.get_ptr(0).filter(|_| sort_list.len() == 1) else {
+        return false;
+    };
+    (*sort_clause).tleSortGroupRef == (*target_entry).ressortgroupref
+}
+
 ///
 /// Validates whether a query that should use TopN scan is actually using it.
 ///
@@ -1378,6 +1438,7 @@ impl CustomScan for BaseScan {
 fn validate_topn_expectation(
     privdata: &PrivateData,
     topn_pathkey_info: &PathKeyInfo,
+    limit_is_explicit: bool,
     chosen_method: &ExecMethodType,
 ) {
     // Fast path: if validation is disabled, return immediately
@@ -1390,8 +1451,8 @@ fn validate_topn_expectation(
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
-    // TopN is expected when we have: LIMIT + search query + no GROUP BY
-    let should_use_topn = has_limit && has_search_query && no_group_by;
+    // TopN is expected when we have: explicit LIMIT + search query + no GROUP BY
+    let should_use_topn = has_limit && limit_is_explicit && has_search_query && no_group_by;
 
     // Check if we actually got TopN
     let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
@@ -1484,7 +1545,11 @@ fn validate_topn_expectation(
 /// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
-fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
+fn choose_exec_method(
+    privdata: &PrivateData,
+    topn_pathkey_info: &PathKeyInfo,
+    limit_is_explicit: bool,
+) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
@@ -1522,7 +1587,7 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
     };
 
     // Validate TopN expectations before returning
-    validate_topn_expectation(privdata, topn_pathkey_info, &chosen);
+    validate_topn_expectation(privdata, topn_pathkey_info, limit_is_explicit, &chosen);
 
     chosen
 }

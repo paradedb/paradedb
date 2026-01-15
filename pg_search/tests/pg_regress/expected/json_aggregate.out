@@ -284,11 +284,9 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-                                              QUERY PLAN                                              
+                                              QUERY PLAN
 ------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
@@ -302,13 +300,11 @@ WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). R
 (9 rows)
 
 -- Execute the query
-SELECT 
+SELECT
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.exists('metadata.price');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
  min_price | max_price 
 -----------+-----------
         79 |      1299
@@ -319,11 +315,9 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-                                                            QUERY PLAN                                                            
+                                                            QUERY PLAN
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
@@ -336,13 +330,11 @@ WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). R
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
 (9 rows)
 
-SELECT 
+SELECT
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
                    799 |                  1299
@@ -350,14 +342,12 @@ WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). R
 
 -- Test MIN/MAX on text fields (alphabetical)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT 
+SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-                                      QUERY PLAN                                       
+                                      QUERY PLAN
 ---------------------------------------------------------------------------------------
  Aggregate
    Output: min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
@@ -370,13 +360,11 @@ WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). R
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
 (9 rows)
 
-SELECT 
+SELECT
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
-FROM json_agg_test 
+FROM json_agg_test
 WHERE id @@@ paradedb.exists('metadata.brand');
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-WARNING:  Query has LIMIT 1 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
  first_brand | last_brand 
 -------------+------------
  Adidas      | Samsung

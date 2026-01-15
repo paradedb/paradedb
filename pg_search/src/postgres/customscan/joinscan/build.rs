@@ -140,8 +140,15 @@ impl JoinCSClause {
         self
     }
 
-    pub fn add_join_key(mut self, outer_attno: pg_sys::AttrNumber, inner_attno: pg_sys::AttrNumber) -> Self {
-        self.join_keys.push(JoinKeyPair { outer_attno, inner_attno });
+    pub fn add_join_key(
+        mut self,
+        outer_attno: pg_sys::AttrNumber,
+        inner_attno: pg_sys::AttrNumber,
+    ) -> Self {
+        self.join_keys.push(JoinKeyPair {
+            outer_attno,
+            inner_attno,
+        });
         self
     }
 

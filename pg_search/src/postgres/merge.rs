@@ -539,7 +539,7 @@ pub unsafe fn can_acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> b
     let key = merge_slot_key(index_oid, slot);
 
     let acquired =
-        direct_function_call::<bool>(pg_sys::pg_try_advisory_xact_lock_int8, &[key.into_datum()])
+        direct_function_call::<bool>(pg_sys::pg_try_advisory_lock_int8, &[key.into_datum()])
             .unwrap_or(false);
 
     if !acquired {

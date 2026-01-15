@@ -501,7 +501,7 @@ const PG_SEARCH_KEY: u32 = 0x5047534D;
 // We arbitrarily say that a merge is "large" if the largest layer size is greater than
 // or equal to this threshold
 const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
-const SLOT_BITS: u32 = 8; // slot in [0, 255]
+const SLOT_BITS: u32 = 8; // slot is u8
 
 #[inline]
 fn assign_merge_slot(largest_layer_size: u64) -> u8 {
@@ -530,7 +530,7 @@ pub unsafe fn acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> bool 
 
 /// Check if a specific merge slot *can be acquired right now*.
 ///
-/// IMPORTANT: There is no race-free "check without acquiring" in Postgres.
+/// There is no race-free "check without acquiring" in Postgres.
 /// The only correct implementation is: try to acquire, then immediately unlock.
 ///
 /// Returns true if it was available at the moment of checking.
@@ -546,11 +546,9 @@ pub unsafe fn can_acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> b
         return false;
     }
 
-    // Immediately release (this is a session-level unlock function, and it works
+    // immediately release (this is a session-level unlock function, and it works
     // for releasing a lock acquired in the current transaction as well).
-    // We ignore the return value; best-effort is sufficient here.
     let _ = direct_function_call::<bool>(pg_sys::pg_advisory_unlock_int8, &[key.into_datum()]);
-
     true
 }
 
@@ -652,7 +650,7 @@ mod tests {
 
     #[pg_test]
     fn test_background_merge_args() {
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 200);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 1);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
@@ -662,7 +660,7 @@ mod tests {
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), pg_sys::BlockNumber::MAX);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), 2);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);

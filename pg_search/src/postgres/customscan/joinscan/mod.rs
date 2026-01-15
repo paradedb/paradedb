@@ -38,7 +38,9 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
+use pgrx::itemptr::item_pointer_to_u64;
 use pgrx::{pg_sys, PgList};
+use scan_state::InnerRow;
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -363,6 +365,14 @@ impl CustomScan for JoinScan {
             // Clone the join clause to avoid borrow issues
             let join_clause = state.custom_state().join_clause.clone();
             let snapshot = (*estate).es_snapshot;
+            let cstate = state.csstate_ptr();
+
+            // Create result tuple slot (matches the custom scan's output descriptor)
+            let result_slot = pg_sys::MakeTupleTableSlot(
+                state.csstate.ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            state.custom_state_mut().result_slot = Some(result_slot);
 
             // Open relations for the outer side
             if let Some(heaprelid) = join_clause.outer_side.heaprelid {
@@ -371,6 +381,11 @@ impl CustomScan for JoinScan {
                 // Create visibility checker for outer side
                 let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                 state.custom_state_mut().outer_visibility_checker = Some(vis_checker);
+
+                // Create a slot for fetching outer tuples
+                let outer_slot =
+                    pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+                state.custom_state_mut().outer_fetch_slot = Some(outer_slot);
 
                 // If outer side has a BM25 index with a search predicate, open a search reader
                 if let (Some(indexrelid), Some(ref query)) = (
@@ -403,6 +418,15 @@ impl CustomScan for JoinScan {
                 let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                 state.custom_state_mut().inner_visibility_checker = Some(vis_checker);
 
+                // Create a slot for scanning inner tuples
+                let inner_slot =
+                    pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+                state.custom_state_mut().inner_scan_slot = Some(inner_slot);
+
+                // Start a sequential scan on the inner relation for building hash table
+                let scan_desc = pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
+                state.custom_state_mut().inner_scan_desc = Some(scan_desc);
+
                 // If inner side has a BM25 index with a search predicate, open a search reader
                 if let (Some(indexrelid), Some(ref query)) = (
                     join_clause.inner_side.indexrelid,
@@ -434,31 +458,104 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        // Check if we've reached the limit
-        if state.custom_state().reached_limit() {
-            return std::ptr::null_mut();
-        }
+        unsafe {
+            // Check if we've reached the limit
+            if state.custom_state().reached_limit() {
+                return std::ptr::null_mut();
+            }
 
-        // For M1, we return EOF to show the planning works.
-        // A proper hash join implementation would:
-        // 1. On first call, build a hash table from the inner side (scanning the heap)
-        // 2. Then probe the hash table with outer side search results
-        // 3. Build combined tuples and return them one at a time
-        //
-        // The actual join execution with proper tuple building will be implemented
-        // when we integrate DataFusion in M2, which provides more sophisticated
-        // join algorithms and columnar tuple handling.
-        //
-        // For now, the JoinScan demonstrates:
-        // - Planning correctly identifies join opportunities with BM25 predicates
-        // - The custom scan is selected when LIMIT + search predicate is present
-        // - EXPLAIN shows the join structure and search queries
-        std::ptr::null_mut() // EOF - execution deferred to M2
+            // Phase 1: Build hash table from inner side (first call only)
+            if !state.custom_state().hash_table_built {
+                Self::build_hash_table(state);
+                state.custom_state_mut().hash_table_built = true;
+            }
+
+            // Phase 2: Probe hash table with outer side search results
+            loop {
+                // If we have pending matches, return one
+                if let Some(inner_ctid) = state.custom_state_mut().pending_inner_ctids.pop_front() {
+                    if let Some(slot) = Self::build_result_tuple(state, inner_ctid) {
+                        state.custom_state_mut().rows_returned += 1;
+                        return slot;
+                    }
+                    // Visibility check failed, try next match
+                    continue;
+                }
+
+                // Initialize search results if not done yet
+                let need_init = state.custom_state().outer_search_results.is_none();
+                if need_init {
+                    let reader = state.custom_state().outer_search_reader.as_ref();
+                    if let Some(reader) = reader {
+                        let results = reader.search();
+                        state.custom_state_mut().outer_search_results = Some(results);
+                    } else {
+                        return std::ptr::null_mut(); // No search reader - EOF
+                    }
+                }
+
+                // Get next outer row from search results
+                let outer_search_results = state.custom_state_mut().outer_search_results.as_mut();
+                let Some(results) = outer_search_results else {
+                    return std::ptr::null_mut(); // No search results - EOF
+                };
+
+                let next_result = results.next();
+                let Some((scored, _doc_address)) = next_result else {
+                    return std::ptr::null_mut(); // No more outer rows - EOF
+                };
+
+                let outer_ctid = scored.ctid;
+                let outer_score = scored.bm25;
+                state.custom_state_mut().current_outer_ctid = Some(outer_ctid);
+                state.custom_state_mut().current_outer_score = outer_score;
+
+                // Extract join key from outer tuple
+                let join_key = Self::extract_outer_join_key(state, outer_ctid);
+                let Some(key) = join_key else {
+                    // Couldn't extract join key (tuple not visible), try next outer row
+                    continue;
+                };
+
+                // Look up matching inner rows in hash table
+                // Clone the ctids to avoid borrow issues
+                let inner_ctids: Vec<u64> = state
+                    .custom_state()
+                    .hash_table
+                    .get(&key)
+                    .map(|rows| rows.iter().map(|r| r.ctid).collect())
+                    .unwrap_or_default();
+                
+                for ctid in inner_ctids {
+                    state.custom_state_mut().pending_inner_ctids.push_back(ctid);
+                }
+
+                // Loop back to process pending matches
+            }
+        }
     }
 
     fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        unsafe {
+            // End inner scan if active
+            if let Some(scan_desc) = state.custom_state().inner_scan_desc {
+                pg_sys::table_endscan(scan_desc);
+            }
+
+            // Drop tuple slots
+            if let Some(slot) = state.custom_state().inner_scan_slot {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+            }
+            if let Some(slot) = state.custom_state().outer_fetch_slot {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+            }
+            if let Some(slot) = state.custom_state().result_slot {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+            }
+        }
+
         // Clean up resources
         state.custom_state_mut().outer_heaprel = None;
         state.custom_state_mut().outer_indexrel = None;
@@ -466,6 +563,189 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().inner_heaprel = None;
         state.custom_state_mut().inner_indexrel = None;
         state.custom_state_mut().inner_search_reader = None;
+        state.custom_state_mut().inner_scan_desc = None;
+        state.custom_state_mut().inner_scan_slot = None;
+        state.custom_state_mut().outer_fetch_slot = None;
+        state.custom_state_mut().result_slot = None;
+    }
+}
+
+impl JoinScan {
+    /// Build the hash table from the inner side by scanning the heap.
+    unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
+        let join_clause = state.custom_state().join_clause.clone();
+        
+        // Get the inner join key attribute number (first join key)
+        let inner_key_attno = join_clause
+            .join_keys
+            .first()
+            .map(|jk| jk.inner_attno as i32)
+            .unwrap_or(1);
+        
+        let Some(scan_desc) = state.custom_state().inner_scan_desc else {
+            return;
+        };
+        let Some(slot) = state.custom_state().inner_scan_slot else {
+            return;
+        };
+
+        // Scan all inner tuples
+        while pg_sys::table_scan_getnextslot(
+            scan_desc,
+            pg_sys::ScanDirection::ForwardScanDirection,
+            slot,
+        ) {
+            // Extract the ctid from the slot
+            let ctid = item_pointer_to_u64((*slot).tts_tid);
+
+            // Extract the join key value
+            let mut is_null = false;
+            let datum = pg_sys::slot_getattr(slot, inner_key_attno, &mut is_null);
+
+            if is_null {
+                continue; // Skip NULL join keys
+            }
+
+            // Convert to i64 (assuming integer join keys for M1)
+            let key_value = datum.value() as i64;
+
+            // Add to hash table
+            state
+                .custom_state_mut()
+                .hash_table
+                .entry(key_value)
+                .or_default()
+                .push(InnerRow { ctid });
+        }
+    }
+
+    /// Extract the join key from an outer tuple.
+    unsafe fn extract_outer_join_key(
+        state: &mut CustomScanStateWrapper<Self>,
+        outer_ctid: u64,
+    ) -> Option<i64> {
+        let join_clause = state.custom_state().join_clause.clone();
+        
+        // Get the outer join key attribute number (first join key)
+        let outer_key_attno = join_clause
+            .join_keys
+            .first()
+            .map(|jk| jk.outer_attno as i32)
+            .unwrap_or(1);
+
+        let vis_checker = state.custom_state_mut().outer_visibility_checker.as_mut()?;
+        let outer_slot = state.custom_state().outer_fetch_slot?;
+
+        // Fetch the outer tuple and check visibility
+        vis_checker.exec_if_visible(outer_ctid, outer_slot, |_rel| {
+            // Extract the join key value
+            let mut is_null = false;
+            let datum = pg_sys::slot_getattr(outer_slot, outer_key_attno, &mut is_null);
+
+            if is_null {
+                None
+            } else {
+                Some(datum.value() as i64)
+            }
+        })?
+    }
+
+    /// Build a result tuple from the current outer row and an inner row.
+    unsafe fn build_result_tuple(
+        state: &mut CustomScanStateWrapper<Self>,
+        inner_ctid: u64,
+    ) -> Option<*mut pg_sys::TupleTableSlot> {
+        let result_slot = state.custom_state().result_slot?;
+        let outer_slot = state.custom_state().outer_fetch_slot?;
+        let inner_scan_slot = state.custom_state().inner_scan_slot?;
+        let outer_ctid = state.custom_state().current_outer_ctid?;
+
+        // Fetch outer tuple (should still be valid from extract_outer_join_key)
+        let outer_vis = state.custom_state_mut().outer_visibility_checker.as_mut()?;
+        if outer_vis.exec_if_visible(outer_ctid, outer_slot, |_| ()).is_none() {
+            return None;
+        }
+
+        // Fetch inner tuple
+        let inner_vis = state.custom_state_mut().inner_visibility_checker.as_mut()?;
+        if inner_vis.exec_if_visible(inner_ctid, inner_scan_slot, |_| ()).is_none() {
+            return None;
+        }
+
+        // Get the result tuple descriptor
+        let result_tupdesc = state.csstate.ss.ps.ps_ResultTupleDesc;
+        let natts = (*result_tupdesc).natts as usize;
+
+        // Clear the result slot
+        pg_sys::ExecClearTuple(result_slot);
+
+        // Get target list from the custom scan
+        let tlist = (*state.csstate.ss.ps.plan).targetlist;
+        let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
+
+        // Make sure slots have all attributes deformed
+        pg_sys::slot_getallattrs(outer_slot);
+        pg_sys::slot_getallattrs(inner_scan_slot);
+
+        // Get the join clause to determine RTIs
+        let join_clause = &state.custom_state().join_clause;
+        let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
+        let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
+
+        // Fill the result slot based on the target list
+        let datums = (*result_slot).tts_values;
+        let nulls = (*result_slot).tts_isnull;
+
+        for (i, te) in target_entries.iter_ptr().enumerate() {
+            if i >= natts {
+                break;
+            }
+
+            let expr = (*te).expr;
+            if (*expr).type_ == pg_sys::NodeTag::T_Var {
+                let var = expr as *mut pg_sys::Var;
+                let varno = (*var).varno as pg_sys::Index;
+                let varattno = (*var).varattno;
+
+                // Determine which slot to read from based on varno
+                let (source_slot, attno) = if varno == outer_rti {
+                    (outer_slot, varattno)
+                } else if varno == inner_rti {
+                    (inner_scan_slot, varattno)
+                } else {
+                    // Unknown varno - set null
+                    *nulls.add(i) = true;
+                    continue;
+                };
+
+                // Get the attribute value from the source slot
+                if attno <= 0 {
+                    // System attribute or whole-row reference - not supported yet
+                    *nulls.add(i) = true;
+                    continue;
+                }
+
+                let source_natts = (*(*source_slot).tts_tupleDescriptor).natts as i16;
+                if attno > source_natts {
+                    *nulls.add(i) = true;
+                    continue;
+                }
+
+                let mut is_null = false;
+                let value = pg_sys::slot_getattr(source_slot, attno as i32, &mut is_null);
+                *datums.add(i) = value;
+                *nulls.add(i) = is_null;
+            } else {
+                // Non-Var expression - not supported yet
+                *nulls.add(i) = true;
+            }
+        }
+
+        // Mark slot as containing a virtual tuple
+        (*result_slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+        (*result_slot).tts_nvalid = natts as i16;
+
+        Some(result_slot)
     }
 }
 

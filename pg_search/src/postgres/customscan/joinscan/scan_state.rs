@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
@@ -24,15 +24,11 @@ use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 use std::collections::VecDeque;
 
-/// Represents a row from one side of the join, stored in the hash table.
+/// Represents an inner side row stored in the hash table.
 #[derive(Debug, Clone)]
-pub struct JoinRow {
-    /// The ctid of the row (used to fetch heap tuple if needed).
+pub struct InnerRow {
+    /// The ctid of the inner row.
     pub ctid: u64,
-    /// The score from the search (if applicable).
-    pub score: f32,
-    /// Values of the join key columns (as raw bytes for hashing).
-    pub join_key_values: Vec<Option<Vec<u8>>>,
 }
 
 /// The execution state for the JoinScan.
@@ -48,6 +44,8 @@ pub struct JoinScanState {
     pub outer_indexrel: Option<PgSearchRelation>,
     /// The search reader for the outer side (if it has a BM25 index with a query).
     pub outer_search_reader: Option<SearchIndexReader>,
+    /// The search results iterator for the outer side.
+    pub outer_search_results: Option<MultiSegmentSearchResults>,
 
     // === Inner side state ===
     /// The heap relation for the inner side.
@@ -65,22 +63,30 @@ pub struct JoinScanState {
 
     // === Hash join state ===
     /// The hash table built from the inner side (build side).
-    /// Key: hash of join key values, Value: list of rows with that hash.
-    pub hash_table: HashMap<u64, Vec<JoinRow>>,
+    /// Key: join key value (as i64 for simple integer keys), Value: list of inner row ctids.
+    pub hash_table: HashMap<i64, Vec<InnerRow>>,
     /// Whether the hash table has been built.
     pub hash_table_built: bool,
 
     // === Probe state ===
-    /// Iterator over outer side rows (probe side).
-    pub outer_iterator_started: bool,
-    /// Current outer row being probed.
-    pub current_outer_row: Option<JoinRow>,
-    /// Pending matches from the hash table for the current outer row.
-    pub pending_matches: VecDeque<JoinRow>,
+    /// Current outer ctid being probed.
+    pub current_outer_ctid: Option<u64>,
+    /// Current outer score.
+    pub current_outer_score: f32,
+    /// Pending inner ctids that match the current outer row.
+    pub pending_inner_ctids: VecDeque<u64>,
+
+    // === Scan state ===
+    /// Heap scan descriptor for inner side (for building hash table).
+    pub inner_scan_desc: Option<*mut pg_sys::TableScanDescData>,
+    /// Slot for inner side heap scan.
+    pub inner_scan_slot: Option<*mut pg_sys::TupleTableSlot>,
+    /// Slot for outer side heap fetch.
+    pub outer_fetch_slot: Option<*mut pg_sys::TupleTableSlot>,
+    /// Result tuple slot.
+    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
 
     // === Result state ===
-    /// The result tuple slot.
-    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
     /// Count of rows returned.
     pub rows_returned: usize,
 }
@@ -90,9 +96,9 @@ impl JoinScanState {
     pub fn reset(&mut self) {
         self.hash_table.clear();
         self.hash_table_built = false;
-        self.outer_iterator_started = false;
-        self.current_outer_row = None;
-        self.pending_matches.clear();
+        self.current_outer_ctid = None;
+        self.current_outer_score = 0.0;
+        self.pending_inner_ctids.clear();
         self.rows_returned = 0;
     }
 

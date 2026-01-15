@@ -365,7 +365,16 @@ impl CustomScan for JoinScan {
             // Clone the join clause to avoid borrow issues
             let join_clause = state.custom_state().join_clause.clone();
             let snapshot = (*estate).es_snapshot;
-            let cstate = state.csstate_ptr();
+
+            // Determine which side is driving (has search predicate) vs build
+            let driving_is_outer = join_clause.driving_side_is_outer();
+            state.custom_state_mut().driving_is_outer = driving_is_outer;
+
+            let (driving_side, build_side) = if driving_is_outer {
+                (&join_clause.outer_side, &join_clause.inner_side)
+            } else {
+                (&join_clause.inner_side, &join_clause.outer_side)
+            };
 
             // Create result tuple slot (matches the custom scan's output descriptor)
             let result_slot = pg_sys::MakeTupleTableSlot(
@@ -374,23 +383,23 @@ impl CustomScan for JoinScan {
             );
             state.custom_state_mut().result_slot = Some(result_slot);
 
-            // Open relations for the outer side
-            if let Some(heaprelid) = join_clause.outer_side.heaprelid {
+            // Open relations for the driving side (side with search predicate)
+            if let Some(heaprelid) = driving_side.heaprelid {
                 let heaprel = PgSearchRelation::open(heaprelid);
 
-                // Create visibility checker for outer side
+                // Create visibility checker for driving side
                 let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                state.custom_state_mut().outer_visibility_checker = Some(vis_checker);
+                state.custom_state_mut().driving_visibility_checker = Some(vis_checker);
 
-                // Create a slot for fetching outer tuples
-                let outer_slot =
+                // Create a slot for fetching driving tuples
+                let driving_slot =
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-                state.custom_state_mut().outer_fetch_slot = Some(outer_slot);
+                state.custom_state_mut().driving_fetch_slot = Some(driving_slot);
 
-                // If outer side has a BM25 index with a search predicate, open a search reader
+                // Open search reader for driving side (it must have a search predicate)
                 if let (Some(indexrelid), Some(ref query)) = (
-                    join_clause.outer_side.indexrelid,
-                    &join_clause.outer_side.query,
+                    driving_side.indexrelid,
+                    &driving_side.query,
                 ) {
                     let indexrel = PgSearchRelation::open(indexrelid);
                     let search_reader = SearchIndexReader::open_with_context(
@@ -402,52 +411,32 @@ impl CustomScan for JoinScan {
                         None,
                     );
                     if let Ok(reader) = search_reader {
-                        state.custom_state_mut().outer_search_reader = Some(reader);
+                        state.custom_state_mut().driving_search_reader = Some(reader);
                     }
-                    state.custom_state_mut().outer_indexrel = Some(indexrel);
+                    state.custom_state_mut().driving_indexrel = Some(indexrel);
                 }
 
-                state.custom_state_mut().outer_heaprel = Some(heaprel);
+                state.custom_state_mut().driving_heaprel = Some(heaprel);
             }
 
-            // Open relations for the inner side
-            if let Some(heaprelid) = join_clause.inner_side.heaprelid {
+            // Open relations for the build side (side we build hash table from)
+            if let Some(heaprelid) = build_side.heaprelid {
                 let heaprel = PgSearchRelation::open(heaprelid);
 
-                // Create visibility checker for inner side
+                // Create visibility checker for build side
                 let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                state.custom_state_mut().inner_visibility_checker = Some(vis_checker);
+                state.custom_state_mut().build_visibility_checker = Some(vis_checker);
 
-                // Create a slot for scanning inner tuples
-                let inner_slot =
+                // Create a slot for scanning build tuples
+                let build_slot =
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-                state.custom_state_mut().inner_scan_slot = Some(inner_slot);
+                state.custom_state_mut().build_scan_slot = Some(build_slot);
 
-                // Start a sequential scan on the inner relation for building hash table
+                // Start a sequential scan on the build relation for building hash table
                 let scan_desc = pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
-                state.custom_state_mut().inner_scan_desc = Some(scan_desc);
+                state.custom_state_mut().build_scan_desc = Some(scan_desc);
 
-                // If inner side has a BM25 index with a search predicate, open a search reader
-                if let (Some(indexrelid), Some(ref query)) = (
-                    join_clause.inner_side.indexrelid,
-                    &join_clause.inner_side.query,
-                ) {
-                    let indexrel = PgSearchRelation::open(indexrelid);
-                    let search_reader = SearchIndexReader::open_with_context(
-                        &indexrel,
-                        query.clone(),
-                        false, // don't need scores for the build side
-                        MvccSatisfies::Snapshot,
-                        None,
-                        None,
-                    );
-                    if let Ok(reader) = search_reader {
-                        state.custom_state_mut().inner_search_reader = Some(reader);
-                    }
-                    state.custom_state_mut().inner_indexrel = Some(indexrel);
-                }
-
-                state.custom_state_mut().inner_heaprel = Some(heaprel);
+                state.custom_state_mut().build_heaprel = Some(heaprel);
             }
         }
     }
@@ -464,17 +453,17 @@ impl CustomScan for JoinScan {
                 return std::ptr::null_mut();
             }
 
-            // Phase 1: Build hash table from inner side (first call only)
+            // Phase 1: Build hash table from build side (first call only)
             if !state.custom_state().hash_table_built {
                 Self::build_hash_table(state);
                 state.custom_state_mut().hash_table_built = true;
             }
 
-            // Phase 2: Probe hash table with outer side search results
+            // Phase 2: Probe hash table with driving side search results
             loop {
                 // If we have pending matches, return one
-                if let Some(inner_ctid) = state.custom_state_mut().pending_inner_ctids.pop_front() {
-                    if let Some(slot) = Self::build_result_tuple(state, inner_ctid) {
+                if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
+                    if let Some(slot) = Self::build_result_tuple(state, build_ctid) {
                         state.custom_state_mut().rows_returned += 1;
                         return slot;
                     }
@@ -483,51 +472,51 @@ impl CustomScan for JoinScan {
                 }
 
                 // Initialize search results if not done yet
-                let need_init = state.custom_state().outer_search_results.is_none();
+                let need_init = state.custom_state().driving_search_results.is_none();
                 if need_init {
-                    let reader = state.custom_state().outer_search_reader.as_ref();
+                    let reader = state.custom_state().driving_search_reader.as_ref();
                     if let Some(reader) = reader {
                         let results = reader.search();
-                        state.custom_state_mut().outer_search_results = Some(results);
+                        state.custom_state_mut().driving_search_results = Some(results);
                     } else {
                         return std::ptr::null_mut(); // No search reader - EOF
                     }
                 }
 
-                // Get next outer row from search results
-                let outer_search_results = state.custom_state_mut().outer_search_results.as_mut();
-                let Some(results) = outer_search_results else {
+                // Get next driving row from search results
+                let driving_search_results = state.custom_state_mut().driving_search_results.as_mut();
+                let Some(results) = driving_search_results else {
                     return std::ptr::null_mut(); // No search results - EOF
                 };
 
                 let next_result = results.next();
                 let Some((scored, _doc_address)) = next_result else {
-                    return std::ptr::null_mut(); // No more outer rows - EOF
+                    return std::ptr::null_mut(); // No more driving rows - EOF
                 };
 
-                let outer_ctid = scored.ctid;
-                let outer_score = scored.bm25;
-                state.custom_state_mut().current_outer_ctid = Some(outer_ctid);
-                state.custom_state_mut().current_outer_score = outer_score;
+                let driving_ctid = scored.ctid;
+                let driving_score = scored.bm25;
+                state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
+                state.custom_state_mut().current_driving_score = driving_score;
 
-                // Extract join key from outer tuple
-                let join_key = Self::extract_outer_join_key(state, outer_ctid);
+                // Extract join key from driving tuple
+                let join_key = Self::extract_driving_join_key(state, driving_ctid);
                 let Some(key) = join_key else {
-                    // Couldn't extract join key (tuple not visible), try next outer row
+                    // Couldn't extract join key (tuple not visible), try next driving row
                     continue;
                 };
 
-                // Look up matching inner rows in hash table
+                // Look up matching build rows in hash table
                 // Clone the ctids to avoid borrow issues
-                let inner_ctids: Vec<u64> = state
+                let build_ctids: Vec<u64> = state
                     .custom_state()
                     .hash_table
                     .get(&key)
                     .map(|rows| rows.iter().map(|r| r.ctid).collect())
                     .unwrap_or_default();
                 
-                for ctid in inner_ctids {
-                    state.custom_state_mut().pending_inner_ctids.push_back(ctid);
+                for ctid in build_ctids {
+                    state.custom_state_mut().pending_build_ctids.push_back(ctid);
                 }
 
                 // Loop back to process pending matches
@@ -539,16 +528,16 @@ impl CustomScan for JoinScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         unsafe {
-            // End inner scan if active
-            if let Some(scan_desc) = state.custom_state().inner_scan_desc {
+            // End build scan if active
+            if let Some(scan_desc) = state.custom_state().build_scan_desc {
                 pg_sys::table_endscan(scan_desc);
             }
 
             // Drop tuple slots
-            if let Some(slot) = state.custom_state().inner_scan_slot {
+            if let Some(slot) = state.custom_state().build_scan_slot {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
-            if let Some(slot) = state.custom_state().outer_fetch_slot {
+            if let Some(slot) = state.custom_state().driving_fetch_slot {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
             if let Some(slot) = state.custom_state().result_slot {
@@ -557,39 +546,46 @@ impl CustomScan for JoinScan {
         }
 
         // Clean up resources
-        state.custom_state_mut().outer_heaprel = None;
-        state.custom_state_mut().outer_indexrel = None;
-        state.custom_state_mut().outer_search_reader = None;
-        state.custom_state_mut().inner_heaprel = None;
-        state.custom_state_mut().inner_indexrel = None;
-        state.custom_state_mut().inner_search_reader = None;
-        state.custom_state_mut().inner_scan_desc = None;
-        state.custom_state_mut().inner_scan_slot = None;
-        state.custom_state_mut().outer_fetch_slot = None;
+        state.custom_state_mut().driving_heaprel = None;
+        state.custom_state_mut().driving_indexrel = None;
+        state.custom_state_mut().driving_search_reader = None;
+        state.custom_state_mut().build_heaprel = None;
+        state.custom_state_mut().build_scan_desc = None;
+        state.custom_state_mut().build_scan_slot = None;
+        state.custom_state_mut().driving_fetch_slot = None;
         state.custom_state_mut().result_slot = None;
     }
 }
 
 impl JoinScan {
-    /// Build the hash table from the inner side by scanning the heap.
+    /// Build the hash table from the build side by scanning the heap.
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
         let join_clause = state.custom_state().join_clause.clone();
+        let driving_is_outer = state.custom_state().driving_is_outer;
         
-        // Get the inner join key attribute number (first join key)
-        let inner_key_attno = join_clause
+        // Get the build side join key attribute number (first join key)
+        // If driving is outer, build is inner, so use inner_attno
+        // If driving is inner, build is outer, so use outer_attno
+        let build_key_attno = join_clause
             .join_keys
             .first()
-            .map(|jk| jk.inner_attno as i32)
+            .map(|jk| {
+                if driving_is_outer {
+                    jk.inner_attno as i32
+                } else {
+                    jk.outer_attno as i32
+                }
+            })
             .unwrap_or(1);
         
-        let Some(scan_desc) = state.custom_state().inner_scan_desc else {
+        let Some(scan_desc) = state.custom_state().build_scan_desc else {
             return;
         };
-        let Some(slot) = state.custom_state().inner_scan_slot else {
+        let Some(slot) = state.custom_state().build_scan_slot else {
             return;
         };
 
-        // Scan all inner tuples
+        // Scan all build side tuples
         while pg_sys::table_scan_getnextslot(
             scan_desc,
             pg_sys::ScanDirection::ForwardScanDirection,
@@ -600,7 +596,7 @@ impl JoinScan {
 
             // Extract the join key value
             let mut is_null = false;
-            let datum = pg_sys::slot_getattr(slot, inner_key_attno, &mut is_null);
+            let datum = pg_sys::slot_getattr(slot, build_key_attno, &mut is_null);
 
             if is_null {
                 continue; // Skip NULL join keys
@@ -619,28 +615,40 @@ impl JoinScan {
         }
     }
 
-    /// Extract the join key from an outer tuple.
-    unsafe fn extract_outer_join_key(
+    /// Extract the join key from the driving tuple.
+    unsafe fn extract_driving_join_key(
         state: &mut CustomScanStateWrapper<Self>,
-        outer_ctid: u64,
+        driving_ctid: u64,
     ) -> Option<i64> {
         let join_clause = state.custom_state().join_clause.clone();
+        let driving_is_outer = state.custom_state().driving_is_outer;
         
-        // Get the outer join key attribute number (first join key)
-        let outer_key_attno = join_clause
+        // Get the driving side join key attribute number (first join key)
+        // If driving is outer, use outer_attno
+        // If driving is inner, use inner_attno
+        let driving_key_attno = join_clause
             .join_keys
             .first()
-            .map(|jk| jk.outer_attno as i32)
+            .map(|jk| {
+                if driving_is_outer {
+                    jk.outer_attno as i32
+                } else {
+                    jk.inner_attno as i32
+                }
+            })
             .unwrap_or(1);
 
-        let vis_checker = state.custom_state_mut().outer_visibility_checker.as_mut()?;
-        let outer_slot = state.custom_state().outer_fetch_slot?;
+        // Get the driving slot first (immutable borrow)
+        let driving_slot = state.custom_state().driving_fetch_slot?;
 
-        // Fetch the outer tuple and check visibility
-        vis_checker.exec_if_visible(outer_ctid, outer_slot, |_rel| {
+        // Then get the visibility checker (mutable borrow)
+        let vis_checker = state.custom_state_mut().driving_visibility_checker.as_mut()?;
+
+        // Fetch the driving tuple and check visibility
+        vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
             // Extract the join key value
             let mut is_null = false;
-            let datum = pg_sys::slot_getattr(outer_slot, outer_key_attno, &mut is_null);
+            let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
 
             if is_null {
                 None
@@ -650,25 +658,26 @@ impl JoinScan {
         })?
     }
 
-    /// Build a result tuple from the current outer row and an inner row.
+    /// Build a result tuple from the current driving row and a build row.
     unsafe fn build_result_tuple(
         state: &mut CustomScanStateWrapper<Self>,
-        inner_ctid: u64,
+        build_ctid: u64,
     ) -> Option<*mut pg_sys::TupleTableSlot> {
         let result_slot = state.custom_state().result_slot?;
-        let outer_slot = state.custom_state().outer_fetch_slot?;
-        let inner_scan_slot = state.custom_state().inner_scan_slot?;
-        let outer_ctid = state.custom_state().current_outer_ctid?;
+        let driving_slot = state.custom_state().driving_fetch_slot?;
+        let build_slot = state.custom_state().build_scan_slot?;
+        let driving_ctid = state.custom_state().current_driving_ctid?;
+        let driving_is_outer = state.custom_state().driving_is_outer;
 
-        // Fetch outer tuple (should still be valid from extract_outer_join_key)
-        let outer_vis = state.custom_state_mut().outer_visibility_checker.as_mut()?;
-        if outer_vis.exec_if_visible(outer_ctid, outer_slot, |_| ()).is_none() {
+        // Fetch driving tuple (should still be valid from extract_driving_join_key)
+        let driving_vis = state.custom_state_mut().driving_visibility_checker.as_mut()?;
+        if driving_vis.exec_if_visible(driving_ctid, driving_slot, |_| ()).is_none() {
             return None;
         }
 
-        // Fetch inner tuple
-        let inner_vis = state.custom_state_mut().inner_visibility_checker.as_mut()?;
-        if inner_vis.exec_if_visible(inner_ctid, inner_scan_slot, |_| ()).is_none() {
+        // Fetch build tuple
+        let build_vis = state.custom_state_mut().build_visibility_checker.as_mut()?;
+        if build_vis.exec_if_visible(build_ctid, build_slot, |_| ()).is_none() {
             return None;
         }
 
@@ -684,13 +693,22 @@ impl JoinScan {
         let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
 
         // Make sure slots have all attributes deformed
-        pg_sys::slot_getallattrs(outer_slot);
-        pg_sys::slot_getallattrs(inner_scan_slot);
+        pg_sys::slot_getallattrs(driving_slot);
+        pg_sys::slot_getallattrs(build_slot);
 
         // Get the join clause to determine RTIs
         let join_clause = &state.custom_state().join_clause;
         let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
         let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
+
+        // Map RTI to slot:
+        // - If driving is outer: outer_rti -> driving_slot, inner_rti -> build_slot
+        // - If driving is inner: inner_rti -> driving_slot, outer_rti -> build_slot
+        let (driving_rti, build_rti) = if driving_is_outer {
+            (outer_rti, inner_rti)
+        } else {
+            (inner_rti, outer_rti)
+        };
 
         // Fill the result slot based on the target list
         let datums = (*result_slot).tts_values;
@@ -708,10 +726,10 @@ impl JoinScan {
                 let varattno = (*var).varattno;
 
                 // Determine which slot to read from based on varno
-                let (source_slot, attno) = if varno == outer_rti {
-                    (outer_slot, varattno)
-                } else if varno == inner_rti {
-                    (inner_scan_slot, varattno)
+                let (source_slot, attno) = if varno == driving_rti {
+                    (driving_slot, varattno)
+                } else if varno == build_rti {
+                    (build_slot, varattno)
                 } else {
                     // Unknown varno - set null
                     *nulls.add(i) = true;

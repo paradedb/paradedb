@@ -37,58 +37,54 @@ pub struct JoinScanState {
     /// The join clause from planning.
     pub join_clause: JoinCSClause,
 
-    // === Outer side state ===
-    /// The heap relation for the outer side.
-    pub outer_heaprel: Option<PgSearchRelation>,
-    /// The index relation for the outer side (if it has a BM25 index).
-    pub outer_indexrel: Option<PgSearchRelation>,
-    /// The search reader for the outer side (if it has a BM25 index with a query).
-    pub outer_search_reader: Option<SearchIndexReader>,
-    /// The search results iterator for the outer side.
-    pub outer_search_results: Option<MultiSegmentSearchResults>,
+    // === Driving side state (side with search predicate - we iterate through this) ===
+    /// The heap relation for the driving side.
+    pub driving_heaprel: Option<PgSearchRelation>,
+    /// The index relation for the driving side.
+    pub driving_indexrel: Option<PgSearchRelation>,
+    /// The search reader for the driving side.
+    pub driving_search_reader: Option<SearchIndexReader>,
+    /// The search results iterator for the driving side.
+    pub driving_search_results: Option<MultiSegmentSearchResults>,
+    /// Visibility checker for the driving side.
+    pub driving_visibility_checker: Option<VisibilityChecker>,
+    /// Slot for fetching driving side tuples.
+    pub driving_fetch_slot: Option<*mut pg_sys::TupleTableSlot>,
 
-    // === Inner side state ===
-    /// The heap relation for the inner side.
-    pub inner_heaprel: Option<PgSearchRelation>,
-    /// The index relation for the inner side (if it has a BM25 index).
-    pub inner_indexrel: Option<PgSearchRelation>,
-    /// The search reader for the inner side (if it has a BM25 index with a query).
-    pub inner_search_reader: Option<SearchIndexReader>,
-
-    // === Visibility checkers ===
-    /// Visibility checker for the outer side.
-    pub outer_visibility_checker: Option<VisibilityChecker>,
-    /// Visibility checker for the inner side.
-    pub inner_visibility_checker: Option<VisibilityChecker>,
+    // === Build side state (side we build hash table from) ===
+    /// The heap relation for the build side.
+    pub build_heaprel: Option<PgSearchRelation>,
+    /// Visibility checker for the build side.
+    pub build_visibility_checker: Option<VisibilityChecker>,
+    /// Heap scan descriptor for build side.
+    pub build_scan_desc: Option<*mut pg_sys::TableScanDescData>,
+    /// Slot for build side heap scan.
+    pub build_scan_slot: Option<*mut pg_sys::TupleTableSlot>,
 
     // === Hash join state ===
-    /// The hash table built from the inner side (build side).
-    /// Key: join key value (as i64 for simple integer keys), Value: list of inner row ctids.
+    /// The hash table built from the build side.
+    /// Key: join key value (as i64 for simple integer keys), Value: list of build row ctids.
     pub hash_table: HashMap<i64, Vec<InnerRow>>,
     /// Whether the hash table has been built.
     pub hash_table_built: bool,
 
     // === Probe state ===
-    /// Current outer ctid being probed.
-    pub current_outer_ctid: Option<u64>,
-    /// Current outer score.
-    pub current_outer_score: f32,
-    /// Pending inner ctids that match the current outer row.
-    pub pending_inner_ctids: VecDeque<u64>,
-
-    // === Scan state ===
-    /// Heap scan descriptor for inner side (for building hash table).
-    pub inner_scan_desc: Option<*mut pg_sys::TableScanDescData>,
-    /// Slot for inner side heap scan.
-    pub inner_scan_slot: Option<*mut pg_sys::TupleTableSlot>,
-    /// Slot for outer side heap fetch.
-    pub outer_fetch_slot: Option<*mut pg_sys::TupleTableSlot>,
-    /// Result tuple slot.
-    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
+    /// Current driving side ctid being probed.
+    pub current_driving_ctid: Option<u64>,
+    /// Current driving side score.
+    pub current_driving_score: f32,
+    /// Pending build side ctids that match the current driving row.
+    pub pending_build_ctids: VecDeque<u64>,
 
     // === Result state ===
+    /// Result tuple slot.
+    pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
     /// Count of rows returned.
     pub rows_returned: usize,
+
+    // === Side tracking ===
+    /// Whether the driving side is the outer side (true) or inner side (false).
+    pub driving_is_outer: bool,
 }
 
 impl JoinScanState {
@@ -96,9 +92,10 @@ impl JoinScanState {
     pub fn reset(&mut self) {
         self.hash_table.clear();
         self.hash_table_built = false;
-        self.current_outer_ctid = None;
-        self.current_outer_score = 0.0;
-        self.pending_inner_ctids.clear();
+        self.current_driving_ctid = None;
+        self.current_driving_score = 0.0;
+        self.pending_build_ctids.clear();
+        self.driving_search_results = None;
         self.rows_returned = 0;
     }
 

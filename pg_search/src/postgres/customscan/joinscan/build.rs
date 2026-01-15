@@ -160,4 +160,33 @@ impl JoinCSClause {
     pub fn is_inner_join(&self) -> bool {
         self.join_type == SerializableJoinType::Inner
     }
+
+    /// Returns which side (outer=true, inner=false) is the driving side (has search predicate).
+    /// Prefers outer if both have predicates.
+    pub fn driving_side_is_outer(&self) -> bool {
+        // If outer has predicate, use it as driving side
+        if self.outer_side.has_search_predicate {
+            return true;
+        }
+        // Otherwise, inner must have it
+        false
+    }
+
+    /// Get the driving side info (side with search predicate).
+    pub fn driving_side(&self) -> &JoinSideInfo {
+        if self.driving_side_is_outer() {
+            &self.outer_side
+        } else {
+            &self.inner_side
+        }
+    }
+
+    /// Get the build side info (side without search predicate, used for hash table).
+    pub fn build_side(&self) -> &JoinSideInfo {
+        if self.driving_side_is_outer() {
+            &self.inner_side
+        } else {
+            &self.outer_side
+        }
+    }
 }

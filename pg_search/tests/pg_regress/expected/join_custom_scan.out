@@ -187,7 +187,10 @@ ORDER BY s.id
 LIMIT 5;
  id | name | supplier_name 
 ----+------+---------------
-(0 rows)
+    |      | 
+    |      | 
+    |      | 
+(3 rows)
 
 -- =============================================================================
 -- TEST 4: JoinScan should NOT be proposed for non-INNER joins (for now)

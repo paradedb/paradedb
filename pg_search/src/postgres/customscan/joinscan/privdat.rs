@@ -20,10 +20,29 @@ use crate::postgres::customscan::joinscan::build::JoinCSClause;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Private data stored in the CustomPath/CustomScan for join operations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PrivateData {
+    /// The join clause containing all information about both sides and the join itself.
     pub join_clause: JoinCSClause,
+}
+
+impl PrivateData {
+    pub fn new(join_clause: JoinCSClause) -> Self {
+        Self { join_clause }
+    }
+
+    /// Returns a reference to the join clause.
+    pub fn join_clause(&self) -> &JoinCSClause {
+        &self.join_clause
+    }
+
+    /// Returns a mutable reference to the join clause.
+    pub fn join_clause_mut(&mut self) -> &mut JoinCSClause {
+        &mut self.join_clause
+    }
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

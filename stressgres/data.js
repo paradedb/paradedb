@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768452013997,
+  "lastUpdate": 1768452964478,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -63770,6 +63770,54 @@ window.BENCHMARK_DATA = {
             "value": 116.51555596064267,
             "unit": "median tps",
             "extra": "avg tps: 113.11858446907573, max tps: 190.54034472975977, count: 107612"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93bf4ad4972647c0b5389c41322b07afe9ac3783",
+          "message": "chore: Jan 12th Tantivy rebase. (#3924)\n\n## What\n\nIncorporate a [Jan 12th Tantivy\nrebase](https://github.com/paradedb/tantivy/pull/93) (from\n[794ff1ffc9a7169ff7e41fba89a23d13afb358f4](https://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4)\nto\n[c92e831dde738163054729a2276ed74dfa1a8eee](https://github.com/quickwit-oss/tantivy/commits/c92e831dde738163054729a2276ed74dfa1a8eee))\n\n## Why\n\nTo stay up to date, and pull in performance improvements.\n\n## Tests\n\nSome benchmarks show 20-40% improvements.",
+          "timestamp": "2026-01-14T19:31:00-08:00",
+          "tree_id": "006d868427c81235bcd2f71a5dbb3a240784479e",
+          "url": "https://github.com/paradedb/paradedb/commit/93bf4ad4972647c0b5389c41322b07afe9ac3783"
+        },
+        "date": 1768452960733,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 551.2321876697538,
+            "unit": "median tps",
+            "extra": "avg tps: 554.0441114739982, max tps: 685.5555773380586, count: 53781"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 614.9638415947448,
+            "unit": "median tps",
+            "extra": "avg tps: 620.2733099633108, max tps: 867.208405735449, count: 53781"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.46614713525936,
+            "unit": "median tps",
+            "extra": "avg tps: 85.65080598941921, max tps: 92.31062131581686, count: 53781"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 108.6008187394514,
+            "unit": "median tps",
+            "extra": "avg tps: 106.607308506933, max tps: 161.6800370586323, count: 107562"
           }
         ]
       }

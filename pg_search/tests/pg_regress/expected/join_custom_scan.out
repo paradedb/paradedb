@@ -286,10 +286,322 @@ LIMIT 10;
 -- Re-enable for cleanup verification
 SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
+-- TEST 6: ORDER BY pdb.score() - Single Feature join pattern
+-- =============================================================================
+-- This is the canonical "Single Feature" join pattern from the TopN spec
+-- NOTE: Score propagation through JoinScan is not yet implemented in M1.
+-- The score() function returns NULL for now. This will be addressed in M2.
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+ id |      name      | supplier_name | score 
+----+----------------+---------------+-------
+  1 | Wireless Mouse | TechCorp      |      
+  6 | Headphones     | TechCorp      |      
+  7 | Mouse Pad      | GlobalSupply  |      
+(3 rows)
+
+-- =============================================================================
+-- TEST 7: Both sides have search predicates
+-- =============================================================================
+-- When both sides have @@@ predicates with LIMIT, JoinScan should be proposed
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+LIMIT 10;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+         Inner RTI: 1
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Limit: 10
+(10 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+LIMIT 10;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  3 | Keyboard       | TechCorp
+  6 | Headphones     | TechCorp
+(3 rows)
+
+-- =============================================================================
+-- TEST 8: Multi-table joins (3 tables)
+-- =============================================================================
+-- Create a third table for multi-table join testing
+DROP TABLE IF EXISTS categories CASCADE;
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+INSERT INTO categories (name, description) VALUES
+('Electronics', 'Electronic devices and accessories'),
+('Office', 'Office supplies and equipment'),
+('Gaming', 'Gaming peripherals and accessories');
+CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name, description) WITH (key_field = 'id');
+-- Add category_id to products
+ALTER TABLE products ADD COLUMN category_id INTEGER;
+UPDATE products SET category_id = 1 WHERE id IN (1, 3, 5, 6);
+UPDATE products SET category_id = 2 WHERE id IN (2, 4, 8);
+UPDATE products SET category_id = 3 WHERE id = 7;
+-- 3-table join with LIMIT
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+LIMIT 5;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name, c.name
+   ->  Nested Loop
+         Output: p.id, p.name, s.name, c.name
+         Inner Unique: true
+         Join Filter: (c.id = p.category_id)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, p.category_id, s.name
+               Join Type: Inner
+               Outer RTI: 2
+               Inner RTI: 1
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 5
+         ->  Materialize
+               Output: c.name, c.id
+               ->  Seq Scan on public.categories c
+                     Output: c.name, c.id
+(17 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+ id |      name      | supplier_name | category_name 
+----+----------------+---------------+---------------
+  1 | Wireless Mouse | TechCorp      | Electronics
+  6 | Headphones     | TechCorp      | Electronics
+  7 | Mouse Pad      | GlobalSupply  | Gaming
+(3 rows)
+
+-- =============================================================================
+-- TEST 9: Non-equijoin conditions (arbitrary join expressions)
+-- =============================================================================
+-- Join with non-equality condition
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
+WHERE p.description @@@ 'wireless'
+LIMIT 10;
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Limit: 10
+(9 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  6 | Headphones     | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(3 rows)
+
+-- =============================================================================
+-- TEST 10: LIMIT without ORDER BY vs with ORDER BY
+-- =============================================================================
+-- LIMIT without ORDER BY - should still use JoinScan
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'mouse'
+LIMIT 3;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+         Limit: 3
+(9 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'mouse'
+LIMIT 3;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(2 rows)
+
+-- LIMIT with ORDER BY on non-score column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'mouse'
+ORDER BY p.price DESC
+LIMIT 3;
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name, p.price
+   ->  Sort
+         Output: p.id, p.name, s.name, p.price
+         Sort Key: p.price DESC
+         ->  Result
+               Output: p.id, p.name, s.name, p.price
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.id, p.name, p.price, s.name
+                     Join Type: Inner
+                     Outer RTI: 2
+                     Inner RTI: 1
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 3
+(14 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'mouse'
+ORDER BY p.price DESC
+LIMIT 3;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(2 rows)
+
+-- =============================================================================
+-- TEST 11: Aggregate Score pattern - OR across tables (without LIMIT)
+-- =============================================================================
+-- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
+-- there's a join-level search predicate (OR spanning both relations).
+-- This is the "Aggregate Score" pattern from the spec (planned for M3).
+-- Currently falls back to Hash Join since M1 only handles LIMIT cases.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
+                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Hash Join
+   Output: p.id, p.name, s.name
+   Inner Unique: true
+   Hash Cond: (p.supplier_id = s.id)
+   Join Filter: ((p.id @@@ '{"with_index":{"oid":1901420,"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":1901421,"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+   ->  Seq Scan on public.products p
+         Output: p.id, p.name, p.description, p.supplier_id, p.price, p.category_id
+   ->  Hash
+         Output: s.name, s.id
+         ->  Seq Scan on public.suppliers s
+               Output: s.name, s.id
+(11 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  3 | Keyboard       | TechCorp
+  6 | Headphones     | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(4 rows)
+
+-- =============================================================================
+-- TEST 12: OR across tables WITH LIMIT
+-- =============================================================================
+-- Same as TEST 11 but with LIMIT.
+-- JoinScan is NOT proposed because the OR predicate spans both relations
+-- at the join level - neither side has an isolated @@@ predicate.
+-- This is the "Aggregate Score" pattern which requires M3's join-level
+-- predicate handling.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+LIMIT 10;
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Hash Join
+         Output: p.id, p.name, s.name
+         Inner Unique: true
+         Hash Cond: (p.supplier_id = s.id)
+         Join Filter: ((p.id @@@ '{"with_index":{"oid":1901420,"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":1901421,"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+         ->  Seq Scan on public.products p
+               Output: p.id, p.name, p.description, p.supplier_id, p.price, p.category_id
+         ->  Hash
+               Output: s.name, s.id
+               ->  Seq Scan on public.suppliers s
+                     Output: s.name, s.id
+(13 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  3 | Keyboard       | TechCorp
+  6 | Headphones     | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(4 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

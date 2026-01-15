@@ -19,6 +19,7 @@ use crate::api::HashMap;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 use std::collections::VecDeque;
@@ -55,6 +56,12 @@ pub struct JoinScanState {
     pub inner_indexrel: Option<PgSearchRelation>,
     /// The search reader for the inner side (if it has a BM25 index with a query).
     pub inner_search_reader: Option<SearchIndexReader>,
+
+    // === Visibility checkers ===
+    /// Visibility checker for the outer side.
+    pub outer_visibility_checker: Option<VisibilityChecker>,
+    /// Visibility checker for the inner side.
+    pub inner_visibility_checker: Option<VisibilityChecker>,
 
     // === Hash join state ===
     /// The hash table built from the inner side (build side).

@@ -33,6 +33,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
@@ -56,6 +57,76 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
     })
 }
 
+/// Extract equi-join keys from the restrict list (e.g., p.supplier_id = s.id).
+/// Returns a list of (outer_attno, inner_attno) pairs.
+unsafe fn extract_join_keys(
+    extra: *mut pg_sys::JoinPathExtraData,
+    outer_rti: pg_sys::Index,
+    inner_rti: pg_sys::Index,
+) -> Vec<(pg_sys::AttrNumber, pg_sys::AttrNumber)> {
+    let mut keys = Vec::new();
+
+    if extra.is_null() {
+        return keys;
+    }
+
+    let restrictlist = (*extra).restrictlist;
+    if restrictlist.is_null() {
+        return keys;
+    }
+
+    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+
+    for ri in restrict_infos.iter_ptr() {
+        if ri.is_null() {
+            continue;
+        }
+
+        let clause = (*ri).clause;
+        if clause.is_null() {
+            continue;
+        }
+
+        // Look for OpExpr nodes that could be equi-join conditions
+        if (*clause).type_ != pg_sys::NodeTag::T_OpExpr {
+            continue;
+        }
+
+        let opexpr = clause as *mut pg_sys::OpExpr;
+        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+        // Equi-join: should have exactly 2 args
+        if args.len() != 2 {
+            continue;
+        }
+
+        let arg0 = args.get_ptr(0).unwrap();
+        let arg1 = args.get_ptr(1).unwrap();
+
+        // Both args should be Var nodes for simple equi-joins
+        if (*arg0).type_ != pg_sys::NodeTag::T_Var || (*arg1).type_ != pg_sys::NodeTag::T_Var {
+            continue;
+        }
+
+        let var0 = arg0 as *mut pg_sys::Var;
+        let var1 = arg1 as *mut pg_sys::Var;
+
+        let varno0 = (*var0).varno as pg_sys::Index;
+        let varno1 = (*var1).varno as pg_sys::Index;
+        let attno0 = (*var0).varattno;
+        let attno1 = (*var1).varattno;
+
+        // Check if this is an equi-join between outer and inner
+        if varno0 == outer_rti && varno1 == inner_rti {
+            keys.push((attno0, attno1));
+        } else if varno0 == inner_rti && varno1 == outer_rti {
+            keys.push((attno1, attno0));
+        }
+    }
+
+    keys
+}
+
 /// Try to extract join side information from a RelOptInfo.
 /// Returns JoinSideInfo if we find a base relation (possibly with a BM25 index).
 unsafe fn extract_join_side_info(
@@ -75,7 +146,7 @@ unsafe fn extract_join_side_info(
     // Multi-relation joins on one side would require more complex handling.
     let mut rti_iter = bms_iter(relids);
     let rti = rti_iter.next()?;
-    
+
     // If there are multiple relations on this side, we can't handle it yet
     if rti_iter.next().is_some() {
         return None;
@@ -86,7 +157,7 @@ unsafe fn extract_join_side_info(
     if rtable.is_null() {
         return None;
     }
-    
+
     let rte = pg_sys::rt_fetch(rti, rtable);
     if rte.is_null() {
         return None;
@@ -103,9 +174,7 @@ unsafe fn extract_join_side_info(
         return None;
     }
 
-    let mut side_info = JoinSideInfo::new()
-        .with_heap_rti(rti)
-        .with_heaprelid(relid);
+    let mut side_info = JoinSideInfo::new().with_heap_rti(rti).with_heaprelid(relid);
 
     // Check if this relation has a BM25 index
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
@@ -126,7 +195,7 @@ unsafe fn extract_join_side_info(
                 &bm25_index,
                 false, // Don't convert external to special qual
                 &mut state,
-                true,  // Attempt pushdown
+                true, // Attempt pushdown
             ) {
                 if state.uses_our_operator {
                     let query = SearchQueryInput::from(&qual);
@@ -173,12 +242,22 @@ impl CustomScan for JoinScan {
             let outer_side = extract_join_side_info(root, args.outerrel)?;
             let inner_side = extract_join_side_info(root, args.innerrel)?;
 
-            // Build the join clause
-            let join_clause = JoinCSClause::new()
+            // Extract join keys from the restrict list
+            let outer_rti = outer_side.heap_rti.unwrap_or(0);
+            let inner_rti = inner_side.heap_rti.unwrap_or(0);
+            let join_key_pairs = extract_join_keys(args.extra, outer_rti, inner_rti);
+
+            // Build the join clause with join keys
+            let mut join_clause = JoinCSClause::new()
                 .with_outer_side(outer_side)
                 .with_inner_side(inner_side)
                 .with_join_type(SerializableJoinType::from(jointype))
                 .with_limit(limit);
+
+            // Add extracted join keys
+            for (outer_attno, inner_attno) in join_key_pairs {
+                join_clause = join_clause.add_join_key(outer_attno, inner_attno);
+            }
 
             // Check if this is a valid join for M1
             // We need at least one side with a BM25 index AND a search predicate
@@ -208,13 +287,13 @@ impl CustomScan for JoinScan {
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         // For joins, scanrelid must be 0 (it's not scanning a single relation)
         builder.set_scanrelid(0);
-        
+
         let mut node = builder.build();
-        
+
         // For joins, we need to set custom_scan_tlist to describe the output columns.
         // Copy the target list to custom_scan_tlist so PostgreSQL knows what columns we produce.
         node.custom_scan_tlist = node.scan.plan.targetlist;
-        
+
         node
     }
 
@@ -232,7 +311,7 @@ impl CustomScan for JoinScan {
         explainer: &mut Explainer,
     ) {
         let join_clause = &state.custom_state().join_clause;
-        
+
         // Show join type
         let join_type_str = match join_clause.join_type {
             SerializableJoinType::Inner => "Inner",
@@ -254,7 +333,7 @@ impl CustomScan for JoinScan {
             }
         }
 
-        // Show inner side info  
+        // Show inner side info
         if let Some(rti) = join_clause.inner_side.heap_rti {
             explainer.add_text("Inner RTI", &rti.to_string());
         }
@@ -272,69 +351,80 @@ impl CustomScan for JoinScan {
 
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _estate: *mut pg_sys::EState,
+        estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        // For EXPLAIN-only (without ANALYZE), we don't need to do much
-        if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
-            return;
-        }
-
-        // Clone the join clause to avoid borrow issues
-        let join_clause = state.custom_state().join_clause.clone();
-
-        // Open relations and search readers for the outer side
-        if let (Some(heaprelid), Some(indexrelid)) = (
-            join_clause.outer_side.heaprelid,
-            join_clause.outer_side.indexrelid,
-        ) {
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = PgSearchRelation::open(indexrelid);
-
-            // If outer side has a search predicate, open a search reader
-            if let Some(ref query) = join_clause.outer_side.query {
-                let search_reader = SearchIndexReader::open_with_context(
-                    &indexrel,
-                    query.clone(),
-                    true, // need_scores for the driving side
-                    MvccSatisfies::Snapshot,
-                    None,
-                    None,
-                );
-                if let Ok(reader) = search_reader {
-                    state.custom_state_mut().outer_search_reader = Some(reader);
-                }
+        unsafe {
+            // For EXPLAIN-only (without ANALYZE), we don't need to do much
+            if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0 {
+                return;
             }
 
-            state.custom_state_mut().outer_heaprel = Some(heaprel);
-            state.custom_state_mut().outer_indexrel = Some(indexrel);
-        }
+            // Clone the join clause to avoid borrow issues
+            let join_clause = state.custom_state().join_clause.clone();
+            let snapshot = (*estate).es_snapshot;
 
-        // Open relations and search readers for the inner side
-        if let (Some(heaprelid), Some(indexrelid)) = (
-            join_clause.inner_side.heaprelid,
-            join_clause.inner_side.indexrelid,
-        ) {
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = PgSearchRelation::open(indexrelid);
+            // Open relations for the outer side
+            if let Some(heaprelid) = join_clause.outer_side.heaprelid {
+                let heaprel = PgSearchRelation::open(heaprelid);
 
-            // If inner side has a search predicate, open a search reader
-            if let Some(ref query) = join_clause.inner_side.query {
-                let search_reader = SearchIndexReader::open_with_context(
-                    &indexrel,
-                    query.clone(),
-                    false, // don't need scores for the build side
-                    MvccSatisfies::Snapshot,
-                    None,
-                    None,
-                );
-                if let Ok(reader) = search_reader {
-                    state.custom_state_mut().inner_search_reader = Some(reader);
+                // Create visibility checker for outer side
+                let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                state.custom_state_mut().outer_visibility_checker = Some(vis_checker);
+
+                // If outer side has a BM25 index with a search predicate, open a search reader
+                if let (Some(indexrelid), Some(ref query)) = (
+                    join_clause.outer_side.indexrelid,
+                    &join_clause.outer_side.query,
+                ) {
+                    let indexrel = PgSearchRelation::open(indexrelid);
+                    let search_reader = SearchIndexReader::open_with_context(
+                        &indexrel,
+                        query.clone(),
+                        true, // need_scores for the driving side
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                    );
+                    if let Ok(reader) = search_reader {
+                        state.custom_state_mut().outer_search_reader = Some(reader);
+                    }
+                    state.custom_state_mut().outer_indexrel = Some(indexrel);
                 }
+
+                state.custom_state_mut().outer_heaprel = Some(heaprel);
             }
 
-            state.custom_state_mut().inner_heaprel = Some(heaprel);
-            state.custom_state_mut().inner_indexrel = Some(indexrel);
+            // Open relations for the inner side
+            if let Some(heaprelid) = join_clause.inner_side.heaprelid {
+                let heaprel = PgSearchRelation::open(heaprelid);
+
+                // Create visibility checker for inner side
+                let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                state.custom_state_mut().inner_visibility_checker = Some(vis_checker);
+
+                // If inner side has a BM25 index with a search predicate, open a search reader
+                if let (Some(indexrelid), Some(ref query)) = (
+                    join_clause.inner_side.indexrelid,
+                    &join_clause.inner_side.query,
+                ) {
+                    let indexrel = PgSearchRelation::open(indexrelid);
+                    let search_reader = SearchIndexReader::open_with_context(
+                        &indexrel,
+                        query.clone(),
+                        false, // don't need scores for the build side
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                    );
+                    if let Ok(reader) = search_reader {
+                        state.custom_state_mut().inner_search_reader = Some(reader);
+                    }
+                    state.custom_state_mut().inner_indexrel = Some(indexrel);
+                }
+
+                state.custom_state_mut().inner_heaprel = Some(heaprel);
+            }
         }
     }
 
@@ -349,15 +439,21 @@ impl CustomScan for JoinScan {
             return std::ptr::null_mut();
         }
 
-        // For M1, this is a crude implementation that just returns EOF.
+        // For M1, we return EOF to show the planning works.
         // A proper hash join implementation would:
-        // 1. On first call, build a hash table from the inner side
-        // 2. Then probe the hash table with outer side tuples
-        // 3. Return joined tuples one at a time
+        // 1. On first call, build a hash table from the inner side (scanning the heap)
+        // 2. Then probe the hash table with outer side search results
+        // 3. Build combined tuples and return them one at a time
         //
-        // This stub allows us to test that planning works correctly.
-        // The actual join execution will be implemented when we integrate DataFusion (M2).
-        std::ptr::null_mut() // EOF - no rows
+        // The actual join execution with proper tuple building will be implemented
+        // when we integrate DataFusion in M2, which provides more sophisticated
+        // join algorithms and columnar tuple handling.
+        //
+        // For now, the JoinScan demonstrates:
+        // - Planning correctly identifies join opportunities with BM25 predicates
+        // - The custom scan is selected when LIMIT + search predicate is present
+        // - EXPLAIN shows the join structure and search queries
+        std::ptr::null_mut() // EOF - execution deferred to M2
     }
 
     fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}

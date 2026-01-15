@@ -114,9 +114,12 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 LIMIT 10;
- id | name | supplier_name 
-----+------+---------------
-(0 rows)
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  6 | Headphones     | TechCorp
+  7 | Mouse Pad      | GlobalSupply
+(3 rows)
 
 -- =============================================================================
 -- TEST 3: JoinScan should be proposed even if search predicate is on only one side
@@ -151,9 +154,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard'
 ORDER BY p.id
 LIMIT 5;
- id | name | supplier_name 
-----+------+---------------
-(0 rows)
+ id |   name   | supplier_name 
+----+----------+---------------
+  3 | Keyboard | TechCorp
+(1 row)
 
 -- Query with LIMIT, predicate only on suppliers
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -185,11 +189,11 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY s.id
 LIMIT 5;
- id | name | supplier_name 
-----+------+---------------
-    |      | 
-    |      | 
-    |      | 
+ id |      name      | supplier_name 
+----+----------------+---------------
+  1 | Wireless Mouse | TechCorp
+  3 | Keyboard       | TechCorp
+  6 | Headphones     | TechCorp
 (3 rows)
 
 -- =============================================================================

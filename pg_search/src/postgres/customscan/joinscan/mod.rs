@@ -688,8 +688,16 @@ impl JoinScan {
         // Clear the result slot
         pg_sys::ExecClearTuple(result_slot);
 
-        // Get target list from the custom scan
-        let tlist = (*state.csstate.ss.ps.plan).targetlist;
+        // For custom scans with custom_scan_tlist, the plan.targetlist has Vars with
+        // varno=INDEX_VAR (-3) that reference positions in custom_scan_tlist.
+        // We need to read from custom_scan_tlist to get the original Var references.
+        let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
+        let custom_scan_tlist = (*cscan).custom_scan_tlist;
+        let tlist = if !custom_scan_tlist.is_null() {
+            custom_scan_tlist
+        } else {
+            (*state.csstate.ss.ps.plan).targetlist
+        };
         let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
 
         // Make sure slots have all attributes deformed
@@ -726,10 +734,10 @@ impl JoinScan {
                 let varattno = (*var).varattno;
 
                 // Determine which slot to read from based on varno
-                let (source_slot, attno) = if varno == driving_rti {
-                    (driving_slot, varattno)
+                let source_slot = if varno == driving_rti {
+                    driving_slot
                 } else if varno == build_rti {
-                    (build_slot, varattno)
+                    build_slot
                 } else {
                     // Unknown varno - set null
                     *nulls.add(i) = true;
@@ -737,20 +745,20 @@ impl JoinScan {
                 };
 
                 // Get the attribute value from the source slot
-                if attno <= 0 {
+                if varattno <= 0 {
                     // System attribute or whole-row reference - not supported yet
                     *nulls.add(i) = true;
                     continue;
                 }
 
                 let source_natts = (*(*source_slot).tts_tupleDescriptor).natts as i16;
-                if attno > source_natts {
+                if varattno > source_natts {
                     *nulls.add(i) = true;
                     continue;
                 }
 
                 let mut is_null = false;
-                let value = pg_sys::slot_getattr(source_slot, attno as i32, &mut is_null);
+                let value = pg_sys::slot_getattr(source_slot, varattno as i32, &mut is_null);
                 *datums.add(i) = value;
                 *nulls.add(i) = is_null;
             } else {

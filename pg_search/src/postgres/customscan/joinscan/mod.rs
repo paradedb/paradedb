@@ -59,22 +59,100 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
     })
 }
 
-/// Extract equi-join keys from the restrict list (e.g., p.supplier_id = s.id).
-/// Returns a list of (outer_attno, inner_attno) pairs.
-unsafe fn extract_join_keys(
+/// Helper to extract Var nodes from an expression and add them to the target list
+/// if not already present. This ensures the custom_scan_tlist includes all columns
+/// needed by join conditions.
+unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
+    if expr.is_null() {
+        return;
+    }
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_Var => {
+            let var = expr as *mut pg_sys::Var;
+            let varno = (*var).varno;
+            let varattno = (*var).varattno;
+
+            // Check if this Var is already in the tlist
+            let mut found = false;
+            for te in tlist.iter_ptr() {
+                if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
+                    let te_var = (*te).expr as *mut pg_sys::Var;
+                    if (*te_var).varno == varno && (*te_var).varattno == varattno {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            // Add to tlist if not found
+            if !found {
+                let resno = (tlist.len() + 1) as i16;
+                let te = pg_sys::makeTargetEntry(
+                    expr as *mut pg_sys::Expr,
+                    resno,
+                    std::ptr::null_mut(), // no resname needed
+                    false,                // not resjunk
+                );
+                tlist.push(te);
+            }
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = expr as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            for arg in args.iter_ptr() {
+                add_vars_to_tlist(arg, tlist);
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = expr as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                add_vars_to_tlist(arg, tlist);
+            }
+        }
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr = expr as *mut pg_sys::FuncExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            for arg in args.iter_ptr() {
+                add_vars_to_tlist(arg, tlist);
+            }
+        }
+        _ => {
+            // For other node types, we could use expression_tree_walker
+            // but for simplicity, we handle common cases above
+        }
+    }
+}
+
+/// Result of extracting join conditions from the restrict list.
+struct JoinConditions {
+    /// Equi-join keys: (outer_attno, inner_attno) pairs for hash join.
+    equi_keys: Vec<(pg_sys::AttrNumber, pg_sys::AttrNumber)>,
+    /// Other join conditions (non-equijoin) that need to be evaluated after hash lookup.
+    /// These are the RestrictInfo nodes themselves.
+    other_conditions: Vec<*mut pg_sys::RestrictInfo>,
+}
+
+/// Extract join conditions from the restrict list.
+/// Separates equi-join keys (for hash lookup) from other conditions (for filtering).
+unsafe fn extract_join_conditions(
     extra: *mut pg_sys::JoinPathExtraData,
     outer_rti: pg_sys::Index,
     inner_rti: pg_sys::Index,
-) -> Vec<(pg_sys::AttrNumber, pg_sys::AttrNumber)> {
-    let mut keys = Vec::new();
+) -> JoinConditions {
+    let mut result = JoinConditions {
+        equi_keys: Vec::new(),
+        other_conditions: Vec::new(),
+    };
 
     if extra.is_null() {
-        return keys;
+        return result;
     }
 
     let restrictlist = (*extra).restrictlist;
     if restrictlist.is_null() {
-        return keys;
+        return result;
     }
 
     let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
@@ -89,44 +167,48 @@ unsafe fn extract_join_keys(
             continue;
         }
 
-        // Look for OpExpr nodes that could be equi-join conditions
-        if (*clause).type_ != pg_sys::NodeTag::T_OpExpr {
-            continue;
+        // Try to identify equi-join conditions (OpExpr with Var = Var)
+        let mut is_equi_join = false;
+
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+            // Equi-join: should have exactly 2 args, both Var nodes
+            if args.len() == 2 {
+                let arg0 = args.get_ptr(0).unwrap();
+                let arg1 = args.get_ptr(1).unwrap();
+
+                if (*arg0).type_ == pg_sys::NodeTag::T_Var
+                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
+                {
+                    let var0 = arg0 as *mut pg_sys::Var;
+                    let var1 = arg1 as *mut pg_sys::Var;
+
+                    let varno0 = (*var0).varno as pg_sys::Index;
+                    let varno1 = (*var1).varno as pg_sys::Index;
+                    let attno0 = (*var0).varattno;
+                    let attno1 = (*var1).varattno;
+
+                    // Check if this is an equi-join between outer and inner
+                    if varno0 == outer_rti && varno1 == inner_rti {
+                        result.equi_keys.push((attno0, attno1));
+                        is_equi_join = true;
+                    } else if varno0 == inner_rti && varno1 == outer_rti {
+                        result.equi_keys.push((attno1, attno0));
+                        is_equi_join = true;
+                    }
+                }
+            }
         }
 
-        let opexpr = clause as *mut pg_sys::OpExpr;
-        let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-        // Equi-join: should have exactly 2 args
-        if args.len() != 2 {
-            continue;
-        }
-
-        let arg0 = args.get_ptr(0).unwrap();
-        let arg1 = args.get_ptr(1).unwrap();
-
-        // Both args should be Var nodes for simple equi-joins
-        if (*arg0).type_ != pg_sys::NodeTag::T_Var || (*arg1).type_ != pg_sys::NodeTag::T_Var {
-            continue;
-        }
-
-        let var0 = arg0 as *mut pg_sys::Var;
-        let var1 = arg1 as *mut pg_sys::Var;
-
-        let varno0 = (*var0).varno as pg_sys::Index;
-        let varno1 = (*var1).varno as pg_sys::Index;
-        let attno0 = (*var0).varattno;
-        let attno1 = (*var1).varattno;
-
-        // Check if this is an equi-join between outer and inner
-        if varno0 == outer_rti && varno1 == inner_rti {
-            keys.push((attno0, attno1));
-        } else if varno0 == inner_rti && varno1 == outer_rti {
-            keys.push((attno1, attno0));
+        // If it's not an equi-join, it's an "other" condition
+        if !is_equi_join {
+            result.other_conditions.push(ri);
         }
     }
 
-    keys
+    result
 }
 
 /// Try to extract join side information from a RelOptInfo.
@@ -244,20 +326,21 @@ impl CustomScan for JoinScan {
             let outer_side = extract_join_side_info(root, args.outerrel)?;
             let inner_side = extract_join_side_info(root, args.innerrel)?;
 
-            // Extract join keys from the restrict list
+            // Extract join conditions from the restrict list
             let outer_rti = outer_side.heap_rti.unwrap_or(0);
             let inner_rti = inner_side.heap_rti.unwrap_or(0);
-            let join_key_pairs = extract_join_keys(args.extra, outer_rti, inner_rti);
+            let join_conditions = extract_join_conditions(args.extra, outer_rti, inner_rti);
 
             // Build the join clause with join keys
             let mut join_clause = JoinCSClause::new()
                 .with_outer_side(outer_side)
                 .with_inner_side(inner_side)
                 .with_join_type(SerializableJoinType::from(jointype))
-                .with_limit(limit);
+                .with_limit(limit)
+                .with_has_other_conditions(!join_conditions.other_conditions.is_empty());
 
-            // Add extracted join keys
-            for (outer_attno, inner_attno) in join_key_pairs {
+            // Add extracted equi-join keys
+            for (outer_attno, inner_attno) in join_conditions.equi_keys {
                 join_clause = join_clause.add_join_key(outer_attno, inner_attno);
             }
 
@@ -290,11 +373,38 @@ impl CustomScan for JoinScan {
         // For joins, scanrelid must be 0 (it's not scanning a single relation)
         builder.set_scanrelid(0);
 
+        // Get the clauses from the builder args (these are join conditions)
+        let clauses = builder.args().clauses;
+
         let mut node = builder.build();
 
-        // For joins, we need to set custom_scan_tlist to describe the output columns.
-        // Copy the target list to custom_scan_tlist so PostgreSQL knows what columns we produce.
-        node.custom_scan_tlist = node.scan.plan.targetlist;
+        unsafe {
+            // For joins, we need to set custom_scan_tlist to describe the output columns.
+            // Start with the plan's target list
+            let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.scan.plan.targetlist);
+
+            // Extract clauses and collect Vars from join conditions
+            if !clauses.is_null() {
+                let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(clauses);
+                let mut expr_list = PgList::<pg_sys::Expr>::new();
+
+                for ri in restrict_infos.iter_ptr() {
+                    if ri.is_null() || (*ri).clause.is_null() {
+                        continue;
+                    }
+
+                    expr_list.push((*ri).clause);
+
+                    // Extract Vars from this clause and add to tlist if not already present
+                    add_vars_to_tlist((*ri).clause.cast(), &mut tlist);
+                }
+
+                node.custom_exprs = expr_list.into_pg().cast();
+            }
+
+            // Set custom_scan_tlist with all needed columns
+            node.custom_scan_tlist = tlist.into_pg();
+        }
 
         node
     }
@@ -438,6 +548,25 @@ impl CustomScan for JoinScan {
 
                 state.custom_state_mut().build_heaprel = Some(heaprel);
             }
+
+            // Compile join qual expressions from custom_exprs
+            // These are the join conditions that need to be evaluated after building tuples
+            let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
+            let custom_exprs = (*cscan).custom_exprs;
+
+            if !custom_exprs.is_null() {
+                // Create an expression context for evaluating join quals
+                let econtext = pg_sys::CreateExprContext(estate);
+                state.custom_state_mut().join_qual_econtext = Some(econtext);
+
+                // Compile the expression list into an ExprState
+                // ExecInitQual expects a List of Expr nodes and returns a combined ExprState
+                let qual_state =
+                    pg_sys::ExecInitQual(custom_exprs.cast(), &mut state.csstate.ss.ps);
+                if !qual_state.is_null() {
+                    state.custom_state_mut().join_qual_state = Some(qual_state);
+                }
+            }
         }
     }
 
@@ -464,6 +593,40 @@ impl CustomScan for JoinScan {
                 // If we have pending matches, return one
                 if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
                     if let Some(slot) = Self::build_result_tuple(state, build_ctid) {
+                        // Evaluate join qual if we have one
+                        if let (Some(qual_state), Some(econtext)) = (
+                            state.custom_state().join_qual_state,
+                            state.custom_state().join_qual_econtext,
+                        ) {
+                            // Set up the expression context with both tuple slots
+                            // After fix_scan_list, Vars in custom_exprs are transformed to INDEX_VAR
+                            // referencing positions in custom_scan_tlist (our result slot)
+                            (*econtext).ecxt_scantuple = slot;
+
+                            // Also set outer/inner tuples for backwards compatibility
+                            // In case any Vars weren't transformed
+                            let driving_slot_ptr = state.custom_state().driving_fetch_slot;
+                            let build_slot_ptr = state.custom_state().build_scan_slot;
+                            let driving_is_outer = state.custom_state().driving_is_outer;
+
+                            if let (Some(ds), Some(bs)) = (driving_slot_ptr, build_slot_ptr) {
+                                if driving_is_outer {
+                                    (*econtext).ecxt_outertuple = ds;
+                                    (*econtext).ecxt_innertuple = bs;
+                                } else {
+                                    (*econtext).ecxt_outertuple = bs;
+                                    (*econtext).ecxt_innertuple = ds;
+                                }
+                            }
+
+                            // Evaluate the qual - returns true if tuple passes
+                            let passes = pg_sys::ExecQual(qual_state, econtext);
+                            if !passes {
+                                // Qual failed, try next match
+                                continue;
+                            }
+                        }
+
                         state.custom_state_mut().rows_returned += 1;
                         return slot;
                     }
@@ -558,6 +721,9 @@ impl CustomScan for JoinScan {
     }
 }
 
+/// Magic key used for cross-join (when there are no equi-join keys)
+const CROSS_JOIN_KEY: i64 = 0;
+
 impl JoinScan {
     /// Build the hash table from the build side by scanning the heap.
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
@@ -567,17 +733,15 @@ impl JoinScan {
         // Get the build side join key attribute number (first join key)
         // If driving is outer, build is inner, so use inner_attno
         // If driving is inner, build is outer, so use outer_attno
-        let build_key_attno = join_clause
-            .join_keys
-            .first()
-            .map(|jk| {
-                if driving_is_outer {
-                    jk.inner_attno as i32
-                } else {
-                    jk.outer_attno as i32
-                }
-            })
-            .unwrap_or(1);
+        // If there are no equi-join keys, we'll use CROSS_JOIN_KEY for all tuples
+        let build_key_attno = join_clause.join_keys.first().map(|jk| {
+            if driving_is_outer {
+                jk.inner_attno as i32
+            } else {
+                jk.outer_attno as i32
+            }
+        });
+        let has_equi_join_keys = build_key_attno.is_some();
 
         let Some(scan_desc) = state.custom_state().build_scan_desc else {
             return;
@@ -595,16 +759,22 @@ impl JoinScan {
             // Extract the ctid from the slot
             let ctid = item_pointer_to_u64((*slot).tts_tid);
 
-            // Extract the join key value
-            let mut is_null = false;
-            let datum = pg_sys::slot_getattr(slot, build_key_attno, &mut is_null);
+            // Determine the hash key
+            let key_value = if let Some(attno) = build_key_attno {
+                // We have an equi-join key, extract its value
+                let mut is_null = false;
+                let datum = pg_sys::slot_getattr(slot, attno, &mut is_null);
 
-            if is_null {
-                continue; // Skip NULL join keys
-            }
+                if is_null {
+                    continue; // Skip NULL join keys for equi-joins
+                }
 
-            // Convert to i64 (assuming integer join keys for M1)
-            let key_value = datum.value() as i64;
+                // Convert to i64 (assuming integer join keys for M1)
+                datum.value() as i64
+            } else {
+                // No equi-join keys - this is a cross join, use magic key
+                CROSS_JOIN_KEY
+            };
 
             // Add to hash table
             state
@@ -614,52 +784,62 @@ impl JoinScan {
                 .or_default()
                 .push(InnerRow { ctid });
         }
+
+        // Store whether we're doing a cross join for later use
+        state.custom_state_mut().is_cross_join = !has_equi_join_keys;
     }
 
     /// Extract the join key from the driving tuple.
+    /// For cross joins (no equi-join keys), returns CROSS_JOIN_KEY.
     unsafe fn extract_driving_join_key(
         state: &mut CustomScanStateWrapper<Self>,
         driving_ctid: u64,
     ) -> Option<i64> {
-        let join_clause = state.custom_state().join_clause.clone();
-        let driving_is_outer = state.custom_state().driving_is_outer;
+        // Check if this is a cross join first
+        if state.custom_state().is_cross_join {
+            // For cross joins, we just need to verify the tuple is visible
+            let driving_slot = state.custom_state().driving_fetch_slot?;
+            let vis_checker = state
+                .custom_state_mut()
+                .driving_visibility_checker
+                .as_mut()?;
 
-        // Get the driving side join key attribute number (first join key)
-        // If driving is outer, use outer_attno
-        // If driving is inner, use inner_attno
-        let driving_key_attno = join_clause
-            .join_keys
-            .first()
-            .map(|jk| {
-                if driving_is_outer {
-                    jk.outer_attno as i32
+            vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| Some(CROSS_JOIN_KEY))?
+        } else {
+            // For equi-joins, extract the actual join key
+            let join_clause = state.custom_state().join_clause.clone();
+            let driving_is_outer = state.custom_state().driving_is_outer;
+
+            // Get the driving side join key attribute number (first join key)
+            let driving_key_attno = join_clause
+                .join_keys
+                .first()
+                .map(|jk| {
+                    if driving_is_outer {
+                        jk.outer_attno as i32
+                    } else {
+                        jk.inner_attno as i32
+                    }
+                })
+                .unwrap_or(1);
+
+            let driving_slot = state.custom_state().driving_fetch_slot?;
+            let vis_checker = state
+                .custom_state_mut()
+                .driving_visibility_checker
+                .as_mut()?;
+
+            vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
+                let mut is_null = false;
+                let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
+
+                if is_null {
+                    None
                 } else {
-                    jk.inner_attno as i32
+                    Some(datum.value() as i64)
                 }
-            })
-            .unwrap_or(1);
-
-        // Get the driving slot first (immutable borrow)
-        let driving_slot = state.custom_state().driving_fetch_slot?;
-
-        // Then get the visibility checker (mutable borrow)
-        let vis_checker = state
-            .custom_state_mut()
-            .driving_visibility_checker
-            .as_mut()?;
-
-        // Fetch the driving tuple and check visibility
-        vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
-            // Extract the join key value
-            let mut is_null = false;
-            let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
-
-            if is_null {
-                None
-            } else {
-                Some(datum.value() as i64)
-            }
-        })?
+            })?
+        }
     }
 
     /// Build a result tuple from the current driving row and a build row.

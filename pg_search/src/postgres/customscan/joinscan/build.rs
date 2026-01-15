@@ -113,6 +113,9 @@ pub struct JoinCSClause {
     pub join_keys: Vec<JoinKeyPair>,
     /// The LIMIT value from the query, if any.
     pub limit: Option<usize>,
+    /// Whether there are other (non-equijoin) conditions that need to be evaluated.
+    /// These conditions are stored in custom_exprs during planning.
+    pub has_other_conditions: bool,
 }
 
 impl JoinCSClause {
@@ -137,6 +140,11 @@ impl JoinCSClause {
 
     pub fn with_limit(mut self, limit: Option<usize>) -> Self {
         self.limit = limit;
+        self
+    }
+
+    pub fn with_has_other_conditions(mut self, has_other: bool) -> Self {
+        self.has_other_conditions = has_other;
         self
     }
 

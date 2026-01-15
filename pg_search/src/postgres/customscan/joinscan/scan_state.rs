@@ -85,6 +85,15 @@ pub struct JoinScanState {
     // === Side tracking ===
     /// Whether the driving side is the outer side (true) or inner side (false).
     pub driving_is_outer: bool,
+    /// Whether this is a cross join (no equi-join keys).
+    pub is_cross_join: bool,
+
+    // === Join condition evaluation ===
+    /// Compiled join qual expression state for evaluating non-equijoin conditions.
+    /// This is initialized from custom_exprs during begin_custom_scan.
+    pub join_qual_state: Option<*mut pg_sys::ExprState>,
+    /// Expression context for evaluating join quals.
+    pub join_qual_econtext: Option<*mut pg_sys::ExprContext>,
 }
 
 impl JoinScanState {

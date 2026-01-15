@@ -214,7 +214,7 @@ impl SegmentDeleter {
                 deleted_ctids: Vec::default(),
             }))
         } else {
-            let delete_queue = DeleteQueue::new();
+            let delete_queue = DeleteQueue::default();
             let delete_cursor = delete_queue.cursor();
             let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
 

@@ -328,16 +328,16 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on recursive_test.estimate_items  (cost=10.00..10.41 rows=41 width=641)
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on recursive_test.estimate_items  (cost=10.00..10.04 rows=4 width=641)
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
    Segment Count: 1
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":41}},"estimated_docs":41}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":4}},"estimated_docs":4}
 (8 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -1207,32 +1207,32 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                                          QUERY PLAN                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                           +
-   {                                                                                                                                                                                                                         +
-     "Plan": {                                                                                                                                                                                                               +
-       "Node Type": "Custom Scan",                                                                                                                                                                                           +
-       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                              +
-       "Parallel Aware": false,                                                                                                                                                                                              +
-       "Async Capable": false,                                                                                                                                                                                               +
-       "Relation Name": "estimate_items",                                                                                                                                                                                    +
-       "Schema": "recursive_test",                                                                                                                                                                                           +
-       "Alias": "estimate_items",                                                                                                                                                                                            +
-       "Startup Cost": 10.00,                                                                                                                                                                                                +
-       "Total Cost": 10.41,                                                                                                                                                                                                  +
-       "Plan Rows": 41,                                                                                                                                                                                                      +
-       "Plan Width": 641,                                                                                                                                                                                                    +
-       "Disabled": false,                                                                                                                                                                                                    +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                            +
-       "Table": "estimate_items",                                                                                                                                                                                            +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                   +
-       "Segment Count": 1,                                                                                                                                                                                                   +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                                 +
-       "Scores": false,                                                                                                                                                                                                      +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":41}},\"estimated_docs\":41}"+
-     }                                                                                                                                                                                                                       +
-   }                                                                                                                                                                                                                         +
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                         +
+   {                                                                                                                                                                                                                       +
+     "Plan": {                                                                                                                                                                                                             +
+       "Node Type": "Custom Scan",                                                                                                                                                                                         +
+       "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                            +
+       "Parallel Aware": false,                                                                                                                                                                                            +
+       "Async Capable": false,                                                                                                                                                                                             +
+       "Relation Name": "estimate_items",                                                                                                                                                                                  +
+       "Schema": "recursive_test",                                                                                                                                                                                         +
+       "Alias": "estimate_items",                                                                                                                                                                                          +
+       "Startup Cost": 10.00,                                                                                                                                                                                              +
+       "Total Cost": 10.04,                                                                                                                                                                                                +
+       "Plan Rows": 4,                                                                                                                                                                                                     +
+       "Plan Width": 641,                                                                                                                                                                                                  +
+       "Disabled": false,                                                                                                                                                                                                  +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                          +
+       "Table": "estimate_items",                                                                                                                                                                                          +
+       "Index": "idx_recursive_estimates",                                                                                                                                                                                 +
+       "Segment Count": 1,                                                                                                                                                                                                 +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                                               +
+       "Scores": false,                                                                                                                                                                                                    +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":4}},\"estimated_docs\":4}"+
+     }                                                                                                                                                                                                                     +
+   }                                                                                                                                                                                                                       +
  ]
 (1 row)
 

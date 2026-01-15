@@ -447,8 +447,8 @@ ORDER BY title, author, pdb.score(id) DESC;
  Post 28                    | Author 4      | 2.7986248
  Post 49                    | Author 5      |  2.796766
  Post 63                    | Author 4      | 2.7958398
- Post 84                    | Author 5      | 2.7945328
- Post 98                    | Author 4      | 2.7936544
+ Post 84                    | Author 5      | 2.7945325
+ Post 98                    | Author 4      | 2.7936542
  Special Technology Post    | Author Expert | 2.8048325
  Technology Trends Analysis | Author Expert | 2.8048325
 (8 rows)

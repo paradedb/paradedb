@@ -28,7 +28,7 @@ use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
 use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
-use pgrx::{pg_guard, FromDatum, IntoDatum};
+use pgrx::{direct_function_call, pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
@@ -56,27 +56,27 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
-    blockno: pg_sys::BlockNumber,
+    slot: u8,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid, blockno: pg_sys::BlockNumber) -> Self {
-        Self { index_oid, blockno }
+    pub fn new(index_oid: pg_sys::Oid, slot: u8) -> Self {
+        Self { index_oid, slot }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
 
-    pub fn blockno(&self) -> pg_sys::BlockNumber {
-        self.blockno
+    pub fn slot(&self) -> u8 {
+        self.slot
     }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         let upper = u32::from(self.index_oid) as u64; // top 32 bits
-        let lower = self.blockno as u64; // bottom 32 bits
+        let lower = self.slot as u64; // bottom 32 bits
         let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
         Some(pg_sys::Datum::from(raw as i64))
     }
@@ -98,11 +98,11 @@ impl FromDatum for BackgroundMergeArgs {
 
         let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
         let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
-        let blockno = (raw & 0xFFFF_FFFF) as u32;
+        let slot = (raw & 0xFFFF_FFFF) as u8;
 
         Some(Self {
             index_oid: index_oid.into(),
-            blockno,
+            slot,
         })
     }
 }
@@ -271,10 +271,8 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
-    let maybe_blockno = MetaPage::open(index)
-        .bgmerger()
-        .can_start(largest_layer_size);
-    if maybe_blockno.is_none() {
+    let slot = assign_merge_slot(largest_layer_size);
+    if !can_acquire_merge_slot_xact(index.oid(), slot) {
         return;
     }
 
@@ -293,7 +291,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), maybe_blockno.unwrap()).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), slot).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
@@ -333,10 +331,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             return;
         }
         let index = index.unwrap();
-        let sentinel_buffer = MetaPage::open(&index)
-            .bgmerger()
-            .try_starting(args.blockno());
-        if sentinel_buffer.is_none() {
+        let can_merge = acquire_merge_slot_xact(index.oid(), args.slot());
+        if !can_merge {
             return;
         }
         let metadata = MetaPage::open(&index);
@@ -494,6 +490,68 @@ pub fn free_entries(
             .iter()
             .flat_map(move |entry| entry.freeable_blocks(indexrel)),
     );
+}
+
+// random key, ensures that this advisory slot key doesn't conflict
+// with other Postgres advisory locks
+const PG_SEARCH_KEY: u32 = 0x5047534D;
+// We at most allow 2 concurrent background merges
+// The first background merge is for "small" merges, the second is for "large" merges
+// This makes it so that a long-running large merge doesn't block smaller merges from happening
+// We arbitrarily say that a merge is "large" if the largest layer size is greater than
+// or equal to this threshold
+const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
+const SLOT_BITS: u32 = 8; // slot in [0, 255]
+
+#[inline]
+fn assign_merge_slot(largest_layer_size: u64) -> u8 {
+    if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+        1
+    } else {
+        0
+    }
+}
+#[inline]
+fn merge_slot_key(index_oid: pg_sys::Oid, slot: u8) -> i64 {
+    let payload = ((u32::from(index_oid) as u64) << SLOT_BITS) | (slot as u64);
+
+    ((PG_SEARCH_KEY as i64) << 32) | (payload as i64)
+}
+
+/// Acquire a specific merge slot for the duration of the *current transaction*.
+/// Returns true if acquired, false if someone else already holds it.
+#[inline]
+pub unsafe fn acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> bool {
+    let key = merge_slot_key(index_oid, slot);
+
+    direct_function_call::<bool>(pg_sys::pg_try_advisory_xact_lock_int8, &[key.into_datum()])
+        .unwrap_or(false)
+}
+
+/// Check if a specific merge slot *can be acquired right now*.
+///
+/// IMPORTANT: There is no race-free "check without acquiring" in Postgres.
+/// The only correct implementation is: try to acquire, then immediately unlock.
+///
+/// Returns true if it was available at the moment of checking.
+#[inline]
+pub unsafe fn can_acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> bool {
+    let key = merge_slot_key(index_oid, slot);
+
+    let acquired =
+        direct_function_call::<bool>(pg_sys::pg_try_advisory_xact_lock_int8, &[key.into_datum()])
+            .unwrap_or(false);
+
+    if !acquired {
+        return false;
+    }
+
+    // Immediately release (this is a session-level unlock function, and it works
+    // for releasing a lock acquired in the current transaction as well).
+    // We ignore the return value; best-effort is sufficient here.
+    let _ = direct_function_call::<bool>(pg_sys::pg_advisory_unlock_int8, &[key.into_datum()]);
+
+    true
 }
 
 #[cfg(any(test, feature = "pg_test"))]

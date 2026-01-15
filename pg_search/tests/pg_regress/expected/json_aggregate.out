@@ -284,9 +284,9 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-                                              QUERY PLAN
+                                              QUERY PLAN                                              
 ------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
@@ -300,10 +300,10 @@ WHERE id @@@ paradedb.exists('metadata.price');
 (9 rows)
 
 -- Execute the query
-SELECT
+SELECT 
     MIN((metadata->>'price')::numeric) as min_price,
     MAX((metadata->>'price')::numeric) as max_price
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
  min_price | max_price 
 -----------+-----------
@@ -315,9 +315,9 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-                                                            QUERY PLAN
+                                                            QUERY PLAN                                                            
 ----------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
@@ -330,10 +330,10 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
          Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
 (9 rows)
 
-SELECT
+SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,
     MAX((metadata->>'price')::numeric) as max_electronics_price
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
  min_electronics_price | max_electronics_price 
 -----------------------+-----------------------
@@ -342,12 +342,12 @@ WHERE id @@@ paradedb.term('metadata.category', 'electronics');
 
 -- Test MIN/MAX on text fields (alphabetical)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT
+SELECT 
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
-                                      QUERY PLAN
+                                      QUERY PLAN                                       
 ---------------------------------------------------------------------------------------
  Aggregate
    Output: min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
@@ -360,10 +360,10 @@ WHERE id @@@ paradedb.exists('metadata.brand');
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
 (9 rows)
 
-SELECT
+SELECT 
     MIN(metadata->>'brand') as first_brand,
     MAX(metadata->>'brand') as last_brand
-FROM json_agg_test
+FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.brand');
  first_brand | last_brand 
 -------------+------------

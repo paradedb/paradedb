@@ -397,10 +397,9 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().driving_fetch_slot = Some(driving_slot);
 
                 // Open search reader for driving side (it must have a search predicate)
-                if let (Some(indexrelid), Some(ref query)) = (
-                    driving_side.indexrelid,
-                    &driving_side.query,
-                ) {
+                if let (Some(indexrelid), Some(ref query)) =
+                    (driving_side.indexrelid, &driving_side.query)
+                {
                     let indexrel = PgSearchRelation::open(indexrelid);
                     let search_reader = SearchIndexReader::open_with_context(
                         &indexrel,
@@ -433,7 +432,8 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().build_scan_slot = Some(build_slot);
 
                 // Start a sequential scan on the build relation for building hash table
-                let scan_desc = pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
+                let scan_desc =
+                    pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
                 state.custom_state_mut().build_scan_desc = Some(scan_desc);
 
                 state.custom_state_mut().build_heaprel = Some(heaprel);
@@ -484,7 +484,8 @@ impl CustomScan for JoinScan {
                 }
 
                 // Get next driving row from search results
-                let driving_search_results = state.custom_state_mut().driving_search_results.as_mut();
+                let driving_search_results =
+                    state.custom_state_mut().driving_search_results.as_mut();
                 let Some(results) = driving_search_results else {
                     return std::ptr::null_mut(); // No search results - EOF
                 };
@@ -514,7 +515,7 @@ impl CustomScan for JoinScan {
                     .get(&key)
                     .map(|rows| rows.iter().map(|r| r.ctid).collect())
                     .unwrap_or_default();
-                
+
                 for ctid in build_ctids {
                     state.custom_state_mut().pending_build_ctids.push_back(ctid);
                 }
@@ -562,7 +563,7 @@ impl JoinScan {
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
         let join_clause = state.custom_state().join_clause.clone();
         let driving_is_outer = state.custom_state().driving_is_outer;
-        
+
         // Get the build side join key attribute number (first join key)
         // If driving is outer, build is inner, so use inner_attno
         // If driving is inner, build is outer, so use outer_attno
@@ -577,7 +578,7 @@ impl JoinScan {
                 }
             })
             .unwrap_or(1);
-        
+
         let Some(scan_desc) = state.custom_state().build_scan_desc else {
             return;
         };
@@ -622,7 +623,7 @@ impl JoinScan {
     ) -> Option<i64> {
         let join_clause = state.custom_state().join_clause.clone();
         let driving_is_outer = state.custom_state().driving_is_outer;
-        
+
         // Get the driving side join key attribute number (first join key)
         // If driving is outer, use outer_attno
         // If driving is inner, use inner_attno
@@ -642,7 +643,10 @@ impl JoinScan {
         let driving_slot = state.custom_state().driving_fetch_slot?;
 
         // Then get the visibility checker (mutable borrow)
-        let vis_checker = state.custom_state_mut().driving_visibility_checker.as_mut()?;
+        let vis_checker = state
+            .custom_state_mut()
+            .driving_visibility_checker
+            .as_mut()?;
 
         // Fetch the driving tuple and check visibility
         vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
@@ -670,14 +674,23 @@ impl JoinScan {
         let driving_is_outer = state.custom_state().driving_is_outer;
 
         // Fetch driving tuple (should still be valid from extract_driving_join_key)
-        let driving_vis = state.custom_state_mut().driving_visibility_checker.as_mut()?;
-        if driving_vis.exec_if_visible(driving_ctid, driving_slot, |_| ()).is_none() {
+        let driving_vis = state
+            .custom_state_mut()
+            .driving_visibility_checker
+            .as_mut()?;
+        if driving_vis
+            .exec_if_visible(driving_ctid, driving_slot, |_| ())
+            .is_none()
+        {
             return None;
         }
 
         // Fetch build tuple
         let build_vis = state.custom_state_mut().build_visibility_checker.as_mut()?;
-        if build_vis.exec_if_visible(build_ctid, build_slot, |_| ()).is_none() {
+        if build_vis
+            .exec_if_visible(build_ctid, build_slot, |_| ())
+            .is_none()
+        {
             return None;
         }
 

@@ -68,6 +68,10 @@ pub struct JoinScanState {
     /// Whether the hash table has been built.
     pub hash_table_built: bool,
 
+    // === Driving heap scan (for join-level predicates with no side-level predicates) ===
+    /// Heap scan descriptor for driving side (when no search reader).
+    pub driving_scan_desc: Option<*mut pg_sys::TableScanDescData>,
+
     // === Probe state ===
     /// Current driving side ctid being probed.
     pub current_driving_ctid: Option<u64>,
@@ -87,6 +91,9 @@ pub struct JoinScanState {
     pub driving_is_outer: bool,
     /// Whether this is a cross join (no equi-join keys).
     pub is_cross_join: bool,
+    /// Whether driving side uses heap scan (vs search scan).
+    /// When true, driving tuple is already in driving_fetch_slot.
+    pub driving_uses_heap_scan: bool,
 
     // === Join condition evaluation ===
     /// Compiled join qual expression state for evaluating non-equijoin conditions.

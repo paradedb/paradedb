@@ -132,6 +132,46 @@ struct JoinConditions {
     /// Other join conditions (non-equijoin) that need to be evaluated after hash lookup.
     /// These are the RestrictInfo nodes themselves.
     other_conditions: Vec<*mut pg_sys::RestrictInfo>,
+    /// Whether any join-level condition contains our @@@ operator.
+    has_search_predicate: bool,
+}
+
+/// Check if an expression contains our @@@ operator recursively.
+unsafe fn contains_search_operator(expr: *mut pg_sys::Node) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+
+    let our_opoid = anyelement_query_input_opoid();
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = expr as *mut pg_sys::OpExpr;
+            // Check if this is our @@@ operator
+            if (*opexpr).opno == our_opoid {
+                return true;
+            }
+            // Recurse into arguments
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            for arg in args.iter_ptr() {
+                if contains_search_operator(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = expr as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                if contains_search_operator(arg) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
 }
 
 /// Extract join conditions from the restrict list.
@@ -144,6 +184,7 @@ unsafe fn extract_join_conditions(
     let mut result = JoinConditions {
         equi_keys: Vec::new(),
         other_conditions: Vec::new(),
+        has_search_predicate: false,
     };
 
     if extra.is_null() {
@@ -165,6 +206,11 @@ unsafe fn extract_join_conditions(
         let clause = (*ri).clause;
         if clause.is_null() {
             continue;
+        }
+
+        // Check if this clause contains our @@@ operator
+        if contains_search_operator(clause.cast()) {
+            result.has_search_predicate = true;
         }
 
         // Try to identify equi-join conditions (OpExpr with Var = Var)
@@ -337,7 +383,8 @@ impl CustomScan for JoinScan {
                 .with_inner_side(inner_side)
                 .with_join_type(SerializableJoinType::from(jointype))
                 .with_limit(limit)
-                .with_has_other_conditions(!join_conditions.other_conditions.is_empty());
+                .with_has_other_conditions(!join_conditions.other_conditions.is_empty())
+                .with_has_join_level_search_predicate(join_conditions.has_search_predicate);
 
             // Add extracted equi-join keys
             for (outer_attno, inner_attno) in join_conditions.equi_keys {
@@ -345,8 +392,12 @@ impl CustomScan for JoinScan {
             }
 
             // Check if this is a valid join for M1
-            // We need at least one side with a BM25 index AND a search predicate
-            if !join_clause.has_driving_side() {
+            // We need at least one side with a BM25 index AND a search predicate,
+            // OR a join-level search predicate (like OR across tables)
+            let has_side_predicate = join_clause.has_driving_side();
+            let has_join_level_predicate = join_conditions.has_search_predicate;
+
+            if !has_side_predicate && !has_join_level_predicate {
                 return None;
             }
 
@@ -493,7 +544,8 @@ impl CustomScan for JoinScan {
             );
             state.custom_state_mut().result_slot = Some(result_slot);
 
-            // Open relations for the driving side (side with search predicate)
+            // Open relations for the driving side
+            // If driving side has a search predicate, use search scan; otherwise use heap scan
             if let Some(heaprelid) = driving_side.heaprelid {
                 let heaprel = PgSearchRelation::open(heaprelid);
 
@@ -506,7 +558,7 @@ impl CustomScan for JoinScan {
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                 state.custom_state_mut().driving_fetch_slot = Some(driving_slot);
 
-                // Open search reader for driving side (it must have a search predicate)
+                // Try to open search reader for driving side (if it has a search predicate)
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
@@ -523,6 +575,20 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().driving_search_reader = Some(reader);
                     }
                     state.custom_state_mut().driving_indexrel = Some(indexrel);
+                }
+
+                // If no search reader, start a heap scan on driving side
+                // This happens when we have join-level search predicates (OR across tables)
+                // but no side-level predicates
+                if state.custom_state().driving_search_reader.is_none() {
+                    let scan_desc = pg_sys::table_beginscan(
+                        heaprel.as_ptr(),
+                        snapshot,
+                        0,
+                        std::ptr::null_mut(),
+                    );
+                    state.custom_state_mut().driving_scan_desc = Some(scan_desc);
+                    state.custom_state_mut().driving_uses_heap_scan = true;
                 }
 
                 state.custom_state_mut().driving_heaprel = Some(heaprel);
@@ -634,32 +700,57 @@ impl CustomScan for JoinScan {
                     continue;
                 }
 
-                // Initialize search results if not done yet
-                let need_init = state.custom_state().driving_search_results.is_none();
-                if need_init {
-                    let reader = state.custom_state().driving_search_reader.as_ref();
-                    if let Some(reader) = reader {
-                        let results = reader.search();
-                        state.custom_state_mut().driving_search_results = Some(results);
+                // Get next driving row - either from search reader or heap scan
+                let (driving_ctid, driving_score) =
+                    if state.custom_state().driving_search_reader.is_some() {
+                        // Use search reader
+                        let need_init = state.custom_state().driving_search_results.is_none();
+                        if need_init {
+                            let reader = state.custom_state().driving_search_reader.as_ref();
+                            if let Some(reader) = reader {
+                                let results = reader.search();
+                                state.custom_state_mut().driving_search_results = Some(results);
+                            } else {
+                                return std::ptr::null_mut();
+                            }
+                        }
+
+                        let driving_search_results =
+                            state.custom_state_mut().driving_search_results.as_mut();
+                        let Some(results) = driving_search_results else {
+                            return std::ptr::null_mut();
+                        };
+
+                        let next_result = results.next();
+                        let Some((scored, _doc_address)) = next_result else {
+                            return std::ptr::null_mut(); // No more search results
+                        };
+
+                        (scored.ctid, scored.bm25)
+                    } else if let Some(scan_desc) = state.custom_state().driving_scan_desc {
+                        // Use heap scan (join-level predicates with no side-level predicates)
+                        let slot = state.custom_state().driving_fetch_slot;
+                        let Some(slot) = slot else {
+                            return std::ptr::null_mut();
+                        };
+
+                        let has_tuple = pg_sys::table_scan_getnextslot(
+                            scan_desc,
+                            pg_sys::ScanDirection::ForwardScanDirection,
+                            slot,
+                        );
+
+                        if !has_tuple {
+                            return std::ptr::null_mut(); // No more heap tuples
+                        }
+
+                        // Get ctid from the slot
+                        let ctid = item_pointer_to_u64((*slot).tts_tid);
+                        (ctid, 0.0) // No score for heap scan
                     } else {
-                        return std::ptr::null_mut(); // No search reader - EOF
-                    }
-                }
+                        return std::ptr::null_mut(); // No source for driving rows
+                    };
 
-                // Get next driving row from search results
-                let driving_search_results =
-                    state.custom_state_mut().driving_search_results.as_mut();
-                let Some(results) = driving_search_results else {
-                    return std::ptr::null_mut(); // No search results - EOF
-                };
-
-                let next_result = results.next();
-                let Some((scored, _doc_address)) = next_result else {
-                    return std::ptr::null_mut(); // No more driving rows - EOF
-                };
-
-                let driving_ctid = scored.ctid;
-                let driving_score = scored.bm25;
                 state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
                 state.custom_state_mut().current_driving_score = driving_score;
 
@@ -697,6 +788,11 @@ impl CustomScan for JoinScan {
                 pg_sys::table_endscan(scan_desc);
             }
 
+            // End driving heap scan if active
+            if let Some(scan_desc) = state.custom_state().driving_scan_desc {
+                pg_sys::table_endscan(scan_desc);
+            }
+
             // Drop tuple slots
             if let Some(slot) = state.custom_state().build_scan_slot {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
@@ -713,6 +809,7 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().driving_heaprel = None;
         state.custom_state_mut().driving_indexrel = None;
         state.custom_state_mut().driving_search_reader = None;
+        state.custom_state_mut().driving_scan_desc = None;
         state.custom_state_mut().build_heaprel = None;
         state.custom_state_mut().build_scan_desc = None;
         state.custom_state_mut().build_scan_slot = None;
@@ -795,35 +892,53 @@ impl JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         driving_ctid: u64,
     ) -> Option<i64> {
-        // Check if this is a cross join first
-        if state.custom_state().is_cross_join {
-            // For cross joins, we just need to verify the tuple is visible
-            let driving_slot = state.custom_state().driving_fetch_slot?;
-            let vis_checker = state
-                .custom_state_mut()
-                .driving_visibility_checker
-                .as_mut()?;
+        let driving_slot = state.custom_state().driving_fetch_slot?;
+        let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
+        let is_cross_join = state.custom_state().is_cross_join;
 
-            vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| Some(CROSS_JOIN_KEY))?
+        // For cross joins, just return the magic key
+        if is_cross_join {
+            if uses_heap_scan {
+                // Tuple already in slot from heap scan, no visibility check needed
+                return Some(CROSS_JOIN_KEY);
+            } else {
+                // Fetch tuple by ctid and verify visibility
+                let vis_checker = state
+                    .custom_state_mut()
+                    .driving_visibility_checker
+                    .as_mut()?;
+                return vis_checker
+                    .exec_if_visible(driving_ctid, driving_slot, |_rel| Some(CROSS_JOIN_KEY))?;
+            }
+        }
+
+        // For equi-joins, extract the actual join key
+        let join_clause = state.custom_state().join_clause.clone();
+        let driving_is_outer = state.custom_state().driving_is_outer;
+
+        let driving_key_attno = join_clause
+            .join_keys
+            .first()
+            .map(|jk| {
+                if driving_is_outer {
+                    jk.outer_attno as i32
+                } else {
+                    jk.inner_attno as i32
+                }
+            })
+            .unwrap_or(1);
+
+        if uses_heap_scan {
+            // Tuple already in slot from heap scan
+            let mut is_null = false;
+            let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
+            if is_null {
+                None
+            } else {
+                Some(datum.value() as i64)
+            }
         } else {
-            // For equi-joins, extract the actual join key
-            let join_clause = state.custom_state().join_clause.clone();
-            let driving_is_outer = state.custom_state().driving_is_outer;
-
-            // Get the driving side join key attribute number (first join key)
-            let driving_key_attno = join_clause
-                .join_keys
-                .first()
-                .map(|jk| {
-                    if driving_is_outer {
-                        jk.outer_attno as i32
-                    } else {
-                        jk.inner_attno as i32
-                    }
-                })
-                .unwrap_or(1);
-
-            let driving_slot = state.custom_state().driving_fetch_slot?;
+            // Fetch tuple by ctid and verify visibility
             let vis_checker = state
                 .custom_state_mut()
                 .driving_visibility_checker
@@ -832,7 +947,6 @@ impl JoinScan {
             vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
                 let mut is_null = false;
                 let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
-
                 if is_null {
                     None
                 } else {
@@ -852,17 +966,21 @@ impl JoinScan {
         let build_slot = state.custom_state().build_scan_slot?;
         let driving_ctid = state.custom_state().current_driving_ctid?;
         let driving_is_outer = state.custom_state().driving_is_outer;
+        let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
 
-        // Fetch driving tuple (should still be valid from extract_driving_join_key)
-        let driving_vis = state
-            .custom_state_mut()
-            .driving_visibility_checker
-            .as_mut()?;
-        if driving_vis
-            .exec_if_visible(driving_ctid, driving_slot, |_| ())
-            .is_none()
-        {
-            return None;
+        // Fetch driving tuple if not using heap scan
+        // (with heap scan, tuple is already in the slot)
+        if !uses_heap_scan {
+            let driving_vis = state
+                .custom_state_mut()
+                .driving_visibility_checker
+                .as_mut()?;
+            if driving_vis
+                .exec_if_visible(driving_ctid, driving_slot, |_| ())
+                .is_none()
+            {
+                return None;
+            }
         }
 
         // Fetch build tuple

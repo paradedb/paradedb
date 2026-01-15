@@ -557,22 +557,17 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 LIMIT 10;
-                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+               QUERY PLAN               
+----------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Hash Join
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Inner Unique: true
-         Hash Cond: (p.supplier_id = s.id)
-         Join Filter: ((p.id @@@ '{"with_index":{"oid":1906726,"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":1906727,"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  Seq Scan on public.products p
-               Output: p.id, p.name, p.description, p.supplier_id, p.price, p.category_id
-         ->  Hash
-               Output: s.name, s.id
-               ->  Seq Scan on public.suppliers s
-                     Output: s.name, s.id
-(13 rows)
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Limit: 10
+(8 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -580,13 +575,17 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
- id |      name      | supplier_name 
-----+----------------+---------------
-  1 | Wireless Mouse | TechCorp
-  3 | Keyboard       | TechCorp
-  6 | Headphones     | TechCorp
-  7 | Mouse Pad      | GlobalSupply
-(4 rows)
+ id |      name       | supplier_name 
+----+-----------------+---------------
+  1 | Wireless Mouse  | TechCorp
+  2 | USB Cable       | GlobalSupply
+  3 | Keyboard        | TechCorp
+  4 | Monitor Stand   | FastParts
+  5 | Webcam          | QualityFirst
+  6 | Headphones      | TechCorp
+  7 | Mouse Pad       | GlobalSupply
+  8 | Cable Organizer | FastParts
+(8 rows)
 
 -- =============================================================================
 -- CLEANUP

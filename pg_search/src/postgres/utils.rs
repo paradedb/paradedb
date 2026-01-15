@@ -48,6 +48,39 @@ extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
+/// Implements Drop that skips cleanup during panic unwinding.
+///
+/// Because panics are used to propagate PostgreSQL errors via pgrx, it is almost never
+/// safe to interact with PostgreSQL APIs during Drop - doing so can cause a double-panic
+/// which results in SIGABRT. This macro ensures cleanup is skipped during unwinding.
+///
+/// PostgreSQL's transaction abort mechanism will clean up resources (buffers, relations, etc.)
+/// when the transaction is aborted due to the error.
+///
+/// # Example
+/// ```ignore
+/// impl_safe_drop!(MyStruct, |self| {
+///     unsafe {
+///         if crate::postgres::utils::IsTransactionState() {
+///             pg_sys::some_cleanup_function(self.handle);
+///         }
+///     }
+/// });
+/// ```
+#[macro_export]
+macro_rules! impl_safe_drop {
+    ($ty:ty, |$self:ident| $body:block) => {
+        impl Drop for $ty {
+            fn drop(&mut $self) {
+                if std::thread::panicking() {
+                    return;
+                }
+                $body
+            }
+        }
+    };
+}
+
 /// RAII guard for PostgreSQL standalone expression context
 /// Automatically frees the context when dropped
 ///
@@ -75,16 +108,12 @@ impl ExprContextGuard {
     }
 }
 
-impl Drop for ExprContextGuard {
-    fn drop(&mut self) {
-        unsafe {
-            // If this is an abort or other unclean shutdown, setting `isCommit = false` will avoid
-            // complex cleanup logic.
-            let is_commit = pg_sys::IsTransactionState() && !std::thread::panicking();
-            pg_sys::FreeExprContext(self.0, is_commit);
-        }
+impl_safe_drop!(ExprContextGuard, |self| {
+    unsafe {
+        let is_commit = pg_sys::IsTransactionState();
+        pg_sys::FreeExprContext(self.0, is_commit);
     }
-}
+});
 
 impl Default for ExprContextGuard {
     fn default() -> Self {

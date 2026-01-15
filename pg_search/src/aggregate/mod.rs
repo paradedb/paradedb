@@ -742,16 +742,12 @@ pub mod vischeck {
         }
     }
 
-    impl Drop for TSVisibilityChecker {
-        fn drop(&mut self) {
-            unsafe {
-                if !pg_sys::IsTransactionState() || std::thread::panicking() {
-                    // TODO: None of the below operations care about the transaction state: in
-                    // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
-                    // lock. Consider removing this guard.
-                    return;
-                }
-
+    crate::impl_safe_drop!(TSVisibilityChecker, |self| {
+        unsafe {
+            // TODO: None of the below operations care about the transaction state: in
+            // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
+            // lock. Consider removing this guard.
+            if pg_sys::IsTransactionState() {
                 pg_sys::table_index_fetch_end(self.scan);
                 pg_sys::ExecClearTuple(self.slot);
                 if self.vmbuf != pg_sys::InvalidBuffer as pg_sys::Buffer {
@@ -759,7 +755,7 @@ pub mod vischeck {
                 }
             }
         }
-    }
+    });
 
     impl TSVisibilityChecker {
         /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768449090185,
+  "lastUpdate": 1768450063183,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22846,6 +22846,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3934795929585295,
             "unit": "median tps",
             "extra": "avg tps: 4.8285707430223415, max tps: 6.049697754626458, count: 57381"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93bf4ad4972647c0b5389c41322b07afe9ac3783",
+          "message": "chore: Jan 12th Tantivy rebase. (#3924)\n\n## What\n\nIncorporate a [Jan 12th Tantivy\nrebase](https://github.com/paradedb/tantivy/pull/93) (from\n[794ff1ffc9a7169ff7e41fba89a23d13afb358f4](https://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4)\nto\n[c92e831dde738163054729a2276ed74dfa1a8eee](https://github.com/quickwit-oss/tantivy/commits/c92e831dde738163054729a2276ed74dfa1a8eee))\n\n## Why\n\nTo stay up to date, and pull in performance improvements.\n\n## Tests\n\nSome benchmarks show 20-40% improvements.",
+          "timestamp": "2026-01-14T19:31:00-08:00",
+          "tree_id": "006d868427c81235bcd2f71a5dbb3a240784479e",
+          "url": "https://github.com/paradedb/paradedb/commit/93bf4ad4972647c0b5389c41322b07afe9ac3783"
+        },
+        "date": 1768450059498,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.767970419982987,
+            "unit": "median tps",
+            "extra": "avg tps: 6.649522719475988, max tps: 9.917687041137356, count: 57921"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.548130617178137,
+            "unit": "median tps",
+            "extra": "avg tps: 4.984705472906757, max tps: 6.220160720526433, count: 57921"
           }
         ]
       }

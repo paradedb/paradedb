@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768450068470,
+  "lastUpdate": 1768451060836,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33486,6 +33486,54 @@ window.BENCHMARK_DATA = {
             "value": 5.532174981959419,
             "unit": "median tps",
             "extra": "avg tps: 5.519073377144205, max tps: 6.635113704143774, count: 56109"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93bf4ad4972647c0b5389c41322b07afe9ac3783",
+          "message": "chore: Jan 12th Tantivy rebase. (#3924)\n\n## What\n\nIncorporate a [Jan 12th Tantivy\nrebase](https://github.com/paradedb/tantivy/pull/93) (from\n[794ff1ffc9a7169ff7e41fba89a23d13afb358f4](https://github.com/quickwit-oss/tantivy/commits/794ff1ffc9a7169ff7e41fba89a23d13afb358f4)\nto\n[c92e831dde738163054729a2276ed74dfa1a8eee](https://github.com/quickwit-oss/tantivy/commits/c92e831dde738163054729a2276ed74dfa1a8eee))\n\n## Why\n\nTo stay up to date, and pull in performance improvements.\n\n## Tests\n\nSome benchmarks show 20-40% improvements.",
+          "timestamp": "2026-01-14T19:31:00-08:00",
+          "tree_id": "006d868427c81235bcd2f71a5dbb3a240784479e",
+          "url": "https://github.com/paradedb/paradedb/commit/93bf4ad4972647c0b5389c41322b07afe9ac3783"
+        },
+        "date": 1768451057064,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1103.7748235209406,
+            "unit": "median tps",
+            "extra": "avg tps: 1105.8102757284064, max tps: 1141.8359346183295, count: 56164"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1315.3954063596157,
+            "unit": "median tps",
+            "extra": "avg tps: 1305.6329332595192, max tps: 1329.3915480167288, count: 56164"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1886.7753649911635,
+            "unit": "median tps",
+            "extra": "avg tps: 1861.4684825981462, max tps: 2022.7797716688174, count: 56164"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.699571331462851,
+            "unit": "median tps",
+            "extra": "avg tps: 5.676070380549853, max tps: 7.494181536190756, count: 56164"
           }
         ]
       }

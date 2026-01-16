@@ -24,7 +24,8 @@ use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
     TantivyOperator, TantivyOperatorExt,
 };
-use crate::postgres::customscan::qual_inspect::{contains_exec_param, Qual};
+use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_vars, VarContext};
 use crate::schema::SearchField;
@@ -113,14 +114,16 @@ impl PushdownField {
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
-        make_opexpr($attname, $opexpr, $operator, $rhs).map(|funcexpr| {
+    ($attname:expr, $opexpr:expr, $operator:expr, $field:ident, $field_is_array:ident, $root:ident, $indexrel:ident) => {{
+        make_opexpr($attname, $opexpr, $operator, $field, $field_is_array).map(|funcexpr| {
             if !is_complex(funcexpr.cast()) {
                 Qual::PushdownExpr { funcexpr }
             } else {
+                let context = PlannerContext::from_planner($root);
                 Qual::Expr {
                     node: funcexpr.cast(),
                     expr_state: std::ptr::null_mut(),
+                    expr_desc: deparse_expr(Some(&context), $indexrel, funcexpr.cast()),
                 }
             }
         })
@@ -136,16 +139,19 @@ pub unsafe fn try_pushdown_inner(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     opexpr: OpExpr,
-    indexrel: &PgSearchRelation
+    indexrel: &PgSearchRelation,
 ) -> Option<Qual> {
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
 
-    // If the RHS contains PARAM_EXEC nodes (correlated subquery parameters),
-    // we can't push it down because the parameters need runtime evaluation with planstate.
-    // Return None to let the caller create a HeapExpr instead.
-    if contains_exec_param(rhs) {
+    // If the RHS contains correlated PARAM_EXEC nodes (parameters which depend on an outer
+    // relation), we can't push it down because the parameters need runtime evaluation with
+    // planstate. Return None to let the caller create a HeapExpr instead.
+    //
+    // Uncorrelated PARAM_EXEC nodes will result in Qual::Expr and Qual::PostgresExpr nodes, which
+    // are evaluated in BeginCustomScan.
+    if contains_correlated_param(root, rhs) {
         return None;
     }
 
@@ -172,7 +178,15 @@ pub unsafe fn try_pushdown_inner(
 
             // the `opexpr` is one we can pushdown
             if pushdown.varno() == rti {
-                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs)?;
+                let pushed_down_qual = pushdown!(
+                    &pushdown.attname(),
+                    opexpr,
+                    pgsearch_operator,
+                    maybe_value,
+                    field_is_array,
+                    root,
+                    indexrel
+                )?;
                 // and it's in this RTI, so we can use it directly
                 Some(pushed_down_qual)
             } else {

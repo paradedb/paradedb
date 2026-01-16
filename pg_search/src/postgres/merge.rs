@@ -56,27 +56,30 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
-    slot: u8,
+    slot_variant: u8,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid, slot: u8) -> Self {
-        Self { index_oid, slot }
+    pub fn new(index_oid: pg_sys::Oid, slot_variant: u8) -> Self {
+        Self {
+            index_oid,
+            slot_variant,
+        }
     }
 
     pub fn index_oid(&self) -> pg_sys::Oid {
         self.index_oid
     }
 
-    pub fn slot(&self) -> u8 {
-        self.slot
+    pub fn slot_variant(&self) -> u8 {
+        self.slot_variant
     }
 }
 
 impl IntoDatum for BackgroundMergeArgs {
     fn into_datum(self) -> Option<pg_sys::Datum> {
         let upper = u32::from(self.index_oid) as u64; // top 32 bits
-        let lower = self.slot as u64; // bottom 32 bits
+        let lower = self.slot_variant as u64; // bottom 32 bits
         let raw: u64 = (upper << 32) | (lower & 0xFFFF_FFFF);
         Some(pg_sys::Datum::from(raw as i64))
     }
@@ -98,11 +101,11 @@ impl FromDatum for BackgroundMergeArgs {
 
         let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
         let index_oid = ((raw >> 32) & 0xFFFF_FFFF) as std::os::raw::c_uint;
-        let slot = (raw & 0xFFFF_FFFF) as u8;
+        let slot_variant = (raw & 0xFFFF_FFFF) as u8;
 
         Some(Self {
             index_oid: index_oid.into(),
-            slot,
+            slot_variant,
         })
     }
 }
@@ -333,7 +336,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let index = index.unwrap();
         // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
         // this checks to see if a merger is already running for the given layer
-        let merge_slot = MergeSlot::new(index.oid(), args.slot().try_into().unwrap()).lock();
+        let merge_slot =
+            MergeSlot::new(index.oid(), args.slot_variant().try_into().unwrap()).lock();
         if merge_slot.is_none() {
             return;
         }

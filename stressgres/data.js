@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526977225,
+  "lastUpdate": 1768527424943,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34146,6 +34146,54 @@ window.BENCHMARK_DATA = {
             "value": 5.379981542619137,
             "unit": "median tps",
             "extra": "avg tps: 5.41431586642779, max tps: 7.21081397840446, count: 56156"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768527420853,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1155.197465221877,
+            "unit": "median tps",
+            "extra": "avg tps: 1153.7976318450053, max tps: 1216.106432047555, count: 56381"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1275.2011507232398,
+            "unit": "median tps",
+            "extra": "avg tps: 1264.1416478994327, max tps: 1294.828175219676, count: 56381"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1958.6876929092834,
+            "unit": "median tps",
+            "extra": "avg tps: 1931.4958365264174, max tps: 2119.161058023733, count: 56381"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.515013258435588,
+            "unit": "median tps",
+            "extra": "avg tps: 5.551203798800551, max tps: 7.739793288851554, count: 56381"
           }
         ]
       }

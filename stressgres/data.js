@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768535476938,
+  "lastUpdate": 1768536223498,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23956,6 +23956,42 @@ window.BENCHMARK_DATA = {
             "value": 5.4855871417104645,
             "unit": "median tps",
             "extra": "avg tps: 4.917561875031846, max tps: 6.135535862871096, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768536219721,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.633035529728305,
+            "unit": "median tps",
+            "extra": "avg tps: 6.537848964987745, max tps: 9.837095967960451, count: 57544"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.495918454978667,
+            "unit": "median tps",
+            "extra": "avg tps: 4.924202736250769, max tps: 6.164130331344814, count: 57544"
           }
         ]
       }

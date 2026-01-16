@@ -20,7 +20,7 @@ use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::PgSearchRelation;
+use crate::postgres::rel::PgSearchRelation;
 use pgrx::{pg_sys, FromDatum, PgList};
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]

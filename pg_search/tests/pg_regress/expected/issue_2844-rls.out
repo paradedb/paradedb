@@ -344,8 +344,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) UPDATE "app"."contacts" AS t
 SET "assignee" = 'ad_singh'
 WHERE t.id IN (SELECT id FROM "app".contacts LIMIT 1)
 RETURNING t.*;
-                           QUERY PLAN                            
------------------------------------------------------------------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Update on contacts t
    ->  Nested Loop Semi Join
          Join Filter: ((t.id)::text = ("ANY_subquery".id)::text)
@@ -354,7 +354,7 @@ RETURNING t.*;
                Index: contacts_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {}
+               Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"<expression>"}}}
          ->  Subquery Scan on "ANY_subquery"
                ->  Limit
                      ->  Custom Scan (ParadeDB Scan) on contacts
@@ -363,7 +363,7 @@ RETURNING t.*;
                            Exec Method: TopNScanExecState
                            Scores: false
                               TopN Limit: 1
-                           Tantivy Query: {}
+                           Tantivy Query: {"postgres_expression":{"expr":{"expr_desc":"<expression>"}}}
 (18 rows)
 
 --

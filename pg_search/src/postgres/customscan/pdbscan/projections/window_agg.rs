@@ -466,7 +466,7 @@ unsafe fn convert_filter_expr_to_search_query(
     // Serialize the filter expression - nodeToString will be called during JSON serialization
     let filter_node = filter_expr as *mut pg_sys::Node;
     Some(SearchQueryInput::PostgresExpression {
-        expr: PostgresExpression::new(filter_node),
+        expr: PostgresExpression::new(filter_node, "Window Agg Filter".to_string()),
     })
 }
 

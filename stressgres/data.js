@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768536995632,
+  "lastUpdate": 1768537000821,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -45598,6 +45598,108 @@ window.BENCHMARK_DATA = {
             "value": 160.40625,
             "unit": "median mem",
             "extra": "avg mem: 180.38139603563616, max mem: 220.87109375, count: 56691"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768536997028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08032807301581653, max background_merging: 2.0, count: 56207"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6768875087980195, max cpu: 9.81595, count: 56207"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.006326780916968, max mem: 27.01953125, count: 56207"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.993075052540008, max cpu: 14.201183, count: 56207"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.58669418955824, max mem: 166.13671875, count: 56207"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51440,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51299.258490935295, max block_count: 51440.0, count: 56207"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.83471809561087, max segment_count: 56.0, count: 56207"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.712739871243672, max cpu: 9.523809, count: 56207"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.28996430048748, max mem: 137.1171875, count: 56207"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.720895655829849, max cpu: 9.846154, count: 56207"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 161.40245445963137, max mem: 165.59375, count: 56207"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.939824057505202, max cpu: 33.802814, count: 56207"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 179.04954308126656, max mem: 220.8828125, count: 56207"
           }
         ]
       }

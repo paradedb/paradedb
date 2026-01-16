@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768537723235,
+  "lastUpdate": 1768537728558,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -62412,6 +62412,114 @@ window.BENCHMARK_DATA = {
             "value": 168.015625,
             "unit": "median mem",
             "extra": "avg mem: 165.39626252329654, max mem: 170.0703125, count: 55534"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768537724650,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.837123146573138, max cpu: 42.60355, count: 55435"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 148.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.8890220528547, max mem: 170.296875, count: 55435"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.713010406207654, max cpu: 27.961164, count: 55435"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 117.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 116.16975864187788, max mem: 117.4375, count: 55435"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752380064533035, max cpu: 9.486166, count: 55435"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 121.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.24807143219536, max mem: 153.234375, count: 55435"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13571,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13875.845512762695, max block_count: 24727.0, count: 55435"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.88553337263946, max cpu: 4.669261, count: 55435"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 94.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 87.86017020215117, max mem: 128.6328125, count: 55435"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.679191846306484, max segment_count: 37.0, count: 55435"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.62796002467686, max cpu: 27.961164, count: 110870"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.97173237801027, max mem: 161.4765625, count: 110870"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.447175110519824, max cpu: 27.934044, count: 55435"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 168.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 165.21308366499053, max mem: 169.5625, count: 55435"
           }
         ]
       }

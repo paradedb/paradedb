@@ -192,7 +192,18 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
 
     let options = index_relation.options();
     let key_field_names = options.key_field_names();
-    
+
+    // Validate that key fields are not tokenized
+    for key_field_name in &key_field_names {
+        if let Some(field_type) = options.get_field_type(key_field_name) {
+            if matches!(field_type, SearchFieldType::Tokenized(..)) {
+                panic!(
+                    "key field '{key_field_name}' cannot use a tokenizer cast; key fields must not be tokenized"
+                );
+            }
+        }
+    }
+
     let text_configs = options.text_config();
     for (field_name, config) in text_configs.iter().flatten() {
         validate_field_config(field_name, &key_field_names, config, options, |t| {

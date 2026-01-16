@@ -336,8 +336,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let index = index.unwrap();
         // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
         // this checks to see if a merger is already running for the given layer
-        let merge_slot =
-            MergeSlot::new(index.oid(), args.slot_variant().try_into().unwrap()).lock();
+        let merge_slot = MergeSlot::new(index.oid(), args.slot_variant()).lock();
         // todo: this could potentially wait instead of returning immediately if the lock is not available
         // to avoid racing with other backends trying to probe the slot
         if merge_slot.is_none() {

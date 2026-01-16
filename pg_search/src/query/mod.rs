@@ -223,11 +223,12 @@ where
 }
 
 impl SearchQueryInput {
-    pub fn postgres_expression(node: *mut pg_sys::Node) -> Self {
+    pub fn postgres_expression(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         SearchQueryInput::PostgresExpression {
             expr: PostgresExpression {
                 node: PostgresPointer(node.cast()),
                 expr_state: PostgresPointer::default(),
+                expr_desc,
             },
         }
     }
@@ -438,8 +439,17 @@ pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Val
                 }
             }
 
-            // Remove any field named "postgres_expression"
-            obj.remove("postgres_expression");
+            // Handle PostgresExpression: remove raw node (internal representation)
+            // Keep the expr_desc field which contains the human-readable SQL expression
+            if let Some(pg_expr_wrapper) = obj.get_mut("postgres_expression") {
+                if let Some(wrapper_obj) = pg_expr_wrapper.as_object_mut() {
+                    if let Some(pg_expr) = wrapper_obj.get_mut("expr") {
+                        if let Some(expr_obj) = pg_expr.as_object_mut() {
+                            expr_obj.remove("node");
+                        }
+                    }
+                }
+            }
 
             // Recursively process all values in the object
             for (_, value) in obj.iter_mut() {
@@ -1405,15 +1415,17 @@ impl<'de> Deserialize<'de> for PostgresPointer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostgresExpression {
     node: PostgresPointer,
+    pub expr_desc: String,
     #[serde(skip)]
     expr_state: PostgresPointer,
 }
 
 impl PostgresExpression {
-    pub fn new(node: *mut pg_sys::Node) -> Self {
+    pub fn new(node: *mut pg_sys::Node, expr_desc: String) -> Self {
         Self {
             node: PostgresPointer(node.cast()),
             expr_state: PostgresPointer::default(),
+            expr_desc,
         }
     }
 

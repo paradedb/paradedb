@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768527692356,
+  "lastUpdate": 1768528141557,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -49982,6 +49982,60 @@ window.BENCHMARK_DATA = {
             "value": 14.82073118941001,
             "unit": "median tps",
             "extra": "avg tps: 14.772720177920782, max tps: 19.608619407893816, count: 55755"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768528137908,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.311282492327614,
+            "unit": "median tps",
+            "extra": "avg tps: 32.96519917430891, max tps: 37.44311618387398, count: 55590"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 238.28735186716753,
+            "unit": "median tps",
+            "extra": "avg tps: 259.15241953132664, max tps: 2651.2388666797424, count: 55590"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1916.831174164689,
+            "unit": "median tps",
+            "extra": "avg tps: 1897.2756082324925, max tps: 2268.6931095662503, count: 55590"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.3157695005121,
+            "unit": "median tps",
+            "extra": "avg tps: 194.23408228473468, max tps: 1604.3316769267553, count: 111180"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.185822167798618,
+            "unit": "median tps",
+            "extra": "avg tps: 15.200023223369922, max tps: 20.461592240898746, count: 55590"
           }
         ]
       }

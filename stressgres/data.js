@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526215063,
+  "lastUpdate": 1768526663938,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23290,6 +23290,42 @@ window.BENCHMARK_DATA = {
             "value": 5.472214101624918,
             "unit": "median tps",
             "extra": "avg tps: 4.909414248872754, max tps: 6.150409133720962, count: 57553"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768526659709,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.427381818604663,
+            "unit": "median tps",
+            "extra": "avg tps: 6.375960019844237, max tps: 9.589724130379068, count: 57558"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.524092328167293,
+            "unit": "median tps",
+            "extra": "avg tps: 4.940718565548324, max tps: 6.219928086778378, count: 57558"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768533697521,
+  "lastUpdate": 1768533703228,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61818,6 +61818,114 @@ window.BENCHMARK_DATA = {
             "value": 168.55078125,
             "unit": "median mem",
             "extra": "avg mem: 165.19649147625105, max mem: 169.5078125, count: 55613"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfa5dbefc5711e4c27090a5521b4674766982dce",
+          "message": "fix: Parameters from InitPlan nodes are uncorrelated (#3921)\n\n## What\n\nIn #3623, we began detecting that PARAM_EXEC params in qualifier\nexpressions were correlated. But InitPlan nodes produce uncorrelated\nPARAM_EXEC params which we already had support for solving via\n`PostgresExpression` in `BeginCustomScan`. The effect of skipping\npushdown was that we got a heap filter instead.\n\nThis change restores pushdown of params from InitPlan nodes.\nAdditionally, it improves comments and EXPLAIN output to demonstrate\nthat we are handling `PostgresExpression`s.\n\n## Why\n\nA heap filter is a few orders of magnitude slower than predicate\npushdown.\n\n## Tests\n\nAdded a new test in `uncorrelated-param-solving`, and confirmed that\ntests with correlated subqueries continue to use heap filters.\n\nBenchmarks for `paging-string-*` are fixed.",
+          "timestamp": "2026-01-15T18:25:32-08:00",
+          "tree_id": "08a663cf8a4a02a3c27fcea577b3a812a8165f7c",
+          "url": "https://github.com/paradedb/paradedb/commit/bfa5dbefc5711e4c27090a5521b4674766982dce"
+        },
+        "date": 1768533699006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.643879914749544, max cpu: 47.058823, count: 55534"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.91383016766756, max mem: 173.80078125, count: 55534"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.671818018716642, max cpu: 33.103447, count: 55534"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 117.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 116.0703970484298, max mem: 117.36328125, count: 55534"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.847695684743963, max cpu: 13.913043, count: 55534"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 121.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 113.22379688006447, max mem: 156.84765625, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13619,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13879.420535167645, max block_count: 24951.0, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9814967672494483, max cpu: 4.8096194, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.10647517174164, max mem: 131.5859375, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 23,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.517898944790577, max segment_count: 35.0, count: 55534"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.615325797143406, max cpu: 37.83251, count: 111068"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 157.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 136.84622923147307, max mem: 161.4765625, count: 111068"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.166183413861683, max cpu: 28.070175, count: 55534"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 168.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 165.39626252329654, max mem: 170.0703125, count: 55534"
           }
         ]
       }

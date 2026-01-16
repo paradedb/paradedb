@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768530499559,
+  "lastUpdate": 1768531454508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7052,6 +7052,72 @@ window.BENCHMARK_DATA = {
             "value": 104.06448042048419,
             "unit": "median tps",
             "extra": "avg tps: 101.04342003771706, max tps: 856.554526548051, count: 55324"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfa5dbefc5711e4c27090a5521b4674766982dce",
+          "message": "fix: Parameters from InitPlan nodes are uncorrelated (#3921)\n\n## What\n\nIn #3623, we began detecting that PARAM_EXEC params in qualifier\nexpressions were correlated. But InitPlan nodes produce uncorrelated\nPARAM_EXEC params which we already had support for solving via\n`PostgresExpression` in `BeginCustomScan`. The effect of skipping\npushdown was that we got a heap filter instead.\n\nThis change restores pushdown of params from InitPlan nodes.\nAdditionally, it improves comments and EXPLAIN output to demonstrate\nthat we are handling `PostgresExpression`s.\n\n## Why\n\nA heap filter is a few orders of magnitude slower than predicate\npushdown.\n\n## Tests\n\nAdded a new test in `uncorrelated-param-solving`, and confirmed that\ntests with correlated subqueries continue to use heap filters.\n\nBenchmarks for `paging-string-*` are fixed.",
+          "timestamp": "2026-01-15T18:25:32-08:00",
+          "tree_id": "08a663cf8a4a02a3c27fcea577b3a812a8165f7c",
+          "url": "https://github.com/paradedb/paradedb/commit/bfa5dbefc5711e4c27090a5521b4674766982dce"
+        },
+        "date": 1768531450528,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 578.6389230078662,
+            "unit": "median tps",
+            "extra": "avg tps: 583.1777953368123, max tps: 726.3862867435854, count: 55274"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3109.0270846035246,
+            "unit": "median tps",
+            "extra": "avg tps: 3088.8479557439077, max tps: 3135.470118871067, count: 55274"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 561.3474345636513,
+            "unit": "median tps",
+            "extra": "avg tps: 564.9834211302712, max tps: 675.0215345739834, count: 55274"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 458.7547056491157,
+            "unit": "median tps",
+            "extra": "avg tps: 468.15598907171795, max tps: 550.0887808911809, count: 55274"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3301.363677443778,
+            "unit": "median tps",
+            "extra": "avg tps: 3289.2960382030205, max tps: 3317.2827556917564, count: 110548"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2152.1582866266485,
+            "unit": "median tps",
+            "extra": "avg tps: 2137.7557488190864, max tps: 2160.1623035139273, count: 55274"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 121.30137367544769,
+            "unit": "median tps",
+            "extra": "avg tps: 129.92658250083096, max tps: 472.66032254104084, count: 55274"
           }
         ]
       }

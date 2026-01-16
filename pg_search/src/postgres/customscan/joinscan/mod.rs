@@ -310,7 +310,7 @@ impl CustomScan for JoinScan {
         };
         explainer.add_text("Join Type", join_type_str);
 
-        // Get relation names for display
+        // Get relation names and aliases for display
         let outer_rel_name = join_clause
             .outer_side
             .heaprelid
@@ -322,11 +322,35 @@ impl CustomScan for JoinScan {
             .map(|oid| PgSearchRelation::open(oid).name().to_string())
             .unwrap_or_else(|| "?".to_string());
 
-        // Show relation info for both sides
-        explainer.add_text("Outer Relation", outer_rel_name.clone());
-        explainer.add_text("Inner Relation", inner_rel_name.clone());
+        // Get aliases (use alias if available, otherwise use table name)
+        let outer_alias = join_clause
+            .outer_side
+            .alias
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| outer_rel_name.clone());
+        let inner_alias = join_clause
+            .inner_side
+            .alias
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| inner_rel_name.clone());
 
-        // Show join keys (equi-join condition) with column names
+        // Show relation info for both sides (with alias in parentheses if different)
+        let outer_display = if join_clause.outer_side.alias.is_some() {
+            format!("{} ({})", outer_rel_name, outer_alias)
+        } else {
+            outer_rel_name.clone()
+        };
+        let inner_display = if join_clause.inner_side.alias.is_some() {
+            format!("{} ({})", inner_rel_name, inner_alias)
+        } else {
+            inner_rel_name.clone()
+        };
+        explainer.add_text("Outer Relation", outer_display);
+        explainer.add_text("Inner Relation", inner_display);
+
+        // Show join keys (equi-join condition) with column names using aliases
         if !join_clause.join_keys.is_empty() {
             let keys_str: Vec<String> = join_clause
                 .join_keys
@@ -335,12 +359,12 @@ impl CustomScan for JoinScan {
                     let outer_col = get_attname_safe(
                         join_clause.outer_side.heaprelid,
                         k.outer_attno,
-                        &outer_rel_name,
+                        &outer_alias,
                     );
                     let inner_col = get_attname_safe(
                         join_clause.inner_side.heaprelid,
                         k.inner_attno,
-                        &inner_rel_name,
+                        &inner_alias,
                     );
                     format!("{} = {}", outer_col, inner_col)
                 })
@@ -1737,6 +1761,24 @@ unsafe fn extract_join_side_info(
     let relid = get_plain_relation_relid(rte)?;
 
     let mut side_info = JoinSideInfo::new().with_heap_rti(rti).with_heaprelid(relid);
+
+    // Extract the alias from the RTE if present
+    // The eref->aliasname contains the alias (or table name if no alias was specified)
+    if !(*rte).eref.is_null() {
+        let eref = (*rte).eref;
+        if !(*eref).aliasname.is_null() {
+            let alias_cstr = std::ffi::CStr::from_ptr((*eref).aliasname);
+            if let Ok(alias) = alias_cstr.to_str() {
+                // Get the actual table name to check if alias is different
+                let rel = PgSearchRelation::open(relid);
+                let table_name = rel.name();
+                // Only set alias if it's different from the table name
+                if alias != table_name {
+                    side_info = side_info.with_alias(alias.to_string());
+                }
+            }
+        }
+    }
 
     // Check if this relation has a BM25 index
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {

@@ -106,9 +106,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
@@ -146,9 +146,9 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, s.name
                Join Type: Inner
-               Outer Relation: suppliers
-               Inner Relation: products
-               Join Cond: suppliers.id = products.supplier_id
+               Outer Relation: suppliers (s)
+               Inner Relation: products (p)
+               Join Cond: s.id = p.supplier_id
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
 (13 rows)
@@ -182,9 +182,9 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, s.name, s.id
                Join Type: Inner
-               Outer Relation: suppliers
-               Inner Relation: products
-               Join Cond: suppliers.id = products.supplier_id
+               Outer Relation: suppliers (s)
+               Inner Relation: products (p)
+               Join Cond: s.id = p.supplier_id
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
 (13 rows)
@@ -334,9 +334,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
@@ -399,9 +399,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Has Filter: true
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -461,9 +461,9 @@ LIMIT 5;
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, p.category_id, s.name
                Join Type: Inner
-               Outer Relation: suppliers
-               Inner Relation: products
-               Join Cond: suppliers.id = products.supplier_id
+               Outer Relation: suppliers (s)
+               Inner Relation: products (p)
+               Join Cond: s.id = p.supplier_id
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
          ->  Materialize
@@ -547,9 +547,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Has Filter: true
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -610,9 +610,9 @@ LIMIT 3;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
          Limit: 3
 (10 rows)
@@ -648,9 +648,9 @@ LIMIT 3;
                ->  Custom Scan (ParadeDB Join Scan)
                      Output: p.id, p.name, p.price, s.name
                      Join Type: Inner
-                     Outer Relation: suppliers
-                     Inner Relation: products
-                     Join Cond: suppliers.id = products.supplier_id
+                     Outer Relation: suppliers (s)
+                     Inner Relation: products (p)
+                     Join Cond: s.id = p.supplier_id
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                      Limit: 3
 (15 rows)
@@ -709,9 +709,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: o.id, o.description, c.name
          Join Type: Inner
-         Outer Relation: customers
-         Inner Relation: orders
-         Join Cond: customers.customer_code = orders.customer_code
+         Outer Relation: customers (c)
+         Inner Relation: orders (o)
+         Join Cond: c.customer_code = o.customer_code
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
@@ -775,9 +775,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.product_name, w.name
          Join Type: Inner
-         Outer Relation: warehouses
-         Inner Relation: inventory
-         Join Cond: warehouses.region_id = inventory.region_id, warehouses.warehouse_code = inventory.warehouse_code
+         Outer Relation: warehouses (w)
+         Inner Relation: inventory (i)
+         Join Cond: w.region_id = i.region_id, w.warehouse_code = i.warehouse_code
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
@@ -837,9 +837,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: i.id, i.name, t.type_name
          Join Type: Inner
-         Outer Relation: item_types
-         Inner Relation: items
-         Join Cond: item_types.type_id = items.type_id
+         Outer Relation: item_types (t)
+         Inner Relation: items (i)
+         Join Cond: t.type_id = i.type_id
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
@@ -915,9 +915,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: lo.id, lo.description, ls.name
          Join Type: Inner
-         Outer Relation: large_suppliers
-         Inner Relation: large_orders
-         Join Cond: large_suppliers.id = large_orders.supplier_id
+         Outer Relation: large_suppliers (ls)
+         Inner Relation: large_orders (lo)
+         Join Cond: ls.id = lo.supplier_id
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
@@ -967,9 +967,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Has Filter: true
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -1003,9 +1003,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Limit: 10
 (10 rows)
@@ -1048,9 +1048,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Has Filter: true
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND inner:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
@@ -1085,9 +1085,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Has Filter: true
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR outer:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
          Limit: 10
@@ -1121,9 +1121,9 @@ LIMIT 10;
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
          Join Type: Inner
-         Outer Relation: suppliers
-         Inner Relation: products
-         Join Cond: suppliers.id = products.supplier_id
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
          Limit: 10
 (10 rows)

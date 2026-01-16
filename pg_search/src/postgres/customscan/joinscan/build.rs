@@ -35,6 +35,8 @@ pub struct JoinSideInfo {
     pub has_bm25_index: bool,
     /// Whether this side has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
+    /// The alias used in the query (e.g., "p" for "products p"), if any.
+    pub alias: Option<String>,
 }
 
 impl JoinSideInfo {
@@ -61,6 +63,11 @@ impl JoinSideInfo {
     pub fn with_query(mut self, query: SearchQueryInput) -> Self {
         self.query = Some(query);
         self.has_search_predicate = true;
+        self
+    }
+
+    pub fn with_alias(mut self, alias: String) -> Self {
+        self.alias = Some(alias);
         self
     }
 }

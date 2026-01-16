@@ -259,7 +259,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 10: Multi-table joins (3 tables)
+-- TEST 10: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
 -- =============================================================================
 
 -- Create a third table for multi-table join testing
@@ -302,7 +302,48 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 11: Non-equijoin conditions (arbitrary join expressions)
+-- TEST 11: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
+-- =============================================================================
+-- NOTE: Products were just UPDATED above (category_id added), so their ctids
+-- have moved from (0,1)-(0,8) to new locations (0,9)-(0,16).
+-- The BM25 index still has the OLD ctids.
+-- This test checks if JoinScan handles stale ctids correctly.
+
+-- Debug: Show current product ctids after UPDATE
+SELECT 'Products CTIDs after UPDATE (moved from original locations):' AS info;
+SELECT ctid, id, name FROM products ORDER BY id;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id;
+
+-- =============================================================================
+-- TEST 12: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
+-- =============================================================================
+-- Same as TEST 9 but with LIMIT - uses JoinScan.
+-- JoinScan's ctid-based matching for join-level predicates may fail here
+-- because the indexed ctids don't match the current heap ctids.
+-- EXPECTED: 4 rows (products 201, 203, 206, 207 match 'wireless' in description,
+--           plus any products joined to suppliers with 'wireless' in contact_info)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 13: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
 
 -- Join with non-equality condition
@@ -321,7 +362,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 12: LIMIT without ORDER BY vs with ORDER BY
+-- TEST 14: LIMIT without ORDER BY vs with ORDER BY
 -- =============================================================================
 
 -- LIMIT without ORDER BY - should still use JoinScan

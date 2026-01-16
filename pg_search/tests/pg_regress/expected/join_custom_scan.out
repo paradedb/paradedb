@@ -416,7 +416,7 @@ LIMIT 10;
 (4 rows)
 
 -- =============================================================================
--- TEST 10: Multi-table joins (3 tables)
+-- TEST 10: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
 -- =============================================================================
 -- Create a third table for multi-table join testing
 -- Categories: IDs 301-303
@@ -480,7 +480,86 @@ LIMIT 5;
 (3 rows)
 
 -- =============================================================================
--- TEST 11: Non-equijoin conditions (arbitrary join expressions)
+-- TEST 11: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
+-- =============================================================================
+-- NOTE: Products were just UPDATED above (category_id added), so their ctids
+-- have moved from (0,1)-(0,8) to new locations (0,9)-(0,16).
+-- The BM25 index still has the OLD ctids.
+-- This test checks if JoinScan handles stale ctids correctly.
+-- Debug: Show current product ctids after UPDATE
+SELECT 'Products CTIDs after UPDATE (moved from original locations):' AS info;
+                             info                             
+--------------------------------------------------------------
+ Products CTIDs after UPDATE (moved from original locations):
+(1 row)
+
+SELECT ctid, id, name FROM products ORDER BY id;
+  ctid  | id  |      name       
+--------+-----+-----------------
+ (0,9)  | 201 | Wireless Mouse
+ (0,13) | 202 | USB Cable
+ (0,10) | 203 | Keyboard
+ (0,14) | 204 | Monitor Stand
+ (0,11) | 205 | Webcam
+ (0,12) | 206 | Headphones
+ (0,16) | 207 | Mouse Pad
+ (0,15) | 208 | Cable Organizer
+(8 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id;
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(4 rows)
+
+-- =============================================================================
+-- TEST 12: OR across tables WITH LIMIT - AFTER UPDATE moved product ctids
+-- =============================================================================
+-- Same as TEST 9 but with LIMIT - uses JoinScan.
+-- JoinScan's ctid-based matching for join-level predicates may fail here
+-- because the indexed ctids don't match the current heap ctids.
+-- EXPECTED: 4 rows (products 201, 203, 206, 207 match 'wireless' in description,
+--           plus any products joined to suppliers with 'wireless' in contact_info)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+LIMIT 10;
+               QUERY PLAN               
+----------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Limit: 10
+(8 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 206 | Headphones     | TechCorp
+(3 rows)
+
+-- =============================================================================
+-- TEST 13: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
 -- Join with non-equality condition
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -516,7 +595,7 @@ LIMIT 10;
 (3 rows)
 
 -- =============================================================================
--- TEST 12: LIMIT without ORDER BY vs with ORDER BY
+-- TEST 14: LIMIT without ORDER BY vs with ORDER BY
 -- =============================================================================
 -- LIMIT without ORDER BY - should still use JoinScan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

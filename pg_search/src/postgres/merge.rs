@@ -552,7 +552,12 @@ impl MergeSlot {
 
     fn is_available(&self) -> bool {
         let key = self.key();
-        AdvisoryLock::new_session(key).is_some()
+        if let Some(lock) = AdvisoryLock::new_session(key) {
+            drop(lock); // explicitly unlock immediately
+            true
+        } else {
+            false
+        }
     }
 
     fn key(&self) -> i64 {
@@ -678,5 +683,34 @@ mod tests {
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
+    }
+
+    #[pg_test]
+    unsafe fn test_merge_slot() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Background("0".to_string()));
+        let small_layer = 1024;
+        let large_layer = 1024 * 1024 * 1024;
+
+        let small_slot = MergeSlot::for_layer_size(index_oid, small_layer);
+        let large_slot = MergeSlot::for_layer_size(index_oid, large_layer);
+        assert_eq!(small_slot.variant(), MergeSlotVariant::Small);
+        assert_eq!(large_slot.variant(), MergeSlotVariant::Large);
+        assert!(small_slot.is_available());
+        assert!(large_slot.is_available());
+
+        let small_locked = small_slot.lock();
+        assert!(small_locked.is_some());
+
+        let large_locked = large_slot.lock();
+        assert!(large_locked.is_some());
+
+        let pid = pg_sys::MyProcPid;
+        let cnt = Spi::get_one::<i64>(&format!(
+            "SELECT count(*)::bigint FROM pg_locks WHERE pid = {} AND locktype = 'advisory'",
+            pid
+        ))
+        .unwrap()
+        .unwrap();
+        assert_eq!(cnt, 2);
     }
 }

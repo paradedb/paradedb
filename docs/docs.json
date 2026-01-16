@@ -352,13 +352,31 @@
   "contextual": {
     "options": [
       "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
       "mcp",
       "cursor",
-      "vscode"
+      "vscode",
+      "perplexity",
+      "chatgpt",
+      "claude",
+      {
+        "title": "Share on X",
+        "description": "Share this page on X",
+        "icon": "x",
+        "iconType": "brands",
+        "href": {
+          "base": "https://x.com/intent/tweet",
+          "query": [
+            {
+              "key": "text",
+              "value": "Check out this ParadeDB doc!"
+            },
+            {
+              "key": "url",
+              "value": "https://docs.paradedb.com$path"
+            }
+          ]
+        }
+      }
     ]
   },
   "footer": {

@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use pgrx::pg_sys;
+use pgrx::{direct_function_call, pg_sys, IntoDatum};
 use std::ptr::addr_of_mut;
 
 #[derive(Copy, Clone, Debug)]
@@ -74,3 +74,65 @@ impl Drop for AcquiredSpinLock {
         }
     }
 }
+
+#[derive(Copy, Clone, Debug)]
+pub enum AdvisoryLockLevel {
+    Session,
+    Transaction,
+}
+
+#[derive(Clone, Debug)]
+pub struct AdvisoryLock {
+    level: AdvisoryLockLevel,
+    key: i64,
+}
+
+impl AdvisoryLock {
+    pub fn new_session(key: i64) -> Option<Self> {
+        let acquired = unsafe {
+            direct_function_call::<bool>(pg_sys::pg_try_advisory_lock_int8, &[key.into_datum()])
+        }
+        .unwrap_or(false);
+        if acquired {
+            Some(Self {
+                level: AdvisoryLockLevel::Session,
+                key,
+            })
+        } else {
+            None
+        }
+    }
+    pub fn new_transaction(key: i64) -> Option<Self> {
+        let acquired = unsafe {
+            direct_function_call::<bool>(
+                pg_sys::pg_try_advisory_xact_lock_int8,
+                &[key.into_datum()],
+            )
+        }
+        .unwrap_or(false);
+        if acquired {
+            Some(Self {
+                level: AdvisoryLockLevel::Transaction,
+                key,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+crate::impl_safe_drop!(AdvisoryLock, |self| {
+    match self.level {
+        AdvisoryLockLevel::Session => {
+            unsafe {
+                direct_function_call::<bool>(
+                    pg_sys::pg_advisory_unlock_int8,
+                    &[self.key.into_datum()],
+                )
+            };
+        }
+        AdvisoryLockLevel::Transaction => {
+            // do nothing, the lock is released by the end of the transaction
+        }
+    }
+});

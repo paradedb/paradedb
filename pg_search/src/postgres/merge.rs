@@ -18,6 +18,7 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
@@ -27,8 +28,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
-use pgrx::{check_for_interrupts, pg_sys, PgTryBuilder};
-use pgrx::{direct_function_call, pg_guard, FromDatum, IntoDatum};
+use pgrx::{check_for_interrupts, pg_guard, pg_sys, FromDatum, IntoDatum, PgTryBuilder};
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
 use tantivy::index::SegmentMeta;
@@ -271,8 +271,8 @@ pub unsafe fn do_merge(
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
 unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_size: u64) {
-    let slot = assign_merge_slot(largest_layer_size);
-    if !can_acquire_merge_slot_xact(index.oid(), slot) {
+    let slot = MergeSlot::for_layer_size(index.oid(), largest_layer_size);
+    if !slot.is_available() {
         return;
     }
 
@@ -291,7 +291,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), slot).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), slot.variant() as u8).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
@@ -331,8 +331,10 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             return;
         }
         let index = index.unwrap();
-        let can_merge = acquire_merge_slot_xact(index.oid(), args.slot());
-        if !can_merge {
+        // we allow up to 2 mergers per index: one for "small" layers and one for "large" layers
+        // this checks to see if a merger is already running for the given layer
+        let merge_slot = MergeSlot::new(index.oid(), args.slot().try_into().unwrap()).lock();
+        if merge_slot.is_none() {
             return;
         }
         let metadata = MetaPage::open(&index);
@@ -341,6 +343,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(layer_sizes.combined());
 
         let cleanup_lock = metadata.cleanup_lock_shared();
+        // this ensures there's only one merge running at a time for the given index,
+        // while the lock is held
         let merge_lock = metadata.acquire_merge_lock();
 
         PgTryBuilder::new(AssertUnwindSafe(|| {
@@ -494,7 +498,7 @@ pub fn free_entries(
 
 // random key, ensures that this advisory slot key doesn't conflict
 // with other Postgres advisory locks
-const PG_SEARCH_KEY: u32 = 0x5047534D;
+const MERGE_SLOT_KEY: u32 = 0x5047534D;
 // We at most allow 2 concurrent background merges
 // The first background merge is for "small" merges, the second is for "large" merges
 // This makes it so that a long-running large merge doesn't block smaller merges from happening
@@ -503,53 +507,63 @@ const PG_SEARCH_KEY: u32 = 0x5047534D;
 const LARGE_MERGE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100mb
 const SLOT_BITS: u32 = 8; // slot is u8
 
-#[inline]
-fn assign_merge_slot(largest_layer_size: u64) -> u8 {
-    if largest_layer_size >= LARGE_MERGE_THRESHOLD {
-        1
-    } else {
-        0
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+enum MergeSlotVariant {
+    Small = 0,
+    Large = 1,
+}
+
+impl TryFrom<u8> for MergeSlotVariant {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => MergeSlotVariant::Small,
+            1 => MergeSlotVariant::Large,
+            _ => anyhow::bail!("invalid merge slot variant: {value}"),
+        })
     }
 }
-#[inline]
-fn merge_slot_key(index_oid: pg_sys::Oid, slot: u8) -> i64 {
-    let payload = ((u32::from(index_oid) as u64) << SLOT_BITS) | (slot as u64);
 
-    ((PG_SEARCH_KEY as i64) << 32) | (payload as i64)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MergeSlot {
+    index_oid: pg_sys::Oid,
+    variant: MergeSlotVariant,
 }
 
-/// Acquire a specific merge slot for the duration of the *current transaction*.
-/// Returns true if acquired, false if someone else already holds it.
-#[inline]
-pub unsafe fn acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> bool {
-    let key = merge_slot_key(index_oid, slot);
-
-    direct_function_call::<bool>(pg_sys::pg_try_advisory_xact_lock_int8, &[key.into_datum()])
-        .unwrap_or(false)
-}
-
-/// Check if a specific merge slot *can be acquired right now*.
-///
-/// There is no race-free "check without acquiring" in Postgres.
-/// The only correct implementation is: try to acquire, then immediately unlock.
-///
-/// Returns true if it was available at the moment of checking.
-#[inline]
-pub unsafe fn can_acquire_merge_slot_xact(index_oid: pg_sys::Oid, slot: u8) -> bool {
-    let key = merge_slot_key(index_oid, slot);
-
-    let acquired =
-        direct_function_call::<bool>(pg_sys::pg_try_advisory_lock_int8, &[key.into_datum()])
-            .unwrap_or(false);
-
-    if !acquired {
-        return false;
+impl MergeSlot {
+    fn new(index_oid: pg_sys::Oid, variant: MergeSlotVariant) -> Self {
+        Self { index_oid, variant }
     }
 
-    // immediately release (this is a session-level unlock function, and it works
-    // for releasing a lock acquired in the current transaction as well).
-    let _ = direct_function_call::<bool>(pg_sys::pg_advisory_unlock_int8, &[key.into_datum()]);
-    true
+    fn for_layer_size(index_oid: pg_sys::Oid, largest_layer_size: u64) -> Self {
+        if largest_layer_size >= LARGE_MERGE_THRESHOLD {
+            MergeSlot::new(index_oid, MergeSlotVariant::Large)
+        } else {
+            MergeSlot::new(index_oid, MergeSlotVariant::Small)
+        }
+    }
+
+    fn lock(&self) -> Option<AdvisoryLock> {
+        let key = self.key();
+        AdvisoryLock::new_transaction(key)
+    }
+
+    fn is_available(&self) -> bool {
+        let key = self.key();
+        AdvisoryLock::new_session(key).is_some()
+    }
+
+    fn key(&self) -> i64 {
+        let variant = self.variant as u8;
+        let payload = ((u32::from(self.index_oid) as u64) << SLOT_BITS) | (variant as u64);
+        ((MERGE_SLOT_KEY as i64) << 32) | (payload as i64)
+    }
+
+    fn variant(&self) -> MergeSlotVariant {
+        self.variant
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

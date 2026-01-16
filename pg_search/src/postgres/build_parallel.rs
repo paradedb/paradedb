@@ -27,13 +27,13 @@ use crate::parallel_worker::{
     ParallelWorker, WorkerStyle,
 };
 use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
     GARBAGE_COLLECTING, INDEXING, MERGING,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,

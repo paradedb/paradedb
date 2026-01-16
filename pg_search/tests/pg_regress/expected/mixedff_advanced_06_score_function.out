@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: Score function behavior'
 Test: Score function behavior
 -- Create test table with mixed field types
@@ -390,6 +400,7 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY has 5 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -409,6 +420,7 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY has 5 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false
            title           |    author     | rating | views |    score    
 ---------------------------+---------------+--------+-------+-------------
  Advanced Science Research | Author Expert |      5 |  8888 | 0.022842946

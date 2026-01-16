@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526971462,
+  "lastUpdate": 1768526977225,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44152,6 +44152,108 @@ window.BENCHMARK_DATA = {
             "value": 160.49609375,
             "unit": "median mem",
             "extra": "avg mem: 179.06987106120025, max mem: 220.91796875, count: 56164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c579e2f20546f5057827f5de3aec7f881ad35edf",
+          "message": "fix: `pdb.agg` works with JSON paths (#3925)\n\n# Ticket(s) Closed\n\n- Closes #3890 \n\n## What\n\nFixes an issue introduced in #3729 where `pdb.agg` incorrectly errors if\na JSON field + path is passed in.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:45:39-10:00",
+          "tree_id": "70dfaa3cdf983e66cb7f27b4825b99d0c10fd759",
+          "url": "https://github.com/paradedb/paradedb/commit/c579e2f20546f5057827f5de3aec7f881ad35edf"
+        },
+        "date": 1768526973182,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08008049006339484, max background_merging: 2.0, count: 56156"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.690916209293338, max cpu: 9.571285, count: 56156"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.200651700174515, max mem: 26.29296875, count: 56156"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.901348957848398, max cpu: 14.035088, count: 56156"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.48990486602054, max mem: 165.9453125, count: 56156"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51447,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51303.31282498754, max block_count: 51447.0, count: 56156"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.74629603248095, max segment_count: 56.0, count: 56156"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.647328010608131, max cpu: 9.476802, count: 56156"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 112.63154315656386, max mem: 137.15234375, count: 56156"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7394265380546905, max cpu: 9.667674, count: 56156"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.1171208608608, max mem: 165.4609375, count: 56156"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.94263321710438, max cpu: 33.432835, count: 56156"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 179.03082484507445, max mem: 220.859375, count: 56156"
           }
         ]
       }

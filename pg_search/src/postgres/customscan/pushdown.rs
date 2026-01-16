@@ -114,8 +114,8 @@ impl PushdownField {
 }
 
 macro_rules! pushdown {
-    ($attname:expr, $opexpr:expr, $operator:expr, $field:ident, $field_is_array:ident, $root:ident, $indexrel:ident) => {{
-        make_opexpr($attname, $opexpr, $operator, $field, $field_is_array).map(|funcexpr| {
+    ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident, $root:ident, $indexrel:ident) => {{
+        make_opexpr($attname, $opexpr, $operator, $rhs).map(|funcexpr| {
             if !is_complex(funcexpr.cast()) {
                 Qual::PushdownExpr { funcexpr }
             } else {
@@ -182,8 +182,7 @@ pub unsafe fn try_pushdown_inner(
                     &pushdown.attname(),
                     opexpr,
                     pgsearch_operator,
-                    maybe_value,
-                    field_is_array,
+                    rhs,
                     root,
                     indexrel
                 )?;

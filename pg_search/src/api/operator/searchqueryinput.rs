@@ -197,14 +197,12 @@ pub fn search_with_query_input(
         )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
-        let key_field_names = schema.key_field_names();
-        let key_field_types = schema.key_field_types();
-        
+        let key_fields = schema.key_fields();
+
         // Create fast field entries for all key fields
-        let ff_entries: Vec<_> = key_field_names
-            .into_iter()
-            .zip(key_field_types.iter())
-            .map(|(name, typ)| (name, FastFieldType::from(*typ)).into())
+        let ff_entries: Vec<_> = key_fields
+            .iter()
+            .map(|kf| (kf.name.clone(), FastFieldType::from(kf.field_type)).into())
             .collect();
             
         let ff_helper = FFHelper::with_fields(&search_reader, &ff_entries);
@@ -239,7 +237,7 @@ pub fn search_with_query_input(
 
         // Store field types if we have composite keys
         let cache_entry = if ff_entries.len() > 1 {
-            let field_oids: Vec<pgrx::PgOid> = key_field_types.iter().map(|ft| ft.typeoid()).collect();
+            let field_oids: Vec<pgrx::PgOid> = key_fields.iter().map(|kf| kf.field_type.typeoid()).collect();
             CacheEntry::SetWithFieldTypes(matches.into_iter().collect(), field_oids)
         } else {
             CacheEntry::Set(matches.into_iter().collect())

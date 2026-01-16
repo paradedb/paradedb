@@ -102,13 +102,14 @@ unsafe fn build_empty(index_relation: &PgSearchRelation) {
 
 // Find the smallest unique index that matches the first N columns of the BM25 index exactly
 pub unsafe fn find_smallest_matching_unique_index(
-    heap_relation: &PgRelation,
-    bm25_columns: &[String],
+    index_relation: &PgRelation,
 ) -> Option<Vec<String>> {
+    let bm25_columns = extract_bm25_columns(index_relation);
     if bm25_columns.is_empty() {
         return None;
     }
 
+    let heap_relation = index_relation.heap_relation()?;
     let index_list = heap_relation.indices(pg_sys::AccessShareLock as _);
     let mut best_match: Option<Vec<String>> = None;
     let mut best_size = usize::MAX;
@@ -177,27 +178,16 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     }
 
     // Check that BM25 columns can be matched by a unique constraint
-    if let Some(heap_relation) = index_relation.heap_relation() {
-        // Get all BM25 index columns using the shared function
-        let index_pg_relation = PgRelation::from_pg(index_relation.as_ptr());
-        let bm25_columns = extract_bm25_columns(&index_pg_relation);
-        
-        if bm25_columns.is_empty() {
-            panic!("BM25 index has no columns");
-        }
-        
-        if find_smallest_matching_unique_index(&PgRelation::from_pg(heap_relation.as_ptr()), &bm25_columns).is_none() {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_INVALID_OBJECT_DEFINITION,
-                "BM25 indexes require a unique constraint",
-                "build_index",
-            )
-            .set_detail("The first N BM25 index columns must match the first N columns of a unique index")
-            .set_hint("Add a PRIMARY KEY or UNIQUE INDEX that matches the first columns of your BM25 index")
-            .report(PgLogLevel::ERROR);
-        }
-    } else {
-        panic!("Could not access table information");
+    let index_pg_relation = PgRelation::from_pg(index_relation.as_ptr());
+    if find_smallest_matching_unique_index(&index_pg_relation).is_none() {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INVALID_OBJECT_DEFINITION,
+            "BM25 indexes require a unique constraint",
+            "build_index",
+        )
+        .set_detail("The first N BM25 index columns must match the first N columns of a unique index")
+        .set_hint("Add a PRIMARY KEY or UNIQUE INDEX that matches the first columns of your BM25 index")
+        .report(PgLogLevel::ERROR);
     }
 
     let options = index_relation.options();

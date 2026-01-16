@@ -393,6 +393,18 @@ impl BM25IndexOptions {
             .collect()
     }
 
+    pub fn key_fields(&self) -> Vec<crate::schema::KeyField> {
+        self.key_field_names()
+            .into_iter()
+            .map(|name| {
+                let field_type = self
+                    .get_field_type(&name)
+                    .expect(Self::MISSING_KEY_FIELD_CONFIG);
+                crate::schema::KeyField::new(name, field_type)
+            })
+            .collect()
+    }
+
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
     /// falling back to the default config for the field type.
     pub fn field_config_or_default(&self, field_name: &FieldName) -> SearchFieldConfig {
@@ -993,24 +1005,19 @@ pub fn extract_bm25_columns(index_relation: &PgRelation) -> Vec<String> {
 pub unsafe fn get_key_fields_from_relation(
     index_relation: &PgRelation,
 ) -> Result<Vec<FieldName>, &'static str> {
-    let bm25_columns = extract_bm25_columns(index_relation);
-    if bm25_columns.is_empty() {
-        return Err("index has no fields");
-    }
-
-    // Get the heap relation to check for unique indexes
-    let heap_relation = index_relation.heap_relation()
-        .ok_or("could not find heap relation")?;
-
     // Use the shared function to find the smallest matching unique index
     let key_fields = if let Some(matched_columns) =
-        crate::postgres::build::find_smallest_matching_unique_index(&heap_relation, &bm25_columns)
+        crate::postgres::build::find_smallest_matching_unique_index(index_relation)
     {
         matched_columns.into_iter().map(|col| col.into()).collect()
     } else {
         // Fallback to first column if no unique index matches
         // Backwards compatible, but not sure if this is correct
         // TODO: fix
+        let bm25_columns = extract_bm25_columns(index_relation);
+        if bm25_columns.is_empty() {
+            return Err("index has no fields");
+        }
         vec![bm25_columns[0].clone().into()]
     };
 

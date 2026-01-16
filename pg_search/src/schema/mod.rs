@@ -170,6 +170,21 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
     }
 }
 
+/// A key field holds both the field name and its type together.
+/// This is useful when working with key fields where both pieces of information
+/// are needed together.
+#[derive(Debug, Clone)]
+pub struct KeyField {
+    pub name: FieldName,
+    pub field_type: SearchFieldType,
+}
+
+impl KeyField {
+    pub fn new(name: FieldName, field_type: SearchFieldType) -> Self {
+        Self { name, field_type }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
@@ -220,6 +235,10 @@ impl SearchIndexSchema {
 
     pub fn key_field_types(&self) -> Vec<SearchFieldType> {
         self.bm25_options.key_field_types()
+    }
+
+    pub fn key_fields(&self) -> Vec<KeyField> {
+        self.bm25_options.key_fields()
     }
 
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {

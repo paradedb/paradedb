@@ -351,22 +351,14 @@
   },
   "contextual": {
     "options": [
-      {
-        "title": "🤖 Context for AI",
-        "description": "Copy page as context for AI tools",
-        "icon": "copy",
-        "href": {
-          "base": "javascript:void(0)",
-          "query": []
-        }
-      },
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
+      "copy",
       "mcp",
       "cursor",
-      "vscode"
+      "vscode",
+      "perplexity",
+      "chatgpt",
+      "claude",
+      "view"
     ]
   },
   "footer": {

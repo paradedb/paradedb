@@ -35,7 +35,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
-use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
@@ -714,32 +714,10 @@ impl CustomScan for JoinScan {
                 let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
                 let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
 
-                // For each join-level predicate, query the BM25 index and collect matching ctids.
-                //
-                // ## Two-Layer Visibility
-                //
-                // Even though we use `MvccSatisfies::Snapshot` when opening the search reader,
-                // we still need tuple-level visibility checks. Here's why:
-                //
-                // 1. **Segment-level** (`MvccSatisfies::Snapshot`): Determines which Tantivy
-                //    segments are visible based on transaction visibility. A segment is visible
-                //    if it was committed before our snapshot.
-                //
-                // 2. **Tuple-level** (`VisibilityChecker`): Within a visible segment, individual
-                //    ctid entries may be stale. After an UPDATE, the old tuple is marked dead
-                //    and a new tuple is created at a new ctid, but the index still has the old
-                //    ctid until VACUUM runs.
-                //
-                // ## Why We Need the Current ctid
-                //
-                // The visibility checker (`exec_if_visible`) does two things:
-                // - Verifies the tuple exists and is visible (following HOT chains if needed)
-                // - Fills the slot with the found tuple, including its CURRENT ctid in `tts_tid`
-                //
-                // We store the current ctid (from `tts_tid`), not the index ctid, because during
-                // join execution we compare against heap tuple ctids which reflect current locations.
-                //
-                // This is the same pattern used by BaseScan for regular BM25 queries.
+                // Query each join-level predicate's BM25 index and collect matching ctids.
+                // We use OwnedVisibilityChecker to resolve index ctids to current heap locations,
+                // handling the case where tuples moved after UPDATE but before VACUUM.
+                // See VisibilityChecker docs for details on two-layer visibility.
                 for predicate in &join_level_predicates {
                     let indexrel = PgSearchRelation::open(predicate.indexrelid);
 
@@ -760,37 +738,18 @@ impl CustomScan for JoinScan {
                     );
 
                     if let Ok(reader) = search_reader {
-                        // Create a visibility checker and slot for this relation
-                        let (mut vis_checker, check_slot) = if let Some(hrid) = heaprelid {
+                        // Create a visibility checker for this relation (owns its slot)
+                        let mut vis_checker = heaprelid.map(|hrid| {
                             let heaprel = PgSearchRelation::open(hrid);
-                            let checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                            // Create a BufferHeapTupleTableSlot for the heap relation
-                            let slot = pg_sys::MakeTupleTableSlot(
-                                heaprel.rd_att,
-                                &pg_sys::TTSOpsBufferHeapTuple,
-                            );
-                            (Some(checker), slot)
-                        } else {
-                            (None, std::ptr::null_mut())
-                        };
+                            OwnedVisibilityChecker::new(&heaprel, snapshot)
+                        });
 
                         let results = reader.search();
                         for (scored, _doc_address) in results {
                             // Verify tuple visibility and get its current ctid
-                            let current_ctid = if let Some(ref mut checker) = vis_checker {
-                                if checker
-                                    .exec_if_visible(scored.ctid, check_slot, |_| true)
-                                    .is_some()
-                                {
-                                    // Use current ctid from slot (may differ from index ctid after UPDATE)
-                                    Some(crate::postgres::utils::item_pointer_to_u64(
-                                        (*check_slot).tts_tid,
-                                    ))
-                                } else {
-                                    None // Tuple not visible (deleted)
-                                }
-                            } else {
-                                Some(scored.ctid)
+                            let current_ctid = match vis_checker {
+                                Some(ref mut checker) => checker.get_current_ctid(scored.ctid),
+                                None => Some(scored.ctid),
                             };
 
                             if let Some(ctid) = current_ctid {
@@ -801,11 +760,7 @@ impl CustomScan for JoinScan {
                                 }
                             }
                         }
-
-                        // Clean up the check slot
-                        if !check_slot.is_null() {
-                            pg_sys::ExecDropSingleTupleTableSlot(check_slot);
-                        }
+                        // vis_checker is dropped here, cleaning up the slot
                     }
                 }
             }

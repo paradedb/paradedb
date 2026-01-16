@@ -200,6 +200,7 @@ impl OwnedVisibilityChecker {
     }
 }
 
+// TODO: use !safe_drop_impl
 impl Drop for OwnedVisibilityChecker {
     fn drop(&mut self) {
         unsafe {

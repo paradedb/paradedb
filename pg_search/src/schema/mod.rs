@@ -506,10 +506,18 @@ impl SearchField {
             .map(|opt| opt.has_positions())
             .unwrap_or(false);
 
-        (self.is_text() || self.is_json())
-            && has_positions
-            // ngram tokenizer does not store usable positions.
-            && !matches!(self.field_config.tokenizer(), Some(SearchTokenizer::Ngram { .. }))
+        let ngram_supports_positions = match tokenizer {
+            Some(SearchTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                positions: true,
+                ..
+            }) => min_gram == max_gram,
+            Some(SearchTokenizer::Ngram { .. }) => false,
+            _ => true,
+        };
+
+        (self.is_text() || self.is_json()) && has_positions && ngram_supports_positions
     }
 
     pub fn is_json(&self) -> bool {

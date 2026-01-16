@@ -346,9 +346,8 @@ LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
- 203 | Keyboard       | TechCorp
  206 | Headphones     | TechCorp
-(3 rows)
+(2 rows)
 
 -- =============================================================================
 -- TEST 8: Aggregate Score pattern - OR across tables (without LIMIT)

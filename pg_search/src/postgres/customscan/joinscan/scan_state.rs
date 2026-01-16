@@ -108,6 +108,9 @@ pub struct JoinScanState {
     pub build_scan_desc: Option<*mut pg_sys::TableScanDescData>,
     /// Slot for build side heap scan.
     pub build_scan_slot: Option<*mut pg_sys::TupleTableSlot>,
+    /// Set of build side ctids that match the build side's search predicate (if any).
+    /// When this is Some, only rows with ctids in this set should be included in the hash table.
+    pub build_matching_ctids: Option<HashSet<u64>>,
 
     // === Hash join state ===
     /// The hash table built from the build side.

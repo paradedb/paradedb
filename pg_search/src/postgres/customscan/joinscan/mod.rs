@@ -452,6 +452,39 @@ impl CustomScan for JoinScan {
                     pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
                 state.custom_state_mut().build_scan_desc = Some(scan_desc);
 
+                // If the build side has a search predicate, pre-compute matching ctids
+                // so we only include matching rows in the hash table
+                if let (Some(indexrelid), Some(ref query)) =
+                    (build_side.indexrelid, &build_side.query)
+                {
+                    let indexrel = PgSearchRelation::open(indexrelid);
+                    let search_reader = SearchIndexReader::open_with_context(
+                        &indexrel,
+                        query.clone(),
+                        false, // don't need scores for build side
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                    );
+
+                    if let Ok(reader) = search_reader {
+                        let mut build_ctids = std::collections::HashSet::new();
+
+                        // Create a visibility checker to resolve stale ctids
+                        let mut vis_checker = OwnedVisibilityChecker::new(&heaprel, snapshot);
+
+                        let results = reader.search();
+                        for (scored, _doc_address) in results {
+                            // Verify tuple visibility and get its current ctid
+                            if let Some(current_ctid) = vis_checker.get_current_ctid(scored.ctid) {
+                                build_ctids.insert(current_ctid);
+                            }
+                        }
+
+                        state.custom_state_mut().build_matching_ctids = Some(build_ctids);
+                    }
+                }
+
                 state.custom_state_mut().build_heaprel = Some(heaprel);
             }
 
@@ -783,6 +816,9 @@ impl JoinScan {
             return;
         };
 
+        // Get build_matching_ctids reference (if build side has a search predicate)
+        let build_matching_ctids = state.custom_state().build_matching_ctids.clone();
+
         // Scan all build side tuples
         while pg_sys::table_scan_getnextslot(
             scan_desc,
@@ -791,6 +827,13 @@ impl JoinScan {
         ) {
             // Extract the ctid from the slot
             let ctid = item_pointer_to_u64((*slot).tts_tid);
+
+            // If build side has a search predicate, filter to only matching rows
+            if let Some(ref matching) = build_matching_ctids {
+                if !matching.contains(&ctid) {
+                    continue; // Skip rows that don't match the build side predicate
+                }
+            }
 
             // Extract the composite key
             let key = match extract_composite_key(slot, &build_key_info) {
@@ -913,6 +956,9 @@ impl JoinScan {
                 pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
             }
 
+            // Get build_matching_ctids reference (if build side has a search predicate)
+            let build_matching_ctids = state.custom_state().build_matching_ctids.clone();
+
             // Now scan the build side for this driving row
             while pg_sys::table_scan_getnextslot(
                 scan_desc,
@@ -920,6 +966,13 @@ impl JoinScan {
                 build_slot,
             ) {
                 let build_ctid = item_pointer_to_u64((*build_slot).tts_tid);
+
+                // If build side has a search predicate, filter to only matching rows
+                if let Some(ref matching) = build_matching_ctids {
+                    if !matching.contains(&build_ctid) {
+                        continue; // Skip rows that don't match the build side predicate
+                    }
+                }
 
                 // For nested loop, we compare keys on the fly
                 let driving_key_info = state.custom_state().driving_key_info.clone();

@@ -447,6 +447,18 @@
       "href": "https://github.com/paradedb/paradedb"
     }
   },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
+  },
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",

@@ -451,6 +451,32 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().build_heaprel = Some(heaprel);
             }
 
+            // Initialize join qual evaluation if we have non-equijoin conditions
+            if join_clause.has_other_conditions {
+                // Get the restrictlist from custom_private (second element)
+                let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
+                let private_list = PgList::<pg_sys::Node>::from_pg((*cscan).custom_private);
+
+                if private_list.len() > 1 {
+                    if let Some(restrictlist_node) = private_list.get_ptr(1) {
+                        let restrictlist = restrictlist_node as *mut pg_sys::List;
+
+                        // Build qual expression from non-equijoin RestrictInfos
+                        let quals = extract_non_equijoin_quals(restrictlist, &join_clause);
+                        if !quals.is_null() {
+                            // Create expression context
+                            let econtext = pg_sys::CreateExprContext(estate);
+
+                            // Initialize expression state
+                            let qual_state = pg_sys::ExecInitQual(quals, &mut state.csstate.ss.ps);
+
+                            state.custom_state_mut().join_qual_state = Some(qual_state);
+                            state.custom_state_mut().join_qual_econtext = Some(econtext);
+                        }
+                    }
+                }
+            }
+
             // Initialize join-level predicate matching sets if we have join-level predicates
             let join_level_predicates = state
                 .custom_state()
@@ -1158,6 +1184,77 @@ unsafe fn extract_composite_key(
         values.push(key_value);
     }
     Some(CompositeKey::Values(values))
+}
+
+/// Extract non-equijoin predicates from a restrictlist.
+/// These are the predicates that need to be evaluated after the hash join lookup.
+unsafe fn extract_non_equijoin_quals(
+    restrictlist: *mut pg_sys::List,
+    join_clause: &JoinCSClause,
+) -> *mut pg_sys::List {
+    if restrictlist.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let mut quals = PgList::<pg_sys::Expr>::new();
+    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+    let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
+    let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
+
+    for ri in restrict_infos.iter_ptr() {
+        if ri.is_null() || (*ri).clause.is_null() {
+            continue;
+        }
+
+        let clause = (*ri).clause;
+
+        // Skip if this is an equi-join condition (Var = Var between outer and inner)
+        let mut is_equi_join = false;
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+            if args.len() == 2 {
+                let arg0 = args.get_ptr(0).unwrap();
+                let arg1 = args.get_ptr(1).unwrap();
+
+                if (*arg0).type_ == pg_sys::NodeTag::T_Var
+                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
+                {
+                    let var0 = arg0 as *mut pg_sys::Var;
+                    let var1 = arg1 as *mut pg_sys::Var;
+                    let varno0 = (*var0).varno as pg_sys::Index;
+                    let varno1 = (*var1).varno as pg_sys::Index;
+
+                    // Check if it's an equi-join between outer and inner
+                    if (varno0 == outer_rti && varno1 == inner_rti)
+                        || (varno0 == inner_rti && varno1 == outer_rti)
+                    {
+                        is_equi_join = true;
+                    }
+                }
+            }
+        }
+
+        if !is_equi_join {
+            quals.push(clause);
+        }
+    }
+
+    if quals.is_empty() {
+        std::ptr::null_mut()
+    } else {
+        // Convert list of Exprs to implicit AND using make_ands_explicit
+        if quals.len() == 1 {
+            let single = quals.get_ptr(0).unwrap();
+            let mut result = PgList::<pg_sys::Expr>::new();
+            result.push(single);
+            result.into_pg()
+        } else {
+            // Create a BoolExpr with AND
+            quals.into_pg()
+        }
+    }
 }
 
 /// Copy a datum to an owned KeyValue, handling pass-by-reference types.

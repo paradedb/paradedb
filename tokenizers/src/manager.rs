@@ -20,6 +20,7 @@ use std::fmt::Write;
 
 #[cfg(feature = "icu")]
 use crate::icu::ICUTokenizer;
+use crate::ngram::NgramTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
@@ -38,8 +39,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
-    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, RawTokenizer, RegexTokenizer,
+    SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
@@ -327,6 +328,8 @@ pub enum SearchTokenizer {
         min_gram: usize,
         max_gram: usize,
         prefix_only: bool,
+        #[serde(default)]
+        positions: bool,
         filters: SearchTokenizerFilters,
     },
     ChineseLindera(SearchTokenizerFilters),
@@ -409,10 +412,15 @@ impl SearchTokenizer {
                     .map_err(|_| {
                         anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
                     })?;
+                let positions: bool = value
+                    .get("positions")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 Ok(SearchTokenizer::Ngram {
                     min_gram,
                     max_gram,
                     prefix_only,
+                    positions,
                     filters,
                 })
             }
@@ -491,10 +499,11 @@ impl SearchTokenizer {
                 min_gram,
                 max_gram,
                 prefix_only,
+                positions,
                 filters,
             } => add_filters!(
-                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
-                    .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
+                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only, *positions)
+                    .unwrap_or_else(|e| panic!("{}", e)),
                 filters
             ),
             SearchTokenizer::ChineseCompatible(filters) => {
@@ -622,7 +631,9 @@ impl SearchTokenizer {
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
-            SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),
+            SearchTokenizer::LiteralNormalized(_filters) => {
+                format!("literal_normalized{filters_suffix}")
+            }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {
@@ -634,19 +645,26 @@ impl SearchTokenizer {
                 max_gram,
                 prefix_only,
                 filters: _,
-            } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{filters_suffix}"),
+                positions,
+            } => {
+                let positions_suffix = if *positions { "_positions:true" } else { "" };
+                format!(
+                    "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
+                )
+            }
             SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
             SearchTokenizer::JapaneseLindera(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             SearchTokenizer::Lindera(style, _filters) => match style {
-                LinderaLanguage::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaLanguage::Unspecified => {
+                    panic!("LinderaStyle::Unspecified is not supported")
+                }
                 LinderaLanguage::Chinese => format!("chinese_lindera{filters_suffix}"),
                 LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
-            }
-            #[cfg(feature = "icu")]
+            },
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,
@@ -658,8 +676,14 @@ impl SearchTokenizer {
                     format!("jieba{filters_suffix}")
                 }
             }
-            SearchTokenizer::UnicodeWordsDeprecated{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
-            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWordsDeprecated {
+                remove_emojis,
+                filters: _,
+            } => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters: _,
+            } => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
     }
 }
@@ -721,6 +745,7 @@ mod tests {
                 min_gram: 20,
                 max_gram: 60,
                 prefix_only: true,
+                positions: false,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: Some(123),

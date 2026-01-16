@@ -105,6 +105,7 @@ pub fn search_field_config_from_type(
             min_gram: 0,
             max_gram: 0,
             prefix_only: false,
+            positions: false,
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
@@ -169,6 +170,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         } => {
             let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
@@ -177,6 +179,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
+            *positions = ngram_typmod.positions;
             *filters = ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {

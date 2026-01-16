@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768528262480,
+  "lastUpdate": 1768528408219,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65288,6 +65288,54 @@ window.BENCHMARK_DATA = {
             "value": 108.6008187394514,
             "unit": "median tps",
             "extra": "avg tps: 106.607308506933, max tps: 161.6800370586323, count: 107562"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c579e2f20546f5057827f5de3aec7f881ad35edf",
+          "message": "fix: `pdb.agg` works with JSON paths (#3925)\n\n# Ticket(s) Closed\n\n- Closes #3890 \n\n## What\n\nFixes an issue introduced in #3729 where `pdb.agg` incorrectly errors if\na JSON field + path is passed in.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:45:39-10:00",
+          "tree_id": "70dfaa3cdf983e66cb7f27b4825b99d0c10fd759",
+          "url": "https://github.com/paradedb/paradedb/commit/c579e2f20546f5057827f5de3aec7f881ad35edf"
+        },
+        "date": 1768528404469,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 553.9354957478104,
+            "unit": "median tps",
+            "extra": "avg tps: 558.3170606692543, max tps: 740.5659306099598, count: 53783"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 613.7303712444149,
+            "unit": "median tps",
+            "extra": "avg tps: 618.3991266162025, max tps: 908.370145631097, count: 53783"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.0734243182888,
+            "unit": "median tps",
+            "extra": "avg tps: 85.2372901141327, max tps: 99.60564224672261, count: 53783"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 105.80186652546374,
+            "unit": "median tps",
+            "extra": "avg tps: 104.77050244154752, max tps: 217.64416967443404, count: 107566"
           }
         ]
       }

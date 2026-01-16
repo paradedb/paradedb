@@ -98,17 +98,6 @@ impl CustomScan for JoinScan {
             let inner_rti = inner_side.heap_rti.unwrap_or(0);
             let join_conditions = extract_join_conditions(extra, outer_rti, inner_rti);
 
-            // Check if this is a valid join for JoinScan
-            // We need at least one side with a BM25 index AND a search predicate,
-            // OR a join-level search predicate (like OR across tables).
-            let has_side_predicate = (outer_side.has_bm25_index && outer_side.has_search_predicate)
-                || (inner_side.has_bm25_index && inner_side.has_search_predicate);
-            let has_join_level_predicate = join_conditions.has_search_predicate;
-
-            if !has_side_predicate && !has_join_level_predicate {
-                return None;
-            }
-
             // If there are no equi-join keys but there ARE non-equijoin conditions,
             // don't propose JoinScan. The non-equijoin conditions can't be evaluated
             // properly in our current implementation (Var references use RTIs instead
@@ -125,8 +114,7 @@ impl CustomScan for JoinScan {
                 .with_inner_side(inner_side.clone())
                 .with_join_type(SerializableJoinType::from(jointype))
                 .with_limit(limit)
-                .with_has_other_conditions(!join_conditions.other_conditions.is_empty())
-                .with_has_join_level_search_predicate(join_conditions.has_search_predicate);
+                .with_has_other_conditions(!join_conditions.other_conditions.is_empty());
 
             // Add extracted equi-join keys with type info
             for jk in join_conditions.equi_keys {
@@ -139,8 +127,8 @@ impl CustomScan for JoinScan {
                 );
             }
 
-            // If we have join-level predicates, extract the search queries from them
-            if has_join_level_predicate {
+            // If restrictlist contains @@@ operators, try to extract join-level predicates
+            if join_conditions.has_search_predicate {
                 join_clause = Self::extract_join_level_search_predicates(
                     root,
                     extra,
@@ -148,6 +136,17 @@ impl CustomScan for JoinScan {
                     &inner_side,
                     join_clause,
                 );
+            }
+
+            // Check if this is a valid join for JoinScan
+            // We need at least one side with a BM25 index AND a search predicate,
+            // OR successfully extracted join-level predicates.
+            let has_side_predicate = (outer_side.has_bm25_index && outer_side.has_search_predicate)
+                || (inner_side.has_bm25_index && inner_side.has_search_predicate);
+            let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
+
+            if !has_side_predicate && !has_join_level_predicates {
+                return None;
             }
 
             // Create the private data

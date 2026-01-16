@@ -133,9 +133,6 @@ pub struct JoinCSClause {
     /// Whether there are other (non-equijoin) conditions that need to be evaluated.
     /// These conditions are stored in custom_exprs during planning.
     pub has_other_conditions: bool,
-    /// Whether there's a join-level search predicate (e.g., OR across tables).
-    /// This enables JoinScan even when no single side has a @@@ predicate.
-    pub has_join_level_search_predicate: bool,
     /// Join-level search predicates extracted from OR conditions.
     /// These are evaluated during execution for each joined tuple.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
@@ -168,11 +165,6 @@ impl JoinCSClause {
 
     pub fn with_has_other_conditions(mut self, has_other: bool) -> Self {
         self.has_other_conditions = has_other;
-        self
-    }
-
-    pub fn with_has_join_level_search_predicate(mut self, has_predicate: bool) -> Self {
-        self.has_join_level_search_predicate = has_predicate;
         self
     }
 

@@ -17,7 +17,7 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, HashSet,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
     MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
@@ -326,7 +326,8 @@ impl AggregateType {
     /// https://github.com/quickwit-oss/tantivy/issues/2767
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
         if let AggregateType::Custom { agg_json, .. } = self {
-            let fields = extract_fields_from_agg_json(agg_json);
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(agg_json, &mut fields);
             let indexed_fields: HashSet<String> = schema
                 .fields()
                 .map(|(_, entry)| entry.name().to_string())
@@ -353,30 +354,23 @@ impl AggregateType {
     }
 }
 
-/// Recursively extract all "field" values from an aggregation JSON structure.
-/// Handles nested aggregations via the "aggs" key.
-fn extract_fields_from_agg_json(json: &serde_json::Value) -> HashSet<String> {
-    let mut fields = HashSet::default();
-    extract_fields_recursive(json, &mut fields);
-    fields
-}
-
-fn extract_fields_recursive(json: &serde_json::Value, fields: &mut HashSet<String>) {
+fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {
     match json {
         serde_json::Value::Object(map) => {
             // Check for a "field" key at this level
-            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
-                fields.insert(field_name.clone());
+            if let Some(serde_json::Value::String(f)) = map.get("field") {
+                let field_name = FieldName::from(f);
+                fields.insert(field_name.root());
             }
 
             // Recurse into all values
             for (key, value) in map {
-                extract_fields_recursive(value, fields);
+                extract_fields_from_agg_json(value, fields);
             }
         }
         serde_json::Value::Array(arr) => {
             for item in arr {
-                extract_fields_recursive(item, fields);
+                extract_fields_from_agg_json(item, fields);
             }
         }
         _ => {}

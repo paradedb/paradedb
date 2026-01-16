@@ -967,7 +967,13 @@ unsafe fn node_opexpr(
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
-                    expr_desc: deparse_expr(Some(context), indexrel, rhs),
+                    // TODO: In 0.21.x (post https://github.com/paradedb/paradedb/pull/3734) this
+                    // uses deparse_expr instead.
+                    expr_desc: unsafe {
+                        crate::node_to_string(rhs.cast())
+                            .unwrap_or("<unknown>")
+                            .to_string()
+                    },
                 });
             }
         } else {
@@ -1080,7 +1086,11 @@ unsafe fn try_pushdown(
             return Some(Qual::Expr {
                 node: opexpr_node,
                 expr_state: std::ptr::null_mut(),
-                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
+                // TODO: In 0.21.x (post https://github.com/paradedb/paradedb/pull/3734) this
+                // uses deparse_expr instead.
+                expr_desc: crate::node_to_string(opexpr_node.cast())
+                    .unwrap_or("<unknown>")
+                    .to_string(),
             });
         }
         // Not our operator, can't pushdown in Query context

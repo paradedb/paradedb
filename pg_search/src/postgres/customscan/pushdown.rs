@@ -25,7 +25,6 @@ use crate::postgres::customscan::opexpr::{
     TantivyOperator, TantivyOperatorExt,
 };
 use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
-use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_vars, VarContext};
 use crate::schema::SearchField;
@@ -123,7 +122,11 @@ macro_rules! pushdown {
                 Qual::Expr {
                     node: funcexpr.cast(),
                     expr_state: std::ptr::null_mut(),
-                    expr_desc: deparse_expr(Some(&context), $indexrel, funcexpr.cast()),
+                    // TODO: In 0.21.x (post https://github.com/paradedb/paradedb/pull/3734) this
+                    // uses deparse_expr instead.
+                    expr_desc: crate::node_to_string(funcexpr.cast())
+                        .unwrap_or("<unknown>")
+                        .to_string(),
                 }
             }
         })

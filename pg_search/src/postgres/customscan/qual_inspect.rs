@@ -163,6 +163,27 @@ impl Qual {
         }
     }
 
+    pub unsafe fn contains_correlated_param(&self, root: *mut pg_sys::PlannerInfo) -> bool {
+        match self {
+            Qual::All => false,
+            Qual::ExternalVar => false,
+            Qual::ExternalExpr => false,
+            Qual::OpExpr { .. } => false,
+            Qual::Expr { node, .. } => contains_correlated_param(root, *node),
+            Qual::PushdownExpr { .. } => false,
+            Qual::PushdownVarEqTrue { .. } => false,
+            Qual::PushdownVarEqFalse { .. } => false,
+            Qual::PushdownVarIsTrue { .. } => false,
+            Qual::PushdownVarIsFalse { .. } => false,
+            Qual::PushdownIsNotNull { .. } => false,
+            Qual::ScoreExpr { .. } => false,
+            Qual::HeapExpr { expr_node, .. } => contains_correlated_param(root, *expr_node),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Not(qual) => qual.contains_correlated_param(root),
+        }
+    }
+
     pub fn contains_exprs(&self) -> bool {
         match self {
             Qual::All => false,

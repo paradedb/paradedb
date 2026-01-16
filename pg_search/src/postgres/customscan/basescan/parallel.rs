@@ -101,6 +101,7 @@ pub fn compute_nworkers(
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
+    contains_correlated_param: bool,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -129,6 +130,14 @@ pub fn compute_nworkers(
     if contains_external_var {
         // Don't attempt to parallelize during a join.
         // TODO: Re-evaluate.
+        nworkers = 0;
+    }
+
+    if contains_correlated_param {
+        // Don't attempt to parallelize when we have correlated PARAM_EXEC nodes. Uncorrelated
+        // params are solved during BeginCustomScan and pushed down to parallel workers, but
+        // correlated params need to be evaluated during the scan itself.
+        // TODO: Implement proper correlated PARAM_EXEC param sharing with parallel workers.
         nworkers = 0;
     }
 

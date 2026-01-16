@@ -24,6 +24,53 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 use std::collections::{HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
+
+/// A single key value, stored as copied bytes for pass-by-reference types.
+/// This allows us to store values of any PostgreSQL type in the hash table.
+#[derive(Debug, Clone)]
+pub struct KeyValue {
+    /// The raw bytes of the datum value (copied for varlena types).
+    pub data: Vec<u8>,
+}
+
+impl PartialEq for KeyValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
+}
+
+impl Eq for KeyValue {}
+
+impl Hash for KeyValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.data.hash(state);
+    }
+}
+
+/// Composite join key that stores actual values.
+/// This avoids hash collisions by comparing the actual key data.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CompositeKey {
+    /// Cross-join (no equi-join keys) - distinct variant that cannot collide with real keys.
+    CrossJoin,
+    /// Actual key values (one per join column).
+    Values(Vec<KeyValue>),
+}
+
+/// Runtime key info for extracting join keys during execution.
+#[derive(Debug, Clone, Default)]
+pub struct JoinKeyInfo {
+    /// Attribute number (1-indexed).
+    pub attno: i32,
+    /// PostgreSQL type OID (kept for potential future use in type-specific comparison).
+    #[allow(dead_code)]
+    pub type_oid: pg_sys::Oid,
+    /// Type length from pg_type.typlen (-1 for varlena, -2 for cstring).
+    pub typlen: i16,
+    /// Whether type is pass-by-value.
+    pub typbyval: bool,
+}
 
 /// Represents an inner side row stored in the hash table.
 #[derive(Debug, Clone)]
@@ -64,10 +111,16 @@ pub struct JoinScanState {
 
     // === Hash join state ===
     /// The hash table built from the build side.
-    /// Key: join key value (as i64 for simple integer keys), Value: list of build row ctids.
-    pub hash_table: HashMap<i64, Vec<InnerRow>>,
+    /// Key: composite key (supports any type), Value: list of build row ctids.
+    pub hash_table: HashMap<CompositeKey, Vec<InnerRow>>,
     /// Whether the hash table has been built.
     pub hash_table_built: bool,
+
+    // === Join key extraction info ===
+    /// Key info for extracting keys from build side tuples.
+    pub build_key_info: Vec<JoinKeyInfo>,
+    /// Key info for extracting keys from driving side tuples.
+    pub driving_key_info: Vec<JoinKeyInfo>,
 
     // === Driving heap scan (for join-level predicates with no side-level predicates) ===
     /// Heap scan descriptor for driving side (when no search reader).

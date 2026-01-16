@@ -91,13 +91,19 @@ impl From<pg_sys::JoinType::Type> for SerializableJoinType {
     }
 }
 
-/// Represents a join key column pair (outer_attno, inner_attno).
+/// Represents a join key column pair with type information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinKeyPair {
     /// Attribute number from the outer relation.
     pub outer_attno: pg_sys::AttrNumber,
     /// Attribute number from the inner relation.
     pub inner_attno: pg_sys::AttrNumber,
+    /// PostgreSQL type OID of the join key.
+    pub type_oid: pg_sys::Oid,
+    /// Type length from pg_type.typlen (-1 for varlena, -2 for cstring).
+    pub typlen: i16,
+    /// Whether type is pass-by-value.
+    pub typbyval: bool,
 }
 
 /// A join-level search predicate - a search query that applies to a specific relation.
@@ -188,10 +194,16 @@ impl JoinCSClause {
         mut self,
         outer_attno: pg_sys::AttrNumber,
         inner_attno: pg_sys::AttrNumber,
+        type_oid: pg_sys::Oid,
+        typlen: i16,
+        typbyval: bool,
     ) -> Self {
         self.join_keys.push(JoinKeyPair {
             outer_attno,
             inner_attno,
+            type_oid,
+            typlen,
+            typbyval,
         });
         self
     }

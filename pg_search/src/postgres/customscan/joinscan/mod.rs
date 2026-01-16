@@ -19,9 +19,9 @@ pub mod build;
 pub mod privdat;
 pub mod scan_state;
 
-use self::build::{JoinCSClause, JoinSideInfo, SerializableJoinType};
+use self::build::{JoinCSClause, JoinKeyPair, JoinSideInfo, SerializableJoinType};
 use self::privdat::PrivateData;
-use self::scan_state::JoinScanState;
+use self::scan_state::{CompositeKey, InnerRow, JoinKeyInfo, JoinScanState, KeyValue};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -44,7 +44,6 @@ use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
 use pgrx::itemptr::item_pointer_to_u64;
 use pgrx::{pg_sys, PgList};
-use scan_state::InnerRow;
 use std::ffi::CStr;
 
 #[derive(Default)]
@@ -52,8 +51,8 @@ pub struct JoinScan;
 
 /// Result of extracting join conditions from the restrict list.
 struct JoinConditions {
-    /// Equi-join keys: (outer_attno, inner_attno) pairs for hash join.
-    equi_keys: Vec<(pg_sys::AttrNumber, pg_sys::AttrNumber)>,
+    /// Equi-join keys with type info for composite key extraction.
+    equi_keys: Vec<JoinKeyPair>,
     /// Other join conditions (non-equijoin) that need to be evaluated after hash lookup.
     /// These are the RestrictInfo nodes themselves.
     other_conditions: Vec<*mut pg_sys::RestrictInfo>,
@@ -119,9 +118,15 @@ impl CustomScan for JoinScan {
                 .with_has_other_conditions(!join_conditions.other_conditions.is_empty())
                 .with_has_join_level_search_predicate(join_conditions.has_search_predicate);
 
-            // Add extracted equi-join keys
-            for (outer_attno, inner_attno) in join_conditions.equi_keys {
-                join_clause = join_clause.add_join_key(outer_attno, inner_attno);
+            // Add extracted equi-join keys with type info
+            for jk in join_conditions.equi_keys {
+                join_clause = join_clause.add_join_key(
+                    jk.outer_attno,
+                    jk.inner_attno,
+                    jk.type_oid,
+                    jk.typlen,
+                    jk.typbyval,
+                );
             }
 
             // If we have join-level predicates, extract the search queries from them
@@ -341,6 +346,28 @@ impl CustomScan for JoinScan {
             } else {
                 (&join_clause.inner_side, &join_clause.outer_side)
             };
+
+            // Populate join key info for execution
+            for jk in &join_clause.join_keys {
+                let (build_attno, driving_attno) = if driving_is_outer {
+                    (jk.inner_attno as i32, jk.outer_attno as i32)
+                } else {
+                    (jk.outer_attno as i32, jk.inner_attno as i32)
+                };
+
+                state.custom_state_mut().build_key_info.push(JoinKeyInfo {
+                    attno: build_attno,
+                    type_oid: jk.type_oid,
+                    typlen: jk.typlen,
+                    typbyval: jk.typbyval,
+                });
+                state.custom_state_mut().driving_key_info.push(JoinKeyInfo {
+                    attno: driving_attno,
+                    type_oid: jk.type_oid,
+                    typlen: jk.typlen,
+                    typbyval: jk.typbyval,
+                });
+            }
 
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
@@ -707,27 +734,11 @@ impl CustomScan for JoinScan {
     }
 }
 
-/// Magic key used for cross-join (when there are no equi-join keys)
-const CROSS_JOIN_KEY: i64 = 0;
-
 impl JoinScan {
     /// Build the hash table from the build side by scanning the heap.
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
-        let join_clause = state.custom_state().join_clause.clone();
-        let driving_is_outer = state.custom_state().driving_is_outer;
-
-        // Get the build side join key attribute number (first join key)
-        // If driving is outer, build is inner, so use inner_attno
-        // If driving is inner, build is outer, so use outer_attno
-        // If there are no equi-join keys, we'll use CROSS_JOIN_KEY for all tuples
-        let build_key_attno = join_clause.join_keys.first().map(|jk| {
-            if driving_is_outer {
-                jk.inner_attno as i32
-            } else {
-                jk.outer_attno as i32
-            }
-        });
-        let has_equi_join_keys = build_key_attno.is_some();
+        let build_key_info = state.custom_state().build_key_info.clone();
+        let has_equi_join_keys = !build_key_info.is_empty();
 
         let Some(scan_desc) = state.custom_state().build_scan_desc else {
             return;
@@ -745,28 +756,17 @@ impl JoinScan {
             // Extract the ctid from the slot
             let ctid = item_pointer_to_u64((*slot).tts_tid);
 
-            // Determine the hash key
-            let key_value = if let Some(attno) = build_key_attno {
-                // We have an equi-join key, extract its value
-                let mut is_null = false;
-                let datum = pg_sys::slot_getattr(slot, attno, &mut is_null);
-
-                if is_null {
-                    continue; // Skip NULL join keys for equi-joins
-                }
-
-                // Convert to i64 (assuming integer join keys for M1)
-                datum.value() as i64
-            } else {
-                // No equi-join keys - this is a cross join, use magic key
-                CROSS_JOIN_KEY
+            // Extract the composite key
+            let key = match extract_composite_key(slot, &build_key_info) {
+                Some(k) => k,
+                None => continue, // Skip rows with NULL keys
             };
 
             // Add to hash table
             state
                 .custom_state_mut()
                 .hash_table
-                .entry(key_value)
+                .entry(key)
                 .or_default()
                 .push(InnerRow { ctid });
         }
@@ -776,56 +776,36 @@ impl JoinScan {
     }
 
     /// Extract the join key from the driving tuple.
-    /// For cross joins (no equi-join keys), returns CROSS_JOIN_KEY.
+    /// For cross joins (no equi-join keys), returns CompositeKey::CrossJoin.
     unsafe fn extract_driving_join_key(
         state: &mut CustomScanStateWrapper<Self>,
         driving_ctid: u64,
-    ) -> Option<i64> {
+    ) -> Option<CompositeKey> {
         let driving_slot = state.custom_state().driving_fetch_slot?;
         let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
         let is_cross_join = state.custom_state().is_cross_join;
+        let driving_key_info = state.custom_state().driving_key_info.clone();
 
-        // For cross joins, just return the magic key
+        // For cross joins, just return the cross join key
         if is_cross_join {
             if uses_heap_scan {
                 // Tuple already in slot from heap scan, no visibility check needed
-                return Some(CROSS_JOIN_KEY);
+                return Some(CompositeKey::CrossJoin);
             } else {
                 // Fetch tuple by ctid and verify visibility
                 let vis_checker = state
                     .custom_state_mut()
                     .driving_visibility_checker
                     .as_mut()?;
-                return vis_checker
-                    .exec_if_visible(driving_ctid, driving_slot, |_rel| Some(CROSS_JOIN_KEY))?;
+                return vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
+                    Some(CompositeKey::CrossJoin)
+                })?;
             }
         }
 
-        // For equi-joins, extract the actual join key
-        let join_clause = state.custom_state().join_clause.clone();
-        let driving_is_outer = state.custom_state().driving_is_outer;
-
-        let driving_key_attno = join_clause
-            .join_keys
-            .first()
-            .map(|jk| {
-                if driving_is_outer {
-                    jk.outer_attno as i32
-                } else {
-                    jk.inner_attno as i32
-                }
-            })
-            .unwrap_or(1);
-
         if uses_heap_scan {
             // Tuple already in slot from heap scan
-            let mut is_null = false;
-            let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
-            if is_null {
-                None
-            } else {
-                Some(datum.value() as i64)
-            }
+            extract_composite_key(driving_slot, &driving_key_info)
         } else {
             // Fetch tuple by ctid and verify visibility
             let vis_checker = state
@@ -834,13 +814,7 @@ impl JoinScan {
                 .as_mut()?;
 
             vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
-                let mut is_null = false;
-                let datum = pg_sys::slot_getattr(driving_slot, driving_key_attno, &mut is_null);
-                if is_null {
-                    None
-                } else {
-                    Some(datum.value() as i64)
-                }
+                extract_composite_key(driving_slot, &driving_key_info)
             })?
         }
     }
@@ -1116,10 +1090,28 @@ unsafe fn extract_join_conditions(
 
                     // Check if this is an equi-join between outer and inner
                     if varno0 == outer_rti && varno1 == inner_rti {
-                        result.equi_keys.push((attno0, attno1));
+                        // Get type info from the Var
+                        let type_oid = (*var0).vartype;
+                        let (typlen, typbyval) = get_type_info(type_oid);
+                        result.equi_keys.push(JoinKeyPair {
+                            outer_attno: attno0,
+                            inner_attno: attno1,
+                            type_oid,
+                            typlen,
+                            typbyval,
+                        });
                         is_equi_join = true;
                     } else if varno0 == inner_rti && varno1 == outer_rti {
-                        result.equi_keys.push((attno1, attno0));
+                        // Get type info from the Var
+                        let type_oid = (*var1).vartype;
+                        let (typlen, typbyval) = get_type_info(type_oid);
+                        result.equi_keys.push(JoinKeyPair {
+                            outer_attno: attno1,
+                            inner_attno: attno0,
+                            type_oid,
+                            typlen,
+                            typbyval,
+                        });
                         is_equi_join = true;
                     }
                 }
@@ -1133,6 +1125,72 @@ unsafe fn extract_join_conditions(
     }
 
     result
+}
+
+/// Get type length and pass-by-value info for a given type OID.
+unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval(type_oid, &mut typlen, &mut typbyval);
+    (typlen, typbyval)
+}
+
+/// Extract a composite key from a tuple slot using the given key info.
+/// Returns None if any key column is NULL.
+unsafe fn extract_composite_key(
+    slot: *mut pg_sys::TupleTableSlot,
+    key_info: &[JoinKeyInfo],
+) -> Option<CompositeKey> {
+    if key_info.is_empty() {
+        return Some(CompositeKey::CrossJoin);
+    }
+
+    let mut values = Vec::with_capacity(key_info.len());
+    for info in key_info {
+        let mut is_null = false;
+        let datum = pg_sys::slot_getattr(slot, info.attno, &mut is_null);
+        if is_null {
+            return None; // Skip rows with NULL keys (standard SQL behavior)
+        }
+
+        // Copy the datum value to owned bytes
+        let key_value = copy_datum_to_key_value(datum, info.typlen, info.typbyval);
+        values.push(key_value);
+    }
+    Some(CompositeKey::Values(values))
+}
+
+/// Copy a datum to an owned KeyValue, handling pass-by-reference types.
+unsafe fn copy_datum_to_key_value(datum: pg_sys::Datum, typlen: i16, typbyval: bool) -> KeyValue {
+    if typbyval {
+        // Pass-by-value: datum IS the value, copy its bytes directly
+        let len = (typlen as usize).min(8);
+        let bytes = datum.value().to_ne_bytes();
+        KeyValue {
+            data: bytes[..len].to_vec(),
+        }
+    } else if typlen == -1 {
+        // Varlena type (TEXT, BYTEA, etc.)
+        let varlena = datum.cast_mut_ptr::<pg_sys::varlena>();
+        let detoasted = pg_sys::pg_detoast_datum_packed(varlena);
+        // Use pgrx's varsize_any_exhdr and vardata_any macros
+        let len = pgrx::varsize_any_exhdr(detoasted);
+        let ptr = pgrx::vardata_any(detoasted) as *const u8;
+        let data = std::slice::from_raw_parts(ptr, len).to_vec();
+        KeyValue { data }
+    } else if typlen == -2 {
+        // Cstring
+        let cstr = datum.cast_mut_ptr::<std::ffi::c_char>();
+        let c_str = std::ffi::CStr::from_ptr(cstr);
+        let data = c_str.to_bytes().to_vec();
+        KeyValue { data }
+    } else {
+        // Fixed-length pass-by-reference
+        let len = typlen as usize;
+        let ptr = datum.cast_mut_ptr::<u8>();
+        let data = std::slice::from_raw_parts(ptr, len).to_vec();
+        KeyValue { data }
+    }
 }
 
 /// Try to extract join side information from a RelOptInfo.

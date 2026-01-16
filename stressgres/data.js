@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526209508,
+  "lastUpdate": 1768526215063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29222,6 +29222,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.47449111721137, max segment_count: 129.0, count: 57921"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c579e2f20546f5057827f5de3aec7f881ad35edf",
+          "message": "fix: `pdb.agg` works with JSON paths (#3925)\n\n# Ticket(s) Closed\n\n- Closes #3890 \n\n## What\n\nFixes an issue introduced in #3729 where `pdb.agg` incorrectly errors if\na JSON field + path is passed in.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:45:39-10:00",
+          "tree_id": "70dfaa3cdf983e66cb7f27b4825b99d0c10fd759",
+          "url": "https://github.com/paradedb/paradedb/commit/c579e2f20546f5057827f5de3aec7f881ad35edf"
+        },
+        "date": 1768526211078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.10314223036602, max cpu: 43.373497, count: 57553"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 233.0396514272714, max mem: 234.66796875, count: 57553"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.351694037011782, max cpu: 33.366436, count: 57553"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 172.30994766508695, max mem: 173.23046875, count: 57553"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33940,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33462.223897972304, max block_count: 35974.0, count: 57553"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.10487724358417, max segment_count: 125.0, count: 57553"
           }
         ]
       }

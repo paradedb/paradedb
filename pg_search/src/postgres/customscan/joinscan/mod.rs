@@ -25,7 +25,9 @@ use self::scan_state::JoinScanState;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, RestrictInfoType};
+use crate::postgres::customscan::builders::custom_path::{
+    CustomPathBuilder, Flags, RestrictInfoType,
+};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -487,7 +489,7 @@ impl CustomScan for JoinScan {
             // The original_tlist has the SELECT's output columns, which is what ps_ResultTupleSlot is based on.
             // We store this mapping in PrivateData so build_result_tuple can use it during execution.
             let mut output_columns = Vec::new();
-            
+
             // Get the outer and inner RTIs from PrivateData
             // Note: custom_private may have [PrivateData JSON, restrictlist]
             // We need to preserve the restrictlist when updating
@@ -497,11 +499,11 @@ impl CustomScan for JoinScan {
             } else {
                 None
             };
-            
+
             let mut private_data = PrivateData::from(node.custom_private);
             let outer_rti = private_data.join_clause.outer_side.heap_rti.unwrap_or(0);
             let inner_rti = private_data.join_clause.inner_side.heap_rti.unwrap_or(0);
-            
+
             // Use the ORIGINAL targetlist to extract output_columns, NOT the extended tlist.
             // The original_tlist matches what ps_ResultTupleSlot is built from.
             let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
@@ -510,7 +512,7 @@ impl CustomScan for JoinScan {
                     let var = (*te).expr as *mut pg_sys::Var;
                     let varno = (*var).varno as pg_sys::Index;
                     let varattno = (*var).varattno;
-                    
+
                     // Determine if this column comes from outer or inner relation
                     let is_outer = varno == outer_rti;
                     output_columns.push(privdat::OutputColumnInfo {
@@ -525,10 +527,10 @@ impl CustomScan for JoinScan {
                     });
                 }
             }
-            
+
             // Update PrivateData with the output column mapping
             private_data.output_columns = output_columns;
-            
+
             // Convert PrivateData back to a list and preserve the restrictlist
             let private_data_list: *mut pg_sys::List = private_data.into();
             let mut new_private = PgList::<pg_sys::Node>::from_pg(private_data_list);
@@ -536,7 +538,7 @@ impl CustomScan for JoinScan {
                 new_private.push(rl);
             }
             node.custom_private = new_private.into_pg();
-            
+
             // Set custom_scan_tlist with all needed columns
             node.custom_scan_tlist = tlist.into_pg();
         }
@@ -705,7 +707,11 @@ impl CustomScan for JoinScan {
             }
 
             // Initialize join-level predicate matching sets if we have join-level predicates
-            let join_level_predicates = state.custom_state().join_clause.join_level_predicates.clone();
+            let join_level_predicates = state
+                .custom_state()
+                .join_clause
+                .join_level_predicates
+                .clone();
             if !join_level_predicates.is_empty() {
                 state.custom_state_mut().has_join_level_predicates = true;
 
@@ -732,10 +738,16 @@ impl CustomScan for JoinScan {
                             // The scored.ctid is actually the key_field value (e.g., id = 1, 6, 7)
                             let key_value = scored.ctid as i64;
                             if predicate.rti == outer_rti {
-                                state.custom_state_mut().outer_matching_keys.insert(key_value);
+                                state
+                                    .custom_state_mut()
+                                    .outer_matching_keys
+                                    .insert(key_value);
                                 state.custom_state_mut().outer_key_attno = predicate.key_attno;
                             } else if predicate.rti == inner_rti {
-                                state.custom_state_mut().inner_matching_keys.insert(key_value);
+                                state
+                                    .custom_state_mut()
+                                    .inner_matching_keys
+                                    .insert(key_value);
                                 state.custom_state_mut().inner_key_attno = predicate.key_attno;
                             }
                         }
@@ -773,36 +785,48 @@ impl CustomScan for JoinScan {
                             let driving_is_outer = state.custom_state().driving_is_outer;
                             let driving_slot = state.custom_state().driving_fetch_slot;
                             let build_slot = state.custom_state().build_scan_slot;
-                            
+
                             // Map driving/build to outer/inner based on driving_is_outer
                             let (outer_slot, inner_slot) = if driving_is_outer {
                                 (driving_slot, build_slot)
                             } else {
                                 (build_slot, driving_slot)
                             };
-                            
+
                             // Extract key values from both slots
                             let outer_key_attno = state.custom_state().outer_key_attno as i32;
                             let inner_key_attno = state.custom_state().inner_key_attno as i32;
-                            
+
                             let outer_key = if let Some(s) = outer_slot {
                                 let mut is_null = false;
                                 let datum = pg_sys::slot_getattr(s, outer_key_attno, &mut is_null);
-                                if is_null { None } else { Some(datum.value() as i64) }
+                                if is_null {
+                                    None
+                                } else {
+                                    Some(datum.value() as i64)
+                                }
                             } else {
                                 None
                             };
-                            
+
                             let inner_key = if let Some(s) = inner_slot {
                                 let mut is_null = false;
                                 let datum = pg_sys::slot_getattr(s, inner_key_attno, &mut is_null);
-                                if is_null { None } else { Some(datum.value() as i64) }
+                                if is_null {
+                                    None
+                                } else {
+                                    Some(datum.value() as i64)
+                                }
                             } else {
                                 None
                             };
-                            
-                            let outer_matches = outer_key.map(|k| state.custom_state().outer_matching_keys.contains(&k)).unwrap_or(false);
-                            let inner_matches = inner_key.map(|k| state.custom_state().inner_matching_keys.contains(&k)).unwrap_or(false);
+
+                            let outer_matches = outer_key
+                                .map(|k| state.custom_state().outer_matching_keys.contains(&k))
+                                .unwrap_or(false);
+                            let inner_matches = inner_key
+                                .map(|k| state.custom_state().inner_matching_keys.contains(&k))
+                                .unwrap_or(false);
 
                             // For OR semantics: pass if either side matches
                             if !outer_matches && !inner_matches {
@@ -1248,7 +1272,9 @@ impl JoinScan {
                 // Determine which side this predicate applies to
                 let (indexrelid, bm25_index) = if rti == outer_rti {
                     if let Some(oid) = outer_side.indexrelid {
-                        if let Some((_, idx)) = rel_get_bm25_index(outer_side.heaprelid.unwrap_or(pg_sys::InvalidOid)) {
+                        if let Some((_, idx)) =
+                            rel_get_bm25_index(outer_side.heaprelid.unwrap_or(pg_sys::InvalidOid))
+                        {
                             (oid, Some(idx))
                         } else {
                             (oid, None)
@@ -1258,7 +1284,9 @@ impl JoinScan {
                     }
                 } else if rti == inner_rti {
                     if let Some(oid) = inner_side.indexrelid {
-                        if let Some((_, idx)) = rel_get_bm25_index(inner_side.heaprelid.unwrap_or(pg_sys::InvalidOid)) {
+                        if let Some((_, idx)) =
+                            rel_get_bm25_index(inner_side.heaprelid.unwrap_or(pg_sys::InvalidOid))
+                        {
                             (oid, Some(idx))
                         } else {
                             (oid, None)
@@ -1273,7 +1301,8 @@ impl JoinScan {
                 // Create a RestrictInfo list containing just this OpExpr
                 // We need to wrap the OpExpr in a RestrictInfo for extract_quals
                 let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
-                let fake_ri = pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()) as *mut pg_sys::RestrictInfo;
+                let fake_ri = pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>())
+                    as *mut pg_sys::RestrictInfo;
                 (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
                 (*fake_ri).clause = opexpr.cast();
                 ri_list.push(fake_ri);
@@ -1282,7 +1311,7 @@ impl JoinScan {
                 if let Some(bm25_idx) = bm25_index {
                     let context = PlannerContext::from_planner(root);
                     let mut state = QualExtractState::default();
-                    
+
                     if let Some(qual) = extract_quals(
                         &context,
                         rti,
@@ -1298,7 +1327,8 @@ impl JoinScan {
                         // The key_field is typically the first attribute (primary key).
                         // This is a simplification that works for most BM25 indexes.
                         let key_attno: i16 = 1;
-                        join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query, key_attno);
+                        join_clause =
+                            join_clause.add_join_level_predicate(rti, indexrelid, query, key_attno);
                     }
                 }
             }
@@ -1306,7 +1336,6 @@ impl JoinScan {
 
         join_clause
     }
-
 }
 
 impl ExecMethod for JoinScan {

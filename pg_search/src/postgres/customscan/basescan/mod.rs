@@ -687,7 +687,10 @@ impl CustomScan for BaseScan {
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let exec_method_type = choose_exec_method(&custom_private, &topn_pathkey_info);
+            let limit_is_explicit =
+                limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
+            let exec_method_type =
+                choose_exec_method(&custom_private, &topn_pathkey_info, limit_is_explicit);
             custom_private.set_exec_method_type(exec_method_type);
             if custom_private.exec_method_type().is_sorted_topn() {
                 // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
@@ -1365,6 +1368,168 @@ impl CustomScan for BaseScan {
     }
 }
 
+/// Returns true if LIMIT 1 was injected by PostgreSQL's MIN/MAX optimization.
+///
+/// PostgreSQL rewrites `SELECT MIN(col) FROM t` into a subquery like:
+/// `SELECT col AS agg_target FROM t ORDER BY col LIMIT 1`
+///
+/// This detection is intentionally strict to avoid suppressing warnings for user-written LIMITs.
+unsafe fn is_minmax_implicit_limit(root: *mut pg_sys::PlannerInfo) -> bool {
+    let Some(root) = root.as_ref() else {
+        return false;
+    };
+    let Some(parse) = root.parse.as_ref() else {
+        return false;
+    };
+
+    // Must be a subquery (has parent) where parent has aggregates but this subquery doesn't.
+    // This matches MIN/MAX rewrite: parent has the aggregate, child is the LIMIT 1 subquery.
+    let Some(parent_parse) = root.parent_root.as_ref().and_then(|p| p.parse.as_ref()) else {
+        return false;
+    };
+    if parse.hasAggs || !parent_parse.hasAggs || !parse.limitOffset.is_null() {
+        return false;
+    }
+
+    // Must have LIMIT 1 as a constant int8 (PostgreSQL's MIN/MAX always uses exactly LIMIT 1).
+    let Some(limit_const) = nodecast!(Const, T_Const, parse.limitCount) else {
+        return false;
+    };
+    if (*limit_const).constisnull
+        || (*limit_const).consttype != pg_sys::INT8OID
+        || i64::from_datum((*limit_const).constvalue, false) != Some(1)
+    {
+        return false;
+    }
+
+    // Must have exactly one target column named "agg_target" - PostgreSQL's internal name
+    // for the synthetic column created during MIN/MAX rewrite.
+    if parse.targetList.is_null() || parse.sortClause.is_null() {
+        return false;
+    }
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    let Some(target_entry) = target_list.get_ptr(0).filter(|_| target_list.len() == 1) else {
+        return false;
+    };
+    if (*target_entry).resname.is_null()
+        || CStr::from_ptr((*target_entry).resname).to_bytes() != b"agg_target"
+    {
+        return false;
+    }
+
+    // Sort clause must reference the single target column (ORDER BY for MIN/MAX).
+    let sort_list = PgList::<pg_sys::SortGroupClause>::from_pg(parse.sortClause);
+    let Some(sort_clause) = sort_list.get_ptr(0).filter(|_| sort_list.len() == 1) else {
+        return false;
+    };
+    (*sort_clause).tleSortGroupRef == (*target_entry).ressortgroupref
+}
+
+///
+/// Validates whether a query that should use TopN scan is actually using it.
+///
+/// When `paradedb.check_topn_scan` is enabled, this function checks if a query with LIMIT
+/// that uses ParadeDB's search operators is using the TopN execution method. If TopN was
+/// expected but not chosen, it logs a warning with diagnostic information to help developers
+/// identify performance issues.
+///
+/// # Performance Note
+/// This function has minimal overhead as it returns early when the GUC is disabled.
+fn validate_topn_expectation(
+    privdata: &PrivateData,
+    topn_pathkey_info: &PathKeyInfo,
+    limit_is_explicit: bool,
+    chosen_method: &ExecMethodType,
+) {
+    // Fast path: if validation is disabled, return immediately
+    if !crate::gucs::check_topn_scan() {
+        return;
+    }
+
+    // Check if this query should be using TopN
+    let has_limit = privdata.limit().is_some();
+    let has_search_query = privdata.query().is_some();
+    let no_group_by = privdata.window_aggregates().is_empty();
+
+    // TopN is expected when we have: explicit LIMIT + search query + no GROUP BY
+    let should_use_topn = has_limit && limit_is_explicit && has_search_query && no_group_by;
+
+    // Check if we actually got TopN
+    let is_using_topn = matches!(chosen_method, ExecMethodType::TopN { .. });
+
+    // If TopN is not expected or we're already using TopN, nothing to warn about
+    if !should_use_topn || is_using_topn {
+        return;
+    }
+
+    // At this point: should_use_topn is true AND we're not using TopN - emit warning
+    let limit = privdata.limit().unwrap();
+    let method_name = match chosen_method {
+        ExecMethodType::Normal => "Normal",
+        ExecMethodType::FastFieldMixed { .. } => "FastFieldMixed",
+        ExecMethodType::TopN { .. } => "TopN",
+    };
+
+    let (reason, remedies) = match topn_pathkey_info {
+        PathKeyInfo::Unusable(UnusableReason::TooManyColumns { count, max }) => (
+            format!(
+                "ORDER BY has {} columns but TopN supports maximum {}",
+                count, max
+            ),
+            format!("Reduce ORDER BY columns to {} or fewer", max),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::PrefixOnly { matched }) => (
+            format!(
+                "only partial prefix of ORDER BY can be pushed down ({} columns matched)",
+                matched
+            ),
+            "Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, \
+                 or verify that normalizer/collation matches the index"
+                .to_string(),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::NotSortable) => (
+            "ORDER BY columns cannot be pushed down to the index".to_string(),
+            "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
+                 For string columns, use pdb::literal tokenizer"
+                .to_string(),
+        ),
+        PathKeyInfo::UsablePrefix(matched) => (
+            format!(
+                "only partial prefix of ORDER BY can be pushed down ({} of {} columns)",
+                matched.len(),
+                privdata
+                    .maybe_orderby_info()
+                    .as_ref()
+                    .map_or(0, |o| o.len()),
+            ),
+            "Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, \
+                 or verify that normalizer/collation matches the index"
+                .to_string(),
+        ),
+        PathKeyInfo::None => (
+            // This case should normally use TopN with no ordering
+            "unknown reason (no pathkeys but should still use TopN)".to_string(),
+            "This is unexpected - please report this issue".to_string(),
+        ),
+        PathKeyInfo::UsableAll(_) => (
+            "unknown reason (pathkeys are usable)".to_string(),
+            "This is unexpected - please report this issue".to_string(),
+        ),
+    };
+
+    pgrx::warning!(
+        "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+             Reason: {}. \
+             This may cause poor performance on large datasets. \
+             Remedies: {}. \
+             To disable this warning: SET paradedb.check_topn_scan = false",
+        limit,
+        method_name,
+        reason,
+        remedies
+    );
+}
+
 ///
 /// Choose and return an ExecMethodType based on the properties of the builder at planning time.
 ///
@@ -1380,7 +1545,11 @@ impl CustomScan for BaseScan {
 /// `pdb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
-fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
+fn choose_exec_method(
+    privdata: &PrivateData,
+    topn_pathkey_info: &PathKeyInfo,
+    limit_is_explicit: bool,
+) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
@@ -1407,15 +1576,20 @@ fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -
     }
 
     // Otherwise, see if we can use a fast fields method.
-    if fast_fields::is_mixed_fast_field_capable(privdata) {
-        return ExecMethodType::FastFieldMixed {
+    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
+        ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-        };
-    }
+        }
+    } else {
+        // Else, fall back to normal execution
+        ExecMethodType::Normal
+    };
 
-    // Else, fall back to normal execution
-    ExecMethodType::Normal
+    // Validate TopN expectations before returning
+    validate_topn_expectation(privdata, topn_pathkey_info, limit_is_explicit, &chosen);
+
+    chosen
 }
 
 ///
@@ -1701,12 +1875,23 @@ unsafe fn replace_window_agg_with_const(
     (node, None)
 }
 
+/// Reason why pathkeys cannot be used for TopN execution
+#[derive(Debug, Clone)]
+pub enum UnusableReason {
+    /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
+    TooManyColumns { count: usize, max: usize },
+    /// Only a prefix of the ORDER BY columns can be pushed down
+    PrefixOnly { matched: usize },
+    /// Columns are not indexed with fast=true or not sortable
+    NotSortable,
+}
+
 #[derive(Debug, Clone)]
 pub enum PathKeyInfo {
     /// There are no PathKeys at all.
     None,
     /// There were PathKeys, but we cannot execute them.
-    Unusable,
+    Unusable(UnusableReason),
     /// There were PathKeys, but we can only execute a non-empty prefix of them.
     UsablePrefix(Vec<OrderByStyle>),
     /// There are some PathKeys, and we can execute all of them.
@@ -1717,7 +1902,7 @@ impl PathKeyInfo {
     pub fn is_usable(&self) -> bool {
         match self {
             PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
-            PathKeyInfo::None | PathKeyInfo::Unusable => false,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => false,
         }
     }
 
@@ -1726,7 +1911,7 @@ impl PathKeyInfo {
             PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
                 Some(pathkeys)
             }
-            PathKeyInfo::None | PathKeyInfo::Unusable => None,
+            PathKeyInfo::None | PathKeyInfo::Unusable(_) => None,
         }
     }
 }
@@ -1754,16 +1939,21 @@ unsafe fn pullup_topn_pathkeys(
             // MAX_TOPN_FEATURES order-by clauses.
             PathKeyInfo::UsableAll(styles)
         }
-        PathKeyInfo::UsableAll(_) => {
+        PathKeyInfo::UsableAll(ref styles) => {
             // Too many pathkeys were extracted.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::TooManyColumns {
+                count: styles.len(),
+                max: MAX_TOPN_FEATURES,
+            })
         }
-        PathKeyInfo::UsablePrefix(_) => {
+        PathKeyInfo::UsablePrefix(ref prefix) => {
             // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
             // the suffix of the pathkey comes into play.
-            PathKeyInfo::Unusable
+            PathKeyInfo::Unusable(UnusableReason::PrefixOnly {
+                matched: prefix.len(),
+            })
         }
-        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable) => pki,
+        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable(_)) => pki,
     }
 }
 
@@ -1879,7 +2069,7 @@ where
         // of pathkeys.
         if !found_valid_member {
             if pathkey_styles.is_empty() {
-                return PathKeyInfo::Unusable;
+                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {
                 return PathKeyInfo::UsablePrefix(pathkey_styles);
             }

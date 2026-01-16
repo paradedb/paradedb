@@ -310,29 +310,49 @@ impl CustomScan for JoinScan {
         };
         explainer.add_text("Join Type", join_type_str);
 
-        // Show RTIs for both sides
-        if let Some(rti) = join_clause.outer_side.heap_rti {
-            explainer.add_text("Outer RTI", rti.to_string());
-        }
-        if let Some(rti) = join_clause.inner_side.heap_rti {
-            explainer.add_text("Inner RTI", rti.to_string());
-        }
+        // Get relation names for display
+        let outer_rel_name = join_clause
+            .outer_side
+            .heaprelid
+            .map(|oid| PgSearchRelation::open(oid).name().to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let inner_rel_name = join_clause
+            .inner_side
+            .heaprelid
+            .map(|oid| PgSearchRelation::open(oid).name().to_string())
+            .unwrap_or_else(|| "?".to_string());
 
-        // Show join keys (equi-join condition)
+        // Show relation info for both sides
+        explainer.add_text("Outer Relation", outer_rel_name.clone());
+        explainer.add_text("Inner Relation", inner_rel_name.clone());
+
+        // Show join keys (equi-join condition) with column names
         if !join_clause.join_keys.is_empty() {
             let keys_str: Vec<String> = join_clause
                 .join_keys
                 .iter()
-                .map(|k| format!("outer.{} = inner.{}", k.outer_attno, k.inner_attno))
+                .map(|k| {
+                    let outer_col = get_attname_safe(
+                        join_clause.outer_side.heaprelid,
+                        k.outer_attno,
+                        &outer_rel_name,
+                    );
+                    let inner_col = get_attname_safe(
+                        join_clause.inner_side.heaprelid,
+                        k.inner_attno,
+                        &inner_rel_name,
+                    );
+                    format!("{} = {}", outer_col, inner_col)
+                })
                 .collect();
-            explainer.add_text("Join Keys", keys_str.join(", "));
+            explainer.add_text("Join Cond", keys_str.join(", "));
         } else {
-            explainer.add_text("Join Keys", "cross join");
+            explainer.add_text("Join Cond", "cross join");
         }
 
         // Show if there are additional filter conditions
         if join_clause.has_other_conditions {
-            explainer.add_text("Has Other Conditions", "true");
+            explainer.add_text("Has Filter", "true");
         }
 
         // Show side-level search predicates
@@ -1774,6 +1794,29 @@ fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
         }
         SerializableJoinLevelExpr::Not(child) => {
             JoinLevelExpr::Not(Box::new(convert_to_runtime_expr(child)))
+        }
+    }
+}
+
+/// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
+fn get_attname_safe(
+    heaprelid: Option<pg_sys::Oid>,
+    attno: pg_sys::AttrNumber,
+    rel_name: &str,
+) -> String {
+    let Some(oid) = heaprelid else {
+        return format!("{}.{}", rel_name, attno);
+    };
+
+    unsafe {
+        let attname_ptr = pg_sys::get_attname(oid, attno, true); // missing_ok = true
+        if attname_ptr.is_null() {
+            format!("{}.{}", rel_name, attno)
+        } else {
+            let attname = std::ffi::CStr::from_ptr(attname_ptr)
+                .to_str()
+                .unwrap_or("?");
+            format!("{}.{}", rel_name, attname)
         }
     }
 }

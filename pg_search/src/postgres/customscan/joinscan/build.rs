@@ -109,9 +109,6 @@ pub struct JoinLevelSearchPredicate {
     pub indexrelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
-    /// The attribute number of the key field in this relation.
-    /// This is the column that the BM25 index uses as its key_field.
-    pub key_attno: i16,
 }
 
 /// The clause information for a Join Custom Scan.
@@ -178,13 +175,11 @@ impl JoinCSClause {
         rti: pg_sys::Index,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
-        key_attno: i16,
     ) -> Self {
         self.join_level_predicates.push(JoinLevelSearchPredicate {
             rti,
             indexrelid,
             query,
-            key_attno,
         });
         self
     }

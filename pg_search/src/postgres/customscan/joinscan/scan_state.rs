@@ -109,18 +109,12 @@ pub struct JoinScanState {
     pub output_columns: Vec<OutputColumnInfo>,
 
     // === Join-level predicate evaluation ===
-    /// Set of outer relation key values that match any join-level predicate targeting the outer relation.
-    /// The key is the BM25 index's key_field value (typically primary key), not the heap ctid.
-    pub outer_matching_keys: HashSet<i64>,
-    /// Set of inner relation key values that match any join-level predicate targeting the inner relation.
-    /// The key is the BM25 index's key_field value (typically primary key), not the heap ctid.
-    pub inner_matching_keys: HashSet<i64>,
+    /// Set of outer relation ctids that match any join-level predicate targeting the outer relation.
+    pub outer_matching_ctids: HashSet<u64>,
+    /// Set of inner relation ctids that match any join-level predicate targeting the inner relation.
+    pub inner_matching_ctids: HashSet<u64>,
     /// Whether we have join-level predicates to evaluate.
     pub has_join_level_predicates: bool,
-    /// Attribute number of the key field in the outer relation (for extracting key from tuples).
-    pub outer_key_attno: i16,
-    /// Attribute number of the key field in the inner relation (for extracting key from tuples).
-    pub inner_key_attno: i16,
 }
 
 impl JoinScanState {
@@ -133,8 +127,8 @@ impl JoinScanState {
         self.pending_build_ctids.clear();
         self.driving_search_results = None;
         self.rows_returned = 0;
-        self.outer_matching_keys.clear();
-        self.inner_matching_keys.clear();
+        self.outer_matching_ctids.clear();
+        self.inner_matching_ctids.clear();
     }
 
     /// Returns the limit from the join clause, if any.

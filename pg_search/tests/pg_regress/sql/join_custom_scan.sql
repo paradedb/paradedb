@@ -18,8 +18,11 @@ DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
 
 -- Create test tables
+-- Using explicit IDs in distinct ranges to differentiate from ctids:
+-- Suppliers: IDs 151-154
+-- Products: IDs 201-208
 CREATE TABLE products (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     name TEXT,
     description TEXT,
     supplier_id INTEGER,
@@ -27,28 +30,28 @@ CREATE TABLE products (
 );
 
 CREATE TABLE suppliers (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     name TEXT,
     contact_info TEXT,
     country TEXT
 );
 
--- Insert test data
-INSERT INTO suppliers (name, contact_info, country) VALUES
-('TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
-('GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
-('FastParts', 'sales@fastparts.com quick delivery', 'Germany'),
-('QualityFirst', 'quality@first.com premium products', 'Japan');
+-- Insert test data with explicit IDs
+INSERT INTO suppliers (id, name, contact_info, country) VALUES
+(151, 'TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
+(152, 'GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
+(153, 'FastParts', 'sales@fastparts.com quick delivery', 'Germany'),
+(154, 'QualityFirst', 'quality@first.com premium products', 'Japan');
 
-INSERT INTO products (name, description, supplier_id, price) VALUES
-('Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connectivity', 1, 29.99),
-('USB Cable', 'High-speed USB-C cable for fast data transfer', 2, 9.99),
-('Keyboard', 'Mechanical keyboard with RGB lighting', 1, 89.99),
-('Monitor Stand', 'Adjustable monitor stand for ergonomic setup', 3, 49.99),
-('Webcam', 'HD webcam for video conferencing', 4, 59.99),
-('Headphones', 'Wireless noise-canceling headphones with premium sound', 1, 199.99),
-('Mouse Pad', 'Large gaming mouse pad with wireless charging', 2, 29.99),
-('Cable Organizer', 'Desktop cable organizer for clean setup', 3, 14.99);
+INSERT INTO products (id, name, description, supplier_id, price) VALUES
+(201, 'Wireless Mouse', 'Ergonomic wireless mouse with Bluetooth connectivity', 151, 29.99),
+(202, 'USB Cable', 'High-speed USB-C cable for fast data transfer', 152, 9.99),
+(203, 'Keyboard', 'Mechanical keyboard with RGB lighting', 151, 89.99),
+(204, 'Monitor Stand', 'Adjustable monitor stand for ergonomic setup', 153, 49.99),
+(205, 'Webcam', 'HD webcam for video conferencing', 154, 59.99),
+(206, 'Headphones', 'Wireless noise-canceling headphones with premium sound', 151, 199.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 29.99),
+(208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 
 -- Create BM25 indexes on both tables
 CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description) WITH (key_field = 'id');
@@ -213,29 +216,73 @@ WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 LIMIT 10;
 
 -- =============================================================================
--- TEST 8: Multi-table joins (3 tables)
+-- TEST 8: Aggregate Score pattern - OR across tables (without LIMIT)
+-- =============================================================================
+
+-- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
+-- there's a join-level search predicate (OR spanning both relations).
+-- This is the "Aggregate Score" pattern from the spec (planned for M3).
+-- Currently falls back to Hash Join since M1 only handles LIMIT cases.
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id;
+
+-- =============================================================================
+-- TEST 9: OR across tables WITH LIMIT
+-- =============================================================================
+
+-- Same as TEST 8 but with LIMIT.
+-- JoinScan IS proposed for join-level predicates (OR across tables).
+-- The OR condition means a row passes if EITHER the product description
+-- contains 'wireless' OR the supplier contact_info contains 'wireless'.
+-- EXPECTED: 4 rows matching the OR condition (same as TEST 8).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 10: Multi-table joins (3 tables)
 -- =============================================================================
 
 -- Create a third table for multi-table join testing
+-- Categories: IDs 301-303
 DROP TABLE IF EXISTS categories CASCADE;
 CREATE TABLE categories (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     name TEXT,
     description TEXT
 );
 
-INSERT INTO categories (name, description) VALUES
-('Electronics', 'Electronic devices and accessories'),
-('Office', 'Office supplies and equipment'),
-('Gaming', 'Gaming peripherals and accessories');
+INSERT INTO categories (id, name, description) VALUES
+(301, 'Electronics', 'Electronic devices and accessories'),
+(302, 'Office', 'Office supplies and equipment'),
+(303, 'Gaming', 'Gaming peripherals and accessories');
 
 CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name, description) WITH (key_field = 'id');
 
 -- Add category_id to products
 ALTER TABLE products ADD COLUMN category_id INTEGER;
-UPDATE products SET category_id = 1 WHERE id IN (1, 3, 5, 6);
-UPDATE products SET category_id = 2 WHERE id IN (2, 4, 8);
-UPDATE products SET category_id = 3 WHERE id = 7;
+UPDATE products SET category_id = 301 WHERE id IN (201, 203, 205, 206);
+UPDATE products SET category_id = 302 WHERE id IN (202, 204, 208);
+UPDATE products SET category_id = 303 WHERE id = 207;
 
 -- 3-table join with LIMIT
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -255,7 +302,7 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 9: Non-equijoin conditions (arbitrary join expressions)
+-- TEST 11: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
 
 -- Join with non-equality condition
@@ -274,7 +321,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 10: LIMIT without ORDER BY vs with ORDER BY
+-- TEST 12: LIMIT without ORDER BY vs with ORDER BY
 -- =============================================================================
 
 -- LIMIT without ORDER BY - should still use JoinScan
@@ -306,49 +353,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
-
--- =============================================================================
--- TEST 11: Aggregate Score pattern - OR across tables (without LIMIT)
--- =============================================================================
-
--- -- NOTE: This case should propose JoinScan even WITHOUT LIMIT because
--- -- there's a join-level search predicate (OR spanning both relations).
--- -- This is the "Aggregate Score" pattern from the spec (planned for M3).
--- -- Currently falls back to Hash Join since M1 only handles LIMIT cases.
--- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
--- SELECT p.id, p.name, s.name AS supplier_name
--- FROM products p
--- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless';
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
-ORDER BY p.id;
-
--- =============================================================================
--- TEST 12: OR across tables WITH LIMIT
--- =============================================================================
-
--- Same as TEST 11 but with LIMIT.
--- JoinScan IS proposed for join-level predicates (OR across tables).
--- The OR condition means a row passes if EITHER the product description
--- contains 'wireless' OR the supplier contact_info contains 'wireless'.
--- EXPECTED: 4 rows matching the OR condition (same as TEST 11).
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
-LIMIT 10;
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
-ORDER BY p.id
-LIMIT 10;
 
 -- =============================================================================
 -- CLEANUP

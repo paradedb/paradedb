@@ -731,20 +731,17 @@ impl CustomScan for JoinScan {
                         let results = reader.search();
                         // Collect all matching key values (stored as ctid in search results)
                         for (scored, _doc_address) in results {
-                            // The scored.ctid is actually the key_field value (e.g., id = 1, 6, 7)
-                            let key_value = scored.ctid as i64;
+                            // scored.ctid IS the actual heap ctid (stored via item_pointer_to_u64 during indexing)
                             if predicate.rti == outer_rti {
                                 state
                                     .custom_state_mut()
-                                    .outer_matching_keys
-                                    .insert(key_value);
-                                state.custom_state_mut().outer_key_attno = predicate.key_attno;
+                                    .outer_matching_ctids
+                                    .insert(scored.ctid);
                             } else if predicate.rti == inner_rti {
                                 state
                                     .custom_state_mut()
-                                    .inner_matching_keys
-                                    .insert(key_value);
-                                state.custom_state_mut().inner_key_attno = predicate.key_attno;
+                                    .inner_matching_ctids
+                                    .insert(scored.ctid);
                             }
                         }
                     }
@@ -789,39 +786,23 @@ impl CustomScan for JoinScan {
                                 (build_slot, driving_slot)
                             };
 
-                            // Extract key values from both slots
-                            let outer_key_attno = state.custom_state().outer_key_attno as i32;
-                            let inner_key_attno = state.custom_state().inner_key_attno as i32;
+                            // Convert heap ctids to u64 using the SAME encoding as the BM25 index
+                            // The BM25 index uses crate::postgres::utils::item_pointer_to_u64 (16-bit shift)
+                            let outer_ctid_u64 = outer_slot
+                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid));
 
-                            let outer_key = if let Some(s) = outer_slot {
-                                let mut is_null = false;
-                                let datum = pg_sys::slot_getattr(s, outer_key_attno, &mut is_null);
-                                if is_null {
-                                    None
-                                } else {
-                                    Some(datum.value() as i64)
-                                }
-                            } else {
-                                None
-                            };
+                            let inner_ctid_u64 = inner_slot
+                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid));
 
-                            let inner_key = if let Some(s) = inner_slot {
-                                let mut is_null = false;
-                                let datum = pg_sys::slot_getattr(s, inner_key_attno, &mut is_null);
-                                if is_null {
-                                    None
-                                } else {
-                                    Some(datum.value() as i64)
-                                }
-                            } else {
-                                None
-                            };
-
-                            let outer_matches = outer_key
-                                .map(|k| state.custom_state().outer_matching_keys.contains(&k))
+                            let outer_matches = outer_ctid_u64
+                                .map(|ctid| {
+                                    state.custom_state().outer_matching_ctids.contains(&ctid)
+                                })
                                 .unwrap_or(false);
-                            let inner_matches = inner_key
-                                .map(|k| state.custom_state().inner_matching_keys.contains(&k))
+                            let inner_matches = inner_ctid_u64
+                                .map(|ctid| {
+                                    state.custom_state().inner_matching_ctids.contains(&ctid)
+                                })
                                 .unwrap_or(false);
 
                             // For OR semantics: pass if either side matches
@@ -1310,11 +1291,7 @@ impl JoinScan {
                         false, // Don't attempt pushdown for join-level predicates
                     ) {
                         let query = SearchQueryInput::from(&qual);
-                        // The key_field is typically the first attribute (primary key).
-                        // This is a simplification that works for most BM25 indexes.
-                        let key_attno: i16 = 1;
-                        join_clause =
-                            join_clause.add_join_level_predicate(rti, indexrelid, query, key_attno);
+                        join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query);
                     }
                 }
             }

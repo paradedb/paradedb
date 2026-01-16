@@ -26,13 +26,13 @@ use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
     ParallelWorker, WorkerStyle,
 };
+use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
     GARBAGE_COLLECTING, INDEXING, MERGING,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{CategorizedFieldData, SearchField};

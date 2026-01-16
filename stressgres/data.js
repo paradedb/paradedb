@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768532208580,
+  "lastUpdate": 1768532971718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34806,6 +34806,54 @@ window.BENCHMARK_DATA = {
             "value": 5.613987082928253,
             "unit": "median tps",
             "extra": "avg tps: 5.5960323540268275, max tps: 7.278649234680239, count: 56336"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfa5dbefc5711e4c27090a5521b4674766982dce",
+          "message": "fix: Parameters from InitPlan nodes are uncorrelated (#3921)\n\n## What\n\nIn #3623, we began detecting that PARAM_EXEC params in qualifier\nexpressions were correlated. But InitPlan nodes produce uncorrelated\nPARAM_EXEC params which we already had support for solving via\n`PostgresExpression` in `BeginCustomScan`. The effect of skipping\npushdown was that we got a heap filter instead.\n\nThis change restores pushdown of params from InitPlan nodes.\nAdditionally, it improves comments and EXPLAIN output to demonstrate\nthat we are handling `PostgresExpression`s.\n\n## Why\n\nA heap filter is a few orders of magnitude slower than predicate\npushdown.\n\n## Tests\n\nAdded a new test in `uncorrelated-param-solving`, and confirmed that\ntests with correlated subqueries continue to use heap filters.\n\nBenchmarks for `paging-string-*` are fixed.",
+          "timestamp": "2026-01-15T18:25:32-08:00",
+          "tree_id": "08a663cf8a4a02a3c27fcea577b3a812a8165f7c",
+          "url": "https://github.com/paradedb/paradedb/commit/bfa5dbefc5711e4c27090a5521b4674766982dce"
+        },
+        "date": 1768532967539,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1125.471655194619,
+            "unit": "median tps",
+            "extra": "avg tps: 1130.7840352765838, max tps: 1180.9072445005843, count: 56691"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1188.2128074392979,
+            "unit": "median tps",
+            "extra": "avg tps: 1188.2102607037416, max tps: 1202.4987342113689, count: 56691"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1893.925361089705,
+            "unit": "median tps",
+            "extra": "avg tps: 1875.9381754639662, max tps: 2050.529308861378, count: 56691"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.648034169363197,
+            "unit": "median tps",
+            "extra": "avg tps: 5.617392510152816, max tps: 6.80587924789889, count: 56691"
           }
         ]
       }

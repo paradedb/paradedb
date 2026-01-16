@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768525469171,
+  "lastUpdate": 1768525925622,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6920,6 +6920,72 @@ window.BENCHMARK_DATA = {
             "value": 97.23503792105323,
             "unit": "median tps",
             "extra": "avg tps: 95.44526428314242, max tps: 726.9940902650402, count: 55452"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768525921885,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 533.9119041388242,
+            "unit": "median tps",
+            "extra": "avg tps: 541.2993534869298, max tps: 706.4461801042149, count: 55339"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3147.0039005923195,
+            "unit": "median tps",
+            "extra": "avg tps: 3131.5900807932617, max tps: 3159.1831277489478, count: 55339"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 566.0470456575388,
+            "unit": "median tps",
+            "extra": "avg tps: 569.3013333226941, max tps: 696.3457862176655, count: 55339"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 459.03848400096854,
+            "unit": "median tps",
+            "extra": "avg tps: 460.4568581413683, max tps: 496.12083122068543, count: 55339"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3301.6077963250664,
+            "unit": "median tps",
+            "extra": "avg tps: 3289.7455283349263, max tps: 3325.579242660228, count: 110678"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2187.7400329290167,
+            "unit": "median tps",
+            "extra": "avg tps: 2173.3743546457104, max tps: 2192.0464885684055, count: 55339"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 477.93395630290445,
+            "unit": "median tps",
+            "extra": "avg tps: 415.2215390586462, max tps: 525.7001356236918, count: 55339"
           }
         ]
       }

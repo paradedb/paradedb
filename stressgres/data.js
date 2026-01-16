@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526663938,
+  "lastUpdate": 1768526669662,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -29318,6 +29318,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.10487724358417, max segment_count: 125.0, count: 57553"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768526665508,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.138083387798176, max cpu: 42.857143, count: 57558"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.875,
+            "unit": "median mem",
+            "extra": "avg mem: 232.78313071163, max mem: 234.34765625, count: 57558"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.34711287986585, max cpu: 33.333336, count: 57558"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 172.06842031896088, max mem: 172.9765625, count: 57558"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33952,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33354.81286702109, max block_count: 35931.0, count: 57558"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.74050522950763, max segment_count: 128.0, count: 57558"
           }
         ]
       }

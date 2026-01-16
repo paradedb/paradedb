@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768528413499,
+  "lastUpdate": 1768528862234,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -65336,6 +65336,54 @@ window.BENCHMARK_DATA = {
             "value": 105.80186652546374,
             "unit": "median tps",
             "extra": "avg tps: 104.77050244154752, max tps: 217.64416967443404, count: 107566"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "076e6bb7069eb79c68cbe200f9726a3d4954963b",
+          "message": "feat: Push down `= ANY()` over text arrays (#3923)\n\n# Ticket(s) Closed\n\n- Closes #3909\n\n## What\n\nIf a text array is indexed with the literal tokenizer, we can push down\n`WHERE 'literal'= ANY(<field>)`\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:53:26-10:00",
+          "tree_id": "0e91bbaa5d21c61e68d58735a185967cb1306264",
+          "url": "https://github.com/paradedb/paradedb/commit/076e6bb7069eb79c68cbe200f9726a3d4954963b"
+        },
+        "date": 1768528858368,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 552.0690542715982,
+            "unit": "median tps",
+            "extra": "avg tps: 552.6688460273076, max tps: 690.6054499434233, count: 53775"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 635.1063419095202,
+            "unit": "median tps",
+            "extra": "avg tps: 638.6474889239428, max tps: 902.0955037589725, count: 53775"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 86.16757046657233,
+            "unit": "median tps",
+            "extra": "avg tps: 86.35578169379228, max tps: 102.94564793132147, count: 53775"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.92349177262325,
+            "unit": "median tps",
+            "extra": "avg tps: 107.38626748460459, max tps: 214.3425847584122, count: 107550"
           }
         ]
       }

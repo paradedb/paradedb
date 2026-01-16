@@ -203,7 +203,7 @@ impl OwnedVisibilityChecker {
 impl Drop for OwnedVisibilityChecker {
     fn drop(&mut self) {
         unsafe {
-            if !crate::postgres::utils::IsTransactionState() {
+            if std::thread::panicking() || !crate::postgres::utils::IsTransactionState() {
                 return;
             }
             pg_sys::ExecDropSingleTupleTableSlot(self.slot);

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768531460063,
+  "lastUpdate": 1768532203082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23734,6 +23734,42 @@ window.BENCHMARK_DATA = {
             "value": 5.409006449953372,
             "unit": "median tps",
             "extra": "avg tps: 4.85038372471229, max tps: 6.101954534684753, count: 57524"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfa5dbefc5711e4c27090a5521b4674766982dce",
+          "message": "fix: Parameters from InitPlan nodes are uncorrelated (#3921)\n\n## What\n\nIn #3623, we began detecting that PARAM_EXEC params in qualifier\nexpressions were correlated. But InitPlan nodes produce uncorrelated\nPARAM_EXEC params which we already had support for solving via\n`PostgresExpression` in `BeginCustomScan`. The effect of skipping\npushdown was that we got a heap filter instead.\n\nThis change restores pushdown of params from InitPlan nodes.\nAdditionally, it improves comments and EXPLAIN output to demonstrate\nthat we are handling `PostgresExpression`s.\n\n## Why\n\nA heap filter is a few orders of magnitude slower than predicate\npushdown.\n\n## Tests\n\nAdded a new test in `uncorrelated-param-solving`, and confirmed that\ntests with correlated subqueries continue to use heap filters.\n\nBenchmarks for `paging-string-*` are fixed.",
+          "timestamp": "2026-01-15T18:25:32-08:00",
+          "tree_id": "08a663cf8a4a02a3c27fcea577b3a812a8165f7c",
+          "url": "https://github.com/paradedb/paradedb/commit/bfa5dbefc5711e4c27090a5521b4674766982dce"
+        },
+        "date": 1768532199080,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.476328565170232,
+            "unit": "median tps",
+            "extra": "avg tps: 6.391990026200526, max tps: 9.66760640753817, count: 57797"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.4855871417104645,
+            "unit": "median tps",
+            "extra": "avg tps: 4.917561875031846, max tps: 6.135535862871096, count: 57797"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768529021532,
+  "lastUpdate": 1768529026842,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -44734,6 +44734,108 @@ window.BENCHMARK_DATA = {
             "value": 160.62109375,
             "unit": "median mem",
             "extra": "avg mem: 179.6422244694578, max mem: 221.08203125, count: 56381"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "varunkkv.mec@gmail.com",
+            "name": "K V Varun Krishnan",
+            "username": "vrn21"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "462740bbb1f2a5794daa34f8cb0ba0c864051701",
+          "message": "feat: Add TopN Scan Validation (#3816)\n\n# Ticket(s) Closed\n\n- Closes #3687\n\n## What\n\nAdded `paradedb.check_topn_scan` GUC that emits a warning when a query\nwith LIMIT should use TopN scan but falls back to a slower execution\nmethod.\n\n**Files changed:**\n-\n[pg_search/src/gucs.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/gucs.rs)\n(+17 lines) — GUC definition\n-\n[pg_search/src/postgres/customscan/pdbscan/mod.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs)\n(+96 lines) — Validation logic\n-\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\n(+116 lines) — Tests\n\n## Why\n\nParadeDB silently falls back to slower execution methods when TopN\ncannot be used (missing `fast: true`, normalizer mismatch, too many\nORDER BY columns). Queries work fine on small dev datasets but become\n100-1000x slower in production with no warning.\n\n## How\n\nAdded\n[validate_topn_expectation()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1344-1445)\nfunction in\n[choose_exec_method()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1446-1488)\nthat checks if TopN was expected (has LIMIT + search operator + no GROUP\nBY) but not chosen. If validation is enabled and TopN was missed, emits\na warning with the reason.\n\n**Default**: `false` (opt-in)\n\n**Usage:**\n```sql\nSET paradedb.check_topn_scan = true;\n\nSELECT * FROM products WHERE cat @@@ 'electronics' ORDER BY cat LIMIT 10;\n-- WARNING: Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead).\n-- Reason: ORDER BY columns cannot be pushed down to the index.\n```\n\n## Tests\n\n\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\ncovers 8 scenarios:\n\n| Test | Scenario | Expected |\n|------|----------|----------|\n| 1 | Validation OFF, non-fast ORDER BY | No warning |\n| 2 | Validation ON, non-fast ORDER BY | WARNING |\n| 3 | Validation ON, valid TopN query | No warning |\n| 4 | Too many ORDER BY columns | WARNING |\n| 5a | ORDER BY lower() matching index | No warning |\n| 5b | ORDER BY not matching lower() index | WARNING |\n| 6 | Query without LIMIT | No validation |\n| 7 | EXPLAIN with validation | WARNING |\n| 8 | Disable validation mid-session | No warning |\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Introduces an opt-in validator to catch missed TopN optimizations on\nLIMIT queries using ParadeDB search.\n> \n> - New GUC `paradedb.check_topn_scan` (default `false`) in\n`pg_search/src/gucs.rs`\n> - Adds `validate_topn_expectation()` in `pdbscan/mod.rs`; invoked from\n`choose_exec_method()` to log a warning when TopN is expected (LIMIT +\nsearch + no GROUP BY) but `ExecMethodType` is not `TopN`, with reasons\nderived from `PathKeyInfo` (e.g., unusable pathkeys, prefix-only,\n>`MAX_TOPN_FEATURES`, normalizer mismatch)\n> - Minor refactor to choose method then validate before returning\n> - Regression tests `tests/pg_regress/sql/topn_validation.sql` (+\nexpected output) cover non-fast ORDER BY, valid TopN, too many ORDER BY\ncols, `lower()` normalizer mismatch, no LIMIT, EXPLAIN logging, and\ntoggling the GUC\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n9b41430569c044380c991e53d24a9db30660c233. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-01-15T17:19:40-08:00",
+          "tree_id": "e050e9377a770e634abdab7179375c1c5452764b",
+          "url": "https://github.com/paradedb/paradedb/commit/462740bbb1f2a5794daa34f8cb0ba0c864051701"
+        },
+        "date": 1768529023003,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07760579380857711, max background_merging: 2.0, count: 56336"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.689280077703715, max cpu: 9.628887, count: 56336"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 23.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 23.1707471410377, max mem: 23.18359375, count: 56336"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.91988787116979, max cpu: 14.229248, count: 56336"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.15101529494905, max mem: 165.69921875, count: 56336"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51622,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51482.20711445612, max block_count: 51622.0, count: 56336"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.43318659471741, max segment_count: 62.0, count: 56336"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6316678771217665, max cpu: 9.619239, count: 56336"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 118.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 108.01769600033727, max mem: 133.1875, count: 56336"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.745970870958831, max cpu: 9.667674, count: 56336"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.88267486320913, max mem: 165.5, count: 56336"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.855009163967836, max cpu: 33.939396, count: 56336"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 160.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 179.4975075606628, max mem: 220.8984375, count: 56336"
           }
         ]
       }

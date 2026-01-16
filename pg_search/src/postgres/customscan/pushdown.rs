@@ -124,9 +124,7 @@ macro_rules! pushdown {
                     expr_state: std::ptr::null_mut(),
                     // TODO: In 0.21.x (post https://github.com/paradedb/paradedb/pull/3734) this
                     // uses deparse_expr instead.
-                    expr_desc: crate::node_to_string(funcexpr.cast())
-                        .unwrap_or("<unknown>")
-                        .to_string(),
+                    expr_desc: "<expression>".to_string(),
                 }
             }
         })

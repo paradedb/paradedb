@@ -32,8 +32,8 @@ WHERE id @@@ paradedb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id 
 LIMIT 100;
-                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -51,7 +51,7 @@ LIMIT 100;
                Scores: false
                   TopN Order By: id asc
                   TopN Limit: 100
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"{FUNCEXPR :funcid 171065 :funcresulttype 170849 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 100 :args ({CONST :consttype 170845 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 98 105 100 ]} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 6 [ 24 0 0 0 62 61 ]} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}"}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"<expression>"}}}]}}
 (18 rows)
 
 SELECT * FROM test_pages_scale 
@@ -179,8 +179,8 @@ WHERE id @@@ paradedb.all()
   AND id >= (SELECT value FROM test_metadata_scale WHERE name = 'pages-row-id-max')
 ORDER BY id DESC 
 LIMIT 100;
-                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: test_pages_scale.id, test_pages_scale.content
    InitPlan 1
@@ -198,7 +198,7 @@ LIMIT 100;
                Scores: false
                   TopN Order By: id desc
                   TopN Limit: 100
-               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"{FUNCEXPR :funcid 171065 :funcresulttype 170849 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 100 :args ({CONST :consttype 170845 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 7 [ 28 0 0 0 98 105 100 ]} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 6 [ 24 0 0 0 62 61 ]} {PARAM :paramkind 1 :paramid 0 :paramtype 25 :paramtypmod -1 :paramcollid 100 :location -1}) :location -1}"}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"postgres_expression":{"expr":{"expr_desc":"<expression>"}}}]}}
 (18 rows)
 
 SELECT * FROM test_pages_scale 

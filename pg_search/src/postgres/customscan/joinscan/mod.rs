@@ -109,6 +109,16 @@ impl CustomScan for JoinScan {
                 return None;
             }
 
+            // If there are no equi-join keys but there ARE non-equijoin conditions,
+            // don't propose JoinScan. The non-equijoin conditions can't be evaluated
+            // properly in our current implementation (Var references use RTIs instead
+            // of OUTER_VAR/INNER_VAR). Let PostgreSQL's native join handle it.
+            let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
+            let has_non_equijoin_conditions = !join_conditions.other_conditions.is_empty();
+            if !has_equi_join_keys && has_non_equijoin_conditions {
+                return None;
+            }
+
             // Build the join clause with join keys
             let mut join_clause = JoinCSClause::new()
                 .with_outer_side(outer_side.clone())
@@ -1296,19 +1306,24 @@ unsafe fn extract_join_conditions(
             result.has_search_predicate = true;
         }
 
-        // Try to identify equi-join conditions (OpExpr with Var = Var)
+        // Try to identify equi-join conditions (OpExpr with Var = Var using equality operator)
         let mut is_equi_join = false;
 
         if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
             let opexpr = clause as *mut pg_sys::OpExpr;
             let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
 
-            // Equi-join: should have exactly 2 args, both Var nodes
+            // Equi-join: should have exactly 2 args, both Var nodes, AND use equality operator
             if args.len() == 2 {
                 let arg0 = args.get_ptr(0).unwrap();
                 let arg1 = args.get_ptr(1).unwrap();
 
-                if (*arg0).type_ == pg_sys::NodeTag::T_Var
+                // Check if operator is an equality operator (hash-joinable)
+                let opno = (*opexpr).opno;
+                let is_equality_op = is_op_hash_joinable(opno);
+
+                if is_equality_op
+                    && (*arg0).type_ == pg_sys::NodeTag::T_Var
                     && (*arg1).type_ == pg_sys::NodeTag::T_Var
                 {
                     let var0 = arg0 as *mut pg_sys::Var;
@@ -1356,6 +1371,15 @@ unsafe fn extract_join_conditions(
     }
 
     result
+}
+
+/// Check if an operator is suitable for hash join (i.e., is an equality operator).
+/// Uses PostgreSQL's op_hashjoinable to determine this.
+unsafe fn is_op_hash_joinable(opno: pg_sys::Oid) -> bool {
+    // op_hashjoinable checks if the operator can be used for hash joins,
+    // which requires it to be an equality operator with a hash function.
+    // We pass InvalidOid as inputtype to accept any input type.
+    pg_sys::op_hashjoinable(opno, pg_sys::InvalidOid)
 }
 
 /// Estimate the memory size of a hash table entry.
@@ -1429,7 +1453,7 @@ unsafe fn extract_non_equijoin_quals(
 
         let clause = (*ri).clause;
 
-        // Skip if this is an equi-join condition (Var = Var between outer and inner)
+        // Skip if this is an equi-join condition (Var = Var using equality operator between outer and inner)
         let mut is_equi_join = false;
         if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
             let opexpr = clause as *mut pg_sys::OpExpr;
@@ -1439,7 +1463,12 @@ unsafe fn extract_non_equijoin_quals(
                 let arg0 = args.get_ptr(0).unwrap();
                 let arg1 = args.get_ptr(1).unwrap();
 
-                if (*arg0).type_ == pg_sys::NodeTag::T_Var
+                // Check if operator is an equality operator
+                let opno = (*opexpr).opno;
+                let is_equality_op = is_op_hash_joinable(opno);
+
+                if is_equality_op
+                    && (*arg0).type_ == pg_sys::NodeTag::T_Var
                     && (*arg1).type_ == pg_sys::NodeTag::T_Var
                 {
                     let var0 = arg0 as *mut pg_sys::Var;

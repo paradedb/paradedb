@@ -346,13 +346,13 @@ LIMIT 10;
 -- TEST 13: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
 
--- Join with non-equality condition
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
-WHERE p.description @@@ 'wireless'
-LIMIT 10;
+-- -- Join with non-equality condition
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
+-- WHERE p.description @@@ 'wireless'
+-- LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

@@ -108,9 +108,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -147,9 +148,10 @@ LIMIT 5;
                Join Type: Inner
                Outer RTI: 2
                Inner RTI: 1
+               Join Keys: outer.1 = inner.4
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(12 rows)
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -181,10 +183,11 @@ LIMIT 5;
                Output: p.id, p.name, s.name, s.id
                Join Type: Inner
                Outer RTI: 2
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Inner RTI: 1
+               Join Keys: outer.1 = inner.4
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(12 rows)
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -332,11 +335,12 @@ LIMIT 10;
          Output: p.id, p.name, s.name
          Join Type: Inner
          Outer RTI: 2
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -397,9 +401,11 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Has Other Conditions: true
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(9 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -457,13 +463,14 @@ LIMIT 5;
                Join Type: Inner
                Outer RTI: 2
                Inner RTI: 1
+               Join Keys: outer.1 = inner.4
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
          ->  Materialize
                Output: c.name, c.id
                ->  Seq Scan on public.categories c
                      Output: c.name, c.id
-(17 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -542,9 +549,11 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Has Other Conditions: true
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(9 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -603,9 +612,10 @@ LIMIT 3;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
          Limit: 3
-(9 rows)
+(10 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -640,9 +650,10 @@ LIMIT 3;
                      Join Type: Inner
                      Outer RTI: 2
                      Inner RTI: 1
+                     Join Keys: outer.1 = inner.4
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                      Limit: 3
-(14 rows)
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -700,9 +711,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -765,9 +777,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.2, outer.2 = inner.3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -826,9 +839,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -903,9 +917,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.2
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -954,9 +969,11 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Has Other Conditions: true
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(9 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -988,9 +1005,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
          Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1032,10 +1050,12 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Has Other Conditions: true
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND inner:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
          Limit: 10
-(10 rows)
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1067,9 +1087,11 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
+         Has Other Conditions: true
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR outer:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
          Limit: 10
-(9 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1101,9 +1123,10 @@ LIMIT 10;
          Join Type: Inner
          Outer RTI: 2
          Inner RTI: 1
+         Join Keys: outer.1 = inner.4
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
          Limit: 10
-(9 rows)
+(10 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

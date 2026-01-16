@@ -310,19 +310,36 @@ impl CustomScan for JoinScan {
         };
         explainer.add_text("Join Type", join_type_str);
 
-        // Show outer side info
+        // Show RTIs for both sides
         if let Some(rti) = join_clause.outer_side.heap_rti {
             explainer.add_text("Outer RTI", rti.to_string());
         }
+        if let Some(rti) = join_clause.inner_side.heap_rti {
+            explainer.add_text("Inner RTI", rti.to_string());
+        }
+
+        // Show join keys (equi-join condition)
+        if !join_clause.join_keys.is_empty() {
+            let keys_str: Vec<String> = join_clause
+                .join_keys
+                .iter()
+                .map(|k| format!("outer.{} = inner.{}", k.outer_attno, k.inner_attno))
+                .collect();
+            explainer.add_text("Join Keys", keys_str.join(", "));
+        } else {
+            explainer.add_text("Join Keys", "cross join");
+        }
+
+        // Show if there are additional filter conditions
+        if join_clause.has_other_conditions {
+            explainer.add_text("Has Other Conditions", "true");
+        }
+
+        // Show side-level search predicates
         if join_clause.outer_side.has_search_predicate {
             if let Some(ref query) = join_clause.outer_side.query {
                 explainer.add_query(query);
             }
-        }
-
-        // Show inner side info
-        if let Some(rti) = join_clause.inner_side.heap_rti {
-            explainer.add_text("Inner RTI", rti.to_string());
         }
         if join_clause.inner_side.has_search_predicate {
             if let Some(ref query) = join_clause.inner_side.query {

@@ -550,6 +550,11 @@ impl MergeSlot {
         AdvisoryLock::new_transaction(key)
     }
 
+    // Checks to see if a merge is already running for the given slot
+    //
+    // NOTE: This only prevents concurrent merges from different backends,
+    // will always return true if called repeatedly from the same transaction
+    // See: https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS
     fn is_available(&self) -> bool {
         let key = self.key();
         if let Some(lock) = AdvisoryLock::new_session(key) {

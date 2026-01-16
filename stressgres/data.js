@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768537728558,
+  "lastUpdate": 1768538455820,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -66980,6 +66980,54 @@ window.BENCHMARK_DATA = {
             "value": 110.23624114523129,
             "unit": "median tps",
             "extra": "avg tps: 106.98507459713161, max tps: 172.71966857563027, count: 107640"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768538451960,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 533.6104389726546,
+            "unit": "median tps",
+            "extra": "avg tps: 537.4445488991557, max tps: 730.2545961837027, count: 53827"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 600.1377372948497,
+            "unit": "median tps",
+            "extra": "avg tps: 606.2007258119297, max tps: 782.5010934893852, count: 53827"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.19512010345429,
+            "unit": "median tps",
+            "extra": "avg tps: 88.28970646301048, max tps: 93.2377516212002, count: 53827"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 113.36457735485448,
+            "unit": "median tps",
+            "extra": "avg tps: 108.79310972360409, max tps: 184.05445007953728, count: 107654"
           }
         ]
       }

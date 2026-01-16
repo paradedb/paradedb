@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768535471789,
+  "lastUpdate": 1768535476938,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20136,6 +20136,126 @@ window.BENCHMARK_DATA = {
             "value": 51.36328125,
             "unit": "median mem",
             "extra": "avg mem: 50.244281754305824, max mem: 62.84765625, count: 55274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768535473235,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.551739145705881, max cpu: 19.393938, count: 55444"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.571252496888754, max mem: 68.10546875, count: 55444"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581328660699694, max cpu: 9.687184, count: 55444"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 33.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.79670351503319, max mem: 36.4296875, count: 55444"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.645944124358214, max cpu: 23.021584, count: 55444"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.827960771792256, max mem: 68.4140625, count: 55444"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623933170688988, max cpu: 9.302325, count: 55444"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.9264028653912, max mem: 67.87109375, count: 55444"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.605582132622268, max cpu: 9.476802, count: 110888"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 45.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 45.6685108228573, max mem: 56.42578125, count: 110888"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1697,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1692.6942320178919, max block_count: 2978.0, count: 55444"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.384496068104754, max segment_count: 22.0, count: 55444"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.535814509245591, max cpu: 9.230769, count: 55444"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 48.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.7179566178261, max mem: 58.7109375, count: 55444"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.960975667982222, max cpu: 4.7244096, count: 55444"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 51.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.404464766814264, max mem: 62.328125, count: 55444"
           }
         ]
       }

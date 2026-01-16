@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768526669662,
+  "lastUpdate": 1768526971462,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34098,6 +34098,54 @@ window.BENCHMARK_DATA = {
             "value": 5.699571331462851,
             "unit": "median tps",
             "extra": "avg tps: 5.676070380549853, max tps: 7.494181536190756, count: 56164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c579e2f20546f5057827f5de3aec7f881ad35edf",
+          "message": "fix: `pdb.agg` works with JSON paths (#3925)\n\n# Ticket(s) Closed\n\n- Closes #3890 \n\n## What\n\nFixes an issue introduced in #3729 where `pdb.agg` incorrectly errors if\na JSON field + path is passed in.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:45:39-10:00",
+          "tree_id": "70dfaa3cdf983e66cb7f27b4825b99d0c10fd759",
+          "url": "https://github.com/paradedb/paradedb/commit/c579e2f20546f5057827f5de3aec7f881ad35edf"
+        },
+        "date": 1768526967440,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1141.5589553443026,
+            "unit": "median tps",
+            "extra": "avg tps: 1141.6840481616646, max tps: 1186.3555874178003, count: 56156"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1263.478529853749,
+            "unit": "median tps",
+            "extra": "avg tps: 1260.427970875144, max tps: 1280.2810031722886, count: 56156"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1874.5905252500233,
+            "unit": "median tps",
+            "extra": "avg tps: 1849.2336151270429, max tps: 2013.3187195258765, count: 56156"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.379981542619137,
+            "unit": "median tps",
+            "extra": "avg tps: 5.41431586642779, max tps: 7.21081397840446, count: 56156"
           }
         ]
       }

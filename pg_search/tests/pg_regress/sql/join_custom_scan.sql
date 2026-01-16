@@ -332,10 +332,10 @@ ORDER BY p.id;
 -- =============================================================================
 
 -- Same as TEST 11 but with LIMIT.
--- JoinScan is NOT proposed because the OR predicate spans both relations
--- at the join level - neither side has an isolated @@@ predicate.
--- This is the "Aggregate Score" pattern which requires M3's join-level
--- predicate handling.
+-- JoinScan IS proposed for join-level predicates (OR across tables).
+-- The OR condition means a row passes if EITHER the product description
+-- contains 'wireless' OR the supplier contact_info contains 'wireless'.
+-- EXPECTED: 4 rows matching the OR condition (same as TEST 11).
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

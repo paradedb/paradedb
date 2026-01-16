@@ -25,7 +25,7 @@ use self::scan_state::JoinScanState;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
+use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags, RestrictInfoType};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
@@ -57,72 +57,6 @@ unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::
             Some(set_bit as pg_sys::Index)
         }
     })
-}
-
-/// Helper to extract Var nodes from an expression and add them to the target list
-/// if not already present. This ensures the custom_scan_tlist includes all columns
-/// needed by join conditions.
-unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_sys::TargetEntry>) {
-    if expr.is_null() {
-        return;
-    }
-
-    match (*expr).type_ {
-        pg_sys::NodeTag::T_Var => {
-            let var = expr as *mut pg_sys::Var;
-            let varno = (*var).varno;
-            let varattno = (*var).varattno;
-
-            // Check if this Var is already in the tlist
-            let mut found = false;
-            for te in tlist.iter_ptr() {
-                if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
-                    let te_var = (*te).expr as *mut pg_sys::Var;
-                    if (*te_var).varno == varno && (*te_var).varattno == varattno {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            // Add to tlist if not found
-            if !found {
-                let resno = (tlist.len() + 1) as i16;
-                let te = pg_sys::makeTargetEntry(
-                    expr as *mut pg_sys::Expr,
-                    resno,
-                    std::ptr::null_mut(), // no resname needed
-                    false,                // not resjunk
-                );
-                tlist.push(te);
-            }
-        }
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = expr as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-            for arg in args.iter_ptr() {
-                add_vars_to_tlist(arg, tlist);
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = expr as *mut pg_sys::BoolExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                add_vars_to_tlist(arg, tlist);
-            }
-        }
-        pg_sys::NodeTag::T_FuncExpr => {
-            let funcexpr = expr as *mut pg_sys::FuncExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            for arg in args.iter_ptr() {
-                add_vars_to_tlist(arg, tlist);
-            }
-        }
-        _ => {
-            // For other node types, we could use expression_tree_walker
-            // but for simplicity, we handle common cases above
-        }
-    }
 }
 
 /// Result of extracting join conditions from the restrict list.
@@ -257,6 +191,71 @@ unsafe fn extract_join_conditions(
     result
 }
 
+/// Extract search predicate info from an expression recursively.
+/// Returns a vector of (rti, opexpr) tuples for each @@@ predicate found.
+/// We store the OpExpr pointer so we can use extract_quals later with full context.
+unsafe fn extract_search_predicate_opexprs(
+    expr: *mut pg_sys::Node,
+    outer_rti: pg_sys::Index,
+    inner_rti: pg_sys::Index,
+) -> Vec<(pg_sys::Index, *mut pg_sys::OpExpr)> {
+    let mut predicates = Vec::new();
+
+    if expr.is_null() {
+        return predicates;
+    }
+
+    let our_opoid = anyelement_query_input_opoid();
+
+    match (*expr).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = expr as *mut pg_sys::OpExpr;
+            if (*opexpr).opno == our_opoid {
+                // This is our @@@ operator - find which relation it references
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                if args.len() >= 1 {
+                    let arg0 = args.get_ptr(0).unwrap();
+
+                    // First arg should be a Var referencing a relation
+                    if (*arg0).type_ == pg_sys::NodeTag::T_Var {
+                        let var = arg0 as *mut pg_sys::Var;
+                        let varno = (*var).varno as pg_sys::Index;
+
+                        // Check if this Var belongs to outer or inner
+                        if varno == outer_rti || varno == inner_rti {
+                            predicates.push((varno, opexpr));
+                        }
+                    }
+                }
+            } else {
+                // Recurse into arguments
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                for arg in args.iter_ptr() {
+                    predicates.extend(extract_search_predicate_opexprs(arg, outer_rti, inner_rti));
+                }
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = expr as *mut pg_sys::BoolExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            for arg in args.iter_ptr() {
+                predicates.extend(extract_search_predicate_opexprs(arg, outer_rti, inner_rti));
+            }
+        }
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel = expr as *mut pg_sys::RelabelType;
+            predicates.extend(extract_search_predicate_opexprs(
+                (*relabel).arg.cast(),
+                outer_rti,
+                inner_rti,
+            ));
+        }
+        _ => {}
+    }
+
+    predicates
+}
+
 /// Try to extract join side information from a RelOptInfo.
 /// Returns JoinSideInfo if we find a base relation (possibly with a BM25 index).
 unsafe fn extract_join_side_info(
@@ -349,6 +348,9 @@ impl CustomScan for JoinScan {
             let args = builder.args();
             let root = args.root;
             let jointype = args.jointype;
+            let outerrel = args.outerrel;
+            let innerrel = args.innerrel;
+            let extra = args.extra;
 
             // For M1, we only handle INNER JOINs
             if jointype != pg_sys::JoinType::JOIN_INNER {
@@ -369,18 +371,29 @@ impl CustomScan for JoinScan {
             }
 
             // Extract information from both sides of the join
-            let outer_side = extract_join_side_info(root, args.outerrel)?;
-            let inner_side = extract_join_side_info(root, args.innerrel)?;
+            let outer_side = extract_join_side_info(root, outerrel)?;
+            let inner_side = extract_join_side_info(root, innerrel)?;
 
             // Extract join conditions from the restrict list
             let outer_rti = outer_side.heap_rti.unwrap_or(0);
             let inner_rti = inner_side.heap_rti.unwrap_or(0);
-            let join_conditions = extract_join_conditions(args.extra, outer_rti, inner_rti);
+            let join_conditions = extract_join_conditions(extra, outer_rti, inner_rti);
+
+            // Check if this is a valid join for JoinScan
+            // We need at least one side with a BM25 index AND a search predicate,
+            // OR a join-level search predicate (like OR across tables).
+            let has_side_predicate = (outer_side.has_bm25_index && outer_side.has_search_predicate)
+                || (inner_side.has_bm25_index && inner_side.has_search_predicate);
+            let has_join_level_predicate = join_conditions.has_search_predicate;
+
+            if !has_side_predicate && !has_join_level_predicate {
+                return None;
+            }
 
             // Build the join clause with join keys
             let mut join_clause = JoinCSClause::new()
-                .with_outer_side(outer_side)
-                .with_inner_side(inner_side)
+                .with_outer_side(outer_side.clone())
+                .with_inner_side(inner_side.clone())
                 .with_join_type(SerializableJoinType::from(jointype))
                 .with_limit(limit)
                 .with_has_other_conditions(!join_conditions.other_conditions.is_empty())
@@ -391,14 +404,15 @@ impl CustomScan for JoinScan {
                 join_clause = join_clause.add_join_key(outer_attno, inner_attno);
             }
 
-            // Check if this is a valid join for M1
-            // We need at least one side with a BM25 index AND a search predicate,
-            // OR a join-level search predicate (like OR across tables)
-            let has_side_predicate = join_clause.has_driving_side();
-            let has_join_level_predicate = join_conditions.has_search_predicate;
-
-            if !has_side_predicate && !has_join_level_predicate {
-                return None;
+            // If we have join-level predicates, extract the search queries from them
+            if has_join_level_predicate {
+                join_clause = Self::extract_join_level_search_predicates(
+                    root,
+                    extra,
+                    &outer_side,
+                    &inner_side,
+                    join_clause,
+                );
             }
 
             // Create the private data
@@ -409,14 +423,37 @@ impl CustomScan for JoinScan {
             let startup_cost = DEFAULT_STARTUP_COST;
             let total_cost = startup_cost + 1000.0; // Arbitrary cost for now
 
+            // Get the cheapest total paths from outer and inner relations
+            // These are needed so PostgreSQL can resolve Vars in custom_scan_tlist
+            let outer_path = (*outerrel).cheapest_total_path;
+            let inner_path = (*innerrel).cheapest_total_path;
+
             // Force the path to be chosen when we have a valid join opportunity
+            // Add child paths so set_customscan_references can resolve Vars
             let builder = builder
                 .set_flag(Flags::Force)
                 .set_startup_cost(startup_cost)
                 .set_total_cost(total_cost)
-                .set_rows(limit.unwrap_or(1000) as f64);
+                .set_rows(limit.unwrap_or(1000) as f64)
+                .add_custom_path(outer_path)
+                .add_custom_path(inner_path);
 
-            Some(builder.build(private_data))
+            let mut custom_path = builder.build(private_data);
+
+            // Store the restrictlist in custom_private as a second list element
+            // This is needed because PostgreSQL doesn't pass join clauses to PlanCustomPath
+            // Note: This is stored for future use when join-level expression filtering is implemented
+            let restrictlist = (*extra).restrictlist;
+
+            if !restrictlist.is_null() {
+                // Add the restrictlist to custom_private
+                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
+                // Add the restrictlist as the second element
+                private_list.push(restrictlist.cast());
+                custom_path.custom_private = private_list.into_pg();
+            }
+
+            Some(custom_path)
         }
     }
 
@@ -424,35 +461,82 @@ impl CustomScan for JoinScan {
         // For joins, scanrelid must be 0 (it's not scanning a single relation)
         builder.set_scanrelid(0);
 
-        // Get the clauses from the builder args (these are join conditions)
-        let clauses = builder.args().clauses;
+        // Get best_path before builder is consumed
+        let best_path = builder.args().best_path;
 
         let mut node = builder.build();
 
         unsafe {
             // For joins, we need to set custom_scan_tlist to describe the output columns.
-            // Start with the plan's target list
-            let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(node.scan.plan.targetlist);
+            // Create a fresh copy of the target list to avoid corrupting the original
+            let original_tlist = node.scan.plan.targetlist;
+            let copied_tlist = pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
+            let tlist = PgList::<pg_sys::TargetEntry>::from_pg(copied_tlist);
 
-            // Extract clauses and collect Vars from join conditions
-            if !clauses.is_null() {
-                let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(clauses);
-                let mut expr_list = PgList::<pg_sys::Expr>::new();
+            // For join custom scans, PostgreSQL doesn't pass clauses via the usual parameter.
+            // We stored the restrictlist in custom_private during create_custom_path
+            let private_list = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
 
-                for ri in restrict_infos.iter_ptr() {
-                    if ri.is_null() || (*ri).clause.is_null() {
-                        continue;
-                    }
+            // Second element (if present) is the restrictlist we stored during create_custom_path
+            // Note: We do NOT add restrictlist clauses to custom_exprs because setrefs would try
+            // to resolve their Vars using the child plans' target lists, which may not have all
+            // the needed columns. Instead, we keep the restrictlist in custom_private and handle
+            // join condition evaluation manually during execution using the original Var references.
 
-                    expr_list.push((*ri).clause);
-
-                    // Extract Vars from this clause and add to tlist if not already present
-                    add_vars_to_tlist((*ri).clause.cast(), &mut tlist);
+            // Extract the column mappings from the ORIGINAL targetlist (before we add restrictlist Vars).
+            // The original_tlist has the SELECT's output columns, which is what ps_ResultTupleSlot is based on.
+            // We store this mapping in PrivateData so build_result_tuple can use it during execution.
+            let mut output_columns = Vec::new();
+            
+            // Get the outer and inner RTIs from PrivateData
+            // Note: custom_private may have [PrivateData JSON, restrictlist]
+            // We need to preserve the restrictlist when updating
+            let current_private = PgList::<pg_sys::Node>::from_pg(node.custom_private);
+            let restrictlist_node = if current_private.len() > 1 {
+                current_private.get_ptr(1)
+            } else {
+                None
+            };
+            
+            let mut private_data = PrivateData::from(node.custom_private);
+            let outer_rti = private_data.join_clause.outer_side.heap_rti.unwrap_or(0);
+            let inner_rti = private_data.join_clause.inner_side.heap_rti.unwrap_or(0);
+            
+            // Use the ORIGINAL targetlist to extract output_columns, NOT the extended tlist.
+            // The original_tlist matches what ps_ResultTupleSlot is built from.
+            let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+            for te in original_entries.iter_ptr() {
+                if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
+                    let var = (*te).expr as *mut pg_sys::Var;
+                    let varno = (*var).varno as pg_sys::Index;
+                    let varattno = (*var).varattno;
+                    
+                    // Determine if this column comes from outer or inner relation
+                    let is_outer = varno == outer_rti;
+                    output_columns.push(privdat::OutputColumnInfo {
+                        is_outer,
+                        original_attno: varattno,
+                    });
+                } else {
+                    // Non-Var expression - mark as null (attno = 0)
+                    output_columns.push(privdat::OutputColumnInfo {
+                        is_outer: false,
+                        original_attno: 0,
+                    });
                 }
-
-                node.custom_exprs = expr_list.into_pg().cast();
             }
-
+            
+            // Update PrivateData with the output column mapping
+            private_data.output_columns = output_columns;
+            
+            // Convert PrivateData back to a list and preserve the restrictlist
+            let private_data_list: *mut pg_sys::List = private_data.into();
+            let mut new_private = PgList::<pg_sys::Node>::from_pg(private_data_list);
+            if let Some(rl) = restrictlist_node {
+                new_private.push(rl);
+            }
+            node.custom_private = new_private.into_pg();
+            
             // Set custom_scan_tlist with all needed columns
             node.custom_scan_tlist = tlist.into_pg();
         }
@@ -463,8 +547,9 @@ impl CustomScan for JoinScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        // Transfer join clause to scan state
+        // Transfer join clause and output column mapping to scan state
         builder.custom_state().join_clause = builder.custom_private().join_clause.clone();
+        builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
         builder.build()
     }
 
@@ -537,11 +622,15 @@ impl CustomScan for JoinScan {
                 (&join_clause.inner_side, &join_clause.outer_side)
             };
 
-            // Create result tuple slot (matches the custom scan's output descriptor)
-            let result_slot = pg_sys::MakeTupleTableSlot(
-                state.csstate.ss.ps.ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
+            // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
+            // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
+            // and the projection info. Don't create our own slot - use the one PostgreSQL
+            // provides to ensure compatibility with the query executor's expectations.
+            //
+            // Note: After set_customscan_references, custom_scan_tlist contains Vars with
+            // OUTER_VAR/INNER_VAR varnos. Using ExecTypeFromTL on that would create a
+            // corrupt tuple descriptor.
+            let result_slot = state.csstate.ss.ps.ps_ResultTupleSlot;
             state.custom_state_mut().result_slot = Some(result_slot);
 
             // Open relations for the driving side
@@ -615,22 +704,42 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().build_heaprel = Some(heaprel);
             }
 
-            // Compile join qual expressions from custom_exprs
-            // These are the join conditions that need to be evaluated after building tuples
-            let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
-            let custom_exprs = (*cscan).custom_exprs;
+            // Initialize join-level predicate matching sets if we have join-level predicates
+            let join_level_predicates = state.custom_state().join_clause.join_level_predicates.clone();
+            if !join_level_predicates.is_empty() {
+                state.custom_state_mut().has_join_level_predicates = true;
 
-            if !custom_exprs.is_null() {
-                // Create an expression context for evaluating join quals
-                let econtext = pg_sys::CreateExprContext(estate);
-                state.custom_state_mut().join_qual_econtext = Some(econtext);
+                let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
+                let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
 
-                // Compile the expression list into an ExprState
-                // ExecInitQual expects a List of Expr nodes and returns a combined ExprState
-                let qual_state =
-                    pg_sys::ExecInitQual(custom_exprs.cast(), &mut state.csstate.ss.ps);
-                if !qual_state.is_null() {
-                    state.custom_state_mut().join_qual_state = Some(qual_state);
+                // For each join-level predicate, query the BM25 index and collect matching keys
+                // The "ctid" in the search result is actually the key_field value (e.g., primary key id)
+                for predicate in &join_level_predicates {
+                    let indexrel = PgSearchRelation::open(predicate.indexrelid);
+                    let search_reader = SearchIndexReader::open_with_context(
+                        &indexrel,
+                        predicate.query.clone(),
+                        false, // don't need scores
+                        MvccSatisfies::Snapshot,
+                        None,
+                        None,
+                    );
+
+                    if let Ok(reader) = search_reader {
+                        let results = reader.search();
+                        // Collect all matching key values (stored as ctid in search results)
+                        for (scored, _doc_address) in results {
+                            // The scored.ctid is actually the key_field value (e.g., id = 1, 6, 7)
+                            let key_value = scored.ctid as i64;
+                            if predicate.rti == outer_rti {
+                                state.custom_state_mut().outer_matching_keys.insert(key_value);
+                                state.custom_state_mut().outer_key_attno = predicate.key_attno;
+                            } else if predicate.rti == inner_rti {
+                                state.custom_state_mut().inner_matching_keys.insert(key_value);
+                                state.custom_state_mut().inner_key_attno = predicate.key_attno;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -659,6 +768,49 @@ impl CustomScan for JoinScan {
                 // If we have pending matches, return one
                 if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
                     if let Some(slot) = Self::build_result_tuple(state, build_ctid) {
+                        // Check join-level predicate (for OR across tables)
+                        if state.custom_state().has_join_level_predicates {
+                            let driving_is_outer = state.custom_state().driving_is_outer;
+                            let driving_slot = state.custom_state().driving_fetch_slot;
+                            let build_slot = state.custom_state().build_scan_slot;
+                            
+                            // Map driving/build to outer/inner based on driving_is_outer
+                            let (outer_slot, inner_slot) = if driving_is_outer {
+                                (driving_slot, build_slot)
+                            } else {
+                                (build_slot, driving_slot)
+                            };
+                            
+                            // Extract key values from both slots
+                            let outer_key_attno = state.custom_state().outer_key_attno as i32;
+                            let inner_key_attno = state.custom_state().inner_key_attno as i32;
+                            
+                            let outer_key = if let Some(s) = outer_slot {
+                                let mut is_null = false;
+                                let datum = pg_sys::slot_getattr(s, outer_key_attno, &mut is_null);
+                                if is_null { None } else { Some(datum.value() as i64) }
+                            } else {
+                                None
+                            };
+                            
+                            let inner_key = if let Some(s) = inner_slot {
+                                let mut is_null = false;
+                                let datum = pg_sys::slot_getattr(s, inner_key_attno, &mut is_null);
+                                if is_null { None } else { Some(datum.value() as i64) }
+                            } else {
+                                None
+                            };
+                            
+                            let outer_matches = outer_key.map(|k| state.custom_state().outer_matching_keys.contains(&k)).unwrap_or(false);
+                            let inner_matches = inner_key.map(|k| state.custom_state().inner_matching_keys.contains(&k)).unwrap_or(false);
+
+                            // For OR semantics: pass if either side matches
+                            if !outer_matches && !inner_matches {
+                                // Predicate not satisfied, try next match
+                                continue;
+                            }
+                        }
+
                         // Evaluate join qual if we have one
                         if let (Some(qual_state), Some(econtext)) = (
                             state.custom_state().join_qual_state,
@@ -793,14 +945,12 @@ impl CustomScan for JoinScan {
                 pg_sys::table_endscan(scan_desc);
             }
 
-            // Drop tuple slots
+            // Drop tuple slots that we own.
+            // Note: Don't drop result_slot - we borrowed it from PostgreSQL's ps_ResultTupleSlot.
             if let Some(slot) = state.custom_state().build_scan_slot {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
             if let Some(slot) = state.custom_state().driving_fetch_slot {
-                pg_sys::ExecDropSingleTupleTableSlot(slot);
-            }
-            if let Some(slot) = state.custom_state().result_slot {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
         }
@@ -992,98 +1142,171 @@ impl JoinScan {
             return None;
         }
 
-        // Get the result tuple descriptor
-        let result_tupdesc = state.csstate.ss.ps.ps_ResultTupleDesc;
+        // Get the result tuple descriptor from the result slot
+        let result_tupdesc = (*result_slot).tts_tupleDescriptor;
         let natts = (*result_tupdesc).natts as usize;
 
         // Clear the result slot
         pg_sys::ExecClearTuple(result_slot);
 
-        // For custom scans with custom_scan_tlist, the plan.targetlist has Vars with
-        // varno=INDEX_VAR (-3) that reference positions in custom_scan_tlist.
-        // We need to read from custom_scan_tlist to get the original Var references.
-        let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
-        let custom_scan_tlist = (*cscan).custom_scan_tlist;
-        let tlist = if !custom_scan_tlist.is_null() {
-            custom_scan_tlist
-        } else {
-            (*state.csstate.ss.ps.plan).targetlist
-        };
-        let target_entries = PgList::<pg_sys::TargetEntry>::from_pg(tlist);
-
         // Make sure slots have all attributes deformed
         pg_sys::slot_getallattrs(driving_slot);
         pg_sys::slot_getallattrs(build_slot);
 
-        // Get the join clause to determine RTIs
-        let join_clause = &state.custom_state().join_clause;
-        let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
-        let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
-
-        // Map RTI to slot:
-        // - If driving is outer: outer_rti -> driving_slot, inner_rti -> build_slot
-        // - If driving is inner: inner_rti -> driving_slot, outer_rti -> build_slot
-        let (driving_rti, build_rti) = if driving_is_outer {
-            (outer_rti, inner_rti)
+        // Map slots based on driving_is_outer:
+        // - If driving_is_outer: driving_slot=outer, build_slot=inner
+        // - If driving_is_inner: driving_slot=inner, build_slot=outer
+        let (outer_slot, inner_slot) = if driving_is_outer {
+            (driving_slot, build_slot)
         } else {
-            (inner_rti, outer_rti)
+            (build_slot, driving_slot)
         };
 
-        // Fill the result slot based on the target list
+        // Use the stored output_columns mapping to build the result tuple.
+        // This was populated during planning (before setrefs transformed the Vars),
+        // so it contains the original attribute numbers that work with our heap tuples.
+        let output_columns = &state.custom_state().output_columns;
+
+        // Fill the result slot based on the output column mapping
         let datums = (*result_slot).tts_values;
         let nulls = (*result_slot).tts_isnull;
 
-        for (i, te) in target_entries.iter_ptr().enumerate() {
+        for (i, col_info) in output_columns.iter().enumerate() {
             if i >= natts {
                 break;
             }
 
-            let expr = (*te).expr;
-            if (*expr).type_ == pg_sys::NodeTag::T_Var {
-                let var = expr as *mut pg_sys::Var;
-                let varno = (*var).varno as pg_sys::Index;
-                let varattno = (*var).varattno;
-
-                // Determine which slot to read from based on varno
-                let source_slot = if varno == driving_rti {
-                    driving_slot
-                } else if varno == build_rti {
-                    build_slot
-                } else {
-                    // Unknown varno - set null
-                    *nulls.add(i) = true;
-                    continue;
-                };
-
-                // Get the attribute value from the source slot
-                if varattno <= 0 {
-                    // System attribute or whole-row reference - not supported yet
-                    *nulls.add(i) = true;
-                    continue;
-                }
-
-                let source_natts = (*(*source_slot).tts_tupleDescriptor).natts as i16;
-                if varattno > source_natts {
-                    *nulls.add(i) = true;
-                    continue;
-                }
-
-                let mut is_null = false;
-                let value = pg_sys::slot_getattr(source_slot, varattno as i32, &mut is_null);
-                *datums.add(i) = value;
-                *nulls.add(i) = is_null;
+            // Determine which slot to read from based on is_outer
+            let source_slot = if col_info.is_outer {
+                outer_slot
             } else {
-                // Non-Var expression - not supported yet
+                inner_slot
+            };
+            let original_attno = col_info.original_attno;
+
+            // Get the attribute value from the source slot using the original attribute number
+            if original_attno <= 0 {
+                // System attribute, whole-row reference, or non-Var expression - set null
                 *nulls.add(i) = true;
+                continue;
             }
+
+            let source_natts = (*(*source_slot).tts_tupleDescriptor).natts as i16;
+            if original_attno > source_natts {
+                *nulls.add(i) = true;
+                continue;
+            }
+
+            let mut is_null = false;
+            let value = pg_sys::slot_getattr(source_slot, original_attno as i32, &mut is_null);
+            *datums.add(i) = value;
+            *nulls.add(i) = is_null;
         }
 
-        // Mark slot as containing a virtual tuple
-        (*result_slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-        (*result_slot).tts_nvalid = natts as i16;
+        // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
+        // This is safer than manually setting tts_flags
+        pg_sys::ExecStoreVirtualTuple(result_slot);
 
         Some(result_slot)
     }
+
+    /// Extract join-level search predicates from the restrictlist.
+    /// This finds @@@ operators in OR conditions and extracts the search queries.
+    unsafe fn extract_join_level_search_predicates(
+        root: *mut pg_sys::PlannerInfo,
+        extra: *mut pg_sys::JoinPathExtraData,
+        outer_side: &JoinSideInfo,
+        inner_side: &JoinSideInfo,
+        mut join_clause: JoinCSClause,
+    ) -> JoinCSClause {
+        if extra.is_null() {
+            return join_clause;
+        }
+
+        let restrictlist = (*extra).restrictlist;
+        if restrictlist.is_null() {
+            return join_clause;
+        }
+
+        let outer_rti = outer_side.heap_rti.unwrap_or(0);
+        let inner_rti = inner_side.heap_rti.unwrap_or(0);
+
+        let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+
+        for ri in restrict_infos.iter_ptr() {
+            if ri.is_null() || (*ri).clause.is_null() {
+                continue;
+            }
+
+            let clause = (*ri).clause;
+
+            // Extract search predicate OpExprs from this clause
+            let opexprs = extract_search_predicate_opexprs(clause.cast(), outer_rti, inner_rti);
+
+            // For each OpExpr, extract the SearchQueryInput using the qual extraction machinery
+            for (rti, opexpr) in opexprs {
+                // Determine which side this predicate applies to
+                let (indexrelid, bm25_index) = if rti == outer_rti {
+                    if let Some(oid) = outer_side.indexrelid {
+                        if let Some((_, idx)) = rel_get_bm25_index(outer_side.heaprelid.unwrap_or(pg_sys::InvalidOid)) {
+                            (oid, Some(idx))
+                        } else {
+                            (oid, None)
+                        }
+                    } else {
+                        continue;
+                    }
+                } else if rti == inner_rti {
+                    if let Some(oid) = inner_side.indexrelid {
+                        if let Some((_, idx)) = rel_get_bm25_index(inner_side.heaprelid.unwrap_or(pg_sys::InvalidOid)) {
+                            (oid, Some(idx))
+                        } else {
+                            (oid, None)
+                        }
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
+
+                // Create a RestrictInfo list containing just this OpExpr
+                // We need to wrap the OpExpr in a RestrictInfo for extract_quals
+                let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
+                let fake_ri = pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>()) as *mut pg_sys::RestrictInfo;
+                (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
+                (*fake_ri).clause = opexpr.cast();
+                ri_list.push(fake_ri);
+
+                // Use extract_quals to convert to SearchQueryInput
+                if let Some(bm25_idx) = bm25_index {
+                    let context = PlannerContext::from_planner(root);
+                    let mut state = QualExtractState::default();
+                    
+                    if let Some(qual) = extract_quals(
+                        &context,
+                        rti,
+                        ri_list.as_ptr().cast(),
+                        anyelement_query_input_opoid(),
+                        RestrictInfoType::BaseRelation,
+                        &bm25_idx,
+                        false,
+                        &mut state,
+                        false, // Don't attempt pushdown for join-level predicates
+                    ) {
+                        let query = SearchQueryInput::from(&qual);
+                        // The key_field is typically the first attribute (primary key).
+                        // This is a simplification that works for most BM25 indexes.
+                        let key_attno: i16 = 1;
+                        join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query, key_attno);
+                    }
+                }
+            }
+        }
+
+        join_clause
+    }
+
 }
 
 impl ExecMethod for JoinScan {

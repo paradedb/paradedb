@@ -18,11 +18,12 @@
 use crate::api::HashMap;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
+use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 /// Represents an inner side row stored in the hash table.
 #[derive(Debug, Clone)]
@@ -101,6 +102,25 @@ pub struct JoinScanState {
     pub join_qual_state: Option<*mut pg_sys::ExprState>,
     /// Expression context for evaluating join quals.
     pub join_qual_econtext: Option<*mut pg_sys::ExprContext>,
+
+    // === Output column mapping ===
+    /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
+    /// Populated from PrivateData during create_custom_scan_state.
+    pub output_columns: Vec<OutputColumnInfo>,
+
+    // === Join-level predicate evaluation ===
+    /// Set of outer relation key values that match any join-level predicate targeting the outer relation.
+    /// The key is the BM25 index's key_field value (typically primary key), not the heap ctid.
+    pub outer_matching_keys: HashSet<i64>,
+    /// Set of inner relation key values that match any join-level predicate targeting the inner relation.
+    /// The key is the BM25 index's key_field value (typically primary key), not the heap ctid.
+    pub inner_matching_keys: HashSet<i64>,
+    /// Whether we have join-level predicates to evaluate.
+    pub has_join_level_predicates: bool,
+    /// Attribute number of the key field in the outer relation (for extracting key from tuples).
+    pub outer_key_attno: i16,
+    /// Attribute number of the key field in the inner relation (for extracting key from tuples).
+    pub inner_key_attno: i16,
 }
 
 impl JoinScanState {
@@ -113,6 +133,8 @@ impl JoinScanState {
         self.pending_build_ctids.clear();
         self.driving_search_results = None;
         self.rows_returned = 0;
+        self.outer_matching_keys.clear();
+        self.inner_matching_keys.clear();
     }
 
     /// Returns the limit from the join clause, if any.

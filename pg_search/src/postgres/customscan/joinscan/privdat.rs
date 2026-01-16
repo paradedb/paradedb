@@ -22,16 +22,31 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;
 use serde::{Deserialize, Serialize};
 
+/// Describes which relation a column comes from and its original attribute number.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OutputColumnInfo {
+    /// True if the column comes from the outer relation, false for inner.
+    pub is_outer: bool,
+    /// The original attribute number in the source relation (1-indexed).
+    pub original_attno: i16,
+}
+
 /// Private data stored in the CustomPath/CustomScan for join operations.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PrivateData {
     /// The join clause containing all information about both sides and the join itself.
     pub join_clause: JoinCSClause,
+    /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
+    /// This is populated during planning (before setrefs) and used during execution.
+    pub output_columns: Vec<OutputColumnInfo>,
 }
 
 impl PrivateData {
     pub fn new(join_clause: JoinCSClause) -> Self {
-        Self { join_clause }
+        Self {
+            join_clause,
+            output_columns: Vec::new(),
+        }
     }
 
     /// Returns a reference to the join clause.

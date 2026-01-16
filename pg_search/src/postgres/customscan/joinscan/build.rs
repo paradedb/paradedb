@@ -100,6 +100,20 @@ pub struct JoinKeyPair {
     pub inner_attno: pg_sys::AttrNumber,
 }
 
+/// A join-level search predicate - a search query that applies to a specific relation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinLevelSearchPredicate {
+    /// The RTI of the relation this predicate applies to.
+    pub rti: pg_sys::Index,
+    /// The OID of the BM25 index to use.
+    pub indexrelid: pg_sys::Oid,
+    /// The search query.
+    pub query: SearchQueryInput,
+    /// The attribute number of the key field in this relation.
+    /// This is the column that the BM25 index uses as its key_field.
+    pub key_attno: i16,
+}
+
 /// The clause information for a Join Custom Scan.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct JoinCSClause {
@@ -119,6 +133,9 @@ pub struct JoinCSClause {
     /// Whether there's a join-level search predicate (e.g., OR across tables).
     /// This enables JoinScan even when no single side has a @@@ predicate.
     pub has_join_level_search_predicate: bool,
+    /// Join-level search predicates extracted from OR conditions.
+    /// These are evaluated during execution for each joined tuple.
+    pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
 }
 
 impl JoinCSClause {
@@ -153,6 +170,22 @@ impl JoinCSClause {
 
     pub fn with_has_join_level_search_predicate(mut self, has_predicate: bool) -> Self {
         self.has_join_level_search_predicate = has_predicate;
+        self
+    }
+
+    pub fn add_join_level_predicate(
+        mut self,
+        rti: pg_sys::Index,
+        indexrelid: pg_sys::Oid,
+        query: SearchQueryInput,
+        key_attno: i16,
+    ) -> Self {
+        self.join_level_predicates.push(JoinLevelSearchPredicate {
+            rti,
+            indexrelid,
+            query,
+            key_attno,
+        });
         self
     }
 

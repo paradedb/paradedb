@@ -369,6 +369,10 @@ impl CustomScan for JoinScan {
                 });
             }
 
+            // Initialize memory limit from work_mem (in KB, convert to bytes)
+            let work_mem_bytes = (pg_sys::work_mem as usize) * 1024;
+            state.custom_state_mut().max_hash_memory = work_mem_bytes;
+
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
             // and the projection info. Don't create our own slot - use the one PostgreSQL
@@ -558,6 +562,11 @@ impl CustomScan for JoinScan {
             if !state.custom_state().hash_table_built {
                 Self::build_hash_table(state);
                 state.custom_state_mut().hash_table_built = true;
+            }
+
+            // If we exceeded memory limit, use nested loop instead of hash join
+            if state.custom_state().using_nested_loop {
+                return Self::exec_nested_loop(state);
             }
 
             // Phase 2: Probe hash table with driving side search results
@@ -765,6 +774,7 @@ impl JoinScan {
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
         let build_key_info = state.custom_state().build_key_info.clone();
         let has_equi_join_keys = !build_key_info.is_empty();
+        let max_hash_memory = state.custom_state().max_hash_memory;
 
         let Some(scan_desc) = state.custom_state().build_scan_desc else {
             return;
@@ -788,6 +798,24 @@ impl JoinScan {
                 None => continue, // Skip rows with NULL keys
             };
 
+            // Estimate memory for this entry
+            let entry_size = estimate_entry_size(&key);
+            let new_memory = state.custom_state().hash_table_memory + entry_size;
+
+            // Check memory limit
+            if new_memory > max_hash_memory && max_hash_memory > 0 {
+                // Exceeded memory limit - switch to nested loop
+                state.custom_state_mut().hash_table.clear();
+                state.custom_state_mut().hash_table_memory = 0;
+                state.custom_state_mut().using_nested_loop = true;
+
+                // Reset scan to beginning for nested loop
+                pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
+                break;
+            }
+
+            state.custom_state_mut().hash_table_memory = new_memory;
+
             // Add to hash table
             state
                 .custom_state_mut()
@@ -799,6 +827,130 @@ impl JoinScan {
 
         // Store whether we're doing a cross join for later use
         state.custom_state_mut().is_cross_join = !has_equi_join_keys;
+    }
+
+    /// Execute nested loop join when hash join exceeds memory limit.
+    /// This is a fallback that uses less memory but has O(N*M) complexity.
+    unsafe fn exec_nested_loop(
+        state: &mut CustomScanStateWrapper<Self>,
+    ) -> *mut pg_sys::TupleTableSlot {
+        let Some(scan_desc) = state.custom_state().build_scan_desc else {
+            return std::ptr::null_mut();
+        };
+        let Some(build_slot) = state.custom_state().build_scan_slot else {
+            return std::ptr::null_mut();
+        };
+
+        loop {
+            // Check limit
+            if state.custom_state().reached_limit() {
+                return std::ptr::null_mut();
+            }
+
+            // If we have pending matches, return one
+            if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
+                if let Some(slot) = Self::build_result_tuple(state, build_ctid) {
+                    state.custom_state_mut().rows_returned += 1;
+                    return slot;
+                }
+                continue;
+            }
+
+            // Need a driving row. If we don't have one, get the next one.
+            if state.custom_state().current_driving_ctid.is_none() {
+                // Get next driving row
+                let (driving_ctid, driving_score) =
+                    if state.custom_state().driving_search_reader.is_some() {
+                        let need_init = state.custom_state().driving_search_results.is_none();
+                        if need_init {
+                            let reader = state.custom_state().driving_search_reader.as_ref();
+                            if let Some(reader) = reader {
+                                let results = reader.search();
+                                state.custom_state_mut().driving_search_results = Some(results);
+                            } else {
+                                return std::ptr::null_mut();
+                            }
+                        }
+
+                        let driving_search_results =
+                            state.custom_state_mut().driving_search_results.as_mut();
+                        let Some(results) = driving_search_results else {
+                            return std::ptr::null_mut();
+                        };
+
+                        let next_result = results.next();
+                        let Some((scored, _doc_address)) = next_result else {
+                            return std::ptr::null_mut();
+                        };
+
+                        (scored.ctid, scored.bm25)
+                    } else if let Some(driving_scan_desc) = state.custom_state().driving_scan_desc {
+                        let slot = state.custom_state().driving_fetch_slot;
+                        let Some(slot) = slot else {
+                            return std::ptr::null_mut();
+                        };
+
+                        let has_tuple = pg_sys::table_scan_getnextslot(
+                            driving_scan_desc,
+                            pg_sys::ScanDirection::ForwardScanDirection,
+                            slot,
+                        );
+
+                        if !has_tuple {
+                            return std::ptr::null_mut();
+                        }
+
+                        let ctid = item_pointer_to_u64((*slot).tts_tid);
+                        (ctid, 0.0)
+                    } else {
+                        return std::ptr::null_mut();
+                    };
+
+                state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
+                state.custom_state_mut().current_driving_score = driving_score;
+
+                // Reset build side scan for this driving row
+                pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
+            }
+
+            // Now scan the build side for this driving row
+            while pg_sys::table_scan_getnextslot(
+                scan_desc,
+                pg_sys::ScanDirection::ForwardScanDirection,
+                build_slot,
+            ) {
+                let build_ctid = item_pointer_to_u64((*build_slot).tts_tid);
+
+                // For nested loop, we compare keys on the fly
+                let driving_key_info = state.custom_state().driving_key_info.clone();
+                let build_key_info = state.custom_state().build_key_info.clone();
+                let driving_slot = state.custom_state().driving_fetch_slot;
+
+                // Extract keys and compare
+                if let Some(driving_slot) = driving_slot {
+                    let driving_key = extract_composite_key(driving_slot, &driving_key_info);
+                    let build_key = extract_composite_key(build_slot, &build_key_info);
+
+                    // Check if keys match (or if it's a cross join)
+                    let keys_match = match (&driving_key, &build_key) {
+                        (Some(CompositeKey::CrossJoin), Some(CompositeKey::CrossJoin)) => true,
+                        (Some(dk), Some(bk)) => dk == bk,
+                        _ => false, // NULL keys don't match
+                    };
+
+                    if keys_match {
+                        // Add to pending matches
+                        state
+                            .custom_state_mut()
+                            .pending_build_ctids
+                            .push_back(build_ctid);
+                    }
+                }
+            }
+
+            // Done with this driving row, clear it to get the next one
+            state.custom_state_mut().current_driving_ctid = None;
+        }
     }
 
     /// Extract the join key from the driving tuple.
@@ -1151,6 +1303,22 @@ unsafe fn extract_join_conditions(
     }
 
     result
+}
+
+/// Estimate the memory size of a hash table entry.
+fn estimate_entry_size(key: &CompositeKey) -> usize {
+    let key_size = match key {
+        CompositeKey::CrossJoin => 0,
+        CompositeKey::Values(values) => {
+            values
+                .iter()
+                .map(|v| v.data.len() + std::mem::size_of::<Vec<u8>>())
+                .sum::<usize>()
+                + std::mem::size_of::<Vec<KeyValue>>()
+        }
+    };
+    // InnerRow (ctid: u64) + Vec overhead + HashMap entry overhead
+    std::mem::size_of::<InnerRow>() + key_size + 64
 }
 
 /// Get type length and pass-by-value info for a given type OID.

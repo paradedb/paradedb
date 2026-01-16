@@ -168,6 +168,14 @@ pub struct JoinScanState {
     pub inner_matching_ctids: HashSet<u64>,
     /// Whether we have join-level predicates to evaluate.
     pub has_join_level_predicates: bool,
+
+    // === Memory tracking ===
+    /// Estimated memory used by hash table (bytes).
+    pub hash_table_memory: usize,
+    /// Maximum allowed memory for hash table (from work_mem, in bytes).
+    pub max_hash_memory: usize,
+    /// Whether we exceeded memory limit and fell back to nested loop.
+    pub using_nested_loop: bool,
 }
 
 impl JoinScanState {
@@ -182,6 +190,8 @@ impl JoinScanState {
         self.rows_returned = 0;
         self.outer_matching_ctids.clear();
         self.inner_matching_ctids.clear();
+        self.hash_table_memory = 0;
+        self.using_nested_loop = false;
     }
 
     /// Returns the limit from the join clause, if any.

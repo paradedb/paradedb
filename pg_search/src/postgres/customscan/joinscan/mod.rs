@@ -39,6 +39,7 @@ use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, 
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::utils::expr_contains_any_operator;
 use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
 use pgrx::itemptr::item_pointer_to_u64;
@@ -58,44 +59,6 @@ struct JoinConditions {
     other_conditions: Vec<*mut pg_sys::RestrictInfo>,
     /// Whether any join-level condition contains our @@@ operator.
     has_search_predicate: bool,
-}
-
-/// Check if an expression contains our @@@ operator recursively.
-unsafe fn contains_search_operator(expr: *mut pg_sys::Node) -> bool {
-    if expr.is_null() {
-        return false;
-    }
-
-    let our_opoid = anyelement_query_input_opoid();
-
-    match (*expr).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = expr as *mut pg_sys::OpExpr;
-            // Check if this is our @@@ operator
-            if (*opexpr).opno == our_opoid {
-                return true;
-            }
-            // Recurse into arguments
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-            for arg in args.iter_ptr() {
-                if contains_search_operator(arg) {
-                    return true;
-                }
-            }
-            false
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = expr as *mut pg_sys::BoolExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                if contains_search_operator(arg) {
-                    return true;
-                }
-            }
-            false
-        }
-        _ => false,
-    }
 }
 
 /// Extract join conditions from the restrict list.
@@ -133,7 +96,8 @@ unsafe fn extract_join_conditions(
         }
 
         // Check if this clause contains our @@@ operator
-        if contains_search_operator(clause.cast()) {
+        let search_op = anyelement_query_input_opoid();
+        if expr_contains_any_operator(clause.cast(), &[search_op]) {
             result.has_search_predicate = true;
         }
 

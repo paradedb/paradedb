@@ -718,7 +718,7 @@ impl CustomScan for PdbScan {
                     total_rows,
                     segment_count,
                     quals.contains_external_var(),
-                    quals.contains_exec_param(),
+                    quals.contains_correlated_param(builder.args().root),
                 )
             } else {
                 0

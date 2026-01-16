@@ -39,7 +39,7 @@ use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, 
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::expr_contains_any_operator;
+use crate::postgres::utils::{expr_contains_any_operator, expr_extract_search_opexprs};
 use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
 use pgrx::itemptr::item_pointer_to_u64;
@@ -143,71 +143,6 @@ unsafe fn extract_join_conditions(
     }
 
     result
-}
-
-/// Extract search predicate info from an expression recursively.
-/// Returns a vector of (rti, opexpr) tuples for each @@@ predicate found.
-/// We store the OpExpr pointer so we can use extract_quals later with full context.
-unsafe fn extract_search_predicate_opexprs(
-    expr: *mut pg_sys::Node,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
-) -> Vec<(pg_sys::Index, *mut pg_sys::OpExpr)> {
-    let mut predicates = Vec::new();
-
-    if expr.is_null() {
-        return predicates;
-    }
-
-    let our_opoid = anyelement_query_input_opoid();
-
-    match (*expr).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = expr as *mut pg_sys::OpExpr;
-            if (*opexpr).opno == our_opoid {
-                // This is our @@@ operator - find which relation it references
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                if !args.is_empty() {
-                    let arg0 = args.get_ptr(0).unwrap();
-
-                    // First arg should be a Var referencing a relation
-                    if (*arg0).type_ == pg_sys::NodeTag::T_Var {
-                        let var = arg0 as *mut pg_sys::Var;
-                        let varno = (*var).varno as pg_sys::Index;
-
-                        // Check if this Var belongs to outer or inner
-                        if varno == outer_rti || varno == inner_rti {
-                            predicates.push((varno, opexpr));
-                        }
-                    }
-                }
-            } else {
-                // Recurse into arguments
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                for arg in args.iter_ptr() {
-                    predicates.extend(extract_search_predicate_opexprs(arg, outer_rti, inner_rti));
-                }
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let boolexpr = expr as *mut pg_sys::BoolExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-            for arg in args.iter_ptr() {
-                predicates.extend(extract_search_predicate_opexprs(arg, outer_rti, inner_rti));
-            }
-        }
-        pg_sys::NodeTag::T_RelabelType => {
-            let relabel = expr as *mut pg_sys::RelabelType;
-            predicates.extend(extract_search_predicate_opexprs(
-                (*relabel).arg.cast(),
-                outer_rti,
-                inner_rti,
-            ));
-        }
-        _ => {}
-    }
-
-    predicates
 }
 
 /// Try to extract join side information from a RelOptInfo.
@@ -1199,8 +1134,12 @@ impl JoinScan {
 
             let clause = (*ri).clause;
 
-            // Extract search predicate OpExprs from this clause
-            let opexprs = extract_search_predicate_opexprs(clause.cast(), outer_rti, inner_rti);
+            // Extract search predicate OpExprs from this clause, filtered to outer/inner RTIs
+            let search_op = anyelement_query_input_opoid();
+            let opexprs: Vec<_> = expr_extract_search_opexprs(clause.cast(), &[search_op])
+                .into_iter()
+                .filter(|(rti, _)| *rti == outer_rti || *rti == inner_rti)
+                .collect();
 
             // For each OpExpr, extract the SearchQueryInput using the qual extraction machinery
             for (rti, opexpr) in opexprs {

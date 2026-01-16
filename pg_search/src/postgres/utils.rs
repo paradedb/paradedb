@@ -842,6 +842,70 @@ pub unsafe fn expr_contains_any_operator(
     context.found
 }
 
+/// Extract all OpExpr nodes from an expression tree that match the target operators.
+///
+/// Similar to [`expr_contains_any_operator`], but returns the matching OpExpr pointers
+/// instead of just a boolean. Uses PostgreSQL's expression_tree_walker for proper traversal.
+///
+/// For each matching OpExpr, also extracts the RTI (range table index) from the first Var
+/// argument if present.
+pub unsafe fn expr_extract_search_opexprs(
+    node: *mut pg_sys::Node,
+    target_opnos: &[pg_sys::Oid],
+) -> Vec<(pg_sys::Index, *mut pg_sys::OpExpr)> {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &mut *(data as *mut Context);
+        let node_type = (*node).type_;
+
+        // Check if this node is an OpExpr with one of our target operators
+        if node_type == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = node as *mut pg_sys::OpExpr;
+            if context.target_opnos.contains(&(*opexpr).opno) {
+                // Found a match! Extract the RTI from the first Var argument if present
+                let args = pgrx::PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                let rti = if !args.is_empty() {
+                    let arg0 = args.get_ptr(0).unwrap();
+                    if (*arg0).type_ == pg_sys::NodeTag::T_Var {
+                        let var = arg0 as *mut pg_sys::Var;
+                        (*var).varno as pg_sys::Index
+                    } else {
+                        0 // No Var found
+                    }
+                } else {
+                    0
+                };
+                context.results.push((rti, opexpr));
+                // Continue walking to find more matches (don't return true)
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    struct Context {
+        target_opnos: Vec<pg_sys::Oid>,
+        results: Vec<(pg_sys::Index, *mut pg_sys::OpExpr)>,
+    }
+
+    let mut context = Context {
+        target_opnos: target_opnos.to_vec(),
+        results: Vec::new(),
+    };
+
+    walker(node, addr_of_mut!(context).cast());
+    context.results
+}
+
 /// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
 pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {

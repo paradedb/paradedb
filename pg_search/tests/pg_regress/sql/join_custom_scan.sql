@@ -216,6 +216,37 @@ WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 7B: Both side-level AND join-level predicates combined
+-- =============================================================================
+-- This test shows a query where both sides have side-level predicates AND
+-- there's a join-level predicate spanning both tables.
+-- Side-level inner: p.description @@@ 'wireless' matches 201,206,207
+-- Side-level outer: s.contact_info @@@ 'technology' matches 151
+-- Join candidates after side filters: (201,151), (206,151)
+-- Join-level: p.name @@@ 'headphones' OR s.name @@@ 'TechCorp'
+--   - p.name @@@ 'headphones': matches 206
+--   - s.name @@@ 'TechCorp': matches 151
+-- Since supplier 151 matches 'TechCorp', both (201,151) and (206,151) pass
+-- Expected: 2 rows (201 and 206)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+  AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+LIMIT 10;
+
+-- =============================================================================
 -- TEST 8: Aggregate Score pattern - OR across tables (without LIMIT)
 -- =============================================================================
 

@@ -379,15 +379,15 @@ impl CustomScan for JoinScan {
             explainer.add_text("Has Filter", "true");
         }
 
-        // Show side-level search predicates
+        // Show side-level search predicates with clear labeling
         if join_clause.outer_side.has_search_predicate {
             if let Some(ref query) = join_clause.outer_side.query {
-                explainer.add_query(query);
+                explainer.add_explainable("Outer Tantivy Query", query);
             }
         }
         if join_clause.inner_side.has_search_predicate {
             if let Some(ref query) = join_clause.inner_side.query {
-                explainer.add_query(query);
+                explainer.add_explainable("Inner Tantivy Query", query);
             }
         }
 
@@ -1551,8 +1551,14 @@ unsafe fn extract_join_conditions(
         }
 
         // If it's not an equi-join, it's an "other" condition
+        // BUT: Skip conditions that contain our @@@ search operator, as these
+        // will be handled separately via join-level predicate evaluation
         if !is_equi_join {
-            result.other_conditions.push(ri);
+            let search_op = anyelement_query_input_opoid();
+            let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+            if !has_search_op {
+                result.other_conditions.push(ri);
+            }
         }
     }
 

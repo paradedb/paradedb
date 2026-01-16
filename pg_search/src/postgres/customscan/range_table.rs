@@ -17,6 +17,29 @@
 
 use pgrx::{pg_sys, PgList};
 
+/// Check if an RTE represents a plain table (not a view, subquery, etc.)
+/// Returns the relid if it's a plain relation (RELKIND_RELATION or RELKIND_MATVIEW).
+pub unsafe fn get_plain_relation_relid(rte: *mut pg_sys::RangeTblEntry) -> Option<pg_sys::Oid> {
+    if rte.is_null() {
+        return None;
+    }
+
+    // Must be a plain relation RTE
+    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
+        return None;
+    }
+
+    let relid = (*rte).relid;
+    let relkind = pg_sys::get_rel_relkind(relid) as u8;
+
+    // Only support regular tables and materialized views
+    if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
+        return None;
+    }
+
+    Some(relid)
+}
+
 /// If the given Bitmapset has exactly one member, return it.
 pub unsafe fn bms_exactly_one_member(bms: *mut pg_sys::Bitmapset) -> Option<pg_sys::Index> {
     let mut members = bms_iter(bms);

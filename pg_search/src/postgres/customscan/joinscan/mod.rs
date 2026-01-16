@@ -34,7 +34,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::range_table::bms_iter;
+use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -170,27 +170,14 @@ unsafe fn extract_join_side_info(
         return None;
     }
 
-    // Get the RTE for this relation
+    // Get the RTE and verify it's a plain relation
     let rtable = (*(*root).parse).rtable;
     if rtable.is_null() {
         return None;
     }
 
     let rte = pg_sys::rt_fetch(rti, rtable);
-    if rte.is_null() {
-        return None;
-    }
-
-    // We only support plain relations
-    if (*rte).rtekind != pg_sys::RTEKind::RTE_RELATION {
-        return None;
-    }
-
-    let relid = (*rte).relid;
-    let relkind = pg_sys::get_rel_relkind(relid) as u8;
-    if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-        return None;
-    }
+    let relid = get_plain_relation_relid(rte)?;
 
     let mut side_info = JoinSideInfo::new().with_heap_rti(rti).with_heaprelid(relid);
 

@@ -556,7 +556,8 @@ LIMIT 10;
  201 | Wireless Mouse | TechCorp
  203 | Keyboard       | TechCorp
  206 | Headphones     | TechCorp
-(3 rows)
+ 207 | Mouse Pad      | GlobalSupply
+(4 rows)
 
 -- =============================================================================
 -- TEST 13: Non-equijoin conditions (arbitrary join expressions)

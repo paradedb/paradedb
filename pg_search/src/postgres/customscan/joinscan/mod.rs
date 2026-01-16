@@ -714,10 +714,19 @@ impl CustomScan for JoinScan {
                 let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
                 let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
 
-                // For each join-level predicate, query the BM25 index and collect matching keys
-                // The "ctid" in the search result is actually the key_field value (e.g., primary key id)
+                // For each join-level predicate, query the BM25 index and collect matching ctids.
+                // We must verify each ctid is visible (tuple exists at that location) because
+                // after UPDATE, the BM25 index may contain stale ctids pointing to dead tuples.
                 for predicate in &join_level_predicates {
                     let indexrel = PgSearchRelation::open(predicate.indexrelid);
+
+                    // Get the heaprel for this predicate to do visibility checks
+                    let heaprelid = if predicate.rti == outer_rti {
+                        join_clause.outer_side.heaprelid
+                    } else {
+                        join_clause.inner_side.heaprelid
+                    };
+
                     let search_reader = SearchIndexReader::open_with_context(
                         &indexrel,
                         predicate.query.clone(),
@@ -728,21 +737,58 @@ impl CustomScan for JoinScan {
                     );
 
                     if let Ok(reader) = search_reader {
+                        // Create a visibility checker and slot for this relation
+                        let (mut vis_checker, check_slot) = if let Some(hrid) = heaprelid {
+                            let heaprel = PgSearchRelation::open(hrid);
+                            let checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                            // Create a BufferHeapTupleTableSlot for the heap relation
+                            let slot = pg_sys::MakeTupleTableSlot(
+                                heaprel.rd_att,
+                                &pg_sys::TTSOpsBufferHeapTuple,
+                            );
+                            (Some(checker), slot)
+                        } else {
+                            (None, std::ptr::null_mut())
+                        };
+
                         let results = reader.search();
-                        // Collect all matching key values (stored as ctid in search results)
+                        // Collect matching ctids, but verify visibility first.
+                        // IMPORTANT: After visibility check, we use the CURRENT ctid from the slot,
+                        // not the old ctid from the index. This handles cases where tuples moved
+                        // (UPDATE) but the index hasn't been vacuumed yet.
                         for (scored, _doc_address) in results {
-                            // scored.ctid IS the actual heap ctid (stored via item_pointer_to_u64 during indexing)
-                            if predicate.rti == outer_rti {
-                                state
-                                    .custom_state_mut()
-                                    .outer_matching_ctids
-                                    .insert(scored.ctid);
-                            } else if predicate.rti == inner_rti {
-                                state
-                                    .custom_state_mut()
-                                    .inner_matching_ctids
-                                    .insert(scored.ctid);
+                            // Check if the tuple at this ctid is actually visible.
+                            // If visible, exec_if_visible fills the slot with the found tuple.
+                            let current_ctid = if let Some(ref mut checker) = vis_checker {
+                                if checker
+                                    .exec_if_visible(scored.ctid, check_slot, |_| true)
+                                    .is_some()
+                                {
+                                    // Tuple is visible - get the CURRENT ctid from the slot
+                                    // This handles HOT chains and tuple movements
+                                    let current = crate::postgres::utils::item_pointer_to_u64(
+                                        (*check_slot).tts_tid,
+                                    );
+                                    Some(current)
+                                } else {
+                                    None // Tuple not visible (deleted)
+                                }
+                            } else {
+                                Some(scored.ctid) // No checker, use index ctid
+                            };
+
+                            if let Some(ctid) = current_ctid {
+                                if predicate.rti == outer_rti {
+                                    state.custom_state_mut().outer_matching_ctids.insert(ctid);
+                                } else if predicate.rti == inner_rti {
+                                    state.custom_state_mut().inner_matching_ctids.insert(ctid);
+                                }
                             }
+                        }
+
+                        // Clean up the check slot
+                        if !check_slot.is_null() {
+                            pg_sys::ExecDropSingleTupleTableSlot(check_slot);
                         }
                     }
                 }
@@ -787,7 +833,6 @@ impl CustomScan for JoinScan {
                             };
 
                             // Convert heap ctids to u64 using the SAME encoding as the BM25 index
-                            // The BM25 index uses crate::postgres::utils::item_pointer_to_u64 (16-bit shift)
                             let outer_ctid_u64 = outer_slot
                                 .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid));
 

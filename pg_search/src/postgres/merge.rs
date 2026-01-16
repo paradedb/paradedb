@@ -56,11 +56,11 @@ impl TryFrom<u8> for MergeStyle {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BackgroundMergeArgs {
     index_oid: pg_sys::Oid,
-    slot_variant: u8,
+    slot_variant: MergeSlotVariant,
 }
 
 impl BackgroundMergeArgs {
-    pub fn new(index_oid: pg_sys::Oid, slot_variant: u8) -> Self {
+    pub fn new(index_oid: pg_sys::Oid, slot_variant: MergeSlotVariant) -> Self {
         Self {
             index_oid,
             slot_variant,
@@ -71,7 +71,7 @@ impl BackgroundMergeArgs {
         self.index_oid
     }
 
-    pub fn slot_variant(&self) -> u8 {
+    pub fn slot_variant(&self) -> MergeSlotVariant {
         self.slot_variant
     }
 }
@@ -105,7 +105,7 @@ impl FromDatum for BackgroundMergeArgs {
 
         Some(Self {
             index_oid: index_oid.into(),
-            slot_variant,
+            slot_variant: slot_variant.try_into().unwrap(),
         })
     }
 }
@@ -294,7 +294,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, largest_layer_s
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(BackgroundMergeArgs::new(index.oid(), slot.variant() as u8).into_datum())
+        .set_argument(BackgroundMergeArgs::new(index.oid(), slot.variant()).into_datum())
         .set_extra(&dbname)
         .load_dynamic()
         .is_err()
@@ -338,6 +338,8 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         // this checks to see if a merger is already running for the given layer
         let merge_slot =
             MergeSlot::new(index.oid(), args.slot_variant().try_into().unwrap()).lock();
+        // todo: this could potentially wait instead of returning immediately if the lock is not available
+        // to avoid racing with other backends trying to probe the slot
         if merge_slot.is_none() {
             return;
         }
@@ -502,7 +504,7 @@ pub fn free_entries(
 
 // random key, ensures that this advisory slot key doesn't conflict
 // with other Postgres advisory locks
-const MERGE_SLOT_KEY: u32 = 0x5047534D;
+const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
 // We at most allow 2 concurrent background merges
 // The first background merge is for "small" merges, the second is for "large" merges
 // This makes it so that a long-running large merge doesn't block smaller merges from happening
@@ -572,7 +574,7 @@ impl MergeSlot {
     fn key(&self) -> i64 {
         let variant = self.variant as u8;
         let payload = ((u32::from(self.index_oid) as u64) << SLOT_BITS) | (variant as u64);
-        ((MERGE_SLOT_KEY as i64) << 32) | (payload as i64)
+        ((MERGE_SLOT_KEY_BASE as i64) << 32) | (payload as i64)
     }
 
     fn variant(&self) -> MergeSlotVariant {
@@ -678,17 +680,17 @@ mod tests {
 
     #[pg_test]
     fn test_background_merge_args() {
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), 1);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(100), MergeSlotVariant::Large);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), 0);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(0), MergeSlotVariant::Small);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);
 
-        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), 2);
+        let args = BackgroundMergeArgs::new(pg_sys::Oid::from(u32::MAX), MergeSlotVariant::Large);
         let datum = args.into_datum().unwrap();
         let args2 = unsafe { BackgroundMergeArgs::from_datum(datum, false).unwrap() };
         assert_eq!(args, args2);

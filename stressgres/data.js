@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768530494124,
+  "lastUpdate": 1768530499559,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -82120,6 +82120,186 @@ window.BENCHMARK_DATA = {
             "value": 30.28125,
             "unit": "median mem",
             "extra": "avg mem: 29.582171373779637, max mem: 30.359375, count: 53775"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "varunkkv.mec@gmail.com",
+            "name": "K V Varun Krishnan",
+            "username": "vrn21"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "462740bbb1f2a5794daa34f8cb0ba0c864051701",
+          "message": "feat: Add TopN Scan Validation (#3816)\n\n# Ticket(s) Closed\n\n- Closes #3687\n\n## What\n\nAdded `paradedb.check_topn_scan` GUC that emits a warning when a query\nwith LIMIT should use TopN scan but falls back to a slower execution\nmethod.\n\n**Files changed:**\n-\n[pg_search/src/gucs.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/gucs.rs)\n(+17 lines) — GUC definition\n-\n[pg_search/src/postgres/customscan/pdbscan/mod.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs)\n(+96 lines) — Validation logic\n-\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\n(+116 lines) — Tests\n\n## Why\n\nParadeDB silently falls back to slower execution methods when TopN\ncannot be used (missing `fast: true`, normalizer mismatch, too many\nORDER BY columns). Queries work fine on small dev datasets but become\n100-1000x slower in production with no warning.\n\n## How\n\nAdded\n[validate_topn_expectation()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1344-1445)\nfunction in\n[choose_exec_method()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1446-1488)\nthat checks if TopN was expected (has LIMIT + search operator + no GROUP\nBY) but not chosen. If validation is enabled and TopN was missed, emits\na warning with the reason.\n\n**Default**: `false` (opt-in)\n\n**Usage:**\n```sql\nSET paradedb.check_topn_scan = true;\n\nSELECT * FROM products WHERE cat @@@ 'electronics' ORDER BY cat LIMIT 10;\n-- WARNING: Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead).\n-- Reason: ORDER BY columns cannot be pushed down to the index.\n```\n\n## Tests\n\n\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\ncovers 8 scenarios:\n\n| Test | Scenario | Expected |\n|------|----------|----------|\n| 1 | Validation OFF, non-fast ORDER BY | No warning |\n| 2 | Validation ON, non-fast ORDER BY | WARNING |\n| 3 | Validation ON, valid TopN query | No warning |\n| 4 | Too many ORDER BY columns | WARNING |\n| 5a | ORDER BY lower() matching index | No warning |\n| 5b | ORDER BY not matching lower() index | WARNING |\n| 6 | Query without LIMIT | No validation |\n| 7 | EXPLAIN with validation | WARNING |\n| 8 | Disable validation mid-session | No warning |\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Introduces an opt-in validator to catch missed TopN optimizations on\nLIMIT queries using ParadeDB search.\n> \n> - New GUC `paradedb.check_topn_scan` (default `false`) in\n`pg_search/src/gucs.rs`\n> - Adds `validate_topn_expectation()` in `pdbscan/mod.rs`; invoked from\n`choose_exec_method()` to log a warning when TopN is expected (LIMIT +\nsearch + no GROUP BY) but `ExecMethodType` is not `TopN`, with reasons\nderived from `PathKeyInfo` (e.g., unusable pathkeys, prefix-only,\n>`MAX_TOPN_FEATURES`, normalizer mismatch)\n> - Minor refactor to choose method then validate before returning\n> - Regression tests `tests/pg_regress/sql/topn_validation.sql` (+\nexpected output) cover non-fast ORDER BY, valid TopN, too many ORDER BY\ncols, `lower()` normalizer mismatch, no LIMIT, EXPLAIN logging, and\ntoggling the GUC\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n9b41430569c044380c991e53d24a9db30660c233. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-01-15T17:19:40-08:00",
+          "tree_id": "e050e9377a770e634abdab7179375c1c5452764b",
+          "url": "https://github.com/paradedb/paradedb/commit/462740bbb1f2a5794daa34f8cb0ba0c864051701"
+        },
+        "date": 1768530495594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.013775550260454, max cpu: 13.701237, count: 53805"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 47.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 47.40031385036242, max mem: 52.91796875, count: 53805"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.006792726833484, max cpu: 4.5845275, count: 53805"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.45748434741195, max mem: 30.46484375, count: 53805"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.108159,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.434086779594022, max cpu: 18.33811, count: 53805"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 50.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.81887734062819, max mem: 55.65234375, count: 53805"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.953746209000523, max cpu: 9.230769, count: 53805"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 47.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 47.25992581718707, max mem: 52.81640625, count: 53805"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611310821705976, max cpu: 9.195402, count: 53805"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 31.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.647887045813587, max mem: 36.33984375, count: 53805"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1103,
+            "unit": "median pages",
+            "extra": "avg pages: 1098.9766936158348, max pages: 1771.0, count: 53805"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6171875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.58575556407397, max relation_size:MB: 13.8359375, count: 53805"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.407805965988292, max segment_count: 18.0, count: 53805"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.066870826623762, max cpu: 4.562738, count: 53805"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 27.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.019264371921754, max mem: 28.0703125, count: 53805"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.147695757944134, max cpu: 4.5933013, count: 53805"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 27.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.77156913565189, max mem: 27.8203125, count: 53805"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.858924316300317, max cpu: 13.846154, count: 53805"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 45.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.2079487704442, max mem: 50.69140625, count: 53805"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000017825600693476442, max replication_lag:MB: 0.09990692138671875, count: 53805"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.115547584933487, max cpu: 13.753581, count: 107610"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 45.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 45.682044644724, max mem: 51.3203125, count: 107610"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.524045159454226, max cpu: 4.58891, count: 53805"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.99048009014032, max mem: 31.05078125, count: 53805"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.059734944786577, max cpu: 4.6065254, count: 53805"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.979518341696867, max mem: 30.74609375, count: 53805"
           }
         ]
       }

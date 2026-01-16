@@ -715,8 +715,31 @@ impl CustomScan for JoinScan {
                 let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
 
                 // For each join-level predicate, query the BM25 index and collect matching ctids.
-                // We must verify each ctid is visible (tuple exists at that location) because
-                // after UPDATE, the BM25 index may contain stale ctids pointing to dead tuples.
+                //
+                // ## Two-Layer Visibility
+                //
+                // Even though we use `MvccSatisfies::Snapshot` when opening the search reader,
+                // we still need tuple-level visibility checks. Here's why:
+                //
+                // 1. **Segment-level** (`MvccSatisfies::Snapshot`): Determines which Tantivy
+                //    segments are visible based on transaction visibility. A segment is visible
+                //    if it was committed before our snapshot.
+                //
+                // 2. **Tuple-level** (`VisibilityChecker`): Within a visible segment, individual
+                //    ctid entries may be stale. After an UPDATE, the old tuple is marked dead
+                //    and a new tuple is created at a new ctid, but the index still has the old
+                //    ctid until VACUUM runs.
+                //
+                // ## Why We Need the Current ctid
+                //
+                // The visibility checker (`exec_if_visible`) does two things:
+                // - Verifies the tuple exists and is visible (following HOT chains if needed)
+                // - Fills the slot with the found tuple, including its CURRENT ctid in `tts_tid`
+                //
+                // We store the current ctid (from `tts_tid`), not the index ctid, because during
+                // join execution we compare against heap tuple ctids which reflect current locations.
+                //
+                // This is the same pattern used by BaseScan for regular BM25 queries.
                 for predicate in &join_level_predicates {
                     let indexrel = PgSearchRelation::open(predicate.indexrelid);
 
@@ -752,29 +775,22 @@ impl CustomScan for JoinScan {
                         };
 
                         let results = reader.search();
-                        // Collect matching ctids, but verify visibility first.
-                        // IMPORTANT: After visibility check, we use the CURRENT ctid from the slot,
-                        // not the old ctid from the index. This handles cases where tuples moved
-                        // (UPDATE) but the index hasn't been vacuumed yet.
                         for (scored, _doc_address) in results {
-                            // Check if the tuple at this ctid is actually visible.
-                            // If visible, exec_if_visible fills the slot with the found tuple.
+                            // Verify tuple visibility and get its current ctid
                             let current_ctid = if let Some(ref mut checker) = vis_checker {
                                 if checker
                                     .exec_if_visible(scored.ctid, check_slot, |_| true)
                                     .is_some()
                                 {
-                                    // Tuple is visible - get the CURRENT ctid from the slot
-                                    // This handles HOT chains and tuple movements
-                                    let current = crate::postgres::utils::item_pointer_to_u64(
+                                    // Use current ctid from slot (may differ from index ctid after UPDATE)
+                                    Some(crate::postgres::utils::item_pointer_to_u64(
                                         (*check_slot).tts_tid,
-                                    );
-                                    Some(current)
+                                    ))
                                 } else {
                                     None // Tuple not visible (deleted)
                                 }
                             } else {
-                                Some(scored.ctid) // No checker, use index ctid
+                                Some(scored.ctid)
                             };
 
                             if let Some(ctid) = current_ctid {

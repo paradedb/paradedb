@@ -36,8 +36,8 @@ SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
 -- Explain to verify index usage
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.tbl_ltree
    Output: pdb.agg_fn('COUNT(*)'::text)
    Index: idx_ltree

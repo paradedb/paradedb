@@ -26,7 +26,6 @@ use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
     ParallelWorker, WorkerStyle,
 };
-use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{

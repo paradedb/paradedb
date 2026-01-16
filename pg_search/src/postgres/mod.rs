@@ -23,7 +23,6 @@ use std::ops::Range;
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::condition_variable::ConditionVariable;
 use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;

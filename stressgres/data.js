@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768529756894,
+  "lastUpdate": 1768529762641,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -61224,6 +61224,114 @@ window.BENCHMARK_DATA = {
             "value": 168.453125,
             "unit": "median mem",
             "extra": "avg mem: 165.08441681001528, max mem: 169.03515625, count: 55590"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "varunkkv.mec@gmail.com",
+            "name": "K V Varun Krishnan",
+            "username": "vrn21"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "462740bbb1f2a5794daa34f8cb0ba0c864051701",
+          "message": "feat: Add TopN Scan Validation (#3816)\n\n# Ticket(s) Closed\n\n- Closes #3687\n\n## What\n\nAdded `paradedb.check_topn_scan` GUC that emits a warning when a query\nwith LIMIT should use TopN scan but falls back to a slower execution\nmethod.\n\n**Files changed:**\n-\n[pg_search/src/gucs.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/gucs.rs)\n(+17 lines) — GUC definition\n-\n[pg_search/src/postgres/customscan/pdbscan/mod.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs)\n(+96 lines) — Validation logic\n-\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\n(+116 lines) — Tests\n\n## Why\n\nParadeDB silently falls back to slower execution methods when TopN\ncannot be used (missing `fast: true`, normalizer mismatch, too many\nORDER BY columns). Queries work fine on small dev datasets but become\n100-1000x slower in production with no warning.\n\n## How\n\nAdded\n[validate_topn_expectation()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1344-1445)\nfunction in\n[choose_exec_method()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1446-1488)\nthat checks if TopN was expected (has LIMIT + search operator + no GROUP\nBY) but not chosen. If validation is enabled and TopN was missed, emits\na warning with the reason.\n\n**Default**: `false` (opt-in)\n\n**Usage:**\n```sql\nSET paradedb.check_topn_scan = true;\n\nSELECT * FROM products WHERE cat @@@ 'electronics' ORDER BY cat LIMIT 10;\n-- WARNING: Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead).\n-- Reason: ORDER BY columns cannot be pushed down to the index.\n```\n\n## Tests\n\n\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\ncovers 8 scenarios:\n\n| Test | Scenario | Expected |\n|------|----------|----------|\n| 1 | Validation OFF, non-fast ORDER BY | No warning |\n| 2 | Validation ON, non-fast ORDER BY | WARNING |\n| 3 | Validation ON, valid TopN query | No warning |\n| 4 | Too many ORDER BY columns | WARNING |\n| 5a | ORDER BY lower() matching index | No warning |\n| 5b | ORDER BY not matching lower() index | WARNING |\n| 6 | Query without LIMIT | No validation |\n| 7 | EXPLAIN with validation | WARNING |\n| 8 | Disable validation mid-session | No warning |\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Introduces an opt-in validator to catch missed TopN optimizations on\nLIMIT queries using ParadeDB search.\n> \n> - New GUC `paradedb.check_topn_scan` (default `false`) in\n`pg_search/src/gucs.rs`\n> - Adds `validate_topn_expectation()` in `pdbscan/mod.rs`; invoked from\n`choose_exec_method()` to log a warning when TopN is expected (LIMIT +\nsearch + no GROUP BY) but `ExecMethodType` is not `TopN`, with reasons\nderived from `PathKeyInfo` (e.g., unusable pathkeys, prefix-only,\n>`MAX_TOPN_FEATURES`, normalizer mismatch)\n> - Minor refactor to choose method then validate before returning\n> - Regression tests `tests/pg_regress/sql/topn_validation.sql` (+\nexpected output) cover non-fast ORDER BY, valid TopN, too many ORDER BY\ncols, `lower()` normalizer mismatch, no LIMIT, EXPLAIN logging, and\ntoggling the GUC\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n9b41430569c044380c991e53d24a9db30660c233. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-01-15T17:19:40-08:00",
+          "tree_id": "e050e9377a770e634abdab7179375c1c5452764b",
+          "url": "https://github.com/paradedb/paradedb/commit/462740bbb1f2a5794daa34f8cb0ba0c864051701"
+        },
+        "date": 1768529758745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.76211273904329, max cpu: 47.477745, count: 55613"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 170.9623376616079, max mem: 173.7734375, count: 55613"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.653152450471174, max cpu: 28.015566, count: 55613"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 118.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 116.84166654491756, max mem: 118.19921875, count: 55613"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.824203834209652, max cpu: 13.859479, count: 55613"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 126.125,
+            "unit": "median mem",
+            "extra": "avg mem: 113.72506863840289, max mem: 153.17578125, count: 55613"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13848,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13934.432992285976, max block_count: 24932.0, count: 55613"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6553113430243545, max cpu: 4.7105007, count: 55613"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 97.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.83812638513028, max mem: 130.72265625, count: 55613"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.703594483304265, max segment_count: 40.0, count: 55613"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.533495357465645, max cpu: 27.988338, count: 111226"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.88911775770728, max mem: 161.453125, count: 111226"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.18191644963222, max cpu: 28.015566, count: 55613"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 168.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 165.19649147625105, max mem: 169.5078125, count: 55613"
           }
         ]
       }

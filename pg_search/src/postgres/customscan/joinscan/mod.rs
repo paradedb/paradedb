@@ -34,6 +34,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -47,19 +48,6 @@ use std::ffi::CStr;
 
 #[derive(Default)]
 pub struct JoinScan;
-
-/// Helper to iterate over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
-    let mut set_bit: i32 = -1;
-    std::iter::from_fn(move || {
-        set_bit = pg_sys::bms_next_member(bms, set_bit);
-        if set_bit < 0 {
-            None
-        } else {
-            Some(set_bit as pg_sys::Index)
-        }
-    })
-}
 
 /// Result of extracting join conditions from the restrict list.
 struct JoinConditions {

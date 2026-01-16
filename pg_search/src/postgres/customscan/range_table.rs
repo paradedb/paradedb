@@ -31,7 +31,7 @@ pub unsafe fn bms_exactly_one_member(bms: *mut pg_sys::Bitmapset) -> Option<pg_s
 }
 
 /// Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
+pub unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
     let mut set_bit: i32 = -1;
     std::iter::from_fn(move || {
         set_bit = pg_sys::bms_next_member(bms, set_bit);

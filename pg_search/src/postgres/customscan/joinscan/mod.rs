@@ -330,6 +330,12 @@ impl CustomScan for JoinScan {
             }
         }
 
+        // Show join-level expression tree if present
+        if let Some(ref expr) = join_clause.join_level_expr {
+            let expr_str = format_join_level_expr(expr, &join_clause.join_level_predicates);
+            explainer.add_text("Join Predicate", expr_str);
+        }
+
         // Show limit if present
         if let Some(limit) = join_clause.limit {
             explainer.add_text("Limit", limit.to_string());
@@ -1751,6 +1757,56 @@ fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
         }
         SerializableJoinLevelExpr::Not(child) => {
             JoinLevelExpr::Not(Box::new(convert_to_runtime_expr(child)))
+        }
+    }
+}
+
+/// Format a join-level expression tree for EXPLAIN output.
+fn format_join_level_expr(
+    expr: &SerializableJoinLevelExpr,
+    predicates: &[build::JoinLevelSearchPredicate],
+) -> String {
+    use crate::postgres::customscan::explain::ExplainFormat;
+
+    match expr {
+        SerializableJoinLevelExpr::Predicate {
+            side,
+            predicate_idx,
+        } => {
+            let side_str = match side {
+                SerializableJoinSide::Outer => "outer",
+                SerializableJoinSide::Inner => "inner",
+            };
+            if let Some(pred) = predicates.get(*predicate_idx) {
+                format!("{}:{}", side_str, pred.query.explain_format())
+            } else {
+                format!("{}:?", side_str)
+            }
+        }
+        SerializableJoinLevelExpr::And(children) => {
+            let parts: Vec<_> = children
+                .iter()
+                .map(|c| format_join_level_expr(c, predicates))
+                .collect();
+            if parts.len() == 1 {
+                parts.into_iter().next().unwrap()
+            } else {
+                format!("({})", parts.join(" AND "))
+            }
+        }
+        SerializableJoinLevelExpr::Or(children) => {
+            let parts: Vec<_> = children
+                .iter()
+                .map(|c| format_join_level_expr(c, predicates))
+                .collect();
+            if parts.len() == 1 {
+                parts.into_iter().next().unwrap()
+            } else {
+                format!("({})", parts.join(" OR "))
+            }
+        }
+        SerializableJoinLevelExpr::Not(child) => {
+            format!("NOT {}", format_join_level_expr(child, predicates))
         }
     }
 }

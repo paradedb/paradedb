@@ -215,7 +215,7 @@ unsafe fn extract_search_predicate_opexprs(
             if (*opexpr).opno == our_opoid {
                 // This is our @@@ operator - find which relation it references
                 let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                if args.len() >= 1 {
+                if !args.is_empty() {
                     let arg0 = args.get_ptr(0).unwrap();
 
                     // First arg should be a Var referencing a relation
@@ -363,14 +363,10 @@ impl CustomScan for JoinScan {
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
-                None
-            };
-
-            // For M1, we require a LIMIT for Single Feature joins
-            // (Join-level predicates for Aggregate Score joins are deferred to M3)
-            if limit.is_none() {
+                // For M1, we require a LIMIT for Single Feature joins
+                // (Join-level predicates for Aggregate Score joins are deferred to M3)
                 return None;
-            }
+            };
 
             // Extract information from both sides of the join
             let outer_side = extract_join_side_info(root, outerrel)?;
@@ -575,7 +571,7 @@ impl CustomScan for JoinScan {
 
         // Show outer side info
         if let Some(rti) = join_clause.outer_side.heap_rti {
-            explainer.add_text("Outer RTI", &rti.to_string());
+            explainer.add_text("Outer RTI", rti.to_string());
         }
         if join_clause.outer_side.has_search_predicate {
             if let Some(ref query) = join_clause.outer_side.query {
@@ -585,7 +581,7 @@ impl CustomScan for JoinScan {
 
         // Show inner side info
         if let Some(rti) = join_clause.inner_side.heap_rti {
-            explainer.add_text("Inner RTI", &rti.to_string());
+            explainer.add_text("Inner RTI", rti.to_string());
         }
         if join_clause.inner_side.has_search_predicate {
             if let Some(ref query) = join_clause.inner_side.query {
@@ -595,7 +591,7 @@ impl CustomScan for JoinScan {
 
         // Show limit if present
         if let Some(limit) = join_clause.limit {
-            explainer.add_text("Limit", &limit.to_string());
+            explainer.add_text("Limit", limit.to_string());
         }
     }
 
@@ -1149,22 +1145,12 @@ impl JoinScan {
                 .custom_state_mut()
                 .driving_visibility_checker
                 .as_mut()?;
-            if driving_vis
-                .exec_if_visible(driving_ctid, driving_slot, |_| ())
-                .is_none()
-            {
-                return None;
-            }
+            driving_vis.exec_if_visible(driving_ctid, driving_slot, |_| ())?;
         }
 
         // Fetch build tuple
         let build_vis = state.custom_state_mut().build_visibility_checker.as_mut()?;
-        if build_vis
-            .exec_if_visible(build_ctid, build_slot, |_| ())
-            .is_none()
-        {
-            return None;
-        }
+        build_vis.exec_if_visible(build_ctid, build_slot, |_| ())?;
 
         // Get the result tuple descriptor from the result slot
         let result_tupdesc = (*result_slot).tts_tupleDescriptor;

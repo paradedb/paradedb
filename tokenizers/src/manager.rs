@@ -675,7 +675,9 @@ impl SearchTokenizer {
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
-            SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),
+            SearchTokenizer::LiteralNormalized(_filters) => {
+                format!("literal_normalized{filters_suffix}")
+            }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {
@@ -687,21 +689,26 @@ impl SearchTokenizer {
                 max_gram,
                 prefix_only,
                 filters: _,
-                positions: _,
-            } => format!(
-                "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{filters_suffix}"
-            ),
+                positions,
+            } => {
+                let positions_suffix = if *positions { "_positions:true" } else { "" };
+                format!(
+                    "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
+                )
+            }
             SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
             SearchTokenizer::JapaneseLindera(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             SearchTokenizer::Lindera(style, _filters) => match style {
-                LinderaLanguage::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaLanguage::Unspecified => {
+                    panic!("LinderaStyle::Unspecified is not supported")
+                }
                 LinderaLanguage::Chinese => format!("chinese_lindera{filters_suffix}"),
                 LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
-            }
+            },
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,
@@ -713,8 +720,14 @@ impl SearchTokenizer {
                     format!("jieba{filters_suffix}")
                 }
             }
-            SearchTokenizer::UnicodeWordsDeprecated{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
-            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWordsDeprecated {
+                remove_emojis,
+                filters: _,
+            } => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters: _,
+            } => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
     }
 }

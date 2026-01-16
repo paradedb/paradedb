@@ -63,7 +63,7 @@ impl Tokenizer for NgramTokenizer {
         NgramTokenStream {
             inner: Box::new(inner),
             enable_positions: self.enable_positions,
-            position: usize::MAX, // wraps to 0 on first advance
+            position: 0,
         }
     }
 }
@@ -72,8 +72,8 @@ impl TokenStream for NgramTokenStream<'_> {
     fn advance(&mut self) -> bool {
         if self.inner.advance() {
             if self.enable_positions {
-                self.position = self.position.wrapping_add(1);
                 self.inner.token_mut().position = self.position;
+                self.position = self.position.wrapping_add(1);
             }
             true
         } else {

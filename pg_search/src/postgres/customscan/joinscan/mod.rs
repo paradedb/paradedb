@@ -19,9 +19,14 @@ pub mod build;
 pub mod privdat;
 pub mod scan_state;
 
-use self::build::{JoinCSClause, JoinKeyPair, JoinSideInfo, SerializableJoinType};
+use self::build::{
+    JoinCSClause, JoinKeyPair, JoinSideInfo, SerializableJoinLevelExpr, SerializableJoinSide,
+    SerializableJoinType,
+};
 use self::privdat::PrivateData;
-use self::scan_state::{CompositeKey, InnerRow, JoinKeyInfo, JoinScanState, KeyValue};
+use self::scan_state::{
+    CompositeKey, InnerRow, JoinKeyInfo, JoinLevelExpr, JoinScanState, JoinSide, KeyValue,
+};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -521,31 +526,14 @@ impl CustomScan for JoinScan {
                 }
             }
 
-            // Initialize join-level predicate matching sets if we have join-level predicates
-            let join_level_predicates = state
-                .custom_state()
-                .join_clause
-                .join_level_predicates
-                .clone();
-            if !join_level_predicates.is_empty() {
-                state.custom_state_mut().has_join_level_predicates = true;
+            // Initialize join-level predicate evaluation if we have a join-level expression
+            if let Some(ref serializable_expr) = join_clause.join_level_expr {
+                let join_level_predicates = &join_clause.join_level_predicates;
 
-                let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
-                let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
-
-                // Query each join-level predicate's BM25 index and collect matching ctids.
-                // We use OwnedVisibilityChecker to resolve index ctids to current heap locations,
-                // handling the case where tuples moved after UPDATE but before VACUUM.
-                // See VisibilityChecker docs for details on two-layer visibility.
-                for predicate in &join_level_predicates {
+                // Execute Tantivy queries for each predicate and collect matching ctids
+                // The results are stored in join_level_ctid_sets, indexed by predicate position
+                for predicate in join_level_predicates {
                     let indexrel = PgSearchRelation::open(predicate.indexrelid);
-
-                    // Get the heaprel for this predicate to do visibility checks
-                    let heaprelid = if predicate.rti == outer_rti {
-                        join_clause.outer_side.heaprelid
-                    } else {
-                        join_clause.inner_side.heaprelid
-                    };
 
                     let search_reader = SearchIndexReader::open_with_context(
                         &indexrel,
@@ -556,32 +544,29 @@ impl CustomScan for JoinScan {
                         None,
                     );
 
+                    let mut ctid_set = std::collections::HashSet::new();
+
                     if let Ok(reader) = search_reader {
                         // Create a visibility checker for this relation (owns its slot)
-                        let mut vis_checker = heaprelid.map(|hrid| {
-                            let heaprel = PgSearchRelation::open(hrid);
-                            OwnedVisibilityChecker::new(&heaprel, snapshot)
-                        });
+                        let heaprel = PgSearchRelation::open(predicate.heaprelid);
+                        let mut vis_checker = OwnedVisibilityChecker::new(&heaprel, snapshot);
 
                         let results = reader.search();
                         for (scored, _doc_address) in results {
                             // Verify tuple visibility and get its current ctid
-                            let current_ctid = match vis_checker {
-                                Some(ref mut checker) => checker.get_current_ctid(scored.ctid),
-                                None => Some(scored.ctid),
-                            };
-
-                            if let Some(ctid) = current_ctid {
-                                if predicate.rti == outer_rti {
-                                    state.custom_state_mut().outer_matching_ctids.insert(ctid);
-                                } else if predicate.rti == inner_rti {
-                                    state.custom_state_mut().inner_matching_ctids.insert(ctid);
-                                }
+                            if let Some(ctid) = vis_checker.get_current_ctid(scored.ctid) {
+                                ctid_set.insert(ctid);
                             }
                         }
                         // vis_checker is dropped here, cleaning up the slot
                     }
+
+                    state.custom_state_mut().join_level_ctid_sets.push(ctid_set);
                 }
+
+                // Convert the serializable expression to the runtime expression
+                let runtime_expr = convert_to_runtime_expr(serializable_expr);
+                state.custom_state_mut().join_level_expr = Some(runtime_expr);
             }
         }
     }
@@ -614,8 +599,8 @@ impl CustomScan for JoinScan {
                 // If we have pending matches, return one
                 if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
                     if let Some(slot) = Self::build_result_tuple(state, build_ctid) {
-                        // Check join-level predicate (for OR across tables)
-                        if state.custom_state().has_join_level_predicates {
+                        // Check join-level predicate using the expression tree
+                        if let Some(ref expr) = state.custom_state().join_level_expr {
                             let driving_is_outer = state.custom_state().driving_is_outer;
                             let driving_slot = state.custom_state().driving_fetch_slot;
                             let build_slot = state.custom_state().build_scan_slot;
@@ -629,24 +614,16 @@ impl CustomScan for JoinScan {
 
                             // Convert heap ctids to u64 using the SAME encoding as the BM25 index
                             let outer_ctid_u64 = outer_slot
-                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid));
+                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
+                                .unwrap_or(0);
 
                             let inner_ctid_u64 = inner_slot
-                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid));
+                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
+                                .unwrap_or(0);
 
-                            let outer_matches = outer_ctid_u64
-                                .map(|ctid| {
-                                    state.custom_state().outer_matching_ctids.contains(&ctid)
-                                })
-                                .unwrap_or(false);
-                            let inner_matches = inner_ctid_u64
-                                .map(|ctid| {
-                                    state.custom_state().inner_matching_ctids.contains(&ctid)
-                                })
-                                .unwrap_or(false);
-
-                            // For OR semantics: pass if either side matches
-                            if !outer_matches && !inner_matches {
+                            // Evaluate the full boolean expression tree
+                            let ctid_sets = &state.custom_state().join_level_ctid_sets;
+                            if !expr.evaluate(outer_ctid_u64, inner_ctid_u64, ctid_sets) {
                                 // Predicate not satisfied, try next match
                                 continue;
                             }
@@ -1151,18 +1128,16 @@ impl JoinScan {
         Some(result_slot)
     }
 
-    /// Extract join-level search predicates from the restrictlist.
-    /// This finds @@@ operators in OR conditions and extracts the search queries.
-    /// Extract join-level search predicates from the restrict list.
+    /// Extract join-level search predicates from the restrict list and build an expression tree.
     ///
-    /// For OR expressions spanning multiple tables (e.g., `p.desc @@@ 'a' OR s.info @@@ 'b'`),
-    /// we split the OR branches by their referenced table and extract each branch as a complete
-    /// predicate. This preserves the boolean structure (AND, NOT) within each branch.
+    /// This recursively transforms the PostgreSQL expression tree into a `SerializableJoinLevelExpr`
+    /// that preserves the full AND/OR/NOT structure. Each single-table sub-expression becomes a
+    /// leaf predicate that references a Tantivy query.
     ///
     /// For example, `(p.desc @@@ 'wireless' AND NOT p.desc @@@ 'mouse') OR s.info @@@ 'shipping'`:
-    /// - The products branch `(p.desc @@@ 'wireless' AND NOT p.desc @@@ 'mouse')` is extracted whole
-    /// - The suppliers branch `s.info @@@ 'shipping'` is extracted whole
-    /// - At runtime, OR semantics apply: pass if either branch matches
+    /// - Creates an OR expression with two children
+    /// - Left child: a leaf predicate for products with query `'wireless' AND NOT 'mouse'`
+    /// - Right child: a leaf predicate for suppliers with query `'shipping'`
     unsafe fn extract_join_level_search_predicates(
         root: *mut pg_sys::PlannerInfo,
         extra: *mut pg_sys::JoinPathExtraData,
@@ -1185,6 +1160,9 @@ impl JoinScan {
 
         let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
 
+        // Collect all expressions that have search predicates
+        let mut expr_trees: Vec<SerializableJoinLevelExpr> = Vec::new();
+
         for ri in restrict_infos.iter_ptr() {
             if ri.is_null() || (*ri).clause.is_null() {
                 continue;
@@ -1197,98 +1175,177 @@ impl JoinScan {
                 continue;
             }
 
-            // Check if this is an OR expression
-            let is_or_expr = (*clause.cast::<pg_sys::Node>()).type_ == pg_sys::NodeTag::T_BoolExpr
-                && {
-                    let boolexpr = clause as *mut pg_sys::BoolExpr;
-                    (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR
-                };
-
-            if is_or_expr {
-                // For OR expressions, process each branch separately by its referenced table(s)
-                let boolexpr = clause as *mut pg_sys::BoolExpr;
-                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
-
-                for arg in args.iter_ptr() {
-                    if arg.is_null() {
-                        continue;
-                    }
-
-                    // Check if this branch contains search predicates
-                    if !expr_contains_any_operator(arg, &[search_op]) {
-                        continue;
-                    }
-
-                    // Collect all RTIs referenced by this OR branch
-                    let branch_rtis = expr_collect_rtis(arg);
-
-                    // We only handle branches that reference exactly one of our join tables
-                    let is_outer_only = branch_rtis.len() == 1 && branch_rtis.contains(&outer_rti);
-                    let is_inner_only = branch_rtis.len() == 1 && branch_rtis.contains(&inner_rti);
-
-                    if !is_outer_only && !is_inner_only {
-                        // This branch references both tables or neither - skip it
-                        continue;
-                    }
-
-                    let (rti, side) = if is_outer_only {
-                        (outer_rti, outer_side)
-                    } else {
-                        (inner_rti, inner_side)
-                    };
-
-                    // Extract the complete branch as a predicate for this side
-                    join_clause =
-                        Self::extract_predicate_for_side(root, rti, side, arg, join_clause);
-                }
-            } else {
-                // For non-OR expressions (simple predicates or AND expressions on one table),
-                // check which table it references and extract if it's single-table
-                let clause_rtis = expr_collect_rtis(clause.cast());
-
-                let is_outer_only = clause_rtis.len() == 1 && clause_rtis.contains(&outer_rti);
-                let is_inner_only = clause_rtis.len() == 1 && clause_rtis.contains(&inner_rti);
-
-                if is_outer_only {
-                    join_clause = Self::extract_predicate_for_side(
-                        root,
-                        outer_rti,
-                        outer_side,
-                        clause.cast(),
-                        join_clause,
-                    );
-                } else if is_inner_only {
-                    join_clause = Self::extract_predicate_for_side(
-                        root,
-                        inner_rti,
-                        inner_side,
-                        clause.cast(),
-                        join_clause,
-                    );
-                }
-                // If it references both or neither, skip it
+            // Transform this clause into an expression tree
+            if let Some(expr) = Self::transform_to_expr(
+                root,
+                clause.cast(),
+                outer_rti,
+                inner_rti,
+                outer_side,
+                inner_side,
+                &mut join_clause,
+            ) {
+                expr_trees.push(expr);
             }
+        }
+
+        // Combine all expressions with AND (since they're separate RestrictInfos)
+        if !expr_trees.is_empty() {
+            let final_expr = if expr_trees.len() == 1 {
+                expr_trees.pop().unwrap()
+            } else {
+                SerializableJoinLevelExpr::And(expr_trees)
+            };
+            join_clause = join_clause.with_join_level_expr(final_expr);
         }
 
         join_clause
     }
 
-    /// Helper to extract a complete predicate expression for one side of the join.
-    unsafe fn extract_predicate_for_side(
+    /// Recursively transform a PostgreSQL expression node into a SerializableJoinLevelExpr.
+    ///
+    /// - For single-table sub-trees with search predicates: extract as a leaf predicate
+    /// - For BoolExpr (AND/OR/NOT): recursively transform children
+    /// - For expressions without search predicates or referencing both tables: return None
+    unsafe fn transform_to_expr(
+        root: *mut pg_sys::PlannerInfo,
+        node: *mut pg_sys::Node,
+        outer_rti: pg_sys::Index,
+        inner_rti: pg_sys::Index,
+        outer_side: &JoinSideInfo,
+        inner_side: &JoinSideInfo,
+        join_clause: &mut JoinCSClause,
+    ) -> Option<SerializableJoinLevelExpr> {
+        if node.is_null() {
+            return None;
+        }
+
+        let search_op = anyelement_query_input_opoid();
+
+        // First, check if this node contains any search predicates
+        if !expr_contains_any_operator(node, &[search_op]) {
+            return None;
+        }
+
+        // Check which tables this expression references
+        let rtis = expr_collect_rtis(node);
+        let refs_outer = rtis.contains(&outer_rti);
+        let refs_inner = rtis.contains(&inner_rti);
+
+        // If this is a single-table expression, extract it as a leaf predicate
+        if rtis.len() == 1 && (refs_outer || refs_inner) {
+            let (rti, side, join_side) = if refs_outer {
+                (outer_rti, outer_side, SerializableJoinSide::Outer)
+            } else {
+                (inner_rti, inner_side, SerializableJoinSide::Inner)
+            };
+
+            // Extract the Tantivy query for this expression
+            if let Some(predicate_idx) =
+                Self::extract_single_table_predicate(root, rti, side, node, join_clause)
+            {
+                return Some(SerializableJoinLevelExpr::Predicate {
+                    side: join_side,
+                    predicate_idx,
+                });
+            }
+            return None;
+        }
+
+        // If this expression references both tables (or neither of ours),
+        // we need to look inside if it's a BoolExpr
+        let node_type = (*node).type_;
+
+        if node_type == pg_sys::NodeTag::T_BoolExpr {
+            let boolexpr = node as *mut pg_sys::BoolExpr;
+            let boolop = (*boolexpr).boolop;
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+
+            match boolop {
+                pg_sys::BoolExprType::AND_EXPR => {
+                    let mut children = Vec::new();
+                    for arg in args.iter_ptr() {
+                        if let Some(child_expr) = Self::transform_to_expr(
+                            root,
+                            arg,
+                            outer_rti,
+                            inner_rti,
+                            outer_side,
+                            inner_side,
+                            join_clause,
+                        ) {
+                            children.push(child_expr);
+                        }
+                    }
+                    if children.is_empty() {
+                        None
+                    } else if children.len() == 1 {
+                        Some(children.pop().unwrap())
+                    } else {
+                        Some(SerializableJoinLevelExpr::And(children))
+                    }
+                }
+                pg_sys::BoolExprType::OR_EXPR => {
+                    let mut children = Vec::new();
+                    for arg in args.iter_ptr() {
+                        if let Some(child_expr) = Self::transform_to_expr(
+                            root,
+                            arg,
+                            outer_rti,
+                            inner_rti,
+                            outer_side,
+                            inner_side,
+                            join_clause,
+                        ) {
+                            children.push(child_expr);
+                        }
+                    }
+                    if children.is_empty() {
+                        None
+                    } else if children.len() == 1 {
+                        Some(children.pop().unwrap())
+                    } else {
+                        Some(SerializableJoinLevelExpr::Or(children))
+                    }
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    // NOT has exactly one argument
+                    if let Some(arg) = args.iter_ptr().next() {
+                        if let Some(child_expr) = Self::transform_to_expr(
+                            root,
+                            arg,
+                            outer_rti,
+                            inner_rti,
+                            outer_side,
+                            inner_side,
+                            join_clause,
+                        ) {
+                            return Some(SerializableJoinLevelExpr::Not(Box::new(child_expr)));
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
+        } else {
+            // Not a BoolExpr and not single-table - can't handle
+            None
+        }
+    }
+
+    /// Extract a single-table predicate and add it to the join clause.
+    /// Returns the index of the predicate in join_level_predicates, or None if extraction fails.
+    unsafe fn extract_single_table_predicate(
         root: *mut pg_sys::PlannerInfo,
         rti: pg_sys::Index,
         side: &JoinSideInfo,
         expr: *mut pg_sys::Node,
-        mut join_clause: JoinCSClause,
-    ) -> JoinCSClause {
-        let Some(indexrelid) = side.indexrelid else {
-            return join_clause;
-        };
+        join_clause: &mut JoinCSClause,
+    ) -> Option<usize> {
+        let indexrelid = side.indexrelid?;
+        let heaprelid = side.heaprelid?;
 
-        let Some((_, bm25_idx)) = rel_get_bm25_index(side.heaprelid.unwrap_or(pg_sys::InvalidOid))
-        else {
-            return join_clause;
-        };
+        let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
 
         // Create a RestrictInfo wrapping the expression for extract_quals
         let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
@@ -1302,7 +1359,7 @@ impl JoinScan {
         let mut state = QualExtractState::default();
 
         // extract_quals handles BoolExpr (AND/OR/NOT) recursively, preserving the structure
-        if let Some(qual) = extract_quals(
+        let qual = extract_quals(
             &context,
             rti,
             ri_list.as_ptr().cast(),
@@ -1312,12 +1369,11 @@ impl JoinScan {
             false,
             &mut state,
             false, // Don't attempt pushdown for join-level predicates
-        ) {
-            let query = SearchQueryInput::from(&qual);
-            join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query);
-        }
+        )?;
 
-        join_clause
+        let query = SearchQueryInput::from(&qual);
+        let idx = join_clause.add_join_level_predicate(indexrelid, heaprelid, query);
+        Some(idx)
     }
 }
 
@@ -1669,4 +1725,32 @@ unsafe fn extract_join_side_info(
     }
 
     Some(side_info)
+}
+
+/// Convert a serializable join-level expression to a runtime expression.
+fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
+    match expr {
+        SerializableJoinLevelExpr::Predicate {
+            side,
+            predicate_idx,
+        } => {
+            let runtime_side = match side {
+                SerializableJoinSide::Outer => JoinSide::Outer,
+                SerializableJoinSide::Inner => JoinSide::Inner,
+            };
+            JoinLevelExpr::Predicate {
+                side: runtime_side,
+                ctid_set_idx: *predicate_idx,
+            }
+        }
+        SerializableJoinLevelExpr::And(children) => {
+            JoinLevelExpr::And(children.iter().map(convert_to_runtime_expr).collect())
+        }
+        SerializableJoinLevelExpr::Or(children) => {
+            JoinLevelExpr::Or(children.iter().map(convert_to_runtime_expr).collect())
+        }
+        SerializableJoinLevelExpr::Not(child) => {
+            JoinLevelExpr::Not(Box::new(convert_to_runtime_expr(child)))
+        }
+    }
 }

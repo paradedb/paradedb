@@ -656,6 +656,63 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 20: Deeply nested boolean expressions
+-- =============================================================================
+
+-- Deeply nested: (p_cond1 OR (p_cond2 OR (s_cond AND NOT p_cond3)))
+-- This tests the recursive expression tree building
+-- p_cond1: p.description @@@ 'keyboard'
+-- p_cond2: p.description @@@ 'headphones'  
+-- s_cond: s.contact_info @@@ 'shipping'
+-- p_cond3: p.description @@@ 'wireless'
+-- EXPECTED: Products with 'keyboard' OR 'headphones' OR (supplier has 'shipping' AND product NOT 'wireless')
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+ORDER BY p.id
+LIMIT 10;
+
+-- AND of multiple single-table predicates combined with OR across tables
+-- ((p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK'))
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+ORDER BY p.id
+LIMIT 10;
+
+-- Triple-nested NOT: NOT (NOT (NOT p.description @@@ 'cable'))
+-- Equivalent to: NOT p.description @@@ 'cable'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

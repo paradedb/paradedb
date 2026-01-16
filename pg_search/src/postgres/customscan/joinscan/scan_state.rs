@@ -76,6 +76,60 @@ pub struct InnerRow {
     pub ctid: u64,
 }
 
+/// Which side of the join a predicate references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinSide {
+    Outer,
+    Inner,
+}
+
+/// A runtime-evaluable boolean expression over join-level search predicates.
+///
+/// This preserves the full AND/OR/NOT structure of complex join-level predicates,
+/// allowing correct evaluation of expressions like:
+/// `(tbl1_cond1 OR (tbl1_cond2 OR (tbl2_cond AND NOT tbl1_cond3)))`
+#[derive(Debug, Clone)]
+pub enum JoinLevelExpr {
+    /// Leaf: check if the row's ctid is in the predicate's result set.
+    Predicate {
+        /// Which side of the join this predicate references.
+        side: JoinSide,
+        /// Index into the `join_level_ctid_sets` vector.
+        ctid_set_idx: usize,
+    },
+    /// Logical AND of child expressions.
+    And(Vec<JoinLevelExpr>),
+    /// Logical OR of child expressions.
+    Or(Vec<JoinLevelExpr>),
+    /// Logical NOT of a child expression.
+    Not(Box<JoinLevelExpr>),
+}
+
+impl JoinLevelExpr {
+    /// Evaluate this expression for a given row-pair.
+    pub fn evaluate(&self, outer_ctid: u64, inner_ctid: u64, ctid_sets: &[HashSet<u64>]) -> bool {
+        match self {
+            JoinLevelExpr::Predicate { side, ctid_set_idx } => {
+                let ctid = match side {
+                    JoinSide::Outer => outer_ctid,
+                    JoinSide::Inner => inner_ctid,
+                };
+                ctid_sets
+                    .get(*ctid_set_idx)
+                    .map(|set| set.contains(&ctid))
+                    .unwrap_or(false)
+            }
+            JoinLevelExpr::And(children) => children
+                .iter()
+                .all(|c| c.evaluate(outer_ctid, inner_ctid, ctid_sets)),
+            JoinLevelExpr::Or(children) => children
+                .iter()
+                .any(|c| c.evaluate(outer_ctid, inner_ctid, ctid_sets)),
+            JoinLevelExpr::Not(child) => !child.evaluate(outer_ctid, inner_ctid, ctid_sets),
+        }
+    }
+}
+
 /// The execution state for the JoinScan.
 #[derive(Default)]
 pub struct JoinScanState {
@@ -162,12 +216,12 @@ pub struct JoinScanState {
     pub output_columns: Vec<OutputColumnInfo>,
 
     // === Join-level predicate evaluation ===
-    /// Set of outer relation ctids that match any join-level predicate targeting the outer relation.
-    pub outer_matching_ctids: HashSet<u64>,
-    /// Set of inner relation ctids that match any join-level predicate targeting the inner relation.
-    pub inner_matching_ctids: HashSet<u64>,
-    /// Whether we have join-level predicates to evaluate.
-    pub has_join_level_predicates: bool,
+    /// The runtime-evaluable expression tree for join-level predicates.
+    /// When Some, this expression must be evaluated for each row-pair.
+    pub join_level_expr: Option<JoinLevelExpr>,
+    /// Ctid sets from Tantivy queries, indexed by predicate ID.
+    /// Each JoinLevelExpr::Predicate references an index into this vector.
+    pub join_level_ctid_sets: Vec<HashSet<u64>>,
 
     // === Memory tracking ===
     /// Estimated memory used by hash table (bytes).
@@ -188,8 +242,8 @@ impl JoinScanState {
         self.pending_build_ctids.clear();
         self.driving_search_results = None;
         self.rows_returned = 0;
-        self.outer_matching_ctids.clear();
-        self.inner_matching_ctids.clear();
+        // Note: join_level_expr and join_level_ctid_sets are populated once in begin_custom_scan
+        // and reused across rescans, so we don't clear them here.
         self.hash_table_memory = 0;
         self.using_nested_loop = false;
     }

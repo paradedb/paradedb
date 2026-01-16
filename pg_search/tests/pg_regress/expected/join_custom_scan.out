@@ -1005,6 +1005,118 @@ LIMIT 10;
 (5 rows)
 
 -- =============================================================================
+-- TEST 20: Deeply nested boolean expressions
+-- =============================================================================
+-- Deeply nested: (p_cond1 OR (p_cond2 OR (s_cond AND NOT p_cond3)))
+-- This tests the recursive expression tree building
+-- p_cond1: p.description @@@ 'keyboard'
+-- p_cond2: p.description @@@ 'headphones'  
+-- s_cond: s.contact_info @@@ 'shipping'
+-- p_cond3: p.description @@@ 'wireless'
+-- EXPECTED: Products with 'keyboard' OR 'headphones' OR (supplier has 'shipping' AND product NOT 'wireless')
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+LIMIT 10;
+                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
+         Limit: 10
+(9 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+ORDER BY p.id
+LIMIT 10;
+ id  |    name    | supplier_name 
+-----+------------+---------------
+ 202 | USB Cable  | GlobalSupply
+ 203 | Keyboard   | TechCorp
+ 206 | Headphones | TechCorp
+(3 rows)
+
+-- AND of multiple single-table predicates combined with OR across tables
+-- ((p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK'))
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+LIMIT 10;
+               QUERY PLAN               
+----------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Limit: 10
+(8 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+ORDER BY p.id
+LIMIT 10;
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 202 | USB Cable      | GlobalSupply
+ 207 | Mouse Pad      | GlobalSupply
+(3 rows)
+
+-- Triple-nested NOT: NOT (NOT (NOT p.description @@@ 'cable'))
+-- Equivalent to: NOT p.description @@@ 'cable'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+LIMIT 10;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
+         Join Type: Inner
+         Outer RTI: 2
+         Inner RTI: 1
+         Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
+         Limit: 10
+(9 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+ORDER BY p.id
+LIMIT 10;
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 204 | Monitor Stand  | FastParts
+ 205 | Webcam         | QualityFirst
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(6 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS products CASCADE;

@@ -109,12 +109,41 @@ pub struct JoinKeyPair {
 /// A join-level search predicate - a search query that applies to a specific relation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinLevelSearchPredicate {
-    /// The RTI of the relation this predicate applies to.
-    pub rti: pg_sys::Index,
     /// The OID of the BM25 index to use.
     pub indexrelid: pg_sys::Oid,
+    /// The OID of the heap relation for visibility checks.
+    pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
+}
+
+/// Which side of the join a predicate references (serializable version).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SerializableJoinSide {
+    Outer,
+    Inner,
+}
+
+/// A serializable boolean expression tree for join-level predicates.
+///
+/// This preserves the full AND/OR/NOT structure of complex join-level predicates,
+/// allowing correct evaluation of expressions like:
+/// `(tbl1_cond1 OR (tbl1_cond2 OR (tbl2_cond AND NOT tbl1_cond3)))`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SerializableJoinLevelExpr {
+    /// Leaf: check if the row's ctid is in the predicate's result set.
+    Predicate {
+        /// Which side of the join this predicate references.
+        side: SerializableJoinSide,
+        /// Index into the `join_level_predicates` vector.
+        predicate_idx: usize,
+    },
+    /// Logical AND of child expressions.
+    And(Vec<SerializableJoinLevelExpr>),
+    /// Logical OR of child expressions.
+    Or(Vec<SerializableJoinLevelExpr>),
+    /// Logical NOT of a child expression.
+    Not(Box<SerializableJoinLevelExpr>),
 }
 
 /// The clause information for a Join Custom Scan.
@@ -133,9 +162,12 @@ pub struct JoinCSClause {
     /// Whether there are other (non-equijoin) conditions that need to be evaluated.
     /// These conditions are stored in custom_exprs during planning.
     pub has_other_conditions: bool,
-    /// Join-level search predicates extracted from OR conditions.
-    /// These are evaluated during execution for each joined tuple.
+    /// Join-level search predicates (the actual Tantivy queries to execute).
+    /// Each predicate is referenced by index from the `join_level_expr` tree.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
+    /// The boolean expression tree that combines join-level predicates.
+    /// When Some, this expression must be evaluated for each row-pair.
+    pub join_level_expr: Option<SerializableJoinLevelExpr>,
 }
 
 impl JoinCSClause {
@@ -168,17 +200,25 @@ impl JoinCSClause {
         self
     }
 
+    /// Add a join-level predicate and return its index.
     pub fn add_join_level_predicate(
-        mut self,
-        rti: pg_sys::Index,
+        &mut self,
         indexrelid: pg_sys::Oid,
+        heaprelid: pg_sys::Oid,
         query: SearchQueryInput,
-    ) -> Self {
+    ) -> usize {
+        let idx = self.join_level_predicates.len();
         self.join_level_predicates.push(JoinLevelSearchPredicate {
-            rti,
             indexrelid,
+            heaprelid,
             query,
         });
+        idx
+    }
+
+    /// Set the join-level expression tree.
+    pub fn with_join_level_expr(mut self, expr: SerializableJoinLevelExpr) -> Self {
+        self.join_level_expr = Some(expr);
         self
     }
 

@@ -396,12 +396,239 @@ ORDER BY p.price DESC
 LIMIT 3;
 
 -- =============================================================================
+-- TEST 15: TEXT join keys (non-integer)
+-- =============================================================================
+
+-- Create tables with TEXT join keys
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
+
+CREATE TABLE customers (
+    customer_code TEXT PRIMARY KEY,
+    name TEXT,
+    email TEXT
+);
+
+CREATE TABLE orders (
+    id INTEGER PRIMARY KEY,
+    customer_code TEXT,
+    description TEXT,
+    amount DECIMAL(10,2)
+);
+
+INSERT INTO customers (customer_code, name, email) VALUES
+('CUST-001', 'Alice Corp', 'alice@corp.com'),
+('CUST-002', 'Bob Industries', 'bob@industries.com'),
+('CUST-003', 'Carol Enterprises', 'carol@enterprises.com');
+
+INSERT INTO orders (id, customer_code, description, amount) VALUES
+(1, 'CUST-001', 'wireless mouse order', 29.99),
+(2, 'CUST-001', 'keyboard order premium', 89.99),
+(3, 'CUST-002', 'wireless headphones bulk', 599.97),
+(4, 'CUST-003', 'monitor stand', 49.99),
+(5, 'CUST-002', 'cable wireless charger', 19.99);
+
+CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, description) WITH (key_field = 'id');
+
+-- TEXT join key test
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.id, o.description, c.name AS customer_name
+FROM orders o
+JOIN customers c ON o.customer_code = c.customer_code
+WHERE o.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT o.id, o.description, c.name AS customer_name
+FROM orders o
+JOIN customers c ON o.customer_code = c.customer_code
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 16: Composite join keys (multiple columns)
+-- =============================================================================
+
+-- Create tables with composite keys
+DROP TABLE IF EXISTS inventory CASCADE;
+DROP TABLE IF EXISTS warehouses CASCADE;
+
+CREATE TABLE warehouses (
+    region_id INTEGER,
+    warehouse_code TEXT,
+    name TEXT,
+    description TEXT,
+    PRIMARY KEY (region_id, warehouse_code)
+);
+
+CREATE TABLE inventory (
+    id INTEGER PRIMARY KEY,
+    region_id INTEGER,
+    warehouse_code TEXT,
+    product_name TEXT,
+    quantity INTEGER
+);
+
+INSERT INTO warehouses (region_id, warehouse_code, name, description) VALUES
+(1, 'WH-A', 'East Coast Main', 'Primary warehouse for east coast distribution'),
+(1, 'WH-B', 'East Coast Backup', 'Backup warehouse for east coast'),
+(2, 'WH-A', 'West Coast Main', 'Primary warehouse for west coast distribution'),
+(2, 'WH-B', 'West Coast Express', 'Express shipping warehouse west coast');
+
+INSERT INTO inventory (id, region_id, warehouse_code, product_name, quantity) VALUES
+(1, 1, 'WH-A', 'wireless mouse', 100),
+(2, 1, 'WH-A', 'keyboard', 50),
+(3, 1, 'WH-B', 'monitor', 25),
+(4, 2, 'WH-A', 'wireless headphones', 75),
+(5, 2, 'WH-B', 'wireless charger', 200);
+
+CREATE INDEX inventory_bm25_idx ON inventory USING bm25 (id, product_name) WITH (key_field = 'id');
+
+-- Composite key join test (region_id AND warehouse_code)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.product_name, w.name AS warehouse_name
+FROM inventory i
+JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
+WHERE i.product_name @@@ 'wireless'
+LIMIT 10;
+
+SELECT i.id, i.product_name, w.name AS warehouse_name
+FROM inventory i
+JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
+WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 17: Join key value of 0 (regression test for magic key collision)
+-- =============================================================================
+
+-- Create tables where join key value 0 is valid
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS item_types CASCADE;
+
+CREATE TABLE item_types (
+    type_id INTEGER PRIMARY KEY,
+    type_name TEXT,
+    description TEXT
+);
+
+CREATE TABLE items (
+    id INTEGER PRIMARY KEY,
+    type_id INTEGER,
+    name TEXT,
+    details TEXT
+);
+
+-- Explicitly include type_id = 0
+INSERT INTO item_types (type_id, type_name, description) VALUES
+(0, 'Uncategorized', 'Items without category'),
+(1, 'Electronics', 'Electronic items'),
+(2, 'Accessories', 'Accessory items');
+
+INSERT INTO items (id, type_id, name, details) VALUES
+(1, 0, 'Mystery Box', 'wireless mystery item'),
+(2, 0, 'Unknown Gadget', 'unclassified wireless device'),
+(3, 1, 'Smart Speaker', 'wireless bluetooth speaker'),
+(4, 2, 'Phone Case', 'protective case');
+
+CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, details) WITH (key_field = 'id');
+
+-- Test that items with type_id = 0 are correctly joined (not treated as cross-join)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.id, i.name, t.type_name
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.details @@@ 'wireless'
+LIMIT 10;
+
+SELECT i.id, i.name, t.type_name
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.details @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- Verify type_id = 0 items are joined to 'Uncategorized' type
+SELECT i.id, i.name, t.type_name, t.type_id
+FROM items i
+JOIN item_types t ON i.type_id = t.type_id
+WHERE i.type_id = 0
+ORDER BY i.id;
+
+-- =============================================================================
+-- TEST 18: Memory fallback to nested loop (small work_mem)
+-- =============================================================================
+
+-- Save current work_mem and set very small value to trigger fallback
+-- Note: This test may still use hash join if the data is small enough
+SET work_mem = '64kB';
+
+-- Create larger dataset to potentially trigger memory limit
+DROP TABLE IF EXISTS large_orders CASCADE;
+DROP TABLE IF EXISTS large_suppliers CASCADE;
+
+CREATE TABLE large_suppliers (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    country TEXT
+);
+
+CREATE TABLE large_orders (
+    id SERIAL PRIMARY KEY,
+    supplier_id INTEGER,
+    description TEXT
+);
+
+-- Insert suppliers
+INSERT INTO large_suppliers (name, country)
+SELECT 
+    'Supplier ' || i,
+    CASE WHEN i % 3 = 0 THEN 'USA' WHEN i % 3 = 1 THEN 'UK' ELSE 'Germany' END
+FROM generate_series(1, 100) i;
+
+-- Insert enough orders to potentially exceed small work_mem
+INSERT INTO large_orders (supplier_id, description)
+SELECT 
+    (i % 100) + 1,
+    CASE WHEN i % 5 = 0 THEN 'wireless product order' ELSE 'regular product order' END
+FROM generate_series(1, 1000) i;
+
+CREATE INDEX large_orders_bm25_idx ON large_orders USING bm25 (id, description) WITH (key_field = 'id');
+
+-- This query may fall back to nested loop due to small work_mem
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT lo.id, lo.description, ls.name AS supplier_name
+FROM large_orders lo
+JOIN large_suppliers ls ON lo.supplier_id = ls.id
+WHERE lo.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT lo.id, lo.description, ls.name AS supplier_name
+FROM large_orders lo
+JOIN large_suppliers ls ON lo.supplier_id = ls.id
+WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
+LIMIT 10;
+
+-- Reset work_mem
+RESET work_mem;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
+DROP TABLE IF EXISTS inventory CASCADE;
+DROP TABLE IF EXISTS warehouses CASCADE;
+DROP TABLE IF EXISTS items CASCADE;
+DROP TABLE IF EXISTS item_types CASCADE;
+DROP TABLE IF EXISTS large_orders CASCADE;
+DROP TABLE IF EXISTS large_suppliers CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

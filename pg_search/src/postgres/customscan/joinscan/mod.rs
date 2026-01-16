@@ -366,13 +366,11 @@ impl CustomScan for JoinScan {
 
                 state.custom_state_mut().build_key_info.push(JoinKeyInfo {
                     attno: build_attno,
-                    type_oid: jk.type_oid,
                     typlen: jk.typlen,
                     typbyval: jk.typbyval,
                 });
                 state.custom_state_mut().driving_key_info.push(JoinKeyInfo {
                     attno: driving_attno,
-                    type_oid: jk.type_oid,
                     typlen: jk.typlen,
                     typbyval: jk.typbyval,
                 });

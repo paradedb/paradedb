@@ -63,9 +63,6 @@ pub enum CompositeKey {
 pub struct JoinKeyInfo {
     /// Attribute number (1-indexed).
     pub attno: i32,
-    /// PostgreSQL type OID (kept for potential future use in type-specific comparison).
-    #[allow(dead_code)]
-    pub type_oid: pg_sys::Oid,
     /// Type length from pg_type.typlen (-1 for varlena, -2 for cstring).
     pub typlen: i16,
     /// Whether type is pass-by-value.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768537000821,
+  "lastUpdate": 1768537723235,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51254,6 +51254,60 @@ window.BENCHMARK_DATA = {
             "value": 14.887553312008507,
             "unit": "median tps",
             "extra": "avg tps: 14.938367395004995, max tps: 20.485987860864007, count: 55534"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3b1b69d7a0df731bd552bbf078b1ca2b19c397d",
+          "message": "fix: use advisory locks to coordinate background merging (#3929)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPR #3519 coordinated the number of background mergers using buffer-level\nlocking: specifically cleanup locks + pins to determine whether a merge\nwas running. This led to WAL replay issues where cleanup locks were\nreplayed on hot standbys, which would hang if that buffer was already\npinned.\n\nThis fix gets rid of these buffer-level locks altogether, and instead\nuses Postgres advisory locks\nhttps://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS\n\nThe way it works is `aminsert` first does a quick advisory lock\nacquisition/release to determine if a merge is already happening. If\nnot, it launches a background worker, which then re-acquires the\nadvisory lock (signaling to concurrent inserts not to launch more\nbackground workers).\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T17:32:32-10:00",
+          "tree_id": "5a8ecf3aa4b769aae4698244b1730a6172f47a3b",
+          "url": "https://github.com/paradedb/paradedb/commit/f3b1b69d7a0df731bd552bbf078b1ca2b19c397d"
+        },
+        "date": 1768537719371,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.80577645311193,
+            "unit": "median tps",
+            "extra": "avg tps: 32.43739793594013, max tps: 36.74702737984263, count: 55435"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 233.15393751860702,
+            "unit": "median tps",
+            "extra": "avg tps: 254.87548686735298, max tps: 2555.91217630171, count: 55435"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1865.7899185876374,
+            "unit": "median tps",
+            "extra": "avg tps: 1856.6900355586931, max tps: 2361.4872012520605, count: 55435"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 169.1439882349822,
+            "unit": "median tps",
+            "extra": "avg tps: 200.282634329876, max tps: 1651.5720193342459, count: 110870"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.777213850949103,
+            "unit": "median tps",
+            "extra": "avg tps: 14.82885919461513, max tps: 19.28017765218413, count: 55435"
           }
         ]
       }

@@ -61,158 +61,6 @@ struct JoinConditions {
     has_search_predicate: bool,
 }
 
-/// Extract join conditions from the restrict list.
-/// Separates equi-join keys (for hash lookup) from other conditions (for filtering).
-unsafe fn extract_join_conditions(
-    extra: *mut pg_sys::JoinPathExtraData,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
-) -> JoinConditions {
-    let mut result = JoinConditions {
-        equi_keys: Vec::new(),
-        other_conditions: Vec::new(),
-        has_search_predicate: false,
-    };
-
-    if extra.is_null() {
-        return result;
-    }
-
-    let restrictlist = (*extra).restrictlist;
-    if restrictlist.is_null() {
-        return result;
-    }
-
-    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
-
-    for ri in restrict_infos.iter_ptr() {
-        if ri.is_null() {
-            continue;
-        }
-
-        let clause = (*ri).clause;
-        if clause.is_null() {
-            continue;
-        }
-
-        // Check if this clause contains our @@@ operator
-        let search_op = anyelement_query_input_opoid();
-        if expr_contains_any_operator(clause.cast(), &[search_op]) {
-            result.has_search_predicate = true;
-        }
-
-        // Try to identify equi-join conditions (OpExpr with Var = Var)
-        let mut is_equi_join = false;
-
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = clause as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-            // Equi-join: should have exactly 2 args, both Var nodes
-            if args.len() == 2 {
-                let arg0 = args.get_ptr(0).unwrap();
-                let arg1 = args.get_ptr(1).unwrap();
-
-                if (*arg0).type_ == pg_sys::NodeTag::T_Var
-                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
-                {
-                    let var0 = arg0 as *mut pg_sys::Var;
-                    let var1 = arg1 as *mut pg_sys::Var;
-
-                    let varno0 = (*var0).varno as pg_sys::Index;
-                    let varno1 = (*var1).varno as pg_sys::Index;
-                    let attno0 = (*var0).varattno;
-                    let attno1 = (*var1).varattno;
-
-                    // Check if this is an equi-join between outer and inner
-                    if varno0 == outer_rti && varno1 == inner_rti {
-                        result.equi_keys.push((attno0, attno1));
-                        is_equi_join = true;
-                    } else if varno0 == inner_rti && varno1 == outer_rti {
-                        result.equi_keys.push((attno1, attno0));
-                        is_equi_join = true;
-                    }
-                }
-            }
-        }
-
-        // If it's not an equi-join, it's an "other" condition
-        if !is_equi_join {
-            result.other_conditions.push(ri);
-        }
-    }
-
-    result
-}
-
-/// Try to extract join side information from a RelOptInfo.
-/// Returns JoinSideInfo if we find a base relation (possibly with a BM25 index).
-unsafe fn extract_join_side_info(
-    root: *mut pg_sys::PlannerInfo,
-    rel: *mut pg_sys::RelOptInfo,
-) -> Option<JoinSideInfo> {
-    if rel.is_null() {
-        return None;
-    }
-
-    let relids = (*rel).relids;
-    if relids.is_null() {
-        return None;
-    }
-
-    // For now, we only handle single base relations on each side.
-    // Multi-relation joins on one side would require more complex handling.
-    let mut rti_iter = bms_iter(relids);
-    let rti = rti_iter.next()?;
-
-    // If there are multiple relations on this side, we can't handle it yet
-    if rti_iter.next().is_some() {
-        return None;
-    }
-
-    // Get the RTE and verify it's a plain relation
-    let rtable = (*(*root).parse).rtable;
-    if rtable.is_null() {
-        return None;
-    }
-
-    let rte = pg_sys::rt_fetch(rti, rtable);
-    let relid = get_plain_relation_relid(rte)?;
-
-    let mut side_info = JoinSideInfo::new().with_heap_rti(rti).with_heaprelid(relid);
-
-    // Check if this relation has a BM25 index
-    if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
-        side_info = side_info.with_indexrelid(bm25_index.oid());
-
-        // Try to extract quals for this relation
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
-        if !baserestrictinfo.is_empty() {
-            let context = PlannerContext::from_planner(root);
-            let mut state = QualExtractState::default();
-
-            if let Some(qual) = extract_quals(
-                &context,
-                rti,
-                baserestrictinfo.as_ptr().cast(),
-                anyelement_query_input_opoid(),
-                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
-                &bm25_index,
-                false, // Don't convert external to special qual
-                &mut state,
-                true, // Attempt pushdown
-            ) {
-                if state.uses_our_operator {
-                    let query = SearchQueryInput::from(&qual);
-                    side_info = side_info.with_query(query);
-                }
-            }
-        }
-    }
-
-    Some(side_info)
-}
-
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
     type Args = JoinPathlistHookArgs;
@@ -1202,3 +1050,155 @@ impl ExecMethod for JoinScan {
 }
 
 impl PlainExecCapable for JoinScan {}
+
+/// Extract join conditions from the restrict list.
+/// Separates equi-join keys (for hash lookup) from other conditions (for filtering).
+unsafe fn extract_join_conditions(
+    extra: *mut pg_sys::JoinPathExtraData,
+    outer_rti: pg_sys::Index,
+    inner_rti: pg_sys::Index,
+) -> JoinConditions {
+    let mut result = JoinConditions {
+        equi_keys: Vec::new(),
+        other_conditions: Vec::new(),
+        has_search_predicate: false,
+    };
+
+    if extra.is_null() {
+        return result;
+    }
+
+    let restrictlist = (*extra).restrictlist;
+    if restrictlist.is_null() {
+        return result;
+    }
+
+    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+
+    for ri in restrict_infos.iter_ptr() {
+        if ri.is_null() {
+            continue;
+        }
+
+        let clause = (*ri).clause;
+        if clause.is_null() {
+            continue;
+        }
+
+        // Check if this clause contains our @@@ operator
+        let search_op = anyelement_query_input_opoid();
+        if expr_contains_any_operator(clause.cast(), &[search_op]) {
+            result.has_search_predicate = true;
+        }
+
+        // Try to identify equi-join conditions (OpExpr with Var = Var)
+        let mut is_equi_join = false;
+
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+            // Equi-join: should have exactly 2 args, both Var nodes
+            if args.len() == 2 {
+                let arg0 = args.get_ptr(0).unwrap();
+                let arg1 = args.get_ptr(1).unwrap();
+
+                if (*arg0).type_ == pg_sys::NodeTag::T_Var
+                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
+                {
+                    let var0 = arg0 as *mut pg_sys::Var;
+                    let var1 = arg1 as *mut pg_sys::Var;
+
+                    let varno0 = (*var0).varno as pg_sys::Index;
+                    let varno1 = (*var1).varno as pg_sys::Index;
+                    let attno0 = (*var0).varattno;
+                    let attno1 = (*var1).varattno;
+
+                    // Check if this is an equi-join between outer and inner
+                    if varno0 == outer_rti && varno1 == inner_rti {
+                        result.equi_keys.push((attno0, attno1));
+                        is_equi_join = true;
+                    } else if varno0 == inner_rti && varno1 == outer_rti {
+                        result.equi_keys.push((attno1, attno0));
+                        is_equi_join = true;
+                    }
+                }
+            }
+        }
+
+        // If it's not an equi-join, it's an "other" condition
+        if !is_equi_join {
+            result.other_conditions.push(ri);
+        }
+    }
+
+    result
+}
+
+/// Try to extract join side information from a RelOptInfo.
+/// Returns JoinSideInfo if we find a base relation (possibly with a BM25 index).
+unsafe fn extract_join_side_info(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> Option<JoinSideInfo> {
+    if rel.is_null() {
+        return None;
+    }
+
+    let relids = (*rel).relids;
+    if relids.is_null() {
+        return None;
+    }
+
+    // For now, we only handle single base relations on each side.
+    // Multi-relation joins on one side would require more complex handling.
+    let mut rti_iter = bms_iter(relids);
+    let rti = rti_iter.next()?;
+
+    // If there are multiple relations on this side, we can't handle it yet
+    if rti_iter.next().is_some() {
+        return None;
+    }
+
+    // Get the RTE and verify it's a plain relation
+    let rtable = (*(*root).parse).rtable;
+    if rtable.is_null() {
+        return None;
+    }
+
+    let rte = pg_sys::rt_fetch(rti, rtable);
+    let relid = get_plain_relation_relid(rte)?;
+
+    let mut side_info = JoinSideInfo::new().with_heap_rti(rti).with_heaprelid(relid);
+
+    // Check if this relation has a BM25 index
+    if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
+        side_info = side_info.with_indexrelid(bm25_index.oid());
+
+        // Try to extract quals for this relation
+        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        if !baserestrictinfo.is_empty() {
+            let context = PlannerContext::from_planner(root);
+            let mut state = QualExtractState::default();
+
+            if let Some(qual) = extract_quals(
+                &context,
+                rti,
+                baserestrictinfo.as_ptr().cast(),
+                anyelement_query_input_opoid(),
+                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                &bm25_index,
+                false, // Don't convert external to special qual
+                &mut state,
+                true, // Attempt pushdown
+            ) {
+                if state.uses_our_operator {
+                    let query = SearchQueryInput::from(&qual);
+                    side_info = side_info.with_query(query);
+                }
+            }
+        }
+    }
+
+    Some(side_info)
+}

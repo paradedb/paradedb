@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768452969617,
+  "lastUpdate": 1768525463307,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6854,6 +6854,72 @@ window.BENCHMARK_DATA = {
             "value": 132.34132499736486,
             "unit": "median tps",
             "extra": "avg tps: 151.249485541144, max tps: 486.3526140458193, count: 54548"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c579e2f20546f5057827f5de3aec7f881ad35edf",
+          "message": "fix: `pdb.agg` works with JSON paths (#3925)\n\n# Ticket(s) Closed\n\n- Closes #3890 \n\n## What\n\nFixes an issue introduced in #3729 where `pdb.agg` incorrectly errors if\na JSON field + path is passed in.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-15T14:45:39-10:00",
+          "tree_id": "70dfaa3cdf983e66cb7f27b4825b99d0c10fd759",
+          "url": "https://github.com/paradedb/paradedb/commit/c579e2f20546f5057827f5de3aec7f881ad35edf"
+        },
+        "date": 1768525459527,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 549.2561596498794,
+            "unit": "median tps",
+            "extra": "avg tps: 550.338622732486, max tps: 693.9986633107125, count: 55452"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2867.854872586064,
+            "unit": "median tps",
+            "extra": "avg tps: 2867.8471706230002, max tps: 3111.083565246578, count: 55452"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 545.7814791858325,
+            "unit": "median tps",
+            "extra": "avg tps: 548.8126386960454, max tps: 737.3297103663383, count: 55452"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 462.462501948094,
+            "unit": "median tps",
+            "extra": "avg tps: 464.3268742474867, max tps: 515.6090767631098, count: 55452"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3211.753050143262,
+            "unit": "median tps",
+            "extra": "avg tps: 3221.472539356481, max tps: 3348.8307198554608, count: 110904"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2102.801461632016,
+            "unit": "median tps",
+            "extra": "avg tps: 2091.322310291137, max tps: 2108.1898825842463, count: 55452"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 97.23503792105323,
+            "unit": "median tps",
+            "extra": "avg tps: 95.44526428314242, max tps: 726.9940902650402, count: 55452"
           }
         ]
       }

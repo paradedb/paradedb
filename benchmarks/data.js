@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768528460683,
+  "lastUpdate": 1768530042141,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -52220,6 +52220,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 30576.141,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "varunkkv.mec@gmail.com",
+            "name": "K V Varun Krishnan",
+            "username": "vrn21"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "462740bbb1f2a5794daa34f8cb0ba0c864051701",
+          "message": "feat: Add TopN Scan Validation (#3816)\n\n# Ticket(s) Closed\n\n- Closes #3687\n\n## What\n\nAdded `paradedb.check_topn_scan` GUC that emits a warning when a query\nwith LIMIT should use TopN scan but falls back to a slower execution\nmethod.\n\n**Files changed:**\n-\n[pg_search/src/gucs.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/gucs.rs)\n(+17 lines) — GUC definition\n-\n[pg_search/src/postgres/customscan/pdbscan/mod.rs](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs)\n(+96 lines) — Validation logic\n-\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\n(+116 lines) — Tests\n\n## Why\n\nParadeDB silently falls back to slower execution methods when TopN\ncannot be used (missing `fast: true`, normalizer mismatch, too many\nORDER BY columns). Queries work fine on small dev datasets but become\n100-1000x slower in production with no warning.\n\n## How\n\nAdded\n[validate_topn_expectation()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1344-1445)\nfunction in\n[choose_exec_method()](file:///Users/vrn21/Developer/rust/paradedb/pg_search/src/postgres/customscan/pdbscan/mod.rs#1446-1488)\nthat checks if TopN was expected (has LIMIT + search operator + no GROUP\nBY) but not chosen. If validation is enabled and TopN was missed, emits\na warning with the reason.\n\n**Default**: `false` (opt-in)\n\n**Usage:**\n```sql\nSET paradedb.check_topn_scan = true;\n\nSELECT * FROM products WHERE cat @@@ 'electronics' ORDER BY cat LIMIT 10;\n-- WARNING: Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead).\n-- Reason: ORDER BY columns cannot be pushed down to the index.\n```\n\n## Tests\n\n\n[pg_search/tests/pg_regress/sql/topn_validation.sql](file:///Users/vrn21/Developer/rust/paradedb/pg_search/tests/pg_regress/sql/topn_validation.sql)\ncovers 8 scenarios:\n\n| Test | Scenario | Expected |\n|------|----------|----------|\n| 1 | Validation OFF, non-fast ORDER BY | No warning |\n| 2 | Validation ON, non-fast ORDER BY | WARNING |\n| 3 | Validation ON, valid TopN query | No warning |\n| 4 | Too many ORDER BY columns | WARNING |\n| 5a | ORDER BY lower() matching index | No warning |\n| 5b | ORDER BY not matching lower() index | WARNING |\n| 6 | Query without LIMIT | No validation |\n| 7 | EXPLAIN with validation | WARNING |\n| 8 | Disable validation mid-session | No warning |\n\n<!-- CURSOR_SUMMARY -->\n---\n\n> [!NOTE]\n> Introduces an opt-in validator to catch missed TopN optimizations on\nLIMIT queries using ParadeDB search.\n> \n> - New GUC `paradedb.check_topn_scan` (default `false`) in\n`pg_search/src/gucs.rs`\n> - Adds `validate_topn_expectation()` in `pdbscan/mod.rs`; invoked from\n`choose_exec_method()` to log a warning when TopN is expected (LIMIT +\nsearch + no GROUP BY) but `ExecMethodType` is not `TopN`, with reasons\nderived from `PathKeyInfo` (e.g., unusable pathkeys, prefix-only,\n>`MAX_TOPN_FEATURES`, normalizer mismatch)\n> - Minor refactor to choose method then validate before returning\n> - Regression tests `tests/pg_regress/sql/topn_validation.sql` (+\nexpected output) cover non-fast ORDER BY, valid TopN, too many ORDER BY\ncols, `lower()` normalizer mismatch, no LIMIT, EXPLAIN logging, and\ntoggling the GUC\n> \n> <sup>Written by [Cursor\nBugbot](https://cursor.com/dashboard?tab=bugbot) for commit\n9b41430569c044380c991e53d24a9db30660c233. This will update automatically\non new commits. Configure\n[here](https://cursor.com/dashboard?tab=bugbot).</sup>\n<!-- /CURSOR_SUMMARY -->\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-01-15T17:19:40-08:00",
+          "tree_id": "e050e9377a770e634abdab7179375c1c5452764b",
+          "url": "https://github.com/paradedb/paradedb/commit/462740bbb1f2a5794daa34f8cb0ba0c864051701"
+        },
+        "date": 1768530038320,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1198.548,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 638.362,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1471.6595,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 707.8095000000001,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 672.2560000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 880.8575000000001,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 30881.4135,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 31070.4225,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 31220.4075,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

@@ -39,7 +39,7 @@ use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, 
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_contains_any_operator, expr_extract_search_opexprs};
+use crate::postgres::utils::{expr_collect_rtis, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
 use pgrx::itemptr::item_pointer_to_u64;
@@ -1153,6 +1153,16 @@ impl JoinScan {
 
     /// Extract join-level search predicates from the restrictlist.
     /// This finds @@@ operators in OR conditions and extracts the search queries.
+    /// Extract join-level search predicates from the restrict list.
+    ///
+    /// For OR expressions spanning multiple tables (e.g., `p.desc @@@ 'a' OR s.info @@@ 'b'`),
+    /// we split the OR branches by their referenced table and extract each branch as a complete
+    /// predicate. This preserves the boolean structure (AND, NOT) within each branch.
+    ///
+    /// For example, `(p.desc @@@ 'wireless' AND NOT p.desc @@@ 'mouse') OR s.info @@@ 'shipping'`:
+    /// - The products branch `(p.desc @@@ 'wireless' AND NOT p.desc @@@ 'mouse')` is extracted whole
+    /// - The suppliers branch `s.info @@@ 'shipping'` is extracted whole
+    /// - At runtime, OR semantics apply: pass if either branch matches
     unsafe fn extract_join_level_search_predicates(
         root: *mut pg_sys::PlannerInfo,
         extra: *mut pg_sys::JoinPathExtraData,
@@ -1171,6 +1181,7 @@ impl JoinScan {
 
         let outer_rti = outer_side.heap_rti.unwrap_or(0);
         let inner_rti = inner_side.heap_rti.unwrap_or(0);
+        let search_op = anyelement_query_input_opoid();
 
         let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
 
@@ -1181,74 +1192,129 @@ impl JoinScan {
 
             let clause = (*ri).clause;
 
-            // Extract search predicate OpExprs from this clause, filtered to outer/inner RTIs
-            let search_op = anyelement_query_input_opoid();
-            let opexprs: Vec<_> = expr_extract_search_opexprs(clause.cast(), &[search_op])
-                .into_iter()
-                .filter(|(rti, _)| *rti == outer_rti || *rti == inner_rti)
-                .collect();
+            // Check if this clause contains any search predicates
+            if !expr_contains_any_operator(clause.cast(), &[search_op]) {
+                continue;
+            }
 
-            // For each OpExpr, extract the SearchQueryInput using the qual extraction machinery
-            for (rti, opexpr) in opexprs {
-                // Determine which side this predicate applies to
-                let (indexrelid, bm25_index) = if rti == outer_rti {
-                    if let Some(oid) = outer_side.indexrelid {
-                        if let Some((_, idx)) =
-                            rel_get_bm25_index(outer_side.heaprelid.unwrap_or(pg_sys::InvalidOid))
-                        {
-                            (oid, Some(idx))
-                        } else {
-                            (oid, None)
-                        }
-                    } else {
-                        continue;
-                    }
-                } else if rti == inner_rti {
-                    if let Some(oid) = inner_side.indexrelid {
-                        if let Some((_, idx)) =
-                            rel_get_bm25_index(inner_side.heaprelid.unwrap_or(pg_sys::InvalidOid))
-                        {
-                            (oid, Some(idx))
-                        } else {
-                            (oid, None)
-                        }
-                    } else {
-                        continue;
-                    }
-                } else {
-                    continue;
+            // Check if this is an OR expression
+            let is_or_expr = (*clause.cast::<pg_sys::Node>()).type_ == pg_sys::NodeTag::T_BoolExpr
+                && {
+                    let boolexpr = clause as *mut pg_sys::BoolExpr;
+                    (*boolexpr).boolop == pg_sys::BoolExprType::OR_EXPR
                 };
 
-                // Create a RestrictInfo list containing just this OpExpr
-                // We need to wrap the OpExpr in a RestrictInfo for extract_quals
-                let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
-                let fake_ri = pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>())
-                    as *mut pg_sys::RestrictInfo;
-                (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
-                (*fake_ri).clause = opexpr.cast();
-                ri_list.push(fake_ri);
+            if is_or_expr {
+                // For OR expressions, process each branch separately by its referenced table(s)
+                let boolexpr = clause as *mut pg_sys::BoolExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
 
-                // Use extract_quals to convert to SearchQueryInput
-                if let Some(bm25_idx) = bm25_index {
-                    let context = PlannerContext::from_planner(root);
-                    let mut state = QualExtractState::default();
-
-                    if let Some(qual) = extract_quals(
-                        &context,
-                        rti,
-                        ri_list.as_ptr().cast(),
-                        anyelement_query_input_opoid(),
-                        RestrictInfoType::BaseRelation,
-                        &bm25_idx,
-                        false,
-                        &mut state,
-                        false, // Don't attempt pushdown for join-level predicates
-                    ) {
-                        let query = SearchQueryInput::from(&qual);
-                        join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query);
+                for arg in args.iter_ptr() {
+                    if arg.is_null() {
+                        continue;
                     }
+
+                    // Check if this branch contains search predicates
+                    if !expr_contains_any_operator(arg, &[search_op]) {
+                        continue;
+                    }
+
+                    // Collect all RTIs referenced by this OR branch
+                    let branch_rtis = expr_collect_rtis(arg);
+
+                    // We only handle branches that reference exactly one of our join tables
+                    let is_outer_only = branch_rtis.len() == 1 && branch_rtis.contains(&outer_rti);
+                    let is_inner_only = branch_rtis.len() == 1 && branch_rtis.contains(&inner_rti);
+
+                    if !is_outer_only && !is_inner_only {
+                        // This branch references both tables or neither - skip it
+                        continue;
+                    }
+
+                    let (rti, side) = if is_outer_only {
+                        (outer_rti, outer_side)
+                    } else {
+                        (inner_rti, inner_side)
+                    };
+
+                    // Extract the complete branch as a predicate for this side
+                    join_clause =
+                        Self::extract_predicate_for_side(root, rti, side, arg, join_clause);
                 }
+            } else {
+                // For non-OR expressions (simple predicates or AND expressions on one table),
+                // check which table it references and extract if it's single-table
+                let clause_rtis = expr_collect_rtis(clause.cast());
+
+                let is_outer_only = clause_rtis.len() == 1 && clause_rtis.contains(&outer_rti);
+                let is_inner_only = clause_rtis.len() == 1 && clause_rtis.contains(&inner_rti);
+
+                if is_outer_only {
+                    join_clause = Self::extract_predicate_for_side(
+                        root,
+                        outer_rti,
+                        outer_side,
+                        clause.cast(),
+                        join_clause,
+                    );
+                } else if is_inner_only {
+                    join_clause = Self::extract_predicate_for_side(
+                        root,
+                        inner_rti,
+                        inner_side,
+                        clause.cast(),
+                        join_clause,
+                    );
+                }
+                // If it references both or neither, skip it
             }
+        }
+
+        join_clause
+    }
+
+    /// Helper to extract a complete predicate expression for one side of the join.
+    unsafe fn extract_predicate_for_side(
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+        side: &JoinSideInfo,
+        expr: *mut pg_sys::Node,
+        mut join_clause: JoinCSClause,
+    ) -> JoinCSClause {
+        let Some(indexrelid) = side.indexrelid else {
+            return join_clause;
+        };
+
+        let Some((_, bm25_idx)) = rel_get_bm25_index(side.heaprelid.unwrap_or(pg_sys::InvalidOid))
+        else {
+            return join_clause;
+        };
+
+        // Create a RestrictInfo wrapping the expression for extract_quals
+        let mut ri_list = PgList::<pg_sys::RestrictInfo>::new();
+        let fake_ri = pg_sys::palloc0(std::mem::size_of::<pg_sys::RestrictInfo>())
+            as *mut pg_sys::RestrictInfo;
+        (*fake_ri).type_ = pg_sys::NodeTag::T_RestrictInfo;
+        (*fake_ri).clause = expr.cast();
+        ri_list.push(fake_ri);
+
+        let context = PlannerContext::from_planner(root);
+        let mut state = QualExtractState::default();
+
+        // extract_quals handles BoolExpr (AND/OR/NOT) recursively, preserving the structure
+        if let Some(qual) = extract_quals(
+            &context,
+            rti,
+            ri_list.as_ptr().cast(),
+            anyelement_query_input_opoid(),
+            RestrictInfoType::BaseRelation,
+            &bm25_idx,
+            false,
+            &mut state,
+            false, // Don't attempt pushdown for join-level predicates
+        ) {
+            let query = SearchQueryInput::from(&qual);
+            join_clause = join_clause.add_join_level_predicate(rti, indexrelid, query);
         }
 
         join_clause

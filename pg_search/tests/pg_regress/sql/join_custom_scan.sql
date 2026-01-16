@@ -615,6 +615,47 @@ LIMIT 10;
 RESET work_mem;
 
 -- =============================================================================
+-- TEST 19: Complex join-level predicate with NOT and OR
+-- =============================================================================
+
+-- Complex condition: (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+-- This tests:
+-- 1. Negation within a search predicate
+-- 2. OR combining predicates across tables
+-- 3. AND within a single table's predicate
+-- EXPECTED: Products matching 'wireless' but NOT 'mouse' in description,
+--           OR any product joined to a supplier with 'shipping' in contact_info
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+ORDER BY p.id
+LIMIT 10;
+
+-- Another complex pattern: NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+-- Products that do NOT contain 'cable' AND do NOT contain 'stand'
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

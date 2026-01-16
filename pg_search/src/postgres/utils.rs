@@ -842,18 +842,13 @@ pub unsafe fn expr_contains_any_operator(
     context.found
 }
 
-/// Extract all OpExpr nodes from an expression tree that match the target operators.
-///
-/// Similar to [`expr_contains_any_operator`], but returns the matching OpExpr pointers
-/// instead of just a boolean. Uses PostgreSQL's expression_tree_walker for proper traversal.
-///
-/// For each matching OpExpr, also extracts the RTI (range table index) from the first Var
-/// argument if present.
-pub unsafe fn expr_extract_search_opexprs(
+/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
+/// Returns a HashSet of RTIs referenced by the expression.
+pub unsafe fn expr_collect_rtis(
     node: *mut pg_sys::Node,
-    target_opnos: &[pg_sys::Oid],
-) -> Vec<(pg_sys::Index, *mut pg_sys::OpExpr)> {
+) -> std::collections::HashSet<pg_sys::Index> {
     use pgrx::pg_guard;
+    use std::collections::HashSet;
     use std::ptr::addr_of_mut;
 
     #[pg_guard]
@@ -865,45 +860,23 @@ pub unsafe fn expr_extract_search_opexprs(
             return false;
         }
 
-        let context = &mut *(data as *mut Context);
-        let node_type = (*node).type_;
+        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
 
-        // Check if this node is an OpExpr with one of our target operators
-        if node_type == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = node as *mut pg_sys::OpExpr;
-            if context.target_opnos.contains(&(*opexpr).opno) {
-                // Found a match! Extract the RTI from the first Var argument if present
-                let args = pgrx::PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                let rti = if !args.is_empty() {
-                    let arg0 = args.get_ptr(0).unwrap();
-                    if (*arg0).type_ == pg_sys::NodeTag::T_Var {
-                        let var = arg0 as *mut pg_sys::Var;
-                        (*var).varno as pg_sys::Index
-                    } else {
-                        0 // No Var found
-                    }
-                } else {
-                    0
-                };
-                context.results.push((rti, opexpr));
-                // Continue walking to find more matches (don't return true)
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
+                rtis.insert(varno);
             }
         }
+
         pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
-    struct Context {
-        target_opnos: Vec<pg_sys::Oid>,
-        results: Vec<(pg_sys::Index, *mut pg_sys::OpExpr)>,
-    }
-
-    let mut context = Context {
-        target_opnos: target_opnos.to_vec(),
-        results: Vec::new(),
-    };
-
-    walker(node, addr_of_mut!(context).cast());
-    context.results
+    let mut rtis = HashSet::new();
+    walker(node, addr_of_mut!(rtis).cast());
+    rtis
 }
 
 /// Look up a function in the pdb schema by name and argument types.

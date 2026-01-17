@@ -21,10 +21,8 @@ use std::sync::Arc;
 
 use crate::api::FieldName;
 use crate::api::HashSet;
-use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::nodecast;
-use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::{scan_state::BaseScanState, BaseScan};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -356,57 +354,6 @@ pub unsafe fn pullup_fast_fields(
     }
 
     Some(matches)
-}
-
-fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
-    if privdata.referenced_columns_count() == 0 {
-        return false;
-    }
-
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-
-    if is_all_special_or_junk_fields(which_fast_fields) {
-        // if all the fast fields we have are Junk fields, then we're not actually
-        // projecting fast fields, and we're better off using a Normal scan.
-        return false;
-    }
-
-    // Make sure all referenced columns are fast fields
-    let referenced_columns_count = privdata.referenced_columns_count();
-
-    // Count columns that we have fast fields for (excluding system/junk fields)
-    let fast_field_column_count = which_fast_fields
-        .iter()
-        .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
-        .count();
-
-    // If we're missing any columns, we can't use fast field execution
-    if referenced_columns_count > fast_field_column_count {
-        return false;
-    }
-
-    true
-}
-
-/// Check if we can use the Mixed fast field execution method
-pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !gucs::is_mixed_fast_field_exec_enabled() {
-        return false;
-    }
-
-    if !fast_field_capable_prereqs(privdata) {
-        return false;
-    }
-
-    // We should only use Mixed if there is at least one named fast field, but fewer than the
-    // configured column threshold.
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-    let named_field_count = which_fast_fields
-        .iter()
-        .filter(|wff| matches!(wff, WhichFastField::Named(_, _)))
-        .count();
-
-    0 < named_field_count && named_field_count < gucs::mixed_fast_field_exec_column_threshold()
 }
 
 pub fn is_all_special_or_junk_fields<'a>(

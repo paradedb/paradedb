@@ -1550,41 +1550,7 @@ fn choose_exec_method(
     topn_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
 ) -> ExecMethodType {
-    // See if we can use TopN.
-    if let Some(limit) = privdata.limit() {
-        if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            // having a valid limit and sort direction means we can do a TopN query
-            // and TopN can do snippets
-            return ExecMethodType::TopN {
-                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
-                orderby_info: Some(orderby_info.clone()),
-                window_aggregates: privdata.window_aggregates().clone(),
-            };
-        }
-        if matches!(topn_pathkey_info, PathKeyInfo::None) {
-            // we have a limit but no pathkeys at all. we can still go through our "top n"
-            // machinery, but getting "limit" (essentially) random docs, which is what the user
-            // asked for
-            return ExecMethodType::TopN {
-                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
-                orderby_info: None,
-                window_aggregates: privdata.window_aggregates().clone(),
-            };
-        }
-    }
-
-    // Otherwise, see if we can use a fast fields method.
-    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: privdata.limit(),
-        }
-    } else {
-        // Else, fall back to normal execution
-        ExecMethodType::Normal
-    };
+    let chosen = ExecMethodType::Normal;
 
     // Validate TopN expectations before returning
     validate_topn_expectation(privdata, topn_pathkey_info, limit_is_explicit, &chosen);

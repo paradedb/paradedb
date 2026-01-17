@@ -304,24 +304,21 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
-                                                                                   QUERY PLAN                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
-   ->  Sort
+   ->  Result
          Output: p.id, p.name, s.name, (paradedb.score(p.id))
-         Sort Key: (paradedb.score(p.id)) DESC
-         ->  Result
-               Output: p.id, p.name, s.name, (paradedb.score(p.id))
-               ->  Custom Scan (ParadeDB Join Scan)
-                     Output: p.id, p.name, (paradedb.score(p.id)), s.name
-                     Join Type: Inner
-                     Outer Relation: suppliers (s)
-                     Inner Relation: products (p)
-                     Join Cond: s.id = p.supplier_id
-                     Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-                     Limit: 5
-(15 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, (paradedb.score(p.id)), s.name
+               Join Type: Inner
+               Outer Relation: suppliers (s)
+               Inner Relation: products (p)
+               Join Cond: s.id = p.supplier_id
+               Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 5
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p

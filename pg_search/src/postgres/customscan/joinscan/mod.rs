@@ -31,9 +31,10 @@ use self::scan_state::{
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::basescan::projections::score::uses_scores;
+use crate::nodecast;
+use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, Flags, RestrictInfoType,
+    CustomPathBuilder, Flags, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -184,24 +185,32 @@ impl CustomScan for JoinScan {
             let (startup_cost, total_cost, result_rows) =
                 estimate_joinscan_cost(&join_clause, outerrel, innerrel, limit);
 
-            // TODO(order-by-score): Currently, even when TopN executor returns results
-            // in score order, PostgreSQL still adds a Sort node because we don't declare
-            // pathkeys on the CustomPath. To enable ORDER BY score pushdown:
-            // 1. Detect ORDER BY paradedb.score(driving_relation) DESC in planning
-            // 2. When TopN executor is used, set pathkeys on the CustomPath to indicate
-            //    the output is already sorted by score descending
-            // 3. This would eliminate the extra Sort node in EXPLAIN plans
-            //
+            // ORDER BY score pushdown: Check if query has ORDER BY paradedb.score()
+            // for the driving side. When TopN executor is used (which is always the case
+            // when there's a LIMIT), results are returned in score order, so we can
+            // declare pathkeys to eliminate the Sort node PostgreSQL would otherwise add.
+            let driving_side_rti = if join_clause.driving_side_is_outer() {
+                outer_rti
+            } else {
+                inner_rti
+            };
+            let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
+
             // Force the path to be chosen when we have a valid join opportunity.
             // TODO: Once cost model is well-tuned, consider removing Flags::Force
             // to let PostgreSQL make cost-based decisions.
-            let builder = builder
+            let mut builder = builder
                 .set_flag(Flags::Force)
                 .set_startup_cost(startup_cost)
                 .set_total_cost(total_cost)
                 .set_rows(result_rows)
                 .add_custom_path(outer_path)
                 .add_custom_path(inner_path);
+
+            // Add pathkey if ORDER BY score detected for driving side
+            if let Some(ref pathkey) = score_pathkey {
+                builder = builder.add_path_key(pathkey);
+            }
 
             let mut custom_path = builder.build(private_data);
 
@@ -1982,6 +1991,55 @@ unsafe fn estimate_joinscan_cost(
     let total_cost = startup_cost + run_cost;
 
     (startup_cost, total_cost, result_rows)
+}
+
+/// Extract ORDER BY score pathkey for the driving side.
+///
+/// This checks if the query has an ORDER BY clause with paradedb.score()
+/// referencing the driving side relation. If found, returns the OrderByStyle
+/// that can be used to declare pathkeys on the CustomPath, eliminating the
+/// need for PostgreSQL to add a separate Sort node.
+///
+/// Returns None if:
+/// - No ORDER BY clause exists
+/// - ORDER BY doesn't use paradedb.score()
+/// - Score function references a different relation
+unsafe fn extract_score_pathkey(
+    root: *mut pg_sys::PlannerInfo,
+    driving_side_rti: pg_sys::Index,
+) -> Option<OrderByStyle> {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return None;
+    }
+
+    // We only support a single score-based ORDER BY for now
+    // (first pathkey must be score for the driving side)
+    let pathkey_ptr = pathkeys.iter_ptr().next()?;
+    let pathkey = pathkey_ptr;
+    let equivclass = (*pathkey).pk_eclass;
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+    for member in members.iter_ptr() {
+        let expr = (*member).em_expr;
+
+        // Check if this is a PlaceHolderVar containing a score function
+        if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+            if !phv.is_null() && !(*phv).phexpr.is_null() {
+                if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+                    if is_score_func(funcexpr.cast(), driving_side_rti) {
+                        return Some(OrderByStyle::Score(pathkey));
+                    }
+                }
+            }
+        }
+        // Check if this is a direct score function call
+        else if is_score_func(expr.cast(), driving_side_rti) {
+            return Some(OrderByStyle::Score(pathkey));
+        }
+    }
+
+    None
 }
 
 /// Convert a serializable join-level expression to a runtime expression.

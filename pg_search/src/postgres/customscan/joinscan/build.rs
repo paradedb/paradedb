@@ -24,7 +24,6 @@
 //!
 //! - Add score_needed field to JoinSideInfo to track whether scores are needed per-side
 //! - Add pathkeys field to track sort order for ORDER BY pushdown
-//! - Add estimated_rows field for cost model improvements
 //! - Consider adding execution hints (preferred join algorithm, memory hints)
 
 use crate::query::SearchQueryInput;

@@ -168,25 +168,21 @@ impl CustomScan for JoinScan {
             }
 
             // Create the private data
-            let private_data = PrivateData::new(join_clause);
-
-            // TODO(cost-model): The current cost model is simplistic and doesn't allow
-            // the planner to make informed decisions about when JoinScan is beneficial.
-            // A proper cost model should estimate based on:
-            // - Search predicate selectivity (from Tantivy index stats if available)
-            // - Expected hash table size (build side cardinality * avg row width)
-            // - Number of probes (driving side cardinality after search filtering)
-            // - I/O costs for heap fetches (random I/O for ctid lookups)
-            // - CPU costs for hash table operations
-            // Currently we force the path to be chosen via Flags::Force, which bypasses
-            // cost-based selection entirely.
-            let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + 1000.0;
+            let private_data = PrivateData::new(join_clause.clone());
 
             // Get the cheapest total paths from outer and inner relations
             // These are needed so PostgreSQL can resolve Vars in custom_scan_tlist
             let outer_path = (*outerrel).cheapest_total_path;
             let inner_path = (*innerrel).cheapest_total_path;
+
+            // Cost model for JoinScan
+            // We estimate costs based on:
+            // - Driving side: rows after search filtering, limited by LIMIT
+            // - Build side: full scan to build hash table
+            // - Hash table build cost: sequential scan + hashing
+            // - Probe cost: per driving row, hash lookup + heap fetch
+            let (startup_cost, total_cost, result_rows) =
+                estimate_joinscan_cost(&join_clause, outerrel, innerrel, limit);
 
             // TODO(order-by-score): Currently, even when TopN executor returns results
             // in score order, PostgreSQL still adds a Sort node because we don't declare
@@ -196,13 +192,14 @@ impl CustomScan for JoinScan {
             //    the output is already sorted by score descending
             // 3. This would eliminate the extra Sort node in EXPLAIN plans
             //
-            // Force the path to be chosen when we have a valid join opportunity
-            // Add child paths so set_customscan_references can resolve Vars
+            // Force the path to be chosen when we have a valid join opportunity.
+            // TODO: Once cost model is well-tuned, consider removing Flags::Force
+            // to let PostgreSQL make cost-based decisions.
             let builder = builder
                 .set_flag(Flags::Force)
                 .set_startup_cost(startup_cost)
                 .set_total_cost(total_cost)
-                .set_rows(limit.unwrap_or(1000) as f64)
+                .set_rows(result_rows)
                 .add_custom_path(outer_path)
                 .add_custom_path(inner_path);
 
@@ -1889,6 +1886,102 @@ unsafe fn extract_join_side_info(
     }
 
     Some(side_info)
+}
+
+/// Estimate the cost of a JoinScan operation.
+///
+/// Returns (startup_cost, total_cost, result_rows).
+///
+/// Cost model components:
+/// - Startup cost: Build side sequential scan + hash table construction
+/// - Per-tuple cost: Hash lookup + heap fetch for driving side
+/// - Result rows: Min(limit, estimated_matches)
+unsafe fn estimate_joinscan_cost(
+    join_clause: &JoinCSClause,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    limit: Option<usize>,
+) -> (f64, f64, f64) {
+    // Get row estimates from PostgreSQL's statistics
+    let outer_rows = if !outerrel.is_null() {
+        (*outerrel).rows.max(1.0)
+    } else {
+        1000.0
+    };
+    let inner_rows = if !innerrel.is_null() {
+        (*innerrel).rows.max(1.0)
+    } else {
+        1000.0
+    };
+
+    // Determine driving and build side rows
+    let driving_is_outer = join_clause.driving_side_is_outer();
+    let (driving_rows, build_rows) = if driving_is_outer {
+        (outer_rows, inner_rows)
+    } else {
+        (inner_rows, outer_rows)
+    };
+
+    // If driving side has a search predicate, assume selectivity reduces rows
+    // This is a rough estimate - ideally we'd get stats from Tantivy
+    let driving_selectivity = if join_clause.driving_side().has_search_predicate {
+        0.1 // Assume search predicate selects ~10% of rows
+    } else {
+        1.0
+    };
+    let estimated_driving_rows = (driving_rows * driving_selectivity).max(1.0);
+
+    // If build side has a search predicate, reduce build side estimate too
+    let build_selectivity = if join_clause.build_side().has_search_predicate {
+        0.1
+    } else {
+        1.0
+    };
+    let estimated_build_rows = (build_rows * build_selectivity).max(1.0);
+
+    // Apply limit to result estimate
+    let result_rows = match limit {
+        Some(lim) => (estimated_driving_rows * 0.5).min(lim as f64).max(1.0), // Assume ~50% join selectivity
+        None => estimated_driving_rows * 0.5,
+    };
+
+    // Cost components using PostgreSQL's cost constants
+    let seq_page_cost = pg_sys::seq_page_cost;
+    let cpu_tuple_cost = pg_sys::cpu_tuple_cost;
+    let cpu_operator_cost = pg_sys::cpu_operator_cost;
+
+    // Startup cost: Build the hash table from build side
+    // - Sequential scan of build side
+    // - Hashing each tuple
+    let build_scan_cost = estimated_build_rows * cpu_tuple_cost;
+    let build_hash_cost = estimated_build_rows * cpu_operator_cost;
+    let startup_cost = DEFAULT_STARTUP_COST + build_scan_cost + build_hash_cost;
+
+    // Per-tuple cost for driving side:
+    // - Fetch from index (via Tantivy)
+    // - Heap fetch for driving tuple
+    // - Hash lookup
+    // - Heap fetch for matching build tuples (if any)
+    let index_fetch_cost = cpu_operator_cost; // Tantivy lookup
+    let heap_fetch_cost = cpu_tuple_cost; // Heap access for driving tuple
+    let hash_lookup_cost = cpu_operator_cost; // Hash table probe
+    let per_driving_tuple_cost = index_fetch_cost + heap_fetch_cost + hash_lookup_cost;
+
+    // Total run cost: process estimated driving rows
+    // But we may short-circuit due to LIMIT
+    let driving_rows_to_process = match limit {
+        Some(lim) => {
+            // We might need to process more driving rows than the limit
+            // due to join selectivity (not all driving rows will have matches)
+            (lim as f64 * 2.0).min(estimated_driving_rows)
+        }
+        None => estimated_driving_rows,
+    };
+    let run_cost = driving_rows_to_process * per_driving_tuple_cost;
+
+    let total_cost = startup_cost + run_cost;
+
+    (startup_cost, total_cost, result_rows)
 }
 
 /// Convert a serializable join-level expression to a runtime expression.

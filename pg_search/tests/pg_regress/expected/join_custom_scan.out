@@ -534,11 +534,9 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-         ->  Materialize
-               Output: c.name, c.id
-               ->  Seq Scan on public.categories c
-                     Output: c.name, c.id
-(18 rows)
+         ->  Seq Scan on public.categories c
+               Output: c.id, c.name, c.description
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p

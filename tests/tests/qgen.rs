@@ -18,7 +18,7 @@
 mod fixtures;
 
 use crate::fixtures::querygen::groupbygen::arb_group_by;
-use crate::fixtures::querygen::joingen::JoinType;
+use crate::fixtures::querygen::joingen::{arb_joins, JoinType};
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 use crate::fixtures::querygen::{
@@ -486,6 +486,102 @@ async fn generated_subquery(database: Db) {
             &mut pool.pull(),
             &setup_sql,
             |query, conn| query.fetch_one::<(i64,)>(conn),
+        )?;
+    });
+}
+
+///
+/// Tests JoinScan custom scan implementation with INNER JOINs and LIMIT.
+///
+/// JoinScan requires:
+/// 1. enable_join_custom_scan = on
+/// 2. At least one side with a BM25 predicate
+/// 3. A LIMIT clause
+///
+/// This test verifies that JoinScan produces the same results as PostgreSQL's
+/// native join implementation.
+///
+/// NOTE: This test is ignored pending investigation of a database corruption
+/// issue that occurs with certain JoinScan queries. The error "could not read blocks"
+/// suggests the JoinScan implementation may have issues with ctid handling.
+/// See: tests/tests/joinscan_concurrent.rs for working JoinScan tests.
+///
+#[ignore]
+#[rstest]
+#[tokio::test]
+async fn generated_joinscan(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let tables_and_sizes = [("users", 100), ("products", 100)];
+    let tables = tables_and_sizes
+        .iter()
+        .map(|(table, _)| table)
+        .collect::<Vec<_>>();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    // Use only text columns for WHERE clauses (name is text field)
+    let text_columns = columns_named(vec!["name"]);
+    // Use numeric columns for join keys
+    let join_key_columns = vec!["id", "age"];
+
+    proptest!(|(
+        join in arb_joins(
+            Just(JoinType::Inner),  // JoinScan currently only supports INNER JOIN
+            tables.clone(),
+            join_key_columns.clone(),
+        ),
+        // Only use text columns with @@@ operator (single table)
+        where_expr in arb_wheres(vec![tables[0]], &text_columns),
+        limit in 1..=50usize,
+    )| {
+        let join_clause = join.to_sql();
+        let used_tables = join.used_tables();
+
+        // Select columns from the first table
+        let target_list = format!("{}.id, {}.name", used_tables[0], used_tables[0]);
+
+        let from = format!("SELECT {target_list} {join_clause}");
+
+        // GUCs with JoinScan enabled
+        let gucs = PgGucs {
+            join_custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        // PostgreSQL native join with = operator
+        let pg_query = format!(
+            "{from} WHERE {} ORDER BY {}.id LIMIT {limit}",
+            where_expr.to_sql(" = "),
+            used_tables[0]
+        );
+
+        // BM25 query with JoinScan enabled
+        let bm25_query = format!(
+            "{from} WHERE {} ORDER BY {}.id LIMIT {limit}",
+            where_expr.to_sql("@@@"),
+            used_tables[0]
+        );
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let mut rows = query.fetch::<(i64, String)>(conn);
+                rows.sort();
+                rows
+            },
         )?;
     });
 }

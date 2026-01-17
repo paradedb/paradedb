@@ -946,6 +946,66 @@ ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 19: Memory overflow - nested loop fallback
+-- =============================================================================
+-- Verify JoinScan gracefully handles memory overflow by falling back to nested loop
+-- Note: This is a functional test, not a stress test. We just verify the query
+-- completes correctly even with constrained work_mem.
+
+DROP TABLE IF EXISTS mem_test_products CASCADE;
+DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
+
+CREATE TABLE mem_test_suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    info TEXT
+);
+
+CREATE TABLE mem_test_products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER
+);
+
+-- Insert enough data to potentially stress the hash table
+-- (actual overflow depends on work_mem setting)
+INSERT INTO mem_test_suppliers
+SELECT i, 'Supplier ' || i, 'Contact info for supplier ' || i
+FROM generate_series(1, 100) AS i;
+
+INSERT INTO mem_test_products
+SELECT i, 
+       'Product ' || i,
+       CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'wired product' END,
+       (i % 100) + 1
+FROM generate_series(1, 500) AS i;
+
+CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
+    USING bm25 (id, name, description) WITH (key_field = 'id');
+
+-- Run with constrained work_mem to test memory handling
+-- Note: 64 is the minimum work_mem in PostgreSQL (KB)
+SET work_mem = '64kB';
+
+-- This query should still work correctly, whether using hash join or nested loop
+SELECT COUNT(*) AS match_count
+FROM mem_test_products p
+JOIN mem_test_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+LIMIT 100;
+
+-- Verify actual results are correct
+SELECT p.name, s.name AS supplier_name
+FROM mem_test_products p
+JOIN mem_test_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+
+RESET work_mem;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -968,6 +1028,8 @@ DROP TABLE IF EXISTS colors CASCADE;
 DROP TABLE IF EXISTS sizes CASCADE;
 DROP TABLE IF EXISTS order_items CASCADE;
 DROP TABLE IF EXISTS order_details CASCADE;
+DROP TABLE IF EXISTS mem_test_products CASCADE;
+DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

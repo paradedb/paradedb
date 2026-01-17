@@ -523,6 +523,7 @@ pub(crate) mod pdb {
             min_gram: 1,
             max_gram: 3,
             prefix_only: false,
+            positions: false,
             filters: SearchTokenizerFilters::default(),
         },
         tokenize_ngram,

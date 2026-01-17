@@ -23,8 +23,10 @@
 //! # Future Enhancements (TODO)
 //!
 //! - Add score_needed field to JoinSideInfo to track whether scores are needed per-side
-//! - Add pathkeys field to track sort order for ORDER BY pushdown
 //! - Consider adding execution hints (preferred join algorithm, memory hints)
+//!
+//! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
+//! time. See `extract_score_pathkey()` in mod.rs.
 
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;

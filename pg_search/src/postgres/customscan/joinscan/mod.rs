@@ -31,6 +31,7 @@ use self::scan_state::{
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
@@ -41,6 +42,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
+use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
@@ -245,6 +247,15 @@ impl CustomScan for JoinScan {
             // Use the ORIGINAL targetlist to extract output_columns, NOT the extended tlist.
             // The original_tlist matches what ps_ResultTupleSlot is built from.
             let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+            let funcoids = score_funcoids();
+
+            // Determine which RTI has the search predicate (score comes from that side)
+            let driving_side_rti = if private_data.join_clause.outer_side.query.is_some() {
+                outer_rti
+            } else {
+                inner_rti
+            };
+
             for te in original_entries.iter_ptr() {
                 if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
                     let var = (*te).expr as *mut pg_sys::Var;
@@ -256,12 +267,21 @@ impl CustomScan for JoinScan {
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer,
                         original_attno: varattno,
+                        is_score: false,
+                    });
+                } else if uses_scores((*te).expr.cast(), funcoids, driving_side_rti) {
+                    // This expression contains paradedb.score() for the driving side
+                    output_columns.push(privdat::OutputColumnInfo {
+                        is_outer: driving_side_rti == outer_rti,
+                        original_attno: 0,
+                        is_score: true,
                     });
                 } else {
-                    // Non-Var expression - mark as null (attno = 0)
+                    // Non-Var, non-score expression - mark as null (attno = 0)
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer: false,
                         original_attno: 0,
+                        is_score: false,
                     });
                 }
             }
@@ -1141,9 +1161,25 @@ impl JoinScan {
         let datums = (*result_slot).tts_values;
         let nulls = (*result_slot).tts_isnull;
 
+        // Get the driving side score for score columns
+        let driving_score = state.custom_state().current_driving_score;
+
         for (i, col_info) in output_columns.iter().enumerate() {
             if i >= natts {
                 break;
+            }
+
+            // Handle score columns specially
+            if col_info.is_score {
+                // Score comes from the driving side's search results
+                use pgrx::IntoDatum;
+                if let Some(datum) = driving_score.into_datum() {
+                    *datums.add(i) = datum;
+                    *nulls.add(i) = false;
+                } else {
+                    *nulls.add(i) = true;
+                }
+                continue;
             }
 
             // Determine which slot to read from based on is_outer

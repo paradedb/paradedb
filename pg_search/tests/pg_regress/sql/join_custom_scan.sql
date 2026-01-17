@@ -179,16 +179,16 @@ SET paradedb.enable_join_custom_scan = on;
 -- TEST 6: ORDER BY pdb.score() - Single Feature join pattern
 -- =============================================================================
 
--- -- This is the canonical "Single Feature" join pattern from the TopN spec
--- -- NOTE: Score propagation through JoinScan is not yet implemented in M1.
--- -- The score() function returns NULL for now. This will be addressed in M2.
--- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
--- SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
--- FROM products p
--- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'wireless'
--- ORDER BY paradedb.score(p.id) DESC
--- LIMIT 5;
+-- This is the canonical "Single Feature" join pattern from the TopN spec.
+-- Score propagation through JoinScan is supported - paradedb.score() returns
+-- the BM25 score from the search predicate on the driving side.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p

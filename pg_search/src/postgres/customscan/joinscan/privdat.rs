@@ -28,7 +28,12 @@ pub struct OutputColumnInfo {
     /// True if the column comes from the outer relation, false for inner.
     pub is_outer: bool,
     /// The original attribute number in the source relation (1-indexed).
+    /// Set to 0 for non-Var expressions (like functions).
     pub original_attno: i16,
+    /// True if this column is a paradedb.score() function call.
+    /// The score will be taken from current_driving_score during execution.
+    #[serde(default)]
+    pub is_score: bool,
 }
 
 /// Private data stored in the CustomPath/CustomScan for join operations.

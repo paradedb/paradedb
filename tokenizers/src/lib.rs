@@ -23,6 +23,7 @@ pub mod icu;
 pub mod jieba;
 pub mod lindera;
 pub mod manager;
+pub mod ngram;
 pub mod token_length;
 pub mod token_trim;
 mod unicode_words;

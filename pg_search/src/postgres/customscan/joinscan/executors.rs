@@ -227,17 +227,13 @@ impl JoinSideExecutor {
                 return JoinExecResult::Eof;
             }
 
-            // Try to get next result from current batch
+            // Try to get next result from current batch.
+            // Return raw ctid without visibility checking - visibility is checked downstream.
             if let Some((scored, _doc_address)) = state.search_results.next() {
-                // Check visibility and resolve stale ctids
-                if let Some(current_ctid) = self.visibility_checker.get_current_ctid(scored.ctid) {
-                    return JoinExecResult::Visible {
-                        ctid: current_ctid,
-                        score: scored.bm25,
-                    };
-                }
-                // Tuple not visible, try next
-                continue;
+                return JoinExecResult::Visible {
+                    ctid: scored.ctid,
+                    score: scored.bm25,
+                };
             }
 
             // Current batch exhausted, try to query more
@@ -298,40 +294,30 @@ impl JoinSideExecutor {
     // --- Normal execution ---
 
     fn next_normal_impl(&mut self) -> JoinExecResult {
-        loop {
-            pgrx::check_for_interrupts!();
+        pgrx::check_for_interrupts!();
 
-            let ExecMethod::Normal(state) = &mut self.exec_method else {
-                unreachable!()
-            };
+        let ExecMethod::Normal(state) = &mut self.exec_method else {
+            unreachable!()
+        };
 
-            // Initialize search results if not done yet
-            if !state.did_query {
-                state.search_results = Some(self.search_reader.search());
-                state.did_query = true;
-            }
+        // Initialize search results if not done yet
+        if !state.did_query {
+            state.search_results = Some(self.search_reader.search());
+            state.did_query = true;
+        }
 
-            let Some(search_results) = state.search_results.as_mut() else {
-                return JoinExecResult::Eof;
-            };
+        let Some(search_results) = state.search_results.as_mut() else {
+            return JoinExecResult::Eof;
+        };
 
-            // Try to get next result
-            match search_results.next() {
-                Some((scored, _doc_address)) => {
-                    // Check visibility and resolve stale ctids
-                    if let Some(current_ctid) =
-                        self.visibility_checker.get_current_ctid(scored.ctid)
-                    {
-                        return JoinExecResult::Visible {
-                            ctid: current_ctid,
-                            score: scored.bm25,
-                        };
-                    }
-                    // Tuple not visible, try next
-                    continue;
-                }
-                None => return JoinExecResult::Eof,
-            }
+        // Return the next result without visibility checking.
+        // Visibility is checked downstream in extract_driving_join_key/build_result_tuple.
+        match search_results.next() {
+            Some((scored, _doc_address)) => JoinExecResult::Visible {
+                ctid: scored.ctid,
+                score: scored.bm25,
+            },
+            None => JoinExecResult::Eof,
         }
     }
 }

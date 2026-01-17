@@ -478,29 +478,34 @@ impl CustomScan for JoinScan {
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                 state.custom_state_mut().driving_fetch_slot = Some(driving_slot);
 
-                // Try to open search reader for driving side (if it has a search predicate)
+                // If driving side has a search predicate, create an executor
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
-                    let indexrel = PgSearchRelation::open(indexrelid);
-                    let search_reader = SearchIndexReader::open_with_context(
-                        &indexrel,
-                        query.clone(),
-                        true, // need_scores for the driving side
-                        MvccSatisfies::Snapshot,
-                        None,
-                        None,
-                    );
-                    if let Ok(reader) = search_reader {
-                        state.custom_state_mut().driving_search_reader = Some(reader);
-                    }
-                    state.custom_state_mut().driving_indexrel = Some(indexrel);
-                }
+                    // Use TopN executor if we have a limit, otherwise use Normal
+                    let executor = if let Some(limit) = join_clause.limit {
+                        executors::JoinSideExecutor::new_topn(
+                            limit,
+                            &heaprel,
+                            indexrelid,
+                            query.clone(),
+                            snapshot,
+                        )
+                    } else {
+                        executors::JoinSideExecutor::new_normal(
+                            &heaprel,
+                            indexrelid,
+                            query.clone(),
+                            snapshot,
+                        )
+                    };
+                    state.custom_state_mut().driving_executor = Some(executor);
 
-                // If no search reader, start a heap scan on driving side
-                // This happens when we have join-level search predicates (OR across tables)
-                // but no side-level predicates
-                if state.custom_state().driving_search_reader.is_none() {
+                    // Create visibility checker for fetching tuples by ctid from executor results
+                    let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                    state.custom_state_mut().driving_visibility_checker = Some(vis_checker);
+                } else {
+                    // No search predicate - use heap scan for driving side
                     let scan_desc = pg_sys::table_beginscan(
                         heaprel.as_ptr(),
                         snapshot,
@@ -738,35 +743,23 @@ impl CustomScan for JoinScan {
                     continue;
                 }
 
-                // Get next driving row - either from search reader or heap scan
+                // Get next driving row - either from executor or heap scan
                 let (driving_ctid, driving_score) =
-                    if state.custom_state().driving_search_reader.is_some() {
-                        // Use search reader
-                        let need_init = state.custom_state().driving_search_results.is_none();
-                        if need_init {
-                            let reader = state.custom_state().driving_search_reader.as_ref();
-                            if let Some(reader) = reader {
-                                let results = reader.search();
-                                state.custom_state_mut().driving_search_results = Some(results);
-                            } else {
-                                return std::ptr::null_mut();
-                            }
+                    if state.custom_state().driving_executor.is_some() {
+                        // Use the executor for incremental fetching
+                        let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
+
+                        // Check if we've reached the limit
+                        if executor.reached_limit() {
+                            return std::ptr::null_mut();
                         }
 
-                        let driving_search_results =
-                            state.custom_state_mut().driving_search_results.as_mut();
-                        let Some(results) = driving_search_results else {
-                            return std::ptr::null_mut();
-                        };
-
-                        let next_result = results.next();
-                        let Some((scored, _doc_address)) = next_result else {
-                            return std::ptr::null_mut(); // No more search results
-                        };
-
-                        (scored.ctid, scored.bm25)
+                        match executor.next_visible() {
+                            executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
+                            executors::JoinExecResult::Eof => return std::ptr::null_mut(),
+                        }
                     } else if let Some(scan_desc) = state.custom_state().driving_scan_desc {
-                        // Use heap scan (join-level predicates with no side-level predicates)
+                        // Fallback to heap scan (no search predicate case)
                         let slot = state.custom_state().driving_fetch_slot;
                         let Some(slot) = slot else {
                             return std::ptr::null_mut();
@@ -954,33 +947,23 @@ impl JoinScan {
 
             // Need a driving row. If we don't have one, get the next one.
             if state.custom_state().current_driving_ctid.is_none() {
-                // Get next driving row
+                // Get next driving row - either from executor or heap scan
                 let (driving_ctid, driving_score) =
-                    if state.custom_state().driving_search_reader.is_some() {
-                        let need_init = state.custom_state().driving_search_results.is_none();
-                        if need_init {
-                            let reader = state.custom_state().driving_search_reader.as_ref();
-                            if let Some(reader) = reader {
-                                let results = reader.search();
-                                state.custom_state_mut().driving_search_results = Some(results);
-                            } else {
-                                return std::ptr::null_mut();
-                            }
+                    if state.custom_state().driving_executor.is_some() {
+                        // Use the executor for incremental fetching
+                        let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
+
+                        // Check if we've reached the limit
+                        if executor.reached_limit() {
+                            return std::ptr::null_mut();
                         }
 
-                        let driving_search_results =
-                            state.custom_state_mut().driving_search_results.as_mut();
-                        let Some(results) = driving_search_results else {
-                            return std::ptr::null_mut();
-                        };
-
-                        let next_result = results.next();
-                        let Some((scored, _doc_address)) = next_result else {
-                            return std::ptr::null_mut();
-                        };
-
-                        (scored.ctid, scored.bm25)
+                        match executor.next_visible() {
+                            executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
+                            executors::JoinExecResult::Eof => return std::ptr::null_mut(),
+                        }
                     } else if let Some(driving_scan_desc) = state.custom_state().driving_scan_desc {
+                        // Fallback to heap scan (no search predicate case)
                         let slot = state.custom_state().driving_fetch_slot;
                         let Some(slot) = slot else {
                             return std::ptr::null_mut();

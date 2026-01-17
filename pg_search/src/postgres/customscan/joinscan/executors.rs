@@ -27,7 +27,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{
     MultiSegmentSearchResults, SearchIndexReader, TopNSearchResults,
 };
-use crate::postgres::heap::OwnedVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -72,14 +71,13 @@ struct NormalExecState {
 
 /// Wrapper around BaseScan exec methods for JoinScan usage.
 ///
-/// Provides streaming iteration with visibility checking, allowing the join
-/// to fetch results incrementally rather than materializing all ctids upfront.
+/// Provides streaming iteration, allowing the join to fetch results
+/// incrementally rather than materializing all ctids upfront.
+/// Note: Visibility checking is done downstream in extract_driving_join_key.
 #[allow(dead_code)]
 pub struct JoinSideExecutor {
     /// The search index reader.
     search_reader: SearchIndexReader,
-    /// Visibility checker for resolving stale ctids.
-    visibility_checker: OwnedVisibilityChecker,
     /// The execution method (TopN or Normal).
     exec_method: ExecMethod,
 }
@@ -95,7 +93,7 @@ impl JoinSideExecutor {
         heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
-        snapshot: pg_sys::Snapshot,
+        _snapshot: pg_sys::Snapshot,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);
         let search_reader = SearchIndexReader::open_with_context(
@@ -107,8 +105,6 @@ impl JoinSideExecutor {
             None,
         )
         .expect("Failed to open search reader for TopN executor");
-
-        let visibility_checker = OwnedVisibilityChecker::new(heaprel, snapshot);
 
         // Calculate scale factor based on dead/live tuple ratio
         let scale_factor = unsafe {
@@ -128,7 +124,6 @@ impl JoinSideExecutor {
 
         Self {
             search_reader,
-            visibility_checker,
             exec_method: ExecMethod::TopN(TopNExecState {
                 limit,
                 search_results: TopNSearchResults::empty(),
@@ -144,10 +139,10 @@ impl JoinSideExecutor {
 
     /// Create a new Normal executor for full scan (build side or unlimited driving).
     pub fn new_normal(
-        heaprel: &PgSearchRelation,
+        _heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
-        snapshot: pg_sys::Snapshot,
+        _snapshot: pg_sys::Snapshot,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);
         let search_reader = SearchIndexReader::open_with_context(
@@ -163,11 +158,8 @@ impl JoinSideExecutor {
         // Initialize search results immediately (not lazily)
         let search_results = search_reader.search();
 
-        let visibility_checker = OwnedVisibilityChecker::new(heaprel, snapshot);
-
         Self {
             search_reader,
-            visibility_checker,
             exec_method: ExecMethod::Normal(NormalExecState {
                 search_results: Some(search_results),
                 did_query: true,

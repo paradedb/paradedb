@@ -48,10 +48,9 @@ use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, 
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_rtis, expr_contains_any_operator, item_pointer_to_u64};
 use crate::query::SearchQueryInput;
 use crate::DEFAULT_STARTUP_COST;
-use pgrx::itemptr::item_pointer_to_u64;
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
 

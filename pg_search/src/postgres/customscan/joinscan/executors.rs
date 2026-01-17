@@ -20,6 +20,11 @@
 //! These wrappers provide streaming iteration, allowing JoinScan to use
 //! TopN (for LIMIT queries) or FastField (for unlimited scans) without
 //! materializing all results upfront.
+//!
+//! # Known Limitations
+//!
+//! TODO(parallel): No parallel execution support. Would require partitioning the
+//! search results across workers and coordinating iteration.
 
 use std::collections::HashSet;
 
@@ -103,6 +108,9 @@ impl JoinSideExecutor {
         _snapshot: pg_sys::Snapshot,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);
+        // TODO(error-handling): This expect() will panic if index opening fails.
+        // Consider returning Result<Self, _> and letting caller fall back to
+        // PostgreSQL's native join execution.
         let search_reader = SearchIndexReader::open_with_context(
             &indexrel,
             query,
@@ -202,6 +210,17 @@ impl JoinSideExecutor {
     ///
     /// This is used for build side filtering and join-level predicate evaluation
     /// where we need to materialize all matching ctids.
+    ///
+    /// TODO(use-or-remove): This method was created for build side filtering in
+    /// begin_custom_scan but isn't currently used. The build side materialization
+    /// in mod.rs directly iterates SearchIndexReader results instead.
+    ///
+    /// Options:
+    /// 1. Integrate this into begin_custom_scan for build side filtering
+    /// 2. Use this for join-level predicate ctid set collection
+    /// 3. Remove if neither use case materializes
+    ///
+    /// See TODO(build-side-streaming) in mod.rs for context.
     #[allow(dead_code)]
     pub fn collect_all_ctids(mut self) -> HashSet<u64> {
         let mut ctids = HashSet::new();

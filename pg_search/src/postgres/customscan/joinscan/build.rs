@@ -15,6 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Data structures for JoinScan planning and serialization.
+//!
+//! These structures are serialized to JSON and stored in CustomScan's custom_private
+//! field, then deserialized during execution.
+//!
+//! # Future Enhancements (TODO)
+//!
+//! - Add score_needed field to JoinSideInfo to track whether scores are needed per-side
+//! - Add pathkeys field to track sort order for ORDER BY pushdown
+//! - Add estimated_rows field for cost model improvements
+//! - Consider adding execution hints (preferred join algorithm, memory hints)
+
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};

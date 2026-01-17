@@ -15,6 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Execution state for JoinScan custom scan.
+//!
+//! # Testing Gaps (TODO)
+//!
+//! The following scenarios need additional test coverage:
+//! - Different join key types: UUID, NUMERIC, composite types
+//! - NULL key handling: Verify NULLs are excluded per SQL semantics
+//! - Memory overflow: Test that nested loop fallback works correctly
+//! - Concurrent updates: Stress test visibility checking under concurrent UPDATEs
+//! - Cross join: No equi-join keys case
+//! - Large result sets: Performance regression tests
+
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
 use crate::postgres::customscan::joinscan::executors::JoinSideExecutor;

@@ -83,17 +83,27 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
-            // For M1, we only handle INNER JOINs
+            // TODO(join-types): Currently only INNER JOIN is supported.
+            // Future work should add:
+            // - LEFT JOIN: Return NULL for non-matching build rows; track matched driving rows
+            // - RIGHT JOIN: Swap driving/build sides, then use LEFT logic
+            // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
+            // - SEMI JOIN: Stop after first match per driving row (benefits EXISTS queries)
+            // - ANTI JOIN: Return only driving rows with no matches (benefits NOT EXISTS)
             if jointype != pg_sys::JoinType::JOIN_INNER {
                 return None;
             }
 
-            // Check if there's a LIMIT in the query
+            // TODO(no-limit): Currently requires LIMIT for JoinScan to be proposed.
+            // This is overly restrictive. We should allow no-limit joins when:
+            // 1. Both sides have search predicates (Aggregate Score pattern), OR
+            // 2. Join-level predicates exist that benefit from index
+            // Use FastField executor for both sides in unlimited mode.
+            // The current restriction exists because TopN executor needs a limit for
+            // incremental fetching with dead tuple scaling.
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
-                // For M1, we require a LIMIT for Single Feature joins
-                // (Join-level predicates for Aggregate Score joins are deferred to M3)
                 return None;
             };
 
@@ -160,16 +170,32 @@ impl CustomScan for JoinScan {
             // Create the private data
             let private_data = PrivateData::new(join_clause);
 
-            // Build the CustomPath
-            // For now, use simple cost estimates (will be improved later)
+            // TODO(cost-model): The current cost model is simplistic and doesn't allow
+            // the planner to make informed decisions about when JoinScan is beneficial.
+            // A proper cost model should estimate based on:
+            // - Search predicate selectivity (from Tantivy index stats if available)
+            // - Expected hash table size (build side cardinality * avg row width)
+            // - Number of probes (driving side cardinality after search filtering)
+            // - I/O costs for heap fetches (random I/O for ctid lookups)
+            // - CPU costs for hash table operations
+            // Currently we force the path to be chosen via Flags::Force, which bypasses
+            // cost-based selection entirely.
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + 1000.0; // Arbitrary cost for now
+            let total_cost = startup_cost + 1000.0;
 
             // Get the cheapest total paths from outer and inner relations
             // These are needed so PostgreSQL can resolve Vars in custom_scan_tlist
             let outer_path = (*outerrel).cheapest_total_path;
             let inner_path = (*innerrel).cheapest_total_path;
 
+            // TODO(order-by-score): Currently, even when TopN executor returns results
+            // in score order, PostgreSQL still adds a Sort node because we don't declare
+            // pathkeys on the CustomPath. To enable ORDER BY score pushdown:
+            // 1. Detect ORDER BY paradedb.score(driving_relation) DESC in planning
+            // 2. When TopN executor is used, set pathkeys on the CustomPath to indicate
+            //    the output is already sorted by score descending
+            // 3. This would eliminate the extra Sort node in EXPLAIN plans
+            //
             // Force the path to be chosen when we have a valid join opportunity
             // Add child paths so set_customscan_references can resolve Vars
             let builder = builder
@@ -559,8 +585,17 @@ impl CustomScan for JoinScan {
                     pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
                 state.custom_state_mut().build_scan_desc = Some(scan_desc);
 
-                // If the build side has a search predicate, pre-compute matching ctids
-                // so we only include matching rows in the hash table
+                // TODO(build-side-streaming): Currently, if the build side has a search
+                // predicate, we pre-materialize ALL matching ctids into a HashSet upfront.
+                // This defeats the incremental fetching benefit for large result sets.
+                //
+                // A better approach would be to use JoinSideExecutor for build side too:
+                // - During hash table build, filter rows lazily using the executor
+                // - This would allow early termination if hash table exceeds work_mem
+                // - Could also enable build side ordering for merge-join style execution
+                //
+                // The collect_all_ctids() method in executors.rs was intended for this
+                // but isn't currently used. Consider integrating it here.
                 if let (Some(indexrelid), Some(ref query)) =
                     (build_side.indexrelid, &build_side.query)
                 {
@@ -725,6 +760,17 @@ impl CustomScan for JoinScan {
                         }
 
                         // Evaluate join qual if we have one
+                        // TODO(expr-context): This expression context setup may not handle all edge
+                        // cases correctly. Potential issues to test:
+                        // - Expressions referencing system columns (ctid, tableoid, xmin, etc.)
+                        // - Expressions with correlated subqueries
+                        // - Expressions with volatile functions (should be re-evaluated each time)
+                        // - Expressions after setrefs that use INDEX_VAR vs original RTI references
+                        //
+                        // The current approach sets ecxt_scantuple to our result slot and
+                        // ecxt_outertuple/ecxt_innertuple to the source slots for backwards
+                        // compatibility. This may need refinement based on how PostgreSQL's
+                        // set_customscan_references transforms the qual expressions.
                         if let (Some(qual_state), Some(econtext)) = (
                             state.custom_state().join_qual_state,
                             state.custom_state().join_qual_econtext,
@@ -1768,12 +1814,18 @@ unsafe fn extract_join_side_info(
         return None;
     }
 
-    // For now, we only handle single base relations on each side.
-    // Multi-relation joins on one side would require more complex handling.
+    // TODO(multi-relation-sides): Currently we only handle single base relations on
+    // each side. This means queries like:
+    //   SELECT * FROM A JOIN B ON ... JOIN C ON ... WHERE A.text @@@ 'x' LIMIT 10
+    // won't use JoinScan because one "side" of the outer join is itself a join result.
+    //
+    // Supporting this would require:
+    // 1. Recursive analysis of join trees to find the relation with search predicate
+    // 2. Propagating search predicates through the join tree
+    // 3. Handling parameterized paths for inner relations
     let mut rti_iter = bms_iter(relids);
     let rti = rti_iter.next()?;
 
-    // If there are multiple relations on this side, we can't handle it yet
     if rti_iter.next().is_some() {
         return None;
     }

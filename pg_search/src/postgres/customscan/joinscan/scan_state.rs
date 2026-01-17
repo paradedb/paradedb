@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashMap;
-use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
 use crate::postgres::customscan::joinscan::executors::JoinSideExecutor;
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
@@ -140,13 +139,7 @@ pub struct JoinScanState {
     // === Driving side state (side with search predicate - we iterate through this) ===
     /// The heap relation for the driving side.
     pub driving_heaprel: Option<PgSearchRelation>,
-    /// The index relation for the driving side.
-    pub driving_indexrel: Option<PgSearchRelation>,
-    /// The search reader for the driving side.
-    pub driving_search_reader: Option<SearchIndexReader>,
-    /// The search results iterator for the driving side.
-    pub driving_search_results: Option<MultiSegmentSearchResults>,
-    /// Executor for the driving side (TopN or Normal) - used instead of search_reader/results.
+    /// Executor for the driving side (TopN or Normal).
     pub driving_executor: Option<JoinSideExecutor>,
     /// Visibility checker for the driving side.
     pub driving_visibility_checker: Option<VisibilityChecker>,
@@ -243,10 +236,10 @@ impl JoinScanState {
         self.current_driving_ctid = None;
         self.current_driving_score = 0.0;
         self.pending_build_ctids.clear();
-        self.driving_search_results = None;
         self.rows_returned = 0;
         // Note: join_level_expr and join_level_ctid_sets are populated once in begin_custom_scan
         // and reused across rescans, so we don't clear them here.
+        // The driving_executor maintains its own state for incremental fetching.
         self.hash_table_memory = 0;
         self.using_nested_loop = false;
     }

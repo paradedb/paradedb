@@ -37,7 +37,6 @@ use tantivy::SegmentOrdinal;
 const FAST_FIELD_BATCH_SIZE: usize = 1024;
 
 /// Result from the executor's next() call.
-#[allow(dead_code)]
 pub enum JoinExecResult {
     /// A visible tuple with its ctid and score.
     Visible { ctid: u64, score: f32 },
@@ -46,7 +45,6 @@ pub enum JoinExecResult {
 }
 
 /// Execution method type for JoinSideExecutor.
-#[allow(dead_code)]
 enum ExecMethod {
     /// TopN execution for queries with LIMIT - fetches incrementally.
     TopN(TopNExecState),
@@ -55,7 +53,6 @@ enum ExecMethod {
 }
 
 /// State for TopN (limited) execution.
-#[allow(dead_code)]
 struct TopNExecState {
     limit: usize,
     search_results: TopNSearchResults,
@@ -70,7 +67,6 @@ struct TopNExecState {
 /// State for FastField (batched) execution.
 ///
 /// Uses FFHelper to batch-lookup ctids from fast fields for efficiency.
-#[allow(dead_code)]
 struct FastFieldExecState {
     /// Search results iterator.
     search_results: MultiSegmentSearchResults,
@@ -87,7 +83,6 @@ struct FastFieldExecState {
 /// Provides streaming iteration, allowing the join to fetch results
 /// incrementally rather than materializing all ctids upfront.
 /// Note: Visibility checking is done downstream in extract_driving_join_key.
-#[allow(dead_code)]
 pub struct JoinSideExecutor {
     /// The search index reader.
     search_reader: SearchIndexReader,
@@ -95,7 +90,6 @@ pub struct JoinSideExecutor {
     exec_method: ExecMethod,
 }
 
-#[allow(dead_code)]
 impl JoinSideExecutor {
     /// Create a new TopN executor for driving side with LIMIT.
     ///
@@ -208,6 +202,7 @@ impl JoinSideExecutor {
     ///
     /// This is used for build side filtering and join-level predicate evaluation
     /// where we need to materialize all matching ctids.
+    #[allow(dead_code)]
     pub fn collect_all_ctids(mut self) -> HashSet<u64> {
         let mut ctids = HashSet::new();
 

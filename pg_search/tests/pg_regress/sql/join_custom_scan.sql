@@ -744,6 +744,208 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 15: Different join key types - TEXT keys
+-- =============================================================================
+-- Verify JoinScan works with TEXT join keys, not just INTEGER
+
+DROP TABLE IF EXISTS docs CASCADE;
+DROP TABLE IF EXISTS authors CASCADE;
+
+CREATE TABLE authors (
+    author_code TEXT PRIMARY KEY,
+    name TEXT,
+    bio TEXT
+);
+
+CREATE TABLE docs (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    author_code TEXT
+);
+
+INSERT INTO authors (author_code, name, bio) VALUES
+('AUTH001', 'Alice Smith', 'Expert in database systems and search technology'),
+('AUTH002', 'Bob Jones', 'Specialist in distributed computing'),
+('AUTH003', 'Carol White', 'Focus on machine learning and AI');
+
+INSERT INTO docs (title, content, author_code) VALUES
+('Database Indexing', 'Full-text search indexing techniques', 'AUTH001'),
+('Search Optimization', 'Optimizing search queries for performance', 'AUTH001'),
+('Distributed Systems', 'Building scalable distributed architectures', 'AUTH002'),
+('ML Basics', 'Introduction to machine learning concepts', 'AUTH003');
+
+CREATE INDEX docs_bm25_idx ON docs USING bm25 (id, title, content) WITH (key_field = 'id');
+CREATE INDEX authors_bm25_idx ON authors USING bm25 (author_code, name, bio) WITH (key_field = 'author_code');
+
+-- JoinScan with TEXT join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT d.title, a.name
+FROM docs d
+JOIN authors a ON d.author_code = a.author_code
+WHERE d.content @@@ 'search'
+LIMIT 10;
+
+SELECT d.title, a.name
+FROM docs d
+JOIN authors a ON d.author_code = a.author_code
+WHERE d.content @@@ 'search'
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 16: NULL key handling
+-- =============================================================================
+-- Verify that NULL join keys are correctly excluded (standard SQL semantics)
+
+DROP TABLE IF EXISTS items_with_nulls CASCADE;
+DROP TABLE IF EXISTS categories_with_nulls CASCADE;
+
+CREATE TABLE categories_with_nulls (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+
+CREATE TABLE items_with_nulls (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    content TEXT,
+    category_id INTEGER  -- Nullable foreign key
+);
+
+INSERT INTO categories_with_nulls (id, name, description) VALUES
+(1, 'Electronics', 'Electronic devices and gadgets'),
+(2, 'Books', 'Physical and digital books'),
+(3, 'Clothing', 'Apparel and accessories');
+
+INSERT INTO items_with_nulls (id, name, content, category_id) VALUES
+(101, 'Laptop', 'Powerful laptop for programming', 1),
+(102, 'Phone', 'Smartphone with great camera', 1),
+(103, 'Novel', 'Bestselling fiction novel', 2),
+(104, 'Orphan Item', 'Item with no category assignment', NULL),  -- NULL category
+(105, 'Another Orphan', 'Another uncategorized item', NULL);     -- NULL category
+
+CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING bm25 (id, name, content) WITH (key_field = 'id');
+
+-- Query should NOT return items with NULL category_id
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT i.name AS item_name, c.name AS category_name
+FROM items_with_nulls i
+JOIN categories_with_nulls c ON i.category_id = c.id
+WHERE i.content @@@ 'item OR laptop OR phone OR novel'
+LIMIT 10;
+
+-- Should return only rows with non-NULL category_id that match the search
+-- The 2 items with NULL category_id are excluded by the JOIN
+SELECT i.name AS item_name, c.name AS category_name
+FROM items_with_nulls i
+JOIN categories_with_nulls c ON i.category_id = c.id
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 17: Cross join (no equi-join keys)
+-- =============================================================================
+-- Verify JoinScan handles cross joins where there are no equi-join conditions
+
+DROP TABLE IF EXISTS colors CASCADE;
+DROP TABLE IF EXISTS sizes CASCADE;
+
+CREATE TABLE colors (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+
+CREATE TABLE sizes (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+
+INSERT INTO colors (id, name, description) VALUES
+(1, 'Red', 'Bright red color'),
+(2, 'Blue', 'Ocean blue color'),
+(3, 'Green', 'Forest green color');
+
+INSERT INTO sizes (id, name, description) VALUES
+(10, 'Small', 'Small size for compact items'),
+(20, 'Medium', 'Medium size for average items'),
+(30, 'Large', 'Large size for big items');
+
+CREATE INDEX colors_bm25_idx ON colors USING bm25 (id, name, description) WITH (key_field = 'id');
+CREATE INDEX sizes_bm25_idx ON sizes USING bm25 (id, name, description) WITH (key_field = 'id');
+
+-- Cross join with search predicates on both sides
+-- Note: This may or may not use JoinScan depending on planner decisions
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.name AS color, s.name AS size
+FROM colors c, sizes s
+WHERE c.description @@@ 'color' AND s.description @@@ 'size'
+LIMIT 10;
+
+SELECT c.name AS color, s.name AS size
+FROM colors c, sizes s
+WHERE c.description @@@ 'color' AND s.description @@@ 'size'
+ORDER BY c.id, s.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 18: Multi-column composite join keys
+-- =============================================================================
+-- Verify JoinScan handles composite (multi-column) join keys
+
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS order_details CASCADE;
+
+CREATE TABLE order_details (
+    order_id INTEGER,
+    line_num INTEGER,
+    product_name TEXT,
+    description TEXT,
+    PRIMARY KEY (order_id, line_num)
+);
+
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER,
+    line_num INTEGER,
+    quantity INTEGER,
+    notes TEXT
+);
+
+INSERT INTO order_details (order_id, line_num, product_name, description) VALUES
+(1, 1, 'Widget A', 'High quality widget for industrial use'),
+(1, 2, 'Widget B', 'Standard widget for general purpose'),
+(2, 1, 'Gadget X', 'Advanced gadget with wireless connectivity'),
+(2, 2, 'Gadget Y', 'Basic gadget for everyday use');
+
+INSERT INTO order_items (order_id, line_num, quantity, notes) VALUES
+(1, 1, 10, 'Rush order for wireless widgets'),
+(1, 2, 5, 'Standard delivery'),
+(2, 1, 3, 'Wireless gadget order'),
+(2, 2, 7, 'Bulk order');
+
+CREATE INDEX order_details_bm25_idx ON order_details USING bm25 (order_id, product_name, description) WITH (key_field = 'order_id');
+CREATE INDEX order_items_bm25_idx ON order_items USING bm25 (id, notes) WITH (key_field = 'id');
+
+-- Join on composite key (order_id, line_num)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT od.product_name, oi.quantity, oi.notes
+FROM order_details od
+JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
+WHERE od.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT od.product_name, oi.quantity, oi.notes
+FROM order_details od
+JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
+WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -758,6 +960,14 @@ DROP TABLE IF EXISTS items CASCADE;
 DROP TABLE IF EXISTS item_types CASCADE;
 DROP TABLE IF EXISTS large_orders CASCADE;
 DROP TABLE IF EXISTS large_suppliers CASCADE;
+DROP TABLE IF EXISTS docs CASCADE;
+DROP TABLE IF EXISTS authors CASCADE;
+DROP TABLE IF EXISTS items_with_nulls CASCADE;
+DROP TABLE IF EXISTS categories_with_nulls CASCADE;
+DROP TABLE IF EXISTS colors CASCADE;
+DROP TABLE IF EXISTS sizes CASCADE;
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS order_details CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

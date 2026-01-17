@@ -18,6 +18,7 @@
 use crate::api::HashMap;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
+use crate::postgres::customscan::joinscan::executors::JoinSideExecutor;
 use crate::postgres::customscan::joinscan::privdat::OutputColumnInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
@@ -145,6 +146,8 @@ pub struct JoinScanState {
     pub driving_search_reader: Option<SearchIndexReader>,
     /// The search results iterator for the driving side.
     pub driving_search_results: Option<MultiSegmentSearchResults>,
+    /// Executor for the driving side (TopN or Normal) - used instead of search_reader/results.
+    pub driving_executor: Option<JoinSideExecutor>,
     /// Visibility checker for the driving side.
     pub driving_visibility_checker: Option<VisibilityChecker>,
     /// Slot for fetching driving side tuples.

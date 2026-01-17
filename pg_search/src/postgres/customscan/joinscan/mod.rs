@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod build;
+pub mod executors;
 pub mod privdat;
 pub mod scan_state;
 
@@ -844,6 +845,7 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().driving_heaprel = None;
         state.custom_state_mut().driving_indexrel = None;
         state.custom_state_mut().driving_search_reader = None;
+        state.custom_state_mut().driving_executor = None;
         state.custom_state_mut().driving_scan_desc = None;
         state.custom_state_mut().build_heaprel = None;
         state.custom_state_mut().build_scan_desc = None;

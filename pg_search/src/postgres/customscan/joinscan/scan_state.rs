@@ -17,12 +17,22 @@
 
 //! Execution state for JoinScan custom scan.
 //!
-//! # Testing Gaps (TODO)
+//! # Test Coverage
 //!
-//! The following scenarios need additional test coverage:
-//! - Different join key types: UUID, NUMERIC
-//! - Concurrent updates: Stress test visibility checking under concurrent UPDATEs
-//! - Large result sets: Performance regression tests
+//! The following scenarios are covered by regression tests (join_custom_scan.sql):
+//! - TEXT join keys (TEST 15)
+//! - NULL key handling (TEST 16)
+//! - Cross join / no equi-join keys (TEST 17)
+//! - Composite (multi-column) join keys (TEST 18)
+//! - Memory overflow / nested loop fallback (TEST 19)
+//! - UUID join keys (TEST 20)
+//! - NUMERIC join keys (TEST 21)
+//! - Large result sets (TEST 22)
+//! - Visibility after sequential UPDATEs (TEST 23)
+//!
+//! Note: True concurrent update stress testing requires multiple connections,
+//! which is not feasible in a single regression test. TEST 23 covers sequential
+//! UPDATE visibility as a proxy.
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::JoinCSClause;

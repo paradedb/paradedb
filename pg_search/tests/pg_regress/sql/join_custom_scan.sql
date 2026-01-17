@@ -1006,6 +1006,234 @@ LIMIT 5;
 RESET work_mem;
 
 -- =============================================================================
+-- TEST 20: UUID join keys
+-- =============================================================================
+-- Verify JoinScan works with UUID join keys
+
+DROP TABLE IF EXISTS uuid_orders CASCADE;
+DROP TABLE IF EXISTS uuid_customers CASCADE;
+
+CREATE TABLE uuid_customers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT,
+    email TEXT
+);
+
+CREATE TABLE uuid_orders (
+    id SERIAL PRIMARY KEY,
+    customer_id UUID,
+    description TEXT,
+    amount NUMERIC(10,2)
+);
+
+-- Insert with explicit UUIDs for reproducibility
+INSERT INTO uuid_customers (id, name, email) VALUES
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Alice', 'alice@example.com'),
+('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Bob', 'bob@example.com'),
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Carol', 'carol@example.com');
+
+INSERT INTO uuid_orders (customer_id, description, amount) VALUES
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Wireless keyboard order', 99.99),
+('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'USB hub purchase', 29.99),
+('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.99);
+
+CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING bm25 (id, description) WITH (key_field = 'id');
+
+-- JoinScan with UUID join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT o.description, c.name
+FROM uuid_orders o
+JOIN uuid_customers c ON o.customer_id = c.id
+WHERE o.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT o.description, c.name
+FROM uuid_orders o
+JOIN uuid_customers c ON o.customer_id = c.id
+WHERE o.description @@@ 'wireless'
+ORDER BY o.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 21: NUMERIC join keys
+-- =============================================================================
+-- Verify JoinScan works with NUMERIC (decimal) join keys
+
+DROP TABLE IF EXISTS numeric_transactions CASCADE;
+DROP TABLE IF EXISTS numeric_accounts CASCADE;
+
+CREATE TABLE numeric_accounts (
+    account_num NUMERIC(20,0) PRIMARY KEY,
+    holder_name TEXT,
+    account_type TEXT
+);
+
+CREATE TABLE numeric_transactions (
+    id SERIAL PRIMARY KEY,
+    account_num NUMERIC(20,0),
+    description TEXT,
+    amount NUMERIC(15,2)
+);
+
+INSERT INTO numeric_accounts (account_num, holder_name, account_type) VALUES
+(12345678901234567890, 'John Doe', 'Checking'),
+(98765432109876543210, 'Jane Smith', 'Savings'),
+(11111111111111111111, 'Bob Wilson', 'Investment');
+
+INSERT INTO numeric_transactions (account_num, description, amount) VALUES
+(12345678901234567890, 'Wire transfer received', 1000.00),
+(12345678901234567890, 'ATM withdrawal', -200.00),
+(98765432109876543210, 'Interest payment', 50.00),
+(11111111111111111111, 'Stock purchase wire', 5000.00);
+
+CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING bm25 (id, description) WITH (key_field = 'id');
+
+-- JoinScan with NUMERIC join keys
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT t.description, a.holder_name, t.amount
+FROM numeric_transactions t
+JOIN numeric_accounts a ON t.account_num = a.account_num
+WHERE t.description @@@ 'wire'
+LIMIT 10;
+
+SELECT t.description, a.holder_name, t.amount
+FROM numeric_transactions t
+JOIN numeric_accounts a ON t.account_num = a.account_num
+WHERE t.description @@@ 'wire'
+ORDER BY t.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 22: Large result set (functional, not performance)
+-- =============================================================================
+-- Verify JoinScan handles larger result sets correctly
+-- This is a functional test, not a benchmark
+
+DROP TABLE IF EXISTS large_items CASCADE;
+DROP TABLE IF EXISTS large_categories CASCADE;
+
+CREATE TABLE large_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+
+CREATE TABLE large_items (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    content TEXT,
+    category_id INTEGER
+);
+
+-- Insert 50 categories
+INSERT INTO large_categories
+SELECT i, 'Category ' || i, 'Description for category ' || i
+FROM generate_series(1, 50) AS i;
+
+-- Insert 1000 items distributed across categories
+INSERT INTO large_items (name, content, category_id)
+SELECT 
+    'Item ' || i,
+    CASE 
+        WHEN i % 5 = 0 THEN 'wireless product with bluetooth'
+        WHEN i % 7 = 0 THEN 'cable product with usb connector'
+        ELSE 'standard product item'
+    END,
+    (i % 50) + 1
+FROM generate_series(1, 1000) AS i;
+
+CREATE INDEX large_items_bm25_idx ON large_items USING bm25 (id, name, content) WITH (key_field = 'id');
+
+-- Query with larger LIMIT to test larger result sets
+SELECT COUNT(*) AS wireless_count
+FROM large_items li
+JOIN large_categories lc ON li.category_id = lc.id
+WHERE li.content @@@ 'wireless'
+LIMIT 500;
+
+-- Verify first few results
+SELECT li.name, lc.name AS category_name
+FROM large_items li
+JOIN large_categories lc ON li.category_id = lc.id
+WHERE li.content @@@ 'wireless'
+ORDER BY li.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 23: Visibility after multiple UPDATEs
+-- =============================================================================
+-- Verify JoinScan handles visibility correctly after multiple UPDATE cycles
+-- Note: True concurrent update testing requires multiple connections,
+-- which is not possible in a single regression test. This tests sequential
+-- UPDATE visibility instead.
+
+DROP TABLE IF EXISTS update_test_items CASCADE;
+DROP TABLE IF EXISTS update_test_refs CASCADE;
+
+CREATE TABLE update_test_refs (
+    id INTEGER PRIMARY KEY,
+    ref_name TEXT
+);
+
+CREATE TABLE update_test_items (
+    id INTEGER PRIMARY KEY,
+    content TEXT,
+    ref_id INTEGER,
+    version INTEGER DEFAULT 1
+);
+
+INSERT INTO update_test_refs VALUES (1, 'Ref A'), (2, 'Ref B'), (3, 'Ref C');
+
+INSERT INTO update_test_items (id, content, ref_id) VALUES
+(101, 'wireless device alpha', 1),
+(102, 'wired device beta', 2),
+(103, 'wireless device gamma', 3);
+
+CREATE INDEX update_items_bm25_idx ON update_test_items USING bm25 (id, content) WITH (key_field = 'id');
+
+-- Initial query
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- First UPDATE cycle
+UPDATE update_test_items SET version = 2 WHERE content LIKE '%wireless%';
+
+-- Query after first update - should still find wireless items
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- Second UPDATE cycle - change content
+UPDATE update_test_items SET content = 'updated wireless device', version = 3 WHERE id = 101;
+
+-- Query after content update
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- Third UPDATE cycle - change ref_id (join key)
+UPDATE update_test_items SET ref_id = 2, version = 4 WHERE id = 103;
+
+-- Query after join key update
+SELECT i.id, i.content, r.ref_name, i.version
+FROM update_test_items i
+JOIN update_test_refs r ON i.ref_id = r.id
+WHERE i.content @@@ 'wireless'
+ORDER BY i.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -1030,6 +1258,14 @@ DROP TABLE IF EXISTS order_items CASCADE;
 DROP TABLE IF EXISTS order_details CASCADE;
 DROP TABLE IF EXISTS mem_test_products CASCADE;
 DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
+DROP TABLE IF EXISTS uuid_orders CASCADE;
+DROP TABLE IF EXISTS uuid_customers CASCADE;
+DROP TABLE IF EXISTS numeric_transactions CASCADE;
+DROP TABLE IF EXISTS numeric_accounts CASCADE;
+DROP TABLE IF EXISTS large_items CASCADE;
+DROP TABLE IF EXISTS large_categories CASCADE;
+DROP TABLE IF EXISTS update_test_items CASCADE;
+DROP TABLE IF EXISTS update_test_refs CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

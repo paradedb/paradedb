@@ -287,6 +287,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false,
+        sort_by_field: Some(tantivy::IndexSortByField {
+            field: "ctid".to_string(),
+            order: tantivy::Order::Asc,
+        }),
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;

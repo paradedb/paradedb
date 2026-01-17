@@ -17,19 +17,24 @@
 
 //! JoinScan executor wrappers around BaseScan execution methods.
 //!
-//! These wrappers provide streaming iteration with visibility checking,
-//! allowing JoinScan to use TopN (for LIMIT queries) or Normal scan
-//! without materializing all results upfront.
+//! These wrappers provide streaming iteration, allowing JoinScan to use
+//! TopN (for LIMIT queries) or FastField (for unlimited scans) without
+//! materializing all results upfront.
 
 use std::collections::HashSet;
 
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{
     MultiSegmentSearchResults, SearchIndexReader, TopNSearchResults,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::pg_sys;
+use pgrx::{pg_sys, IntoDatum};
+use tantivy::SegmentOrdinal;
+
+/// Batch size for FastField execution - number of results to fetch at once.
+const FAST_FIELD_BATCH_SIZE: usize = 1024;
 
 /// Result from the executor's next() call.
 #[allow(dead_code)]
@@ -45,8 +50,8 @@ pub enum JoinExecResult {
 enum ExecMethod {
     /// TopN execution for queries with LIMIT - fetches incrementally.
     TopN(TopNExecState),
-    /// Normal execution - full scan.
-    Normal(NormalExecState),
+    /// FastField execution - batched ctid lookups for efficiency.
+    FastField(FastFieldExecState),
 }
 
 /// State for TopN (limited) execution.
@@ -62,11 +67,19 @@ struct TopNExecState {
     did_query: bool,
 }
 
-/// State for Normal (full scan) execution.
+/// State for FastField (batched) execution.
+///
+/// Uses FFHelper to batch-lookup ctids from fast fields for efficiency.
 #[allow(dead_code)]
-struct NormalExecState {
-    search_results: Option<MultiSegmentSearchResults>,
-    did_query: bool,
+struct FastFieldExecState {
+    /// Search results iterator.
+    search_results: MultiSegmentSearchResults,
+    /// Fast field helper for batched ctid lookups.
+    ffhelper: FFHelper,
+    /// Current batch of (ctid, score) pairs.
+    batch: Vec<(u64, f32)>,
+    /// Current position in the batch.
+    batch_pos: usize,
 }
 
 /// Wrapper around BaseScan exec methods for JoinScan usage.
@@ -78,7 +91,7 @@ struct NormalExecState {
 pub struct JoinSideExecutor {
     /// The search index reader.
     search_reader: SearchIndexReader,
-    /// The execution method (TopN or Normal).
+    /// The execution method (TopN or FastField).
     exec_method: ExecMethod,
 }
 
@@ -137,32 +150,41 @@ impl JoinSideExecutor {
         }
     }
 
-    /// Create a new Normal executor for full scan (build side or unlimited driving).
-    pub fn new_normal(
+    /// Create a new FastField executor for unlimited scans.
+    ///
+    /// This executor uses batched ctid lookups via FFHelper for efficiency.
+    /// Preferred over Normal scan for better performance.
+    pub fn new_fast_field(
         _heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
         _snapshot: pg_sys::Snapshot,
+        need_scores: bool,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);
         let search_reader = SearchIndexReader::open_with_context(
             &indexrel,
             query,
-            false, // don't need scores for normal scan
+            need_scores,
             MvccSatisfies::Snapshot,
             None,
             None,
         )
-        .expect("Failed to open search reader for Normal executor");
+        .expect("Failed to open search reader for FastField executor");
 
-        // Initialize search results immediately (not lazily)
+        // Create FFHelper for batched ctid lookups (empty field list - we only need ctid)
+        let ffhelper = FFHelper::with_fields(&search_reader, &[]);
+
+        // Initialize search results
         let search_results = search_reader.search();
 
         Self {
             search_reader,
-            exec_method: ExecMethod::Normal(NormalExecState {
-                search_results: Some(search_results),
-                did_query: true,
+            exec_method: ExecMethod::FastField(FastFieldExecState {
+                search_results,
+                ffhelper,
+                batch: Vec::with_capacity(FAST_FIELD_BATCH_SIZE),
+                batch_pos: 0,
             }),
         }
     }
@@ -178,7 +200,7 @@ impl JoinSideExecutor {
         if is_topn {
             self.next_topn_impl()
         } else {
-            self.next_normal_impl()
+            self.next_fast_field_impl()
         }
     }
 
@@ -196,11 +218,11 @@ impl JoinSideExecutor {
         ctids
     }
 
-    /// Check if we've found enough results (for TopN with limit).
+    /// Check if we've reached the limit (for TopN execution).
     pub fn reached_limit(&self) -> bool {
         match &self.exec_method {
             ExecMethod::TopN(state) => state.found >= state.limit,
-            ExecMethod::Normal(_) => false,
+            ExecMethod::FastField(_) => false, // No limit for FastField
         }
     }
 
@@ -249,70 +271,124 @@ impl JoinSideExecutor {
         // Calculate the limit for this query
         let local_limit =
             (state.limit as f64 * state.scale_factor).max(state.chunk_size as f64) as usize;
-        let next_offset = state.offset + local_limit;
-        let current_offset = state.offset;
 
-        // Get segment IDs before borrowing search_reader
-        let segment_ids: Vec<_> = self.search_reader.segment_ids();
+        // Query for the next batch - use all segments
+        let segment_ids = self
+            .search_reader
+            .segment_readers()
+            .iter()
+            .map(|r| r.segment_id());
 
-        // Execute the TopN query
         let results = self.search_reader.search_top_n_unordered_in_segments(
-            segment_ids.into_iter(),
+            segment_ids,
             local_limit,
-            current_offset,
+            state.offset,
         );
 
-        // Update state
-        let ExecMethod::TopN(state) = &mut self.exec_method else {
-            unreachable!()
-        };
+        // Check if we got any results
         let original_len = results.original_len();
-        state.search_results = results;
-        state.offset = next_offset;
-        state.exhausted = original_len < local_limit;
+        if original_len == 0 {
+            state.exhausted = true;
+            return false;
+        }
 
-        // Update chunk size for retry scaling
-        state.chunk_size = (state.chunk_size * crate::gucs::topn_retry_scale_factor() as usize)
-            .max(
-                (state.limit as f64
-                    * state.scale_factor
-                    * crate::gucs::topn_retry_scale_factor() as f64) as usize,
-            )
-            .min(crate::gucs::max_topn_chunk_size() as usize);
+        // Update state for next iteration
+        state.chunk_size = local_limit;
+        state.offset += original_len;
+        state.search_results = results;
 
         original_len > 0
     }
 
-    // --- Normal execution ---
+    // --- FastField execution ---
 
-    fn next_normal_impl(&mut self) -> JoinExecResult {
-        pgrx::check_for_interrupts!();
+    fn next_fast_field_impl(&mut self) -> JoinExecResult {
+        loop {
+            pgrx::check_for_interrupts!();
 
-        let ExecMethod::Normal(state) = &mut self.exec_method else {
+            let ExecMethod::FastField(state) = &mut self.exec_method else {
+                unreachable!()
+            };
+
+            // Return from current batch if available
+            if state.batch_pos < state.batch.len() {
+                let (ctid, score) = state.batch[state.batch_pos];
+                state.batch_pos += 1;
+                return JoinExecResult::Visible { ctid, score };
+            }
+
+            // Need to fetch a new batch
+            if !self.fetch_fast_field_batch() {
+                return JoinExecResult::Eof;
+            }
+        }
+    }
+
+    /// Fetch a batch of ctids using FFHelper for efficiency.
+    fn fetch_fast_field_batch(&mut self) -> bool {
+        // Extract what we need before the mutable borrow
+        let ExecMethod::FastField(state) = &mut self.exec_method else {
             unreachable!()
         };
 
-        // Initialize search results if not done yet
-        if !state.did_query {
-            state.search_results = Some(self.search_reader.search());
-            state.did_query = true;
-        }
+        // Clear and reset batch
+        state.batch.clear();
+        state.batch_pos = 0;
 
-        let Some(search_results) = state.search_results.as_mut() else {
-            return JoinExecResult::Eof;
-        };
+        // Collect a batch of results from the current segment
+        loop {
+            let Some(scorer_iter) = state.search_results.current_segment() else {
+                return false;
+            };
 
-        // Return the next result without visibility checking.
-        // Visibility is checked downstream in extract_driving_join_key/build_result_tuple.
-        match search_results.next() {
-            Some((scored, _doc_address)) => JoinExecResult::Visible {
-                ctid: scored.ctid,
-                score: scored.bm25,
-            },
-            None => JoinExecResult::Eof,
+            let segment_ord = scorer_iter.segment_ord();
+            let mut scores = Vec::with_capacity(FAST_FIELD_BATCH_SIZE);
+            let mut doc_ids = Vec::with_capacity(FAST_FIELD_BATCH_SIZE);
+
+            // Collect doc_ids and scores for this batch
+            while doc_ids.len() < FAST_FIELD_BATCH_SIZE {
+                let Some((score, doc_address)) = scorer_iter.next() else {
+                    // No more results in this segment
+                    state.search_results.current_segment_pop();
+                    break;
+                };
+                scores.push(score);
+                doc_ids.push(doc_address.doc_id);
+            }
+
+            if doc_ids.is_empty() {
+                // This segment is empty, try the next one
+                continue;
+            }
+
+            // Batch lookup ctids using FFHelper
+            let ctids = Self::batch_lookup_ctids_inner(&state.ffhelper, segment_ord, &doc_ids);
+
+            // Build the batch of (ctid, score) pairs
+            state.batch.reserve(ctids.len());
+            for (ctid, score) in ctids.into_iter().zip(scores) {
+                state.batch.push((ctid, score));
+            }
+
+            return !state.batch.is_empty();
         }
     }
-}
 
-// Need to add IntoDatum for Oid
-use pgrx::IntoDatum;
+    /// Batch lookup ctids for the given doc_ids in a segment.
+    fn batch_lookup_ctids_inner(
+        ffhelper: &FFHelper,
+        segment_ord: SegmentOrdinal,
+        doc_ids: &[u32],
+    ) -> Vec<u64> {
+        let ctid_column = ffhelper.ctid(segment_ord);
+        let mut ctids = Vec::with_capacity(doc_ids.len());
+        ctids.resize(doc_ids.len(), None);
+
+        ctid_column.as_u64s(doc_ids, &mut ctids);
+
+        ctids
+            .into_iter()
+            .map(|ctid| ctid.expect("All docs must have ctids"))
+            .collect()
+    }
+}

@@ -482,7 +482,7 @@ impl CustomScan for JoinScan {
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
-                    // Use TopN executor if we have a limit, otherwise use Normal
+                    // Use TopN executor if we have a limit, otherwise use FastField
                     let executor = if let Some(limit) = join_clause.limit {
                         executors::JoinSideExecutor::new_topn(
                             limit,
@@ -492,11 +492,13 @@ impl CustomScan for JoinScan {
                             snapshot,
                         )
                     } else {
-                        executors::JoinSideExecutor::new_normal(
+                        // FastField executor with scores enabled for paradedb.score() support
+                        executors::JoinSideExecutor::new_fast_field(
                             &heaprel,
                             indexrelid,
                             query.clone(),
                             snapshot,
+                            true, // need_scores for driving side
                         )
                     };
                     state.custom_state_mut().driving_executor = Some(executor);

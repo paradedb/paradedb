@@ -43,25 +43,25 @@ SELECT * FROM expr WHERE lower(t) @@@ lower('This is a TEST');  -- returns nothi
 SELECT * FROM expr WHERE lower(t) &&& lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE lower(t) ||| lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE lower(t) ### lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE lower(t) === lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE t @@@ lower('This is a TEST');  -- returns nothing
@@ -72,24 +72,24 @@ SELECT * FROM expr WHERE t @@@ lower('This is a TEST');  -- returns nothing
 SELECT * FROM expr WHERE t &&& lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE t ||| lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE t ### lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 
 SELECT * FROM expr WHERE t === lower('This is a TEST');
  id |       t        
 ----+----------------
-  1 | This is a TEST
+  1 | this is a test
 (1 row)
 

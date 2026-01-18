@@ -67,7 +67,7 @@ LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
      description     | rating 
 ---------------------+--------
- Sleek running shoes |      5
+ sleek running shoes |      5
 (1 row)
 
 DROP TABLE mock_items;

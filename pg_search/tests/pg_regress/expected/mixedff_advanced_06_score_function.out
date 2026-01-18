@@ -793,11 +793,10 @@ ORDER BY title, author, pdb.score(id) DESC;
    ->  Custom Scan (ParadeDB Scan) on score_test
          Table: score_test
          Index: score_test_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: author, id, rating, title
+         Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
-(9 rows)
+(8 rows)
 
 SELECT
     title,

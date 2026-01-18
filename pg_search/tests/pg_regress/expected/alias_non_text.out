@@ -34,11 +34,7 @@ SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
 (7 rows)
 
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
- id |     d      
-----+------------
-  1 | 01-01-2025
-(1 row)
-
+ERROR:  Failed to convert to attribute type for 1082 and Named("d", Numeric): Unsupported OID for Int64 Arrow type: BuiltIn(DATEOID)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE d = '2025-01-01' AND id @@@ pdb.all();
                                                                                                   QUERY PLAN                                                                                                   

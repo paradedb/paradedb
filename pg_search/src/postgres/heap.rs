@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
+use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgList;
 
@@ -28,7 +30,8 @@ pub struct VisibilityChecker {
     tid: pg_sys::ItemPointerData,
 
     // we hold onto this b/c `scan` points to the relation this does
-    _heaprel: PgSearchRelation,
+    heaprel: PgSearchRelation,
+    bman: BufferManager,
 }
 
 crate::impl_safe_drop!(VisibilityChecker, |self| {
@@ -48,7 +51,8 @@ impl VisibilityChecker {
                 scan: pg_sys::table_index_fetch_begin(heaprel.as_ptr()),
                 snapshot,
                 tid: pg_sys::ItemPointerData::default(),
-                _heaprel: Clone::clone(heaprel),
+                heaprel: Clone::clone(heaprel),
+                bman: BufferManager::new(heaprel),
             }
         }
     }
@@ -77,6 +81,38 @@ impl VisibilityChecker {
 
             if found {
                 Some(func((*self.scan).rel))
+            } else {
+                None
+            }
+        }
+    }
+
+    /// If the specified `ctid` is visible in the heap, return the visible `ctid`.
+    /// The returned `ctid` might differ from the input `ctid` if a HOT chain was followed.
+    pub fn check_visibility(&mut self, ctid: u64) -> Option<u64> {
+        unsafe {
+            utils::u64_to_item_pointer(ctid, &mut self.tid);
+
+            let block_num = item_pointer_get_block_number(&self.tid);
+
+            // get_buffer acquires a pin and a share lock, and will release them on Drop
+            let buffer = self.bman.get_buffer(block_num);
+
+            let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
+            let mut all_dead = false;
+
+            let found = pg_sys::heap_hot_search_buffer(
+                &mut self.tid,
+                self.heaprel.as_ptr(),
+                *buffer,
+                self.snapshot,
+                &mut heap_tuple_data,
+                &mut all_dead,
+                true, // first_call
+            );
+
+            if found {
+                Some(utils::item_pointer_to_u64(self.tid))
             } else {
                 None
             }

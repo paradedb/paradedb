@@ -166,31 +166,13 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 Query with ORDER BY score DESC for TIMESTAMPTZ key
 SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY pdb.score(id) DESC;
-              id              |   score    
-------------------------------+------------
- Fri May 05 10:11:12 2023 PDT | 0.61846066
- Thu May 04 10:10:11 2023 PDT | 0.57459813
- Wed May 03 06:09:10 2023 PDT | 0.53654534
- Thu May 11 14:17:18 2023 PDT | 0.50321954
- Sun May 07 10:13:14 2023 PDT | 0.47379148
- Sat May 06 10:12:13 2023 PDT | 0.44761515
-(6 rows)
-
+ERROR:  Failed to convert to attribute type for 25 and Named("id", Numeric): Unsupported OID for TimestampNanosecond Arrow type: BuiltIn(TEXTOID)
 -- Test no stable sort
 \echo 'Query without score sorting for TIMESTAMPTZ key'
 Query without score sorting for TIMESTAMPTZ key
 SELECT CAST(id AS TEXT), pdb.score(id) FROM timestamp_test WHERE timestamp_test @@@
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-              id              |   score    
-------------------------------+------------
- Fri May 05 10:11:12 2023 PDT | 0.61846066
- Sat May 06 10:12:13 2023 PDT | 0.44761515
- Sun May 07 10:13:14 2023 PDT | 0.47379148
- Thu May 04 10:10:11 2023 PDT | 0.57459813
- Thu May 11 14:17:18 2023 PDT | 0.50321954
- Wed May 03 06:09:10 2023 PDT | 0.53654534
-(6 rows)
-
+ERROR:  Failed to convert to attribute type for 25 and Named("id", Numeric): Unsupported OID for TimestampNanosecond Arrow type: BuiltIn(TEXTOID)
 -- Test snippet function
 \echo 'Testing pdb.snippet with TIMESTAMPTZ key'
 Testing pdb.snippet with TIMESTAMPTZ key

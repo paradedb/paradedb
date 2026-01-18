@@ -25,13 +25,14 @@ use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::uses_scores;
+use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::basescan::{scan_state::BaseScanState, BaseScan};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::score_funcoids;
+
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 
 use arrow_array::builder::StringViewBuilder;
 use arrow_array::ArrayRef;
@@ -106,6 +107,17 @@ impl FastFieldExecState {
         self.did_query = false;
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
     }
+}
+
+/// Returns true if all variables in the expression belong to the current relation.
+///
+/// If an expression contains variables from other relations, it cannot be evaluated
+/// by the current scan and must be evaluated by an upper node.
+unsafe fn can_scan_evaluate_expr(rti: pg_sys::Index, expr: *mut pg_sys::Expr) -> bool {
+    let vars = find_vars(expr as *mut pg_sys::Node);
+    // It is evaluatable by the scan if ALL vars belong to this scan (rti).
+    // Note: Constants (no vars) are also considered evaluatable by the scan (locally).
+    vars.iter().all(|var| (**var).varno as pg_sys::Index == rti)
 }
 
 /// Extracts a non-String fast field value to a Datum.
@@ -309,8 +321,20 @@ pub unsafe fn pullup_fast_fields(
             }
             continue;
         } else if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
-            matches.push(WhichFastField::Score);
-            continue;
+            // we can only pull up a score if the score is:
+            // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
+            // 2. a call to `pdb.score` inside of an expression which will be solved by a
+            //    wrapping/outer scan because it contains vars from other relations.
+            if is_score_func((*te).expr.cast(), rti) {
+                matches.push(WhichFastField::Score);
+                continue;
+            } else if !can_scan_evaluate_expr(rti, (*te).expr.cast()) {
+                // The expression depends on other relations, so it will be evaluated by an upper node.
+                // We just need to provide the score.
+                matches.push(WhichFastField::Score);
+                continue;
+            }
+            // Fallthrough: expression is local but complex -> cannot use fast fields
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
             || nodecast!(Const, T_Const, (*te).expr).is_some()
             || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()

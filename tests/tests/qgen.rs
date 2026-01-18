@@ -500,13 +500,6 @@ async fn generated_subquery(database: Db) {
 ///
 /// This test verifies that JoinScan produces the same results as PostgreSQL's
 /// native join implementation.
-///
-/// NOTE: This test is ignored pending investigation of a database corruption
-/// issue that occurs with certain JoinScan queries. The error "could not read blocks"
-/// suggests the JoinScan implementation may have issues with ctid handling.
-/// See: tests/tests/joinscan_concurrent.rs for working JoinScan tests.
-///
-#[ignore]
 #[rstest]
 #[tokio::test]
 async fn generated_joinscan(database: Db) {

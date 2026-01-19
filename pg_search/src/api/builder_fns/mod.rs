@@ -19,6 +19,7 @@ mod mlt;
 mod paradedb;
 mod pdb;
 mod proximity;
+mod related_terms;
 
 pub use paradedb::*;
 pub use pdb::*;

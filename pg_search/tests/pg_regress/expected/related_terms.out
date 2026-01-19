@@ -1,0 +1,230 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Test table for related_terms function
+CREATE TABLE related_terms_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT,
+    price INTEGER
+);
+INSERT INTO related_terms_test (description, category, price) VALUES
+    ('running shoes for athletes', 'footwear', 100),
+    ('comfortable running sneakers', 'footwear', 120),
+    ('hiking boots for outdoor adventures', 'footwear', 150),
+    ('casual shoes for everyday wear', 'footwear', 80),
+    ('athletic running gear', 'apparel', 50),
+    ('running shorts and tops', 'apparel', 40);
+CREATE INDEX ON related_terms_test USING bm25 (id, description, category, price) WITH (key_field = 'id');
+-- Basic test: find terms related to 'shoes'
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass
+) ORDER BY weight DESC, field, term;
+    field     |       term       |   weight   
+--------------+------------------+------------
+ description  | for              | 2.7725887
+ description  | running          | 1.3862944
+ category     | footwear         | 1.3862944
+ description  | athletes         | 0.6931472
+ description  | casual           | 0.6931472
+ description  | comfortable      | 0.6931472
+ description  | everyday         | 0.6931472
+ description  | sneakers         | 0.6931472
+ description  | wear             | 0.6931472
+ price        | 100              | 0.6931472
+ price        | 120              | 0.6931472
+ price        | 80               | 0.6931472
+(12 rows)
+
+-- Test with specific fields
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description']
+) ORDER BY weight DESC, field, term;
+    field     |       term       |   weight   
+--------------+------------------+------------
+ description  | for              | 2.7725887
+ description  | running          | 1.3862944
+ description  | athletes         | 0.6931472
+ description  | casual           | 0.6931472
+ description  | comfortable      | 0.6931472
+ description  | everyday         | 0.6931472
+ description  | sneakers         | 0.6931472
+ description  | wear             | 0.6931472
+(8 rows)
+
+-- Test with max_query_terms limit
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'running',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    max_query_terms => 3
+) ORDER BY weight DESC, field, term;
+    field     |   term   |   weight   
+--------------+----------+------------
+ description  | for      |  2.0794415
+ description  | and      | 0.69314724
+ description  | shoes    | 0.69314724
+(3 rows)
+
+-- Test min_term_frequency filter (term must appear at least n times in matching docs)
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'running',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    min_term_frequency => 2
+) ORDER BY weight DESC, field, term;
+    field     | term |  weight   
+--------------+------+-----------
+ description  | for  | 2.0794415
+(1 row)
+
+-- Test min_doc_frequency filter (term must appear in at least n docs)
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    min_doc_frequency => 2
+) ORDER BY weight DESC, field, term;
+    field     |   term   |   weight   
+--------------+----------+------------
+ description  | for      | 2.7725887
+ description  | running  | 1.3862944
+(2 rows)
+
+-- Test max_doc_frequency filter (term must appear in at most n docs)
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'running',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    max_doc_frequency => 2
+) ORDER BY weight DESC, field, term;
+    field     |     term     |   weight   
+--------------+--------------+------------
+ description  | and          | 0.69314724
+ description  | athletic     | 0.69314724
+ description  | athletes     | 0.69314724
+ description  | comfortable  | 0.69314724
+ description  | gear         | 0.69314724
+ description  | shoes        | 0.69314724
+ description  | shorts       | 0.69314724
+ description  | sneakers     | 0.69314724
+ description  | tops         | 0.69314724
+(9 rows)
+
+-- Test min_word_length filter
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    min_word_length => 6
+) ORDER BY weight DESC, field, term;
+    field     |     term     |   weight   
+--------------+--------------+------------
+ description  | running      | 1.3862944
+ description  | athletes     | 0.6931472
+ description  | casual       | 0.6931472
+ description  | comfortable  | 0.6931472
+ description  | everyday     | 0.6931472
+ description  | sneakers     | 0.6931472
+(6 rows)
+
+-- Test max_word_length filter  
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description'],
+    max_word_length => 5
+) ORDER BY weight DESC, field, term;
+    field     | term |   weight   
+--------------+------+------------
+ description  | for  | 2.7725887
+ description  | wear | 0.6931472
+(2 rows)
+
+-- Test with category field
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'footwear',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['category']
+) ORDER BY weight DESC, field, term;
+ field | term | weight 
+-------+------+--------
+(0 rows)
+
+-- Test with multiple fields (demonstrates per-field DF calculation)
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'footwear',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description', 'category']
+) ORDER BY weight DESC, field, term;
+    field     |       term       |   weight   
+--------------+------------------+------------
+ description  | for              |  4.158883
+ description  | running          | 2.0794415
+ description  | shoes            | 1.3862944
+ description  | adventures       | 0.6931472
+ description  | athletes         | 0.6931472
+ description  | boots            | 0.6931472
+ description  | casual           | 0.6931472
+ description  | comfortable      | 0.6931472
+ description  | everyday         | 0.6931472
+ description  | hiking           | 0.6931472
+ description  | outdoor          | 0.6931472
+ description  | sneakers         | 0.6931472
+ description  | wear             | 0.6931472
+(13 rows)
+
+-- Test: query_term should be excluded from results
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'running',
+    relation => 'related_terms_test'::regclass,
+    fields => ARRAY['description']
+) WHERE term = 'running';
+ field | term | weight 
+-------+------+--------
+(0 rows)
+
+-- Test: no matching documents returns empty result
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'nonexistentterm',
+    relation => 'related_terms_test'::regclass
+) ORDER BY weight DESC;
+ field | term | weight 
+-------+------+--------
+(0 rows)
+
+-- Test: error when no BM25 index exists
+CREATE TABLE no_index_table (id SERIAL PRIMARY KEY, name TEXT);
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'test',
+    relation => 'no_index_table'::regclass
+);
+ERROR:  no BM25 index found for relation 'no_index_table'
+DROP TABLE no_index_table;
+-- Test: NULL fields uses all indexed non-JSON fields
+SELECT field, term, weight FROM pdb.related_terms(
+    query_term => 'shoes',
+    relation => 'related_terms_test'::regclass,
+    fields => NULL
+) ORDER BY weight DESC, field, term LIMIT 10;
+    field     |       term       |   weight   
+--------------+------------------+------------
+ description  | for              | 2.7725887
+ category     | footwear         | 1.3862944
+ description  | running          | 1.3862944
+ description  | athletes         | 0.6931472
+ description  | casual           | 0.6931472
+ description  | comfortable      | 0.6931472
+ description  | everyday         | 0.6931472
+ description  | sneakers         | 0.6931472
+ description  | wear             | 0.6931472
+ price        | 100              | 0.6931472
+(10 rows)
+
+DROP TABLE related_terms_test;

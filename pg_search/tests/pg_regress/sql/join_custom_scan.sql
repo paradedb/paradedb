@@ -198,6 +198,30 @@ ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 6B: SELECT paradedb.score() WITHOUT ORDER BY score
+-- =============================================================================
+
+-- This test verifies that paradedb.score() works correctly in SELECT
+-- even when ORDER BY is on a different column (not score).
+-- This is an edge case where scores must still be computed for output.
+-- It works because TopN executor (used when LIMIT is present) always
+-- computes scores internally for ranking, regardless of ORDER BY.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+
+-- =============================================================================
 -- TEST 7: Both sides have search predicates
 -- =============================================================================
 

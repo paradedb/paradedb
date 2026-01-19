@@ -334,6 +334,53 @@ LIMIT 5;
 (3 rows)
 
 -- =============================================================================
+-- TEST 6B: SELECT paradedb.score() WITHOUT ORDER BY score
+-- =============================================================================
+-- This test verifies that paradedb.score() works correctly in SELECT
+-- even when ORDER BY is on a different column (not score).
+-- This is an edge case where scores must still be computed for output.
+-- It works because TopN executor (used when LIMIT is present) always
+-- computes scores internally for ranking, regardless of ORDER BY.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name, (paradedb.score(p.id))
+   ->  Sort
+         Output: p.id, p.name, s.name, (paradedb.score(p.id))
+         Sort Key: p.id
+         ->  Result
+               Output: p.id, p.name, s.name, (paradedb.score(p.id))
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.id, p.name, (paradedb.score(p.id)), s.name
+                     Join Type: Inner
+                     Outer Relation: suppliers (s)
+                     Inner Relation: products (p)
+                     Join Cond: s.id = p.supplier_id
+                     Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+(15 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+ id  |      name      | supplier_name |   score    
+-----+----------------+---------------+------------
+ 201 | Wireless Mouse | TechCorp      | 0.96774966
+ 206 | Headphones     | TechCorp      |  0.9080427
+ 207 | Mouse Pad      | GlobalSupply  |  0.9080427
+(3 rows)
+
+-- =============================================================================
 -- TEST 7: Both sides have search predicates
 -- =============================================================================
 -- When both sides have @@@ predicates with LIMIT, JoinScan should be proposed

@@ -137,6 +137,13 @@ impl CustomScan for JoinScan {
 
             // Check if ORDER BY paradedb.score() is present for the driving side.
             // This determines whether we need to compute and return scores.
+            //
+            // Note: Currently JoinScan requires LIMIT, so TopN executor is always used.
+            // TopN always computes scores internally (for ranking), so score_needed only
+            // affects future no-limit joins using FastField executor.
+            //
+            // Edge case: SELECT paradedb.score() without ORDER BY score still works
+            // because TopN computes scores regardless of this field.
             let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
             let score_needed = score_pathkey.is_some();
 

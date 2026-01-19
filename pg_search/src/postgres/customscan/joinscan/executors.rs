@@ -100,12 +100,22 @@ impl JoinSideExecutor {
     ///
     /// This executor fetches results incrementally - starting with a scaled
     /// multiple of the limit, and asking for more if needed.
+    ///
+    /// # Arguments
+    /// * `limit` - The LIMIT value from the query
+    /// * `heaprel` - The heap relation for the driving side
+    /// * `indexrelid` - The BM25 index OID
+    /// * `query` - The search query input
+    /// * `_snapshot` - The snapshot (unused but kept for API consistency)
+    /// * `batch_scale_hint` - Optional scale factor hint from planner. If None,
+    ///   calculates from dead tuple ratio at runtime.
     pub fn new_topn(
         limit: usize,
         heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
         _snapshot: pg_sys::Snapshot,
+        batch_scale_hint: Option<f64>,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);
         // TODO(error-handling): This expect() will panic if index opening fails.
@@ -121,21 +131,24 @@ impl JoinSideExecutor {
         )
         .expect("Failed to open search reader for TopN executor");
 
-        // Calculate scale factor based on dead/live tuple ratio
-        let scale_factor = unsafe {
-            let n_dead = pgrx::direct_function_call::<i64>(
-                pg_sys::pg_stat_get_dead_tuples,
-                &[heaprel.rel_oid().into_datum()],
-            )
-            .unwrap_or(0);
-            let n_live = pgrx::direct_function_call::<i64>(
-                pg_sys::pg_stat_get_live_tuples,
-                &[heaprel.rel_oid().into_datum()],
-            )
-            .unwrap_or(1);
+        // Use hint if provided, otherwise calculate scale factor based on dead/live tuple ratio
+        let scale_factor = batch_scale_hint.unwrap_or_else(|| {
+            let base_factor = unsafe {
+                let n_dead = pgrx::direct_function_call::<i64>(
+                    pg_sys::pg_stat_get_dead_tuples,
+                    &[heaprel.rel_oid().into_datum()],
+                )
+                .unwrap_or(0);
+                let n_live = pgrx::direct_function_call::<i64>(
+                    pg_sys::pg_stat_get_live_tuples,
+                    &[heaprel.rel_oid().into_datum()],
+                )
+                .unwrap_or(1);
 
-            1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
-        } * crate::gucs::limit_fetch_multiplier();
+                1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
+            };
+            base_factor * crate::gucs::limit_fetch_multiplier()
+        });
 
         Self {
             search_reader,

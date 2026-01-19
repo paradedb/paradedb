@@ -111,7 +111,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -151,7 +153,9 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(13 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 4
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -187,7 +191,9 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(13 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 8
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -318,7 +324,9 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(12 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 4
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -365,7 +373,9 @@ LIMIT 5;
                      Join Cond: s.id = p.supplier_id
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
-(15 rows)
+                     Algorithm Hint: Auto
+                     Est. Build Rows: 4
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -403,7 +413,9 @@ LIMIT 10;
          Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(11 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 1
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -451,7 +463,9 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(12 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 1
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -517,7 +531,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -578,9 +594,11 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
+               Algorithm Hint: Auto
+               Est. Build Rows: 4
          ->  Seq Scan on public.categories c
                Output: c.id, c.name, c.description
-(16 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -662,7 +680,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -724,7 +744,9 @@ LIMIT 3;
          Join Cond: s.id = p.supplier_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
          Limit: 3
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -762,7 +784,9 @@ LIMIT 3;
                      Join Cond: s.id = p.supplier_id
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                      Limit: 3
-(15 rows)
+                     Algorithm Hint: Auto
+                     Est. Build Rows: 4
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -823,7 +847,9 @@ LIMIT 10;
          Join Cond: c.customer_code = o.customer_code
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 650
+(12 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -889,7 +915,9 @@ LIMIT 10;
          Join Cond: w.region_id = i.region_id, w.warehouse_code = i.warehouse_code
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 630
+(12 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -951,7 +979,9 @@ LIMIT 10;
          Join Cond: t.type_id = i.type_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 850
+(12 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -1029,7 +1059,9 @@ LIMIT 10;
          Join Cond: ls.id = lo.supplier_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 850
+(12 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -1081,7 +1113,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1116,7 +1150,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Inner Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1162,7 +1198,9 @@ LIMIT 10;
          Inner Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND inner:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
          Limit: 10
-(11 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1197,7 +1235,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR outer:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1232,7 +1272,9 @@ LIMIT 10;
          Join Cond: s.id = p.supplier_id
          Inner Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1297,7 +1339,9 @@ LIMIT 10;
          Join Cond: a.author_code = d.author_code
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 3
+(12 rows)
 
 SELECT d.title, a.name
 FROM docs d
@@ -1357,7 +1401,9 @@ LIMIT 10;
          Join Cond: c.id = i.category_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR phone OR novel","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 850
+(12 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1419,7 +1465,9 @@ LIMIT 10;
          Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(11 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 1
+(13 rows)
 
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
@@ -1490,7 +1538,9 @@ LIMIT 10;
          Join Cond: oi.order_id = od.order_id, oi.line_num = od.line_num
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 4
+(12 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1613,7 +1663,9 @@ LIMIT 10;
          Join Cond: c.id = o.customer_id
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
-(10 rows)
+         Algorithm Hint: Auto
+         Est. Build Rows: 750
+(12 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -1675,7 +1727,9 @@ LIMIT 10;
                Join Cond: a.account_num = t.account_num
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
-(12 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 720
+(14 rows)
 
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
@@ -1933,7 +1987,9 @@ LIMIT 5;
                Join Cond: qgen_products.age = qgen_users.age
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-(13 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 101
+(15 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -1974,7 +2030,9 @@ LIMIT 5;
                Join Cond: qgen_products.age = qgen_users.age
                Inner Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 5
-(13 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 101
+(15 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2014,7 +2072,9 @@ LIMIT 5;
                Join Cond: qgen_products.age = qgen_users.age
                Join Predicate: (outer:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
                Limit: 5
-(13 rows)
+               Algorithm Hint: Auto
+               Est. Build Rows: 101
+(15 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2030,6 +2090,154 @@ LIMIT 5;
   1 | bob
   1 | bob
 (5 rows)
+
+-- =============================================================================
+-- TEST 25: Execution hints - small build side (nested loop preference)
+-- =============================================================================
+-- This test verifies that execution hints work for very small joins.
+-- When estimated_build_rows < 10, the planner hints to prefer nested loop
+-- to avoid hash table overhead.
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+CREATE TABLE tiny_refs (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+CREATE TABLE tiny_products (
+    id INTEGER PRIMARY KEY,
+    ref_id INTEGER,
+    description TEXT
+);
+-- Very small build side (only 3 rows)
+INSERT INTO tiny_refs VALUES (1, 'Ref A'), (2, 'Ref B'), (3, 'Ref C');
+INSERT INTO tiny_products VALUES
+(101, 1, 'wireless device alpha'),
+(102, 2, 'wired device beta'),
+(103, 1, 'wireless device gamma');
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description) WITH (key_field = 'id');
+-- Query with very small build side - should work correctly regardless of algorithm
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+LIMIT 10;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: tp.id, tp.description, tr.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: tp.id, tp.description, tr.name
+         Join Type: Inner
+         Outer Relation: tiny_refs (tr)
+         Inner Relation: tiny_products (tp)
+         Join Cond: tr.id = tp.ref_id
+         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Limit: 10
+         Algorithm Hint: Auto
+         Est. Build Rows: 1270
+(12 rows)
+
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
+LIMIT 10;
+ id  |      description      | name  
+-----+-----------------------+-------
+ 101 | wireless device alpha | Ref A
+ 103 | wireless device gamma | Ref A
+(2 rows)
+
+-- =============================================================================
+-- TEST 26: Execution hints - verify hash table pre-sizing (functional test)
+-- =============================================================================
+-- This test verifies that the execution hints system works with larger datasets.
+-- The planner should estimate build rows and pass hints to the executor.
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
+CREATE TABLE hint_test_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+CREATE TABLE hint_test_products (
+    id INTEGER PRIMARY KEY,
+    category_id INTEGER,
+    description TEXT
+);
+-- Medium-sized build side (50 rows)
+INSERT INTO hint_test_categories
+SELECT i, 'Category ' || i
+FROM generate_series(1, 50) i;
+-- Products referencing categories
+INSERT INTO hint_test_products
+SELECT i, (i % 50) + 1, 
+    CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
+FROM generate_series(1, 200) i;
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description) WITH (key_field = 'id');
+-- Query that exercises hash table with medium build side
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+LIMIT 20;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: hp.id, hp.description, hc.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: hp.id, hp.description, hc.name
+         Join Type: Inner
+         Outer Relation: hint_test_categories (hc)
+         Inner Relation: hint_test_products (hp)
+         Join Cond: hc.id = hp.category_id
+         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Limit: 20
+         Algorithm Hint: Auto
+         Est. Build Rows: 1270
+(12 rows)
+
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
+LIMIT 20;
+ id |   description    | category_name 
+----+------------------+---------------
+  3 | wireless product | Category 4
+  6 | wireless product | Category 7
+  9 | wireless product | Category 10
+ 12 | wireless product | Category 13
+ 15 | wireless product | Category 16
+ 18 | wireless product | Category 19
+ 21 | wireless product | Category 22
+ 24 | wireless product | Category 25
+ 27 | wireless product | Category 28
+ 30 | wireless product | Category 31
+ 33 | wireless product | Category 34
+ 36 | wireless product | Category 37
+ 39 | wireless product | Category 40
+ 42 | wireless product | Category 43
+ 45 | wireless product | Category 46
+ 48 | wireless product | Category 49
+ 51 | wireless product | Category 2
+ 54 | wireless product | Category 5
+ 57 | wireless product | Category 8
+ 60 | wireless product | Category 11
+(20 rows)
+
+-- Verify count is correct
+SELECT COUNT(*) AS wireless_count
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless';
+ wireless_count 
+----------------
+             66
+(1 row)
 
 -- =============================================================================
 -- CLEANUP
@@ -2065,6 +2273,10 @@ DROP TABLE IF EXISTS update_test_items CASCADE;
 DROP TABLE IF EXISTS update_test_refs CASCADE;
 DROP TABLE IF EXISTS qgen_products CASCADE;
 DROP TABLE IF EXISTS qgen_users CASCADE;
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;
 RESET paradedb.enable_join_custom_scan;

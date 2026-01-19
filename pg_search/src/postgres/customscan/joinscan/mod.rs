@@ -21,8 +21,8 @@ pub mod privdat;
 pub mod scan_state;
 
 use self::build::{
-    JoinCSClause, JoinKeyPair, JoinSideInfo, SerializableJoinLevelExpr, SerializableJoinSide,
-    SerializableJoinType,
+    ExecutionHints, JoinAlgorithmHint, JoinCSClause, JoinKeyPair, JoinSideInfo,
+    SerializableJoinLevelExpr, SerializableJoinSide, SerializableJoinType,
 };
 use self::privdat::PrivateData;
 use self::scan_state::{
@@ -195,9 +195,6 @@ impl CustomScan for JoinScan {
                 return None;
             }
 
-            // Create the private data
-            let private_data = PrivateData::new(join_clause.clone());
-
             // Get the cheapest total paths from outer and inner relations
             // These are needed so PostgreSQL can resolve Vars in custom_scan_tlist
             let outer_path = (*outerrel).cheapest_total_path;
@@ -209,8 +206,15 @@ impl CustomScan for JoinScan {
             // - Build side: full scan to build hash table
             // - Hash table build cost: sequential scan + hashing
             // - Probe cost: per driving row, hash lookup + heap fetch
-            let (startup_cost, total_cost, result_rows) =
+            let (startup_cost, total_cost, result_rows, estimated_build_rows) =
                 estimate_joinscan_cost(&join_clause, outerrel, innerrel, limit);
+
+            // Compute execution hints based on planning information
+            let hints = compute_execution_hints(estimated_build_rows, limit);
+            join_clause = join_clause.with_hints(hints);
+
+            // Create the private data with hints included
+            let private_data = PrivateData::new(join_clause.clone());
 
             // Force the path to be chosen when we have a valid join opportunity.
             // TODO: Once cost model is well-tuned, consider removing Flags::Force
@@ -470,6 +474,28 @@ impl CustomScan for JoinScan {
         if let Some(limit) = join_clause.limit {
             explainer.add_text("Limit", limit.to_string());
         }
+
+        // Show execution hints from planner
+        let hint_str = match join_clause.hints.algorithm {
+            JoinAlgorithmHint::Auto => "Auto",
+            JoinAlgorithmHint::PreferHash => "Prefer Hash",
+        };
+        explainer.add_text("Algorithm Hint", hint_str);
+
+        // Show estimated build rows if available
+        if let Some(est_rows) = join_clause.hints.estimated_build_rows {
+            explainer.add_text("Est. Build Rows", format!("{:.0}", est_rows));
+        }
+
+        // For EXPLAIN ANALYZE, show the actual execution method used
+        if explainer.is_analyze() {
+            let exec_method = if state.custom_state().using_nested_loop {
+                "Nested Loop"
+            } else {
+                "Hash Join"
+            };
+            explainer.add_text("Exec Method", exec_method);
+        }
     }
 
     fn begin_custom_scan(
@@ -521,6 +547,13 @@ impl CustomScan for JoinScan {
             let work_mem_bytes = (pg_sys::work_mem as usize) * 1024;
             state.custom_state_mut().max_hash_memory = work_mem_bytes;
 
+            // Note: Execution hints (algorithm preference, memory estimates) are stored in
+            // join_clause.hints and used during hash table building to make informed decisions.
+            // We don't pre-set using_nested_loop here because build side state isn't initialized yet.
+            // The hints are used in build_hash_table() to:
+            // 1. Pre-size the hash table based on estimated_build_rows
+            // 2. Inform early termination decisions based on estimated_hash_memory
+
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
             // and the projection info. Don't create our own slot - use the one PostgreSQL
@@ -558,6 +591,7 @@ impl CustomScan for JoinScan {
                             indexrelid,
                             query.clone(),
                             snapshot,
+                            join_clause.hints.topn_batch_scale,
                         )
                     } else {
                         // FastField executor - use score_needed from planning
@@ -957,6 +991,13 @@ impl JoinScan {
             return;
         };
 
+        // Pre-size hash table based on execution hints from planner
+        // This avoids reallocations as the hash table grows
+        if let Some(est_rows) = state.custom_state().join_clause.hints.estimated_build_rows {
+            let capacity = (est_rows as usize).min(100_000); // Cap at 100K to avoid huge allocations
+            state.custom_state_mut().hash_table.reserve(capacity);
+        }
+
         // Get build_matching_ctids reference (if build side has a search predicate)
         let build_matching_ctids = state.custom_state().build_matching_ctids.clone();
 
@@ -1010,7 +1051,6 @@ impl JoinScan {
         }
 
         // Store whether we're doing a cross join for later use
-        //
         // TODO(cross-join-memory): For cross joins, all build rows map to CompositeKey::CrossJoin,
         // creating a single hash bucket with ALL build rows. During probe, this generates O(N*M)
         // row pairs which can cause memory exhaustion even though hash table build succeeded.
@@ -1936,18 +1976,19 @@ unsafe fn extract_join_side_info(
 
 /// Estimate the cost of a JoinScan operation.
 ///
-/// Returns (startup_cost, total_cost, result_rows).
+/// Returns (startup_cost, total_cost, result_rows, estimated_build_rows).
 ///
 /// Cost model components:
 /// - Startup cost: Build side sequential scan + hash table construction
 /// - Per-tuple cost: Hash lookup + heap fetch for driving side
 /// - Result rows: Min(limit, estimated_matches)
+/// - estimated_build_rows: Estimated rows in build side (for execution hints)
 unsafe fn estimate_joinscan_cost(
     join_clause: &JoinCSClause,
     outerrel: *mut pg_sys::RelOptInfo,
     innerrel: *mut pg_sys::RelOptInfo,
     limit: Option<usize>,
-) -> (f64, f64, f64) {
+) -> (f64, f64, f64, f64) {
     // Get row estimates from PostgreSQL's statistics
     let outer_rows = if !outerrel.is_null() {
         (*outerrel).rows.max(1.0)
@@ -2027,7 +2068,39 @@ unsafe fn estimate_joinscan_cost(
 
     let total_cost = startup_cost + run_cost;
 
-    (startup_cost, total_cost, result_rows)
+    (startup_cost, total_cost, result_rows, estimated_build_rows)
+}
+
+/// Compute execution hints based on planning information.
+///
+/// These hints help the executor make better decisions about algorithm selection,
+/// memory allocation, and batch sizing.
+fn compute_execution_hints(estimated_build_rows: f64, limit: Option<usize>) -> ExecutionHints {
+    // Determine algorithm hint based on build side size
+    let algorithm = determine_algorithm_hint(estimated_build_rows, limit);
+
+    // Estimate hash table memory: each entry is roughly 64-128 bytes
+    // (CompositeKey + Vec overhead + InnerRow + HashMap entry overhead)
+    // Use a conservative estimate of 128 bytes per entry
+    const ESTIMATED_ENTRY_SIZE: usize = 128;
+    let estimated_hash_memory = (estimated_build_rows as usize) * ESTIMATED_ENTRY_SIZE;
+
+    ExecutionHints::new()
+        .with_algorithm(algorithm)
+        .with_estimated_build_rows(estimated_build_rows)
+        .with_estimated_hash_memory(estimated_hash_memory)
+    // topn_batch_scale left as None - executor will calculate from dead tuple ratio
+}
+
+/// Determine preferred join algorithm based on build side size and limit.
+fn determine_algorithm_hint(build_rows: f64, limit: Option<usize>) -> JoinAlgorithmHint {
+    // No limit with large build side: hash is better for full scans
+    if limit.is_none() && build_rows > 100.0 {
+        return JoinAlgorithmHint::PreferHash;
+    }
+
+    // Default: let executor decide based on runtime conditions
+    JoinAlgorithmHint::Auto
 }
 
 /// Extract ORDER BY score pathkey for the driving side.

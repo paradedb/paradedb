@@ -20,10 +20,6 @@
 //! These structures are serialized to JSON and stored in CustomScan's custom_private
 //! field, then deserialized during execution.
 //!
-//! # Future Enhancements (TODO)
-//!
-//! - Consider adding execution hints (preferred join algorithm, memory hints)
-//!
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `extract_score_pathkey()` in mod.rs.
 
@@ -120,6 +116,70 @@ impl From<pg_sys::JoinType::Type> for SerializableJoinType {
     }
 }
 
+/// Preferred join algorithm hint from planner.
+///
+/// Allows the planner to suggest which join algorithm the executor should use
+/// based on statistics available at planning time.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+pub enum JoinAlgorithmHint {
+    /// Let executor decide based on runtime conditions (default)
+    #[default]
+    Auto,
+    /// Prefer hash join (good for larger build sides with good selectivity)
+    PreferHash,
+}
+
+/// Execution hints passed from planner to executor.
+///
+/// These hints allow the planner to pass optimization information to the executor
+/// based on statistics available at planning time. The executor can use these
+/// hints to make better decisions about algorithm selection, memory allocation,
+/// and batch sizing.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionHints {
+    /// Preferred join algorithm based on planner's analysis
+    pub algorithm: JoinAlgorithmHint,
+
+    /// Estimated number of rows in build side (from planner statistics).
+    /// Used to pre-size hash table and decide algorithm.
+    pub estimated_build_rows: Option<f64>,
+
+    /// Estimated memory needed for hash table (bytes).
+    /// Helps executor decide if hash join is feasible before building.
+    pub estimated_hash_memory: Option<usize>,
+
+    /// Scale factor hint for TopN batch sizing.
+    /// Higher values fetch more rows per batch (fewer round trips, more memory).
+    /// If None, executor calculates from dead tuple ratio at runtime.
+    pub topn_batch_scale: Option<f64>,
+}
+
+impl ExecutionHints {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_algorithm(mut self, algo: JoinAlgorithmHint) -> Self {
+        self.algorithm = algo;
+        self
+    }
+
+    pub fn with_estimated_build_rows(mut self, rows: f64) -> Self {
+        self.estimated_build_rows = Some(rows);
+        self
+    }
+
+    pub fn with_estimated_hash_memory(mut self, bytes: usize) -> Self {
+        self.estimated_hash_memory = Some(bytes);
+        self
+    }
+
+    pub fn with_topn_batch_scale(mut self, scale: f64) -> Self {
+        self.topn_batch_scale = Some(scale);
+        self
+    }
+}
+
 /// Represents a join key column pair with type information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinKeyPair {
@@ -197,6 +257,8 @@ pub struct JoinCSClause {
     /// The boolean expression tree that combines join-level predicates.
     /// When Some, this expression must be evaluated for each row-pair.
     pub join_level_expr: Option<SerializableJoinLevelExpr>,
+    /// Execution hints from planner to guide runtime decisions.
+    pub hints: ExecutionHints,
 }
 
 impl JoinCSClause {
@@ -248,6 +310,12 @@ impl JoinCSClause {
     /// Set the join-level expression tree.
     pub fn with_join_level_expr(mut self, expr: SerializableJoinLevelExpr) -> Self {
         self.join_level_expr = Some(expr);
+        self
+    }
+
+    /// Set execution hints from planner.
+    pub fn with_hints(mut self, hints: ExecutionHints) -> Self {
+        self.hints = hints;
         self
     }
 

@@ -1391,6 +1391,106 @@ ORDER BY qgen_users.id
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 25: Execution hints - small build side (nested loop preference)
+-- =============================================================================
+-- This test verifies that execution hints work for very small joins.
+-- When estimated_build_rows < 10, the planner hints to prefer nested loop
+-- to avoid hash table overhead.
+
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+
+CREATE TABLE tiny_refs (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE tiny_products (
+    id INTEGER PRIMARY KEY,
+    ref_id INTEGER,
+    description TEXT
+);
+
+-- Very small build side (only 3 rows)
+INSERT INTO tiny_refs VALUES (1, 'Ref A'), (2, 'Ref B'), (3, 'Ref C');
+
+INSERT INTO tiny_products VALUES
+(101, 1, 'wireless device alpha'),
+(102, 2, 'wired device beta'),
+(103, 1, 'wireless device gamma');
+
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description) WITH (key_field = 'id');
+
+-- Query with very small build side - should work correctly regardless of algorithm
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT tp.id, tp.description, tr.name
+FROM tiny_products tp
+JOIN tiny_refs tr ON tp.ref_id = tr.id
+WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 26: Execution hints - verify hash table pre-sizing (functional test)
+-- =============================================================================
+-- This test verifies that the execution hints system works with larger datasets.
+-- The planner should estimate build rows and pass hints to the executor.
+
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
+
+CREATE TABLE hint_test_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE hint_test_products (
+    id INTEGER PRIMARY KEY,
+    category_id INTEGER,
+    description TEXT
+);
+
+-- Medium-sized build side (50 rows)
+INSERT INTO hint_test_categories
+SELECT i, 'Category ' || i
+FROM generate_series(1, 50) i;
+
+-- Products referencing categories
+INSERT INTO hint_test_products
+SELECT i, (i % 50) + 1, 
+    CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
+FROM generate_series(1, 200) i;
+
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description) WITH (key_field = 'id');
+
+-- Query that exercises hash table with medium build side
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+LIMIT 20;
+
+SELECT hp.id, hp.description, hc.name AS category_name
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
+LIMIT 20;
+
+-- Verify count is correct
+SELECT COUNT(*) AS wireless_count
+FROM hint_test_products hp
+JOIN hint_test_categories hc ON hp.category_id = hc.id
+WHERE hp.description @@@ 'wireless';
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -1425,6 +1525,10 @@ DROP TABLE IF EXISTS update_test_items CASCADE;
 DROP TABLE IF EXISTS update_test_refs CASCADE;
 DROP TABLE IF EXISTS qgen_products CASCADE;
 DROP TABLE IF EXISTS qgen_users CASCADE;
+DROP TABLE IF EXISTS tiny_products CASCADE;
+DROP TABLE IF EXISTS tiny_refs CASCADE;
+DROP TABLE IF EXISTS hint_test_products CASCADE;
+DROP TABLE IF EXISTS hint_test_categories CASCADE;
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

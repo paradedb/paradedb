@@ -31,6 +31,7 @@ use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
+use serde_json::Value;
 use sqlx::{PgConnection, Row};
 
 const COLUMNS: &[Column] = &[
@@ -563,6 +564,21 @@ async fn generated_joinscan(database: Db) {
             where_expr.to_sql("@@@"),
             used_tables[0]
         );
+
+        // Verify JoinScan is actually used
+        {
+            let conn = &mut pool.pull();
+            gucs.set().execute(conn);
+            let explain_query = format!("EXPLAIN (FORMAT JSON) {bm25_query}");
+            let (plan,): (Value,) = explain_query.fetch_one(conn);
+            let plan_str = format!("{:?}", plan);
+            prop_assert!(
+                plan_str.contains("ParadeDB Join Scan"),
+                "Query should use ParadeDB Join Scan but got plan: {}\nQuery: {}",
+                plan_str,
+                bm25_query
+            );
+        }
 
         compare(
             &pg_query,

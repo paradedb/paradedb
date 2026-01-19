@@ -662,6 +662,13 @@ impl CustomScan for JoinScan {
             }
 
             // Initialize join-level predicate evaluation if we have a join-level expression
+            //
+            // TODO(memory-limit): All matching ctids are materialized into HashSets upfront
+            // with no memory limit. A broad predicate like `content @@@ 'the'` could match
+            // millions of rows, causing OOM. Consider:
+            // - Applying work_mem limit and falling back to row-by-row evaluation
+            // - Using lazy/streaming evaluation instead of full materialization
+            // - Adding an upper bound on ctid_set size
             if let Some(ref serializable_expr) = join_clause.join_level_expr {
                 let join_level_predicates = &join_clause.join_level_predicates;
 
@@ -986,11 +993,25 @@ impl JoinScan {
         }
 
         // Store whether we're doing a cross join for later use
+        //
+        // TODO(cross-join-memory): For cross joins, all build rows map to CompositeKey::CrossJoin,
+        // creating a single hash bucket with ALL build rows. During probe, this generates O(N*M)
+        // row pairs which can cause memory exhaustion even though hash table build succeeded.
+        // Consider: immediate nested loop fallback for cross joins, stricter memory limits,
+        // or emitting a warning in EXPLAIN about cross-join performance.
         state.custom_state_mut().is_cross_join = !has_equi_join_keys;
     }
 
     /// Execute nested loop join when hash join exceeds memory limit.
     /// This is a fallback that uses less memory but has O(N*M) complexity.
+    ///
+    /// TODO(nested-loop-perf): This fallback rescans the entire build side for EACH driving
+    /// row, resulting in O(D*B) I/O. For large tables this is severely worse than PostgreSQL's
+    /// native join which would spill to disk. Consider alternatives:
+    /// - Block nested loop (batch driving rows)
+    /// - Spill hash table to disk like PostgreSQL
+    /// - Fall back entirely to PostgreSQL's native join execution
+    /// - At minimum, emit a WARNING when this fallback triggers
     unsafe fn exec_nested_loop(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {

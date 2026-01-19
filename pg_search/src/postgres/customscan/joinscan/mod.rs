@@ -108,8 +108,8 @@ impl CustomScan for JoinScan {
             };
 
             // Extract information from both sides of the join
-            let outer_side = extract_join_side_info(root, outerrel)?;
-            let inner_side = extract_join_side_info(root, innerrel)?;
+            let mut outer_side = extract_join_side_info(root, outerrel)?;
+            let mut inner_side = extract_join_side_info(root, innerrel)?;
 
             // Extract join conditions from the restrict list
             let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -124,6 +124,27 @@ impl CustomScan for JoinScan {
             let has_non_equijoin_conditions = !join_conditions.other_conditions.is_empty();
             if !has_equi_join_keys && has_non_equijoin_conditions {
                 return None;
+            }
+
+            // Determine driving side: the side with a search predicate is the driving side
+            // (it streams results from Tantivy while the other side builds a hash table)
+            let driving_side_is_outer = outer_side.has_search_predicate;
+            let driving_side_rti = if driving_side_is_outer {
+                outer_rti
+            } else {
+                inner_rti
+            };
+
+            // Check if ORDER BY paradedb.score() is present for the driving side.
+            // This determines whether we need to compute and return scores.
+            let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
+            let score_needed = score_pathkey.is_some();
+
+            // Set score_needed on the driving side
+            if driving_side_is_outer {
+                outer_side = outer_side.with_score_needed(score_needed);
+            } else {
+                inner_side = inner_side.with_score_needed(score_needed);
             }
 
             // Build the join clause with join keys
@@ -183,17 +204,6 @@ impl CustomScan for JoinScan {
             // - Probe cost: per driving row, hash lookup + heap fetch
             let (startup_cost, total_cost, result_rows) =
                 estimate_joinscan_cost(&join_clause, outerrel, innerrel, limit);
-
-            // ORDER BY score pushdown: Check if query has ORDER BY paradedb.score()
-            // for the driving side. When TopN executor is used (which is always the case
-            // when there's a LIMIT), results are returned in score order, so we can
-            // declare pathkeys to eliminate the Sort node PostgreSQL would otherwise add.
-            let driving_side_rti = if join_clause.driving_side_is_outer() {
-                outer_rti
-            } else {
-                inner_rti
-            };
-            let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
 
             // Force the path to be chosen when we have a valid join opportunity.
             // TODO: Once cost model is well-tuned, consider removing Flags::Force
@@ -543,13 +553,13 @@ impl CustomScan for JoinScan {
                             snapshot,
                         )
                     } else {
-                        // FastField executor with scores enabled for paradedb.score() support
+                        // FastField executor - use score_needed from planning
                         executors::JoinSideExecutor::new_fast_field(
                             &heaprel,
                             indexrelid,
                             query.clone(),
                             snapshot,
-                            true, // need_scores for driving side
+                            driving_side.score_needed,
                         )
                     };
                     state.custom_state_mut().driving_executor = Some(executor);

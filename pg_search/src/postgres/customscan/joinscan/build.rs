@@ -22,7 +22,6 @@
 //!
 //! # Future Enhancements (TODO)
 //!
-//! - Add score_needed field to JoinSideInfo to track whether scores are needed per-side
 //! - Consider adding execution hints (preferred join algorithm, memory hints)
 //!
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
@@ -50,6 +49,11 @@ pub struct JoinSideInfo {
     pub has_search_predicate: bool,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
     pub alias: Option<String>,
+    /// Whether scores are needed for this side's results.
+    /// True when ORDER BY paradedb.score() is present for this side.
+    /// Used to optimize FastField executor (skip score computation when not needed).
+    /// Note: TopN executor always computes scores internally for ranking.
+    pub score_needed: bool,
 }
 
 impl JoinSideInfo {
@@ -81,6 +85,11 @@ impl JoinSideInfo {
 
     pub fn with_alias(mut self, alias: String) -> Self {
         self.alias = Some(alias);
+        self
+    }
+
+    pub fn with_score_needed(mut self, needed: bool) -> Self {
+        self.score_needed = needed;
         self
     }
 }

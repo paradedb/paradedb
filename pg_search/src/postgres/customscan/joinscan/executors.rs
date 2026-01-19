@@ -258,6 +258,7 @@ impl JoinSideExecutor {
             // Try to get next result from current batch.
             // Return raw ctid without visibility checking - visibility is checked downstream.
             if let Some((scored, _doc_address)) = state.search_results.next() {
+                state.found += 1;
                 return JoinExecResult::Visible {
                     ctid: scored.ctid,
                     score: scored.bm25,

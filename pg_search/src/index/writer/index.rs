@@ -47,7 +47,7 @@ impl PendingSegment {
 
     fn with_id(index: &Index, memory_budget: NonZeroUsize, segment_id: SegmentId) -> Result<Self> {
         let segment = index.new_segment_with_id(segment_id);
-        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
+        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone(), true)?;
         Ok(Self {
             segment,
             writer,

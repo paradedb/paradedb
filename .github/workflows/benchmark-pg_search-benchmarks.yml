@@ -41,7 +41,7 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - family=m5zn.metal # 48 vCPUs, 192 GiBs Memory -- https://instances.vantage.sh/aws/ec2/m5zn.metal?currency=USD
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')

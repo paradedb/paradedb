@@ -312,10 +312,16 @@ impl ExecMethod for MixedFastFieldExecState {
             };
 
             if let Some(results) = search_results {
+                let heaprel = self
+                    .inner
+                    .heaprel
+                    .as_ref()
+                    .expect("MixedFastFieldsExecState: heaprel should be initialized");
                 self.scanner = Some(Scanner::new(
                     results,
                     self.batch_size_hint,
                     self.inner.which_fast_fields.clone(),
+                    heaprel.oid().into(),
                 ));
             } else {
                 return false;

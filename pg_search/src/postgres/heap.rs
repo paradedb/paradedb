@@ -77,7 +77,10 @@ impl VisibilityChecker {
     }
 
     /// If the specified `ctid` is visible in the heap, run the provided closure and return its
-    /// result as `Some(T)`.  If it's not visible, return `None` without running the provided closure
+    /// result as `Some(T)`.  If it's not visible, return `None` without running the provided closure.
+    ///
+    /// This uses table_index_fetch_tuple which is designed for ctids from an INDEX scan.
+    /// For ctids from a sequential scan, use `fetch_tuple_direct` instead.
     pub fn exec_if_visible<T, F: FnMut(pg_sys::Relation) -> T>(
         &mut self,
         ctid: u64,
@@ -103,6 +106,28 @@ impl VisibilityChecker {
             } else {
                 None
             }
+        }
+    }
+
+    /// Fetch a tuple directly by ctid, without going through the index fetch machinery.
+    ///
+    /// This is the correct method to use when the ctid was obtained from a sequential scan
+    /// (e.g., from building a hash table). Unlike exec_if_visible which uses table_index_fetch_tuple
+    /// and handles HOT chains from index ctids, this uses table_tuple_fetch_row_version which
+    /// directly fetches the tuple at the given ctid.
+    ///
+    /// Returns true if the tuple was found and visible, false otherwise.
+    pub fn fetch_tuple_direct(&self, ctid: u64, slot: *mut pg_sys::TupleTableSlot) -> bool {
+        unsafe {
+            let mut tid = pg_sys::ItemPointerData::default();
+            utils::u64_to_item_pointer(ctid, &mut tid);
+
+            pg_sys::table_tuple_fetch_row_version(
+                self._heaprel.as_ptr(),
+                &mut tid,
+                self.snapshot,
+                slot,
+            )
         }
     }
 

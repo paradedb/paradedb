@@ -85,19 +85,29 @@ pub enum JoinSide {
     Inner,
 }
 
-/// A runtime-evaluable boolean expression over join-level search predicates.
+/// A runtime-evaluable boolean expression over join-level conditions.
 ///
 /// This preserves the full AND/OR/NOT structure of complex join-level predicates,
 /// allowing correct evaluation of expressions like:
-/// `(tbl1_cond1 OR (tbl1_cond2 OR (tbl2_cond AND NOT tbl1_cond3)))`
+/// `(search_pred OR heap_cond)` or `(tbl1_search AND NOT tbl2_search)`
+///
+/// The tree can reference two types of leaf conditions:
+/// - `Predicate`: A Tantivy search result (evaluated via ctid set membership)
+/// - `HeapCondition`: A PostgreSQL expression (evaluated via ExecQual at runtime)
 #[derive(Debug, Clone)]
 pub enum JoinLevelExpr {
-    /// Leaf: check if the row's ctid is in the predicate's result set.
+    /// Leaf: check if the row's ctid is in the predicate's result set (Tantivy).
     Predicate {
         /// Which side of the join this predicate references.
         side: JoinSide,
         /// Index into the `join_level_ctid_sets` vector.
         ctid_set_idx: usize,
+    },
+    /// Leaf: evaluate a PostgreSQL expression (heap condition).
+    /// This requires runtime evaluation via ExecQual.
+    HeapCondition {
+        /// Index into the `heap_condition_states` vector.
+        condition_idx: usize,
     },
     /// Logical AND of child expressions.
     And(Vec<JoinLevelExpr>),
@@ -107,27 +117,61 @@ pub enum JoinLevelExpr {
     Not(Box<JoinLevelExpr>),
 }
 
+/// Context needed to evaluate a JoinLevelExpr that may contain HeapConditions.
+pub struct JoinLevelEvalContext<'a> {
+    /// Ctid sets from Tantivy queries.
+    pub ctid_sets: &'a [HashSet<u64>],
+    /// Expression states for heap conditions (parallel to heap_conditions in JoinCSClause).
+    pub heap_condition_states: &'a [*mut pg_sys::ExprState],
+    /// Expression context for evaluating heap conditions.
+    pub econtext: *mut pg_sys::ExprContext,
+}
+
 impl JoinLevelExpr {
     /// Evaluate this expression for a given row-pair.
-    pub fn evaluate(&self, outer_ctid: u64, inner_ctid: u64, ctid_sets: &[HashSet<u64>]) -> bool {
+    ///
+    /// For `Predicate` nodes: checks ctid membership in the pre-computed sets.
+    /// For `HeapCondition` nodes: evaluates the PostgreSQL expression via ExecQual.
+    ///
+    /// # Safety
+    /// The econtext in eval_ctx must have ecxt_scantuple set to a slot containing
+    /// the joined tuple data before calling this function.
+    pub unsafe fn evaluate(
+        &self,
+        outer_ctid: u64,
+        inner_ctid: u64,
+        eval_ctx: &JoinLevelEvalContext,
+    ) -> bool {
         match self {
             JoinLevelExpr::Predicate { side, ctid_set_idx } => {
                 let ctid = match side {
                     JoinSide::Outer => outer_ctid,
                     JoinSide::Inner => inner_ctid,
                 };
-                ctid_sets
+                eval_ctx
+                    .ctid_sets
                     .get(*ctid_set_idx)
                     .map(|set| set.contains(&ctid))
                     .unwrap_or(false)
             }
+            JoinLevelExpr::HeapCondition { condition_idx } => {
+                // Evaluate the PostgreSQL expression
+                if let Some(&expr_state) = eval_ctx.heap_condition_states.get(*condition_idx) {
+                    if !expr_state.is_null() && !eval_ctx.econtext.is_null() {
+                        // ExecQual returns true if the expression evaluates to true
+                        return pg_sys::ExecQual(expr_state, eval_ctx.econtext);
+                    }
+                }
+                // If state is not initialized, treat as false (fail-safe)
+                false
+            }
             JoinLevelExpr::And(children) => children
                 .iter()
-                .all(|c| c.evaluate(outer_ctid, inner_ctid, ctid_sets)),
+                .all(|c| c.evaluate(outer_ctid, inner_ctid, eval_ctx)),
             JoinLevelExpr::Or(children) => children
                 .iter()
-                .any(|c| c.evaluate(outer_ctid, inner_ctid, ctid_sets)),
-            JoinLevelExpr::Not(child) => !child.evaluate(outer_ctid, inner_ctid, ctid_sets),
+                .any(|c| c.evaluate(outer_ctid, inner_ctid, eval_ctx)),
+            JoinLevelExpr::Not(child) => !child.evaluate(outer_ctid, inner_ctid, eval_ctx),
         }
     }
 }
@@ -201,12 +245,12 @@ pub struct JoinScanState {
     /// When true, driving tuple is already in driving_fetch_slot.
     pub driving_uses_heap_scan: bool,
 
-    // === Join condition evaluation ===
-    /// Compiled join qual expression state for evaluating non-equijoin conditions.
-    /// This is initialized from custom_exprs during begin_custom_scan.
-    pub join_qual_state: Option<*mut pg_sys::ExprState>,
-    /// Expression context for evaluating join quals.
-    pub join_qual_econtext: Option<*mut pg_sys::ExprContext>,
+    // === Heap condition evaluation ===
+    /// Compiled expression states for heap conditions (parallel to heap_conditions in JoinCSClause).
+    /// Each HeapCondition in join_level_expr references an index into this vector.
+    pub heap_condition_states: Vec<*mut pg_sys::ExprState>,
+    /// Expression context for evaluating heap conditions.
+    pub heap_condition_econtext: Option<*mut pg_sys::ExprContext>,
 
     // === Output column mapping ===
     /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.

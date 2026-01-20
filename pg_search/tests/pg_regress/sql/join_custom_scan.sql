@@ -1491,6 +1491,74 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless';
 
 -- =============================================================================
+-- TEST 27: Unified expression tree - search predicate OR cross-relation condition
+-- =============================================================================
+-- This test demonstrates the need for a unified expression tree where
+-- join_level_expr can reference BOTH search predicates (evaluated via Tantivy)
+-- AND cross-relation conditions (evaluated via PostgreSQL).
+--
+-- Current architecture limitation:
+-- - join_level_predicates: Vec<JoinLevelSearchPredicate> - Tantivy queries
+-- - has_other_join_conditions: bool + custom_exprs - PostgreSQL conditions
+-- - These are evaluated separately and implicitly ANDed
+--
+-- Desired architecture:
+-- - join_level_predicates: Vec<JoinLevelSearchPredicate> - Tantivy queries
+-- - other_join_conditions: Vec<SerializedExpr> - PostgreSQL conditions
+-- - join_level_expr can reference EITHER via:
+--   * Predicate { side, predicate_idx } -> join_level_predicates[idx]
+--   * OtherCondition { idx } -> other_join_conditions[idx]
+--
+-- This allows OR combinations like:
+--   OR(Predicate(search), OtherCondition(price_check))
+
+-- Add min_order_value to suppliers for cross-relation comparison
+ALTER TABLE suppliers ADD COLUMN min_order_value DECIMAL(10,2) DEFAULT 0;
+UPDATE suppliers SET min_order_value = 50.00 WHERE id = 151;  -- TechCorp
+UPDATE suppliers SET min_order_value = 15.00 WHERE id = 152;  -- GlobalSupply
+UPDATE suppliers SET min_order_value = 30.00 WHERE id = 153;  -- FastParts
+UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
+
+-- Test case: Search predicate AND cross-relation condition (current architecture handles this)
+-- Products where description matches 'wireless' AND price >= supplier's min_order_value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.price >= s.min_order_value
+LIMIT 10;
+
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.price >= s.min_order_value
+ORDER BY p.id
+LIMIT 10;
+
+-- Test case: Search predicate OR cross-relation condition (unified expression tree)
+-- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
+-- This demonstrates the unified expression tree where JoinScan can handle OR between
+-- a Tantivy search predicate and a cross-relation heap condition.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'cable'
+   OR p.price >= s.min_order_value
+LIMIT 10;
+
+-- Verify correct results
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'cable'
+   OR p.price >= s.min_order_value
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

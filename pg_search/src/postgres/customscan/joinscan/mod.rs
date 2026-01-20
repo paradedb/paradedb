@@ -21,12 +21,13 @@ pub mod privdat;
 pub mod scan_state;
 
 use self::build::{
-    ExecutionHints, JoinAlgorithmHint, JoinCSClause, JoinKeyPair, JoinSideInfo,
+    ExecutionHints, HeapConditionInfo, JoinAlgorithmHint, JoinCSClause, JoinKeyPair, JoinSideInfo,
     SerializableJoinLevelExpr, SerializableJoinSide, SerializableJoinType,
 };
 use self::privdat::PrivateData;
 use self::scan_state::{
-    CompositeKey, InnerRow, JoinKeyInfo, JoinLevelExpr, JoinScanState, JoinSide, KeyValue,
+    CompositeKey, InnerRow, JoinKeyInfo, JoinLevelEvalContext, JoinLevelExpr, JoinScanState,
+    JoinSide, KeyValue,
 };
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
@@ -159,8 +160,7 @@ impl CustomScan for JoinScan {
                 .with_outer_side(outer_side.clone())
                 .with_inner_side(inner_side.clone())
                 .with_join_type(SerializableJoinType::from(jointype))
-                .with_limit(limit)
-                .with_has_other_join_conditions(!join_conditions.other_conditions.is_empty());
+                .with_limit(limit);
 
             // Add extracted equi-join keys with type info
             for jk in join_conditions.equi_keys {
@@ -173,20 +173,25 @@ impl CustomScan for JoinScan {
                 );
             }
 
-            // If restrictlist contains @@@ operators, try to extract join-level predicates
-            if join_conditions.has_search_predicate {
-                join_clause = Self::extract_join_level_search_predicates(
-                    root,
-                    extra,
-                    &outer_side,
-                    &inner_side,
-                    join_clause,
-                );
-            }
+            // Extract join-level predicates (search predicates and heap conditions)
+            // This builds a unified expression tree that can reference:
+            // - Predicate nodes: Tantivy search queries
+            // - HeapCondition nodes: PostgreSQL expressions
+            // Returns the updated join_clause and a list of heap condition clause pointers
+            let heap_condition_clauses: Vec<*mut pg_sys::Expr>;
+            (join_clause, heap_condition_clauses) = Self::extract_join_level_conditions(
+                root,
+                extra,
+                &outer_side,
+                &inner_side,
+                &join_conditions.other_conditions,
+                join_clause,
+            );
 
             // Check if this is a valid join for JoinScan
             // We need at least one side with a BM25 index AND a search predicate,
             // OR successfully extracted join-level predicates.
+            // Note: Heap conditions alone don't justify using JoinScan (no search advantage).
             let has_side_predicate = (outer_side.has_bm25_index && outer_side.has_search_predicate)
                 || (inner_side.has_bm25_index && inner_side.has_search_predicate);
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
@@ -234,18 +239,24 @@ impl CustomScan for JoinScan {
 
             let mut custom_path = builder.build(private_data);
 
-            // Store the restrictlist in custom_private as a second list element
-            // This is needed because PostgreSQL doesn't pass join clauses to PlanCustomPath
-            // Note: This is stored for future use when join-level expression filtering is implemented
-            let restrictlist = (*extra).restrictlist;
+            // Store the restrictlist and heap condition clauses in custom_private
+            // Structure: [PrivateData JSON, restrictlist, heap_cond_1, heap_cond_2, ...]
+            let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
 
+            // Add the restrictlist as the second element
+            let restrictlist = (*extra).restrictlist;
             if !restrictlist.is_null() {
-                // Add the restrictlist to custom_private
-                let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
-                // Add the restrictlist as the second element
                 private_list.push(restrictlist.cast());
-                custom_path.custom_private = private_list.into_pg();
+            } else {
+                private_list.push(std::ptr::null_mut());
             }
+
+            // Add heap condition clauses as subsequent elements
+            for clause in heap_condition_clauses {
+                private_list.push(clause.cast());
+            }
+
+            custom_path.custom_private = private_list.into_pg();
 
             Some(custom_path)
         }
@@ -340,6 +351,30 @@ impl CustomScan for JoinScan {
 
             // Update PrivateData with the output column mapping
             private_data.output_columns = output_columns;
+
+            // Add heap condition clauses to custom_exprs so they get transformed by set_customscan_references.
+            // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.
+            // Heap condition clauses are stored in best_path.custom_private starting at index 2
+            // (after PrivateData and restrictlist). Note: we read from best_path, not node, because
+            // the builder only copies the PrivateData JSON to node.custom_private, not the full list.
+            let path_private = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            let mut custom_exprs = PgList::<pg_sys::Node>::new();
+            let num_heap_conditions = private_data.join_clause.heap_conditions.len();
+
+            for i in 0..num_heap_conditions {
+                // Index 0 = PrivateData, Index 1 = restrictlist, Index 2+ = heap condition clauses
+                let clause_idx = 2 + i;
+                if clause_idx < path_private.len() {
+                    if let Some(clause_node) = path_private.get_ptr(clause_idx) {
+                        if !clause_node.is_null() {
+                            // Copy the clause to avoid modifying the original
+                            let clause_copy = pg_sys::copyObjectImpl(clause_node.cast()).cast();
+                            custom_exprs.push(clause_copy);
+                        }
+                    }
+                }
+            }
+            node.custom_exprs = custom_exprs.into_pg();
 
             // Convert PrivateData back to a list and preserve the restrictlist
             let private_data_list: *mut pg_sys::List = private_data.into();
@@ -447,9 +482,12 @@ impl CustomScan for JoinScan {
             explainer.add_text("Join Cond", "cross join");
         }
 
-        // Show if there are additional filter conditions
-        if join_clause.has_other_join_conditions {
-            explainer.add_text("Has Filter", "true");
+        // Show if there are heap conditions (cross-relation filters)
+        if join_clause.has_heap_conditions() {
+            explainer.add_text(
+                "Heap Conditions",
+                join_clause.heap_conditions.len().to_string(),
+            );
         }
 
         // Show side-level search predicates with clear labeling
@@ -466,7 +504,11 @@ impl CustomScan for JoinScan {
 
         // Show join-level expression tree if present
         if let Some(ref expr) = join_clause.join_level_expr {
-            let expr_str = format_join_level_expr(expr, &join_clause.join_level_predicates);
+            let expr_str = format_join_level_expr(
+                expr,
+                &join_clause.join_level_predicates,
+                &join_clause.heap_conditions,
+            );
             explainer.add_text("Join Predicate", expr_str);
         }
 
@@ -686,29 +728,43 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().build_heaprel = Some(heaprel);
             }
 
-            // Initialize join qual evaluation if we have non-equijoin conditions
-            if join_clause.has_other_join_conditions {
-                // Get the restrictlist from custom_private (second element)
+            // Initialize heap condition evaluation if we have any
+            // The heap condition expressions were added to custom_exprs during plan_custom_path
+            // and have been transformed by set_customscan_references to use INDEX_VAR references.
+            if join_clause.has_heap_conditions() {
                 let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
-                let private_list = PgList::<pg_sys::Node>::from_pg((*cscan).custom_private);
+                let custom_exprs = PgList::<pg_sys::Node>::from_pg((*cscan).custom_exprs);
 
-                if private_list.len() > 1 {
-                    if let Some(restrictlist_node) = private_list.get_ptr(1) {
-                        let restrictlist = restrictlist_node as *mut pg_sys::List;
+                // Create expression context for all heap conditions
+                let econtext = pg_sys::CreateExprContext(estate);
+                state.custom_state_mut().heap_condition_econtext = Some(econtext);
 
-                        // Build qual expression from non-equijoin RestrictInfos
-                        let quals = extract_non_equijoin_quals(restrictlist, &join_clause);
-                        if !quals.is_null() {
-                            // Create expression context
-                            let econtext = pg_sys::CreateExprContext(estate);
-
-                            // Initialize expression state
-                            let qual_state = pg_sys::ExecInitQual(quals, &mut state.csstate.ss.ps);
-
-                            state.custom_state_mut().join_qual_state = Some(qual_state);
-                            state.custom_state_mut().join_qual_econtext = Some(econtext);
+                // Initialize expression state for each heap condition
+                // The expressions in custom_exprs are in the same order as heap_conditions
+                for (i, _heap_cond) in join_clause.heap_conditions.iter().enumerate() {
+                    if i < custom_exprs.len() {
+                        if let Some(expr_node) = custom_exprs.get_ptr(i) {
+                            if !expr_node.is_null() {
+                                // Create a single-element list for ExecInitQual
+                                let mut qual_list = PgList::<pg_sys::Expr>::new();
+                                qual_list.push(expr_node as *mut pg_sys::Expr);
+                                let qual_state = pg_sys::ExecInitQual(
+                                    qual_list.into_pg(),
+                                    &mut state.csstate.ss.ps,
+                                );
+                                state
+                                    .custom_state_mut()
+                                    .heap_condition_states
+                                    .push(qual_state);
+                                continue;
+                            }
                         }
                     }
+                    // If we couldn't initialize this condition, push null
+                    state
+                        .custom_state_mut()
+                        .heap_condition_states
+                        .push(std::ptr::null_mut());
                 }
             }
 
@@ -814,40 +870,42 @@ impl CustomScan for JoinScan {
                                 .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
                                 .unwrap_or(0);
 
-                            // Evaluate the full boolean expression tree
-                            let ctid_sets = &state.custom_state().join_level_ctid_sets;
-                            if !expr.evaluate(outer_ctid_u64, inner_ctid_u64, ctid_sets) {
-                                // Predicate not satisfied, try next match
-                                continue;
-                            }
-                        }
+                            // Set up expression context for heap condition evaluation (if any)
+                            if let Some(econtext) = state.custom_state().heap_condition_econtext {
+                                (*econtext).ecxt_scantuple = slot;
 
-                        // Evaluate non-equijoin conditions (e.g., range predicates)
-                        // After set_customscan_references, Vars are transformed to INDEX_VAR
-                        // referencing columns in custom_scan_tlist. We set ecxt_scantuple to
-                        // our result slot which contains columns from both sides.
-                        if let (Some(qual_state), Some(econtext)) = (
-                            state.custom_state().join_qual_state,
-                            state.custom_state().join_qual_econtext,
-                        ) {
-                            (*econtext).ecxt_scantuple = slot;
+                                // Also set outer/inner tuple slots for the expression context
+                                let driving_slot_ptr = state.custom_state().driving_fetch_slot;
+                                let build_slot_ptr = state.custom_state().build_scan_slot;
+                                let driving_is_outer = state.custom_state().driving_is_outer;
 
-                            // Also set outer/inner tuple slots for the expression context
-                            let driving_slot_ptr = state.custom_state().driving_fetch_slot;
-                            let build_slot_ptr = state.custom_state().build_scan_slot;
-                            let driving_is_outer = state.custom_state().driving_is_outer;
-
-                            if let (Some(ds), Some(bs)) = (driving_slot_ptr, build_slot_ptr) {
-                                if driving_is_outer {
-                                    (*econtext).ecxt_outertuple = ds;
-                                    (*econtext).ecxt_innertuple = bs;
-                                } else {
-                                    (*econtext).ecxt_outertuple = bs;
-                                    (*econtext).ecxt_innertuple = ds;
+                                if let (Some(ds), Some(bs)) = (driving_slot_ptr, build_slot_ptr) {
+                                    if driving_is_outer {
+                                        (*econtext).ecxt_outertuple = ds;
+                                        (*econtext).ecxt_innertuple = bs;
+                                    } else {
+                                        (*econtext).ecxt_outertuple = bs;
+                                        (*econtext).ecxt_innertuple = ds;
+                                    }
                                 }
                             }
 
-                            if !pg_sys::ExecQual(qual_state, econtext) {
+                            // Create evaluation context for the unified expression tree
+                            let econtext = state
+                                .custom_state()
+                                .heap_condition_econtext
+                                .unwrap_or(std::ptr::null_mut());
+                            let eval_ctx = JoinLevelEvalContext {
+                                ctid_sets: &state.custom_state().join_level_ctid_sets,
+                                heap_condition_states: &state.custom_state().heap_condition_states,
+                                econtext,
+                            };
+
+                            // Evaluate the full boolean expression tree (includes both
+                            // Predicate nodes for Tantivy searches and HeapCondition nodes
+                            // for PostgreSQL expressions)
+                            if !expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx) {
+                                // Expression not satisfied, try next match
                                 continue;
                             }
                         }
@@ -1242,9 +1300,21 @@ impl JoinScan {
             driving_vis.exec_if_visible(driving_ctid, driving_slot, |_| ())?;
         }
 
-        // Fetch build tuple
-        let build_vis = state.custom_state_mut().build_visibility_checker.as_mut()?;
-        build_vis.exec_if_visible(build_ctid, build_slot, |_| ())?;
+        // Fetch build tuple using direct tuple fetch.
+        // The build side ctids come from a sequential scan (hash table building), not from an index,
+        // so we use fetch_tuple_direct which uses table_tuple_fetch_slot instead of
+        // table_index_fetch_tuple. The latter is designed for index-derived ctids and may incorrectly
+        // report tuples as "all_dead" when used with sequential scan ctids.
+        let build_vis = match state.custom_state().build_visibility_checker.as_ref() {
+            Some(vis) => vis,
+            None => {
+                return None;
+            }
+        };
+
+        if !build_vis.fetch_tuple_direct(build_ctid, build_slot) {
+            return None;
+        }
 
         // Get the result tuple descriptor from the result slot
         let result_tupdesc = (*result_slot).tts_tupleDescriptor;
@@ -1330,30 +1400,36 @@ impl JoinScan {
         Some(result_slot)
     }
 
-    /// Extract join-level search predicates from the restrict list and build an expression tree.
+    /// Extract join-level conditions from the restrict list and build a unified expression tree.
     ///
-    /// This recursively transforms the PostgreSQL expression tree into a `SerializableJoinLevelExpr`
-    /// that preserves the full AND/OR/NOT structure. Each single-table sub-expression becomes a
-    /// leaf predicate that references a Tantivy query.
+    /// This handles both:
+    /// - Search predicates (Tantivy queries) -> `Predicate` nodes
+    /// - Heap conditions (cross-relation PostgreSQL expressions) -> `HeapCondition` nodes
     ///
-    /// For example, `(p.desc @@@ 'wireless' AND NOT p.desc @@@ 'mouse') OR s.info @@@ 'shipping'`:
+    /// For example, `(p.desc @@@ 'wireless' OR p.price > s.min_value)`:
     /// - Creates an OR expression with two children
-    /// - Left child: a leaf predicate for products with query `'wireless' AND NOT 'mouse'`
-    /// - Right child: a leaf predicate for suppliers with query `'shipping'`
-    unsafe fn extract_join_level_search_predicates(
+    /// - Left child: Predicate for the Tantivy search
+    /// - Right child: HeapCondition for the cross-relation comparison
+    ///
+    /// Returns the updated JoinCSClause and a list of heap condition clause pointers
+    /// (in the same order as heap_conditions in the clause) for adding to custom_exprs.
+    unsafe fn extract_join_level_conditions(
         root: *mut pg_sys::PlannerInfo,
         extra: *mut pg_sys::JoinPathExtraData,
         outer_side: &JoinSideInfo,
         inner_side: &JoinSideInfo,
+        other_conditions: &[*mut pg_sys::RestrictInfo],
         mut join_clause: JoinCSClause,
-    ) -> JoinCSClause {
+    ) -> (JoinCSClause, Vec<*mut pg_sys::Expr>) {
+        let mut heap_condition_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
+
         if extra.is_null() {
-            return join_clause;
+            return (join_clause, heap_condition_clauses);
         }
 
         let restrictlist = (*extra).restrictlist;
         if restrictlist.is_null() {
-            return join_clause;
+            return (join_clause, heap_condition_clauses);
         }
 
         let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -1362,8 +1438,12 @@ impl JoinScan {
 
         let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
 
-        // Collect all expressions that have search predicates
+        // Collect all expressions into the expression tree
         let mut expr_trees: Vec<SerializableJoinLevelExpr> = Vec::new();
+
+        // Track which RestrictInfos are heap conditions (by pointer) for index lookup
+        let other_cond_set: std::collections::HashSet<usize> =
+            other_conditions.iter().map(|&ri| ri as usize).collect();
 
         for ri in restrict_infos.iter_ptr() {
             if ri.is_null() || (*ri).clause.is_null() {
@@ -1371,23 +1451,31 @@ impl JoinScan {
             }
 
             let clause = (*ri).clause;
+            let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
 
-            // Check if this clause contains any search predicates
-            if !expr_contains_any_operator(clause.cast(), &[search_op]) {
-                continue;
-            }
-
-            // Transform this clause into an expression tree
-            if let Some(expr) = Self::transform_to_expr(
-                root,
-                clause.cast(),
-                outer_rti,
-                inner_rti,
-                outer_side,
-                inner_side,
-                &mut join_clause,
-            ) {
-                expr_trees.push(expr);
+            if has_search_op {
+                // Transform search predicate into expression tree
+                // This also collects sub-expression heap conditions
+                if let Some(expr) = Self::transform_to_search_expr(
+                    root,
+                    clause.cast(),
+                    outer_rti,
+                    inner_rti,
+                    outer_side,
+                    inner_side,
+                    &mut join_clause,
+                    &mut heap_condition_clauses,
+                ) {
+                    expr_trees.push(expr);
+                }
+            } else if other_cond_set.contains(&(ri as usize)) {
+                // This is a top-level heap condition (cross-relation, no search operator)
+                // Create a HeapCondition leaf node
+                let description = format_expr_for_explain(clause.cast());
+                let condition_idx =
+                    join_clause.add_heap_condition(description, heap_condition_clauses.len());
+                heap_condition_clauses.push(clause);
+                expr_trees.push(SerializableJoinLevelExpr::HeapCondition { condition_idx });
             }
         }
 
@@ -1401,15 +1489,19 @@ impl JoinScan {
             join_clause = join_clause.with_join_level_expr(final_expr);
         }
 
-        join_clause
+        (join_clause, heap_condition_clauses)
     }
 
-    /// Recursively transform a PostgreSQL expression node into a SerializableJoinLevelExpr.
+    /// Recursively transform a PostgreSQL expression with search predicates into a SerializableJoinLevelExpr.
     ///
-    /// - For single-table sub-trees with search predicates: extract as a leaf predicate
+    /// - For single-table sub-trees with search predicates: extract as a Predicate leaf
+    /// - For cross-relation sub-trees without search predicates: extract as a HeapCondition leaf
     /// - For BoolExpr (AND/OR/NOT): recursively transform children
-    /// - For expressions without search predicates or referencing both tables: return None
-    unsafe fn transform_to_expr(
+    ///
+    /// Also collects heap condition clause pointers into `heap_condition_clauses` for adding
+    /// to custom_exprs during plan_custom_path.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn transform_to_search_expr(
         root: *mut pg_sys::PlannerInfo,
         node: *mut pg_sys::Node,
         outer_rti: pg_sys::Index,
@@ -1417,25 +1509,22 @@ impl JoinScan {
         outer_side: &JoinSideInfo,
         inner_side: &JoinSideInfo,
         join_clause: &mut JoinCSClause,
+        heap_condition_clauses: &mut Vec<*mut pg_sys::Expr>,
     ) -> Option<SerializableJoinLevelExpr> {
         if node.is_null() {
             return None;
         }
 
         let search_op = anyelement_query_input_opoid();
-
-        // First, check if this node contains any search predicates
-        if !expr_contains_any_operator(node, &[search_op]) {
-            return None;
-        }
+        let has_search_op = expr_contains_any_operator(node, &[search_op]);
 
         // Check which tables this expression references
         let rtis = expr_collect_rtis(node);
         let refs_outer = rtis.contains(&outer_rti);
         let refs_inner = rtis.contains(&inner_rti);
 
-        // If this is a single-table expression, extract it as a leaf predicate
-        if rtis.len() == 1 && (refs_outer || refs_inner) {
+        // If this is a single-table expression with search predicate, extract as Predicate
+        if has_search_op && rtis.len() == 1 && (refs_outer || refs_inner) {
             let (rti, side, join_side) = if refs_outer {
                 (outer_rti, outer_side, SerializableJoinSide::Outer)
             } else {
@@ -1454,8 +1543,17 @@ impl JoinScan {
             return None;
         }
 
-        // If this expression references both tables (or neither of ours),
-        // we need to look inside if it's a BoolExpr
+        // If this is a cross-relation expression WITHOUT search predicate, create HeapCondition
+        if !has_search_op && refs_outer && refs_inner {
+            // Create a HeapCondition and store the clause pointer for custom_exprs
+            let description = format_expr_for_explain(node);
+            let condition_idx =
+                join_clause.add_heap_condition(description, heap_condition_clauses.len());
+            heap_condition_clauses.push(node as *mut pg_sys::Expr);
+            return Some(SerializableJoinLevelExpr::HeapCondition { condition_idx });
+        }
+
+        // Handle BoolExpr (AND/OR/NOT) by recursively processing children
         let node_type = (*node).type_;
 
         if node_type == pg_sys::NodeTag::T_BoolExpr {
@@ -1467,7 +1565,7 @@ impl JoinScan {
                 pg_sys::BoolExprType::AND_EXPR => {
                     let mut children = Vec::new();
                     for arg in args.iter_ptr() {
-                        if let Some(child_expr) = Self::transform_to_expr(
+                        if let Some(child_expr) = Self::transform_to_search_expr(
                             root,
                             arg,
                             outer_rti,
@@ -1475,6 +1573,7 @@ impl JoinScan {
                             outer_side,
                             inner_side,
                             join_clause,
+                            heap_condition_clauses,
                         ) {
                             children.push(child_expr);
                         }
@@ -1488,9 +1587,12 @@ impl JoinScan {
                     }
                 }
                 pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR, we need ALL children to be transformable
+                    // Otherwise we can't correctly evaluate the OR
                     let mut children = Vec::new();
+                    let mut all_transformed = true;
                     for arg in args.iter_ptr() {
-                        if let Some(child_expr) = Self::transform_to_expr(
+                        if let Some(child_expr) = Self::transform_to_search_expr(
                             root,
                             arg,
                             outer_rti,
@@ -1498,22 +1600,28 @@ impl JoinScan {
                             outer_side,
                             inner_side,
                             join_clause,
+                            heap_condition_clauses,
                         ) {
                             children.push(child_expr);
+                        } else {
+                            all_transformed = false;
+                            break;
                         }
                     }
-                    if children.is_empty() {
-                        None
-                    } else if children.len() == 1 {
-                        Some(children.pop().unwrap())
+                    if all_transformed && !children.is_empty() {
+                        if children.len() == 1 {
+                            Some(children.pop().unwrap())
+                        } else {
+                            Some(SerializableJoinLevelExpr::Or(children))
+                        }
                     } else {
-                        Some(SerializableJoinLevelExpr::Or(children))
+                        None
                     }
                 }
                 pg_sys::BoolExprType::NOT_EXPR => {
                     // NOT has exactly one argument
                     if let Some(arg) = args.iter_ptr().next() {
-                        if let Some(child_expr) = Self::transform_to_expr(
+                        if let Some(child_expr) = Self::transform_to_search_expr(
                             root,
                             arg,
                             outer_rti,
@@ -1521,6 +1629,7 @@ impl JoinScan {
                             outer_side,
                             inner_side,
                             join_clause,
+                            heap_condition_clauses,
                         ) {
                             return Some(SerializableJoinLevelExpr::Not(Box::new(child_expr)));
                         }
@@ -1530,7 +1639,7 @@ impl JoinScan {
                 _ => None,
             }
         } else {
-            // Not a BoolExpr and not single-table - can't handle
+            // Not a BoolExpr and not handled above - can't transform
             None
         }
     }
@@ -1760,80 +1869,6 @@ unsafe fn extract_composite_key(
 
 /// Extract non-equijoin predicates from a restrictlist.
 /// These are the predicates that need to be evaluated after the hash join lookup.
-unsafe fn extract_non_equijoin_quals(
-    restrictlist: *mut pg_sys::List,
-    join_clause: &JoinCSClause,
-) -> *mut pg_sys::List {
-    if restrictlist.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    let mut quals = PgList::<pg_sys::Expr>::new();
-    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
-    let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
-    let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
-
-    for ri in restrict_infos.iter_ptr() {
-        if ri.is_null() || (*ri).clause.is_null() {
-            continue;
-        }
-
-        let clause = (*ri).clause;
-
-        // Skip if this is an equi-join condition (Var = Var using equality operator between outer and inner)
-        let mut is_equi_join = false;
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = clause as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-            if args.len() == 2 {
-                let arg0 = args.get_ptr(0).unwrap();
-                let arg1 = args.get_ptr(1).unwrap();
-
-                // Check if operator is an equality operator
-                let opno = (*opexpr).opno;
-                let is_equality_op = is_op_hash_joinable(opno);
-
-                if is_equality_op
-                    && (*arg0).type_ == pg_sys::NodeTag::T_Var
-                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
-                {
-                    let var0 = arg0 as *mut pg_sys::Var;
-                    let var1 = arg1 as *mut pg_sys::Var;
-                    let varno0 = (*var0).varno as pg_sys::Index;
-                    let varno1 = (*var1).varno as pg_sys::Index;
-
-                    // Check if it's an equi-join between outer and inner
-                    if (varno0 == outer_rti && varno1 == inner_rti)
-                        || (varno0 == inner_rti && varno1 == outer_rti)
-                    {
-                        is_equi_join = true;
-                    }
-                }
-            }
-        }
-
-        if !is_equi_join {
-            quals.push(clause);
-        }
-    }
-
-    if quals.is_empty() {
-        std::ptr::null_mut()
-    } else {
-        // Convert list of Exprs to implicit AND using make_ands_explicit
-        if quals.len() == 1 {
-            let single = quals.get_ptr(0).unwrap();
-            let mut result = PgList::<pg_sys::Expr>::new();
-            result.push(single);
-            result.into_pg()
-        } else {
-            // Create a BoolExpr with AND
-            quals.into_pg()
-        }
-    }
-}
-
 /// Copy a datum to an owned KeyValue, handling pass-by-reference types.
 unsafe fn copy_datum_to_key_value(datum: pg_sys::Datum, typlen: i16, typbyval: bool) -> KeyValue {
     if typbyval {
@@ -2137,6 +2172,31 @@ unsafe fn extract_score_pathkey(
     None
 }
 
+/// Format a PostgreSQL expression node for EXPLAIN output.
+/// Returns a human-readable description of the expression.
+unsafe fn format_expr_for_explain(node: *mut pg_sys::Node) -> String {
+    if node.is_null() {
+        return "?".to_string();
+    }
+
+    // Use PostgreSQL's nodeToString for a basic representation
+    // This gives us something like "(p.price > s.min_value)"
+    let node_str = pg_sys::nodeToString(node.cast());
+    if !node_str.is_null() {
+        let c_str = std::ffi::CStr::from_ptr(node_str);
+        let result = c_str.to_string_lossy().to_string();
+        pg_sys::pfree(node_str.cast());
+        // Truncate if too long for readability
+        if result.len() > 50 {
+            format!("{}...", &result[..47])
+        } else {
+            result
+        }
+    } else {
+        "expr".to_string()
+    }
+}
+
 /// Convert a serializable join-level expression to a runtime expression.
 fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
     match expr {
@@ -2151,6 +2211,11 @@ fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
             JoinLevelExpr::Predicate {
                 side: runtime_side,
                 ctid_set_idx: *predicate_idx,
+            }
+        }
+        SerializableJoinLevelExpr::HeapCondition { condition_idx } => {
+            JoinLevelExpr::HeapCondition {
+                condition_idx: *condition_idx,
             }
         }
         SerializableJoinLevelExpr::And(children) => {
@@ -2192,6 +2257,7 @@ fn get_attname_safe(
 fn format_join_level_expr(
     expr: &SerializableJoinLevelExpr,
     predicates: &[build::JoinLevelSearchPredicate],
+    heap_conditions: &[HeapConditionInfo],
 ) -> String {
     use crate::postgres::customscan::explain::ExplainFormat;
 
@@ -2210,10 +2276,17 @@ fn format_join_level_expr(
                 format!("{}:?", side_str)
             }
         }
+        SerializableJoinLevelExpr::HeapCondition { condition_idx } => {
+            if let Some(cond) = heap_conditions.get(*condition_idx) {
+                format!("heap:{}", cond.description)
+            } else {
+                "heap:?".to_string()
+            }
+        }
         SerializableJoinLevelExpr::And(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, predicates))
+                .map(|c| format_join_level_expr(c, predicates, heap_conditions))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -2224,7 +2297,7 @@ fn format_join_level_expr(
         SerializableJoinLevelExpr::Or(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, predicates))
+                .map(|c| format_join_level_expr(c, predicates, heap_conditions))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -2233,7 +2306,10 @@ fn format_join_level_expr(
             }
         }
         SerializableJoinLevelExpr::Not(child) => {
-            format!("NOT {}", format_join_level_expr(child, predicates))
+            format!(
+                "NOT {}",
+                format_join_level_expr(child, predicates, heap_conditions)
+            )
         }
     }
 }

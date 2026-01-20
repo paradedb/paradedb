@@ -213,19 +213,41 @@ pub enum SerializableJoinSide {
     Inner,
 }
 
-/// A serializable boolean expression tree for join-level predicates.
+/// A serialized heap condition - a PostgreSQL expression that must be evaluated
+/// by reading tuples from the heap (not via Tantivy index).
+///
+/// These are cross-relation conditions like `a.price > b.min_value` that reference
+/// columns from both sides of the join and cannot be pushed to Tantivy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeapConditionInfo {
+    /// Human-readable description for EXPLAIN output.
+    pub description: String,
+    /// Index of this condition in the restrictlist (for runtime extraction).
+    pub restrictinfo_index: usize,
+}
+
+/// A serializable boolean expression tree for join-level conditions.
 ///
 /// This preserves the full AND/OR/NOT structure of complex join-level predicates,
 /// allowing correct evaluation of expressions like:
-/// `(tbl1_cond1 OR (tbl1_cond2 OR (tbl2_cond AND NOT tbl1_cond3)))`
+/// `(search_pred OR heap_cond)` or `(tbl1_search AND NOT tbl2_search)`
+///
+/// The tree can reference two types of leaf conditions:
+/// - `Predicate`: A Tantivy search query (evaluated via ctid set membership)
+/// - `HeapCondition`: A PostgreSQL expression (evaluated via ExecQual at runtime)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SerializableJoinLevelExpr {
-    /// Leaf: check if the row's ctid is in the predicate's result set.
+    /// Leaf: check if the row's ctid is in the predicate's result set (Tantivy).
     Predicate {
         /// Which side of the join this predicate references.
         side: SerializableJoinSide,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
+    },
+    /// Leaf: evaluate a PostgreSQL expression against the current row pair.
+    HeapCondition {
+        /// Index into the `heap_conditions` vector.
+        condition_idx: usize,
     },
     /// Logical AND of child expressions.
     And(Vec<SerializableJoinLevelExpr>),
@@ -248,13 +270,13 @@ pub struct JoinCSClause {
     pub join_keys: Vec<JoinKeyPair>,
     /// The LIMIT value from the query, if any.
     pub limit: Option<usize>,
-    /// Whether there are other (non-equijoin) conditions that need to be evaluated.
-    /// These conditions are stored in custom_exprs during planning.
-    pub has_other_join_conditions: bool,
-    /// Join-level search predicates (the actual Tantivy queries to execute).
-    /// Each predicate is referenced by index from the `join_level_expr` tree.
+    /// Join-level search predicates (Tantivy queries to execute).
+    /// Each predicate is referenced by index from `join_level_expr` via `Predicate` variant.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
-    /// The boolean expression tree that combines join-level predicates.
+    /// Heap conditions (PostgreSQL expressions referencing both sides).
+    /// Each condition is referenced by index from `join_level_expr` via `HeapCondition` variant.
+    pub heap_conditions: Vec<HeapConditionInfo>,
+    /// The boolean expression tree that combines predicates and heap conditions.
     /// When Some, this expression must be evaluated for each row-pair.
     pub join_level_expr: Option<SerializableJoinLevelExpr>,
     /// Execution hints from planner to guide runtime decisions.
@@ -286,11 +308,6 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_has_other_join_conditions(mut self, has_other: bool) -> Self {
-        self.has_other_join_conditions = has_other;
-        self
-    }
-
     /// Add a join-level predicate and return its index.
     pub fn add_join_level_predicate(
         &mut self,
@@ -305,6 +322,21 @@ impl JoinCSClause {
             query,
         });
         idx
+    }
+
+    /// Add a heap condition and return its index.
+    pub fn add_heap_condition(&mut self, description: String, restrictinfo_index: usize) -> usize {
+        let idx = self.heap_conditions.len();
+        self.heap_conditions.push(HeapConditionInfo {
+            description,
+            restrictinfo_index,
+        });
+        idx
+    }
+
+    /// Returns true if there are heap conditions to evaluate.
+    pub fn has_heap_conditions(&self) -> bool {
+        !self.heap_conditions.is_empty()
     }
 
     /// Set the join-level expression tree.

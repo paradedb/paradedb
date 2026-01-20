@@ -30,8 +30,6 @@
 //! work correctly for unordered results (order can differ between calls). A proper
 //! implementation would keep the iterator alive across batch fetches.
 
-use std::collections::HashSet;
-
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
@@ -133,21 +131,6 @@ impl JoinSideExecutor {
                 return JoinExecResult::Eof;
             }
         }
-    }
-
-    /// Collect all matching ctids into a HashSet.
-    ///
-    /// This is used for build side filtering and join-level predicate evaluation
-    /// where we need to materialize all matching ctids.
-    #[allow(dead_code)]
-    pub fn collect_all_ctids(mut self) -> HashSet<u64> {
-        let mut ctids = HashSet::new();
-
-        while let JoinExecResult::Visible { ctid, .. } = self.next_visible() {
-            ctids.insert(ctid);
-        }
-
-        ctids
     }
 
     /// Reset the executor for a rescan.

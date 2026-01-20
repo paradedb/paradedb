@@ -676,10 +676,7 @@ impl CustomScan for JoinScan {
                 // A better approach would be to use JoinSideExecutor for build side too:
                 // - During hash table build, filter rows lazily using the executor
                 // - This would allow early termination if hash table exceeds work_mem
-                // - Could also enable build side ordering for merge-join style execution
-                //
-                // The collect_all_ctids() method in executors.rs was intended for this
-                // but isn't currently used. Consider integrating it here.
+                // - Could also enable build side ordering for merge-join style executionting it here.
                 if let (Some(indexrelid), Some(ref query)) =
                     (build_side.indexrelid, &build_side.query)
                 {

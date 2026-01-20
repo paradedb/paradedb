@@ -26,7 +26,7 @@ use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 // TODO: Re-enable when score ordering bug is fixed
 #[allow(unused_imports)]
 use crate::fixtures::querygen::scoregen::arb_score_order;
-use crate::fixtures::querygen::wheregen::{arb_simple_wheres, arb_wheres};
+use crate::fixtures::querygen::wheregen::arb_wheres;
 use crate::fixtures::querygen::{
     arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
 };
@@ -543,32 +543,16 @@ async fn generated_joinscan(database: Db) {
         // Test 2-3 table joins
         num_tables in 2..=3usize,
         // Outer table BM25 predicate (always present)
-        // Using simple predicates - complex NOT/AND/OR across tables is not yet supported
-        outer_bm25 in arb_simple_wheres(vec![all_tables[0]], &text_columns),
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // Inner table BM25 predicate (optional)
         include_inner_bm25 in proptest::bool::ANY,
-        inner_bm25 in arb_simple_wheres(vec![all_tables[1]], &text_columns),
-        // HeapCondition (cross-relation predicate) - disabled, see Issue 2 in issues.md
-        // There's a bug where HeapCondition matches different rows than PostgreSQL
-        // TODO: Re-enable when HeapCondition evaluation bug is fixed
-        // include_heap_condition in proptest::bool::ANY,
-        // heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
-        // Score ordering (optional)
-        use_score_order in proptest::bool::ANY,
-        score_order in arb_score_order(all_tables[0], "id"),
+        inner_bm25 in arb_wheres(vec![all_tables[1]], &text_columns),
+        // HeapCondition (cross-relation predicate)
+        include_heap_condition in proptest::bool::ANY,
+        heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], _numeric_columns.to_vec()),
         // Result limit
         limit in 1..=50usize,
     )| {
-        // HeapCondition disabled - set to false
-        let include_heap_condition = false;
-        let heap_condition = crate::fixtures::querygen::crossrelgen::CrossRelExpr {
-            left_table: all_tables[0].to_string(),
-            left_col: "age".to_string(),
-            op: crate::fixtures::querygen::crossrelgen::CrossRelOp::Lt,
-            right_table: all_tables[1].to_string(),
-            right_col: "age".to_string(),
-        };
-
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -625,13 +609,14 @@ async fn generated_joinscan(database: Db) {
         let bm25_where = bm25_where_parts.join(" AND ");
         let pg_where = pg_where_parts.join(" AND ");
 
-        // Build ORDER BY - score or regular column
-        // Note: For comparing results, we always add id as tiebreaker for determinism
-        let order_by = if use_score_order {
-            format!("{}, {}.id", score_order, used_tables[0])
-        } else {
-            format!("{}.id", used_tables[0])
-        };
+        // Build deterministic ORDER BY with tie-breaker columns
+        // When joins produce multiple matching rows, we need to include columns from both sides
+        // to ensure deterministic results when LIMIT is applied
+        let mut order_parts = vec![format!("{}.id", used_tables[0])];
+        for table in &used_tables[1..] {
+            order_parts.push(format!("{}.id", table));
+        }
+        let order_by = order_parts.join(", ");
 
         // GUCs with JoinScan enabled
         let gucs = PgGucs {
@@ -641,8 +626,7 @@ async fn generated_joinscan(database: Db) {
 
         // PostgreSQL native join query
         let pg_query = format!(
-            "{from} WHERE {pg_where} ORDER BY {}.id LIMIT {limit}",
-            used_tables[0]
+            "{from} WHERE {pg_where} ORDER BY {order_by} LIMIT {limit}"
         );
 
         // BM25 query with JoinScan enabled

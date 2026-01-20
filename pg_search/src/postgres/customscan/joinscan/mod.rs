@@ -116,10 +116,10 @@ impl CustomScan for JoinScan {
             let inner_rti = inner_side.heap_rti.unwrap_or(0);
             let join_conditions = extract_join_conditions(extra, outer_rti, inner_rti);
 
-            // If there are no equi-join keys but there ARE non-equijoin conditions,
-            // don't propose JoinScan. The non-equijoin conditions can't be evaluated
-            // properly in our current implementation (Var references use RTIs instead
-            // of OUTER_VAR/INNER_VAR). Let PostgreSQL's native join handle it.
+            // Don't propose JoinScan for non-equijoin conditions without equi-join keys.
+            // Without equi-join keys, we'd need to do an O(N*M) cross-product scan
+            // checking every row pair against the conditions. PostgreSQL's native join
+            // handles this more efficiently with its optimized cartesian product logic.
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
             let has_non_equijoin_conditions = !join_conditions.other_conditions.is_empty();
             if !has_equi_join_keys && has_non_equijoin_conditions {
@@ -822,29 +822,17 @@ impl CustomScan for JoinScan {
                             }
                         }
 
-                        // Evaluate join qual if we have one
-                        // TODO(expr-context): This expression context setup may not handle all edge
-                        // cases correctly. Potential issues to test:
-                        // - Expressions referencing system columns (ctid, tableoid, xmin, etc.)
-                        // - Expressions with correlated subqueries
-                        // - Expressions with volatile functions (should be re-evaluated each time)
-                        // - Expressions after setrefs that use INDEX_VAR vs original RTI references
-                        //
-                        // The current approach sets ecxt_scantuple to our result slot and
-                        // ecxt_outertuple/ecxt_innertuple to the source slots for backwards
-                        // compatibility. This may need refinement based on how PostgreSQL's
-                        // set_customscan_references transforms the qual expressions.
+                        // Evaluate non-equijoin conditions (e.g., range predicates)
+                        // After set_customscan_references, Vars are transformed to INDEX_VAR
+                        // referencing columns in custom_scan_tlist. We set ecxt_scantuple to
+                        // our result slot which contains columns from both sides.
                         if let (Some(qual_state), Some(econtext)) = (
                             state.custom_state().join_qual_state,
                             state.custom_state().join_qual_econtext,
                         ) {
-                            // Set up the expression context with both tuple slots
-                            // After fix_scan_list, Vars in custom_exprs are transformed to INDEX_VAR
-                            // referencing positions in custom_scan_tlist (our result slot)
                             (*econtext).ecxt_scantuple = slot;
 
-                            // Also set outer/inner tuples for backwards compatibility
-                            // In case any Vars weren't transformed
+                            // Also set outer/inner tuple slots for the expression context
                             let driving_slot_ptr = state.custom_state().driving_fetch_slot;
                             let build_slot_ptr = state.custom_state().build_scan_slot;
                             let driving_is_outer = state.custom_state().driving_is_outer;
@@ -859,10 +847,7 @@ impl CustomScan for JoinScan {
                                 }
                             }
 
-                            // Evaluate the qual - returns true if tuple passes
-                            let passes = pg_sys::ExecQual(qual_state, econtext);
-                            if !passes {
-                                // Qual failed, try next match
+                            if !pg_sys::ExecQual(qual_state, econtext) {
                                 continue;
                             }
                         }

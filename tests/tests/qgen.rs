@@ -17,15 +17,10 @@
 
 mod fixtures;
 
-// TODO: Re-enable when HeapCondition bug is fixed
-#[allow(unused_imports)]
 use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::{arb_joins, JoinType};
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
-// TODO: Re-enable when score ordering bug is fixed
-#[allow(unused_imports)]
-use crate::fixtures::querygen::scoregen::arb_score_order;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 use crate::fixtures::querygen::{
     arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,

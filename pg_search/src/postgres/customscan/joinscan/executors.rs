@@ -79,6 +79,10 @@ impl JoinSideExecutor {
     /// Create a new FastField executor.
     ///
     /// This executor uses batched ctid lookups via FFHelper for efficiency.
+    ///
+    /// # Arguments
+    /// * `need_scores` - Whether to compute BM25 scores. Set to true if
+    ///   paradedb.score() is used anywhere in the query (SELECT, ORDER BY, etc.)
     pub fn new_fast_field(
         _heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,

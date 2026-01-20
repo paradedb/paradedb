@@ -137,15 +137,15 @@ impl CustomScan for JoinScan {
                 inner_rti
             };
 
-            // Check if ORDER BY paradedb.score() is present for the driving side.
-            // This determines whether we need to compute and return scores.
-            //
-            // The score_needed flag is passed to the FastField executor which can
-            // optionally skip score computation if not needed for the query.
+            // Check if paradedb.score() is used anywhere in the query for the driving side.
+            // This includes ORDER BY, SELECT list, or any other expression.
+            let funcoids = score_funcoids();
             let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
-            let score_needed = score_pathkey.is_some();
+            let score_in_tlist =
+                uses_scores((*root).processed_tlist.cast(), funcoids, driving_side_rti);
+            let score_needed = score_pathkey.is_some() || score_in_tlist;
 
-            // Set score_needed on the driving side
+            // Record score_needed in the plan for the executor
             if driving_side_is_outer {
                 outer_side = outer_side.with_score_needed(score_needed);
             } else {
@@ -676,7 +676,7 @@ impl CustomScan for JoinScan {
                 // A better approach would be to use JoinSideExecutor for build side too:
                 // - During hash table build, filter rows lazily using the executor
                 // - This would allow early termination if hash table exceeds work_mem
-                // - Could also enable build side ordering for merge-join style executionting it here.
+                // - Could also enable build side ordering for merge-join style execution
                 if let (Some(indexrelid), Some(ref query)) =
                     (build_side.indexrelid, &build_side.query)
                 {

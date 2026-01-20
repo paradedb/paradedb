@@ -842,43 +842,6 @@ pub unsafe fn expr_contains_any_operator(
     context.found
 }
 
-/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
-/// Returns a HashSet of RTIs referenced by the expression.
-pub unsafe fn expr_collect_rtis(
-    node: *mut pg_sys::Node,
-) -> std::collections::HashSet<pg_sys::Index> {
-    use pgrx::pg_guard;
-    use std::collections::HashSet;
-    use std::ptr::addr_of_mut;
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
-
-        if (*node).type_ == pg_sys::NodeTag::T_Var {
-            let var = node as *mut pg_sys::Var;
-            let varno = (*var).varno as pg_sys::Index;
-            // Skip special RTIs like INNER_VAR/OUTER_VAR
-            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
-                rtis.insert(varno);
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(walker), data)
-    }
-
-    let mut rtis = HashSet::new();
-    walker(node, addr_of_mut!(rtis).cast());
-    rtis
-}
-
 /// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
 pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {

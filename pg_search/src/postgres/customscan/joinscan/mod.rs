@@ -625,15 +625,24 @@ impl CustomScan for JoinScan {
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
-                    // Use TopN executor if we have a limit, otherwise use FastField
-                    let executor = if let Some(limit) = join_clause.limit {
-                        executors::JoinSideExecutor::new_topn(
-                            limit,
+                    // Use TopN executor if we have a limit, otherwise use FastField.
+                    // IMPORTANT: For joins, we pass a very high limit to the TopN executor
+                    // because the query's LIMIT applies to output rows, not driving rows.
+                    // A single driving row might produce multiple output rows (fan-out) or
+                    // zero rows (no match). The actual LIMIT is enforced at the join level
+                    // by PostgreSQL's Limit node, not by JoinScan.
+                    //
+                    // We use FastField executor which doesn't have a limit, allowing us to
+                    // iterate through all matching driving rows without artificial cutoff.
+                    let executor = if join_clause.limit.is_some() {
+                        // Use FastField executor instead of TopN to avoid limit enforcement.
+                        // This fetches all matching rows, relying on PostgreSQL's Limit node.
+                        executors::JoinSideExecutor::new_fast_field(
                             &heaprel,
                             indexrelid,
                             query.clone(),
                             snapshot,
-                            join_clause.hints.topn_batch_scale,
+                            driving_side.score_needed,
                         )
                     } else {
                         // FastField executor - use score_needed from planning
@@ -823,14 +832,18 @@ impl CustomScan for JoinScan {
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Reset state for rescanning
         state.custom_state_mut().reset();
+
+        // Also reset the driving executor if present
+        if let Some(ref mut executor) = state.custom_state_mut().driving_executor {
+            executor.reset();
+        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         unsafe {
-            // Check if we've reached the limit
-            if state.custom_state().reached_limit() {
-                return std::ptr::null_mut();
-            }
+            // Note: We don't enforce LIMIT here because JoinScan might be nested inside
+            // another join (e.g., 3-table join). PostgreSQL's Limit node handles limiting.
+            // The limit value in join_clause is used for cost estimation and executor hints.
 
             // Phase 1: Build hash table from build side (first call only)
             if !state.custom_state().hash_table_built {
@@ -923,11 +936,9 @@ impl CustomScan for JoinScan {
                         // Use the executor for incremental fetching
                         let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
 
-                        // Check if we've reached the limit
-                        if executor.reached_limit() {
-                            return std::ptr::null_mut();
-                        }
-
+                        // Note: We don't check executor.reached_limit() here because
+                        // for joins the LIMIT applies to output rows (tracked by rows_returned),
+                        // not input driving rows. The executor's limit is set very high.
                         match executor.next_visible() {
                             executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
                             executors::JoinExecResult::Eof => return std::ptr::null_mut(),
@@ -1123,10 +1134,8 @@ impl JoinScan {
         };
 
         loop {
-            // Check limit
-            if state.custom_state().reached_limit() {
-                return std::ptr::null_mut();
-            }
+            // Note: We don't check reached_limit() here because JoinScan might be nested
+            // inside another join. PostgreSQL's Limit node handles limiting.
 
             // If we have pending matches, return one
             if let Some(build_ctid) = state.custom_state_mut().pending_build_ctids.pop_front() {
@@ -1145,11 +1154,9 @@ impl JoinScan {
                         // Use the executor for incremental fetching
                         let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
 
-                        // Check if we've reached the limit
-                        if executor.reached_limit() {
-                            return std::ptr::null_mut();
-                        }
-
+                        // Note: We don't check executor.reached_limit() here because
+                        // for joins the LIMIT applies to output rows (tracked by rows_returned),
+                        // not input driving rows.
                         match executor.next_visible() {
                             executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
                             executors::JoinExecResult::Eof => return std::ptr::null_mut(),

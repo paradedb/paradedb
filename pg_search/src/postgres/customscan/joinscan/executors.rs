@@ -52,6 +52,9 @@ pub enum JoinExecResult {
 /// Execution method type for JoinSideExecutor.
 enum ExecMethod {
     /// TopN execution for queries with LIMIT - fetches incrementally.
+    /// Note: Currently unused for joins (we use FastField), but kept for potential
+    /// single-relation scan use or future TopK joins with score ordering.
+    #[allow(dead_code)]
     TopN(TopNExecState),
     /// FastField execution - batched ctid lookups for efficiency.
     FastField(FastFieldExecState),
@@ -101,6 +104,9 @@ impl JoinSideExecutor {
     /// This executor fetches results incrementally - starting with a scaled
     /// multiple of the limit, and asking for more if needed.
     ///
+    /// Note: Currently unused for joins (we use FastField), but kept for potential
+    /// single-relation scan use or future TopK joins with score ordering.
+    ///
     /// # Arguments
     /// * `limit` - The LIMIT value from the query
     /// * `heaprel` - The heap relation for the driving side
@@ -109,6 +115,7 @@ impl JoinSideExecutor {
     /// * `_snapshot` - The snapshot (unused but kept for API consistency)
     /// * `batch_scale_hint` - Optional scale factor hint from planner. If None,
     ///   calculates from dead tuple ratio at runtime.
+    #[allow(dead_code)]
     pub fn new_topn(
         limit: usize,
         heaprel: &PgSearchRelation,
@@ -246,10 +253,37 @@ impl JoinSideExecutor {
     }
 
     /// Check if we've reached the limit (for TopN execution).
+    /// Note: This is not used for joins (where LIMIT applies to output rows),
+    /// but kept for potential single-relation scan use.
+    #[allow(dead_code)]
     pub fn reached_limit(&self) -> bool {
         match &self.exec_method {
             ExecMethod::TopN(state) => state.found >= state.limit,
             ExecMethod::FastField(_) => false, // No limit for FastField
+        }
+    }
+
+    /// Reset the executor for a rescan.
+    ///
+    /// This is called when JoinScan is nested inside another join and needs
+    /// to be rescanned. We re-initialize the search results from the reader.
+    pub fn reset(&mut self) {
+        match &mut self.exec_method {
+            ExecMethod::TopN(state) => {
+                // Reset TopN state
+                state.search_results = TopNSearchResults::empty();
+                state.offset = 0;
+                state.chunk_size = 0;
+                state.found = 0;
+                state.exhausted = false;
+                state.did_query = false;
+            }
+            ExecMethod::FastField(state) => {
+                // Re-initialize search results from the reader
+                state.search_results = self.search_reader.search();
+                state.batch.clear();
+                state.batch_pos = 0;
+            }
         }
     }
 

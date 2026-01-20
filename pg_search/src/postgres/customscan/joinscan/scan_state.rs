@@ -291,11 +291,15 @@ impl JoinScanState {
     }
 
     /// Returns the limit from the join clause, if any.
+    /// Note: Not used for join execution (Limit node handles it), but kept for potential future use.
+    #[allow(dead_code)]
     pub fn limit(&self) -> Option<usize> {
         self.join_clause.limit
     }
 
     /// Check if we've reached the limit.
+    /// Note: Not used for join execution (Limit node handles it), but kept for potential future use.
+    #[allow(dead_code)]
     pub fn reached_limit(&self) -> bool {
         if let Some(limit) = self.limit() {
             self.rows_returned >= limit

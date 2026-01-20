@@ -27,7 +27,6 @@ use crate::postgres::types_arrow::arrow_array_to_datum;
 use crate::scan::{Batch, Scanner};
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
-use tantivy::DocAddress;
 
 struct Inner {
     heaprel: Option<PgSearchRelation>,
@@ -118,16 +117,18 @@ pub struct MixedFastFieldExecState {
     const_values: HashMap<usize, (pg_sys::Datum, bool)>,
 }
 
-/// Populates the target slot with values from the current batch, manual fast field extraction, or constant expressions.
+/// Populates the target slot with values for each attribute in the tuple descriptor.
+///
+/// Values are primarily retrieved from the pre-materialized Arrow columns in the `Batch`.
+/// Special fields (like `ctid`, `tableoid`, and `score`) or constant expressions are
+/// handled as fallbacks when a column is not present in the batch.
 #[allow(clippy::too_many_arguments)]
 fn populate_slot(
     const_values: &HashMap<usize, (pg_sys::Datum, bool)>,
     batch: &Batch,
     row_idx: usize,
     scored: SearchIndexScore,
-    doc_address: DocAddress,
     which_fast_fields: &[WhichFastField],
-    ff_helper: &mut FFHelper,
     tupdesc: &pgrx::PgTupleDesc,
     slot: &mut pg_sys::TupleTableSlot,
     datums: &mut [pg_sys::Datum],
@@ -158,39 +159,18 @@ fn populate_slot(
                 }
             }
             None => {
-                // Fall back to manual fast field extraction for things like the score, ctid,
-                // etc.
-                let typid = att.atttypid;
-                let datum_opt = if typid == pg_sys::INT2OID
-                    || typid == pg_sys::INT4OID
-                    || typid == pg_sys::INT8OID
-                {
-                    match ff_helper.i64(i, doc_address) {
-                        None => None,
-                        Some(v) => v.into_datum(),
+                // Fall back to manual extraction for special fields, or constant expressions.
+                let datum_opt = match which_fast_field {
+                    WhichFastField::Ctid => slot.tts_tid.into_datum(),
+                    WhichFastField::TableOid => slot.tts_tableOid.into_datum(),
+                    WhichFastField::Score => scored.bm25.into_datum(),
+                    WhichFastField::Named(_, FastFieldType::String) => {
+                        panic!("String fast field {which_fast_field:?} should already have been extracted.");
                     }
-                } else if matches!(which_fast_field, WhichFastField::Ctid) {
-                    slot.tts_tid.into_datum()
-                } else if matches!(which_fast_field, WhichFastField::TableOid) {
-                    slot.tts_tableOid.into_datum()
-                } else if matches!(which_fast_field, WhichFastField::Score) {
-                    scored.bm25.into_datum()
-                } else if matches!(
-                    which_fast_field,
-                    WhichFastField::Named(_, FastFieldType::String)
-                ) {
-                    panic!(
-                        "String fast field {which_fast_field:?} should already have been extracted."
-                    );
-                } else {
-                    match ff_helper.value(i, doc_address) {
-                        None => None,
-                        Some(value) => unsafe {
-                            value
-                                .try_into_datum(PgOid::from_untagged(typid))
-                                .expect("value should be convertible to Datum")
-                        },
+                    WhichFastField::Named(_, FastFieldType::Numeric) => {
+                        panic!("Numeric fast field {which_fast_field:?} should already have been extracted.");
                     }
+                    WhichFastField::Junk(_) => None,
                 };
 
                 if let Some(datum) = datum_opt {
@@ -362,7 +342,7 @@ impl ExecMethod for MixedFastFieldExecState {
                 None => return ExecState::Eof,
             };
 
-            if let Some((scored, doc_address)) = batch.ids.get(self.current_batch_offset) {
+            if let Some((scored, _)) = batch.ids.get(self.current_batch_offset) {
                 let row_idx = self.current_batch_offset;
                 self.current_batch_offset += 1;
 
@@ -401,9 +381,7 @@ impl ExecMethod for MixedFastFieldExecState {
                     batch,
                     row_idx,
                     *scored,
-                    *doc_address,
                     which_fast_fields,
-                    &mut self.inner.ffhelper,
                     tupdesc,
                     &mut *slot,
                     datums,

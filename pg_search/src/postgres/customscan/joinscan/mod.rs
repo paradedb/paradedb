@@ -160,7 +160,7 @@ impl CustomScan for JoinScan {
                 .with_inner_side(inner_side.clone())
                 .with_join_type(SerializableJoinType::from(jointype))
                 .with_limit(limit)
-                .with_has_other_conditions(!join_conditions.other_conditions.is_empty());
+                .with_has_other_join_conditions(!join_conditions.other_conditions.is_empty());
 
             // Add extracted equi-join keys with type info
             for jk in join_conditions.equi_keys {
@@ -448,7 +448,7 @@ impl CustomScan for JoinScan {
         }
 
         // Show if there are additional filter conditions
-        if join_clause.has_other_conditions {
+        if join_clause.has_other_join_conditions {
             explainer.add_text("Has Filter", "true");
         }
 
@@ -687,7 +687,7 @@ impl CustomScan for JoinScan {
             }
 
             // Initialize join qual evaluation if we have non-equijoin conditions
-            if join_clause.has_other_conditions {
+            if join_clause.has_other_join_conditions {
                 // Get the restrictlist from custom_private (second element)
                 let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
                 let private_list = PgList::<pg_sys::Node>::from_pg((*cscan).custom_private);

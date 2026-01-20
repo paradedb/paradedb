@@ -250,7 +250,7 @@ pub struct JoinCSClause {
     pub limit: Option<usize>,
     /// Whether there are other (non-equijoin) conditions that need to be evaluated.
     /// These conditions are stored in custom_exprs during planning.
-    pub has_other_conditions: bool,
+    pub has_other_join_conditions: bool,
     /// Join-level search predicates (the actual Tantivy queries to execute).
     /// Each predicate is referenced by index from the `join_level_expr` tree.
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
@@ -286,8 +286,8 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_has_other_conditions(mut self, has_other: bool) -> Self {
-        self.has_other_conditions = has_other;
+    pub fn with_has_other_join_conditions(mut self, has_other: bool) -> Self {
+        self.has_other_join_conditions = has_other;
         self
     }
 

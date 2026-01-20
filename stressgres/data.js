@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768928638189,
+  "lastUpdate": 1768929398023,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24178,6 +24178,42 @@ window.BENCHMARK_DATA = {
             "value": 5.495918454978667,
             "unit": "median tps",
             "extra": "avg tps: 4.924202736250769, max tps: 6.164130331344814, count: 57544"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a2f3fa0d8701d6aa18501738abcf33088bb8e40",
+          "message": "fix: Aliased JSON fields index correctly (#3947)\n\n# Ticket(s) Closed\n\n- Closes #3944 \n\n## What\n\nFixes an issue where the \"inner typoid\" of a JSON field cast to a\ntokenizer was not being pulled out, causing JSON aliased fields to get\nincorrectly indexed as text.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-20T11:44:57-05:00",
+          "tree_id": "89f373f01470b83a5cadaa831cc9d724b1b75eef",
+          "url": "https://github.com/paradedb/paradedb/commit/2a2f3fa0d8701d6aa18501738abcf33088bb8e40"
+        },
+        "date": 1768929394733,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.389793555113158,
+            "unit": "median tps",
+            "extra": "avg tps: 6.3623069736827444, max tps: 9.591396198441746, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.533082141063128,
+            "unit": "median tps",
+            "extra": "avg tps: 4.94426898949314, max tps: 6.220106789737405, count: 57543"
           }
         ]
       }

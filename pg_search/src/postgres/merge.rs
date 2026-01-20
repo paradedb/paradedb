@@ -21,16 +21,21 @@ use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
-use pgrx::{check_for_interrupts, pg_guard, pg_sys, FromDatum, IntoDatum, PgTryBuilder};
+use pgrx::{
+    check_for_interrupts, direct_function_call, pg_guard, pg_sys, FromDatum, IntoDatum,
+    PgTryBuilder,
+};
+use std::cell::RefCell;
 use std::ffi::CStr;
 use std::panic::AssertUnwindSafe;
+use std::rc::Rc;
 use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,6 +267,7 @@ pub unsafe fn do_merge(
             merge_lock,
             cleanup_lock,
             false,
+            false,
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
         );
@@ -359,6 +365,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 merge_lock,
                 cleanup_lock,
                 true,
+                true,
                 current_xid,
                 next_xid,
             )
@@ -368,11 +375,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
+    check_vacuum_signal: bool,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
@@ -414,6 +423,11 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
+            if check_vacuum_signal && is_vacuum_signaled(indexrel.oid()) {
+                pgrx::debug1!("VACUUM waiting, exiting merge early");
+                break;
+            }
+
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
@@ -504,6 +518,10 @@ pub fn free_entries(
 // random key, ensures that this advisory slot key doesn't conflict
 // with other Postgres advisory locks
 const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
+// random key, ensures that this advisory lock key doesn't conflict
+// with other Postgres advisory locks
+const VACUUM_SIGNAL_KEY_BASE: u32 = 0x50475641; // "PGVA"
+
 // We at most allow 2 concurrent background merges
 // The first background merge is for "small" merges, the second is for "large" merges
 // This makes it so that a long-running large merge doesn't block smaller merges from happening
@@ -579,6 +597,92 @@ impl MergeSlot {
     fn variant(&self) -> MergeSlotVariant {
         self.variant
     }
+}
+
+/// Internal vacuum signal lock - use `acquire_cleanup_lock_for_vacuum` or `is_vacuum_signaled` instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VacuumSignal {
+    index_oid: pg_sys::Oid,
+}
+
+impl VacuumSignal {
+    fn new(index_oid: pg_sys::Oid) -> Self {
+        Self { index_oid }
+    }
+
+    fn key(&self) -> i64 {
+        ((VACUUM_SIGNAL_KEY_BASE as i64) << 32) | (u32::from(self.index_oid) as i64)
+    }
+
+    fn lock(&self) -> AdvisoryLock {
+        AdvisoryLock::lock_session(self.key())
+    }
+
+    fn is_signaled(&self) -> bool {
+        let key = self.key();
+        let acquired = unsafe {
+            direct_function_call::<bool>(
+                pg_sys::pg_try_advisory_lock_shared_int8,
+                &[key.into_datum()],
+            )
+        }
+        .unwrap_or(false);
+
+        if acquired {
+            unsafe {
+                direct_function_call::<bool>(
+                    pg_sys::pg_advisory_unlock_shared_int8,
+                    &[key.into_datum()],
+                );
+            }
+            false
+        } else {
+            true
+        }
+    }
+}
+
+/// Check if vacuum is signaled for the given index.
+///
+/// Used by background merge workers to detect if VACUUM is waiting.
+/// Returns `true` if VACUUM holds the exclusive signal lock.
+pub(crate) fn is_vacuum_signaled(index_oid: pg_sys::Oid) -> bool {
+    VacuumSignal::new(index_oid).is_signaled()
+}
+
+/// Acquire cleanup lock for VACUUM with cooperative worker signaling.
+///
+/// This helper:
+/// 1. Acquires vacuum signal (workers will see it and exit early)
+/// 2. Acquires cleanup_lock_exclusive (blocks until workers release)
+/// 3. Releases vacuum signal (no longer needed)
+/// 4. Returns metadata and cleanup_lock for caller to use
+/// 5. On error during steps 1-3: signal auto-released via finally
+pub(crate) fn acquire_cleanup_lock_for_vacuum(
+    indexrel: &PgSearchRelation,
+) -> (MetaPage, BufferMut) {
+    let signal = Rc::new(RefCell::new(Some(VacuumSignal::new(indexrel.oid()).lock())));
+    let signal_finally = signal.clone();
+
+    PgTryBuilder::new(AssertUnwindSafe(move || {
+        // Acquire cleanup_lock - blocks until workers release
+        let mut metadata = MetaPage::open(indexrel);
+        let cleanup_lock = metadata.cleanup_lock_exclusive();
+
+        // Workers have exited - release signal
+        if let Some(lock) = signal.borrow_mut().take() {
+            drop(lock);
+        }
+
+        (metadata, cleanup_lock)
+    }))
+    .finally(move || {
+        // Release signal if error occurred before we released it
+        if let Some(lock) = signal_finally.borrow_mut().take() {
+            drop(lock);
+        }
+    })
+    .execute()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

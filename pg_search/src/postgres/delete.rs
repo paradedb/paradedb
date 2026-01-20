@@ -18,6 +18,7 @@
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::merge::acquire_cleanup_lock_for_vacuum;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
 use crate::postgres::storage::metadata::MetaPage;
@@ -49,10 +50,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         callback(&mut ctid, callback_state)
     };
 
-    // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
-    // are no concurrent merges happening
-    let mut metadata = MetaPage::open(&index_relation);
-    let cleanup_lock = metadata.cleanup_lock_exclusive();
+    // First, we need an exclusive lock on the CLEANUP_LOCK. Once we get it, we know that there
+    // are no concurrent merges happening. This function also signals background merge workers
+    // to exit early so we don't wait for long-running merges to complete.
+    let (mut metadata, cleanup_lock) = acquire_cleanup_lock_for_vacuum(&index_relation);
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();

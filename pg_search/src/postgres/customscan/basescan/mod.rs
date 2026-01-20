@@ -2117,18 +2117,6 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
     }
 }
 
-#[inline(always)]
-pub fn is_block_all_visible(
-    heaprel: &PgSearchRelation,
-    vmbuff: &mut pg_sys::Buffer,
-    heap_blockno: pg_sys::BlockNumber,
-) -> bool {
-    unsafe {
-        let status = pg_sys::visibilitymap_get_status(heaprel.as_ptr(), heap_blockno, vmbuff);
-        status != 0
-    }
-}
-
 /// Gather all columns referenced by the specified RTE (Range Table Entry) throughout the query.
 /// This gives us a more complete picture than just looking at the target list.
 ///

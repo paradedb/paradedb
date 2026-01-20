@@ -22,12 +22,12 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
@@ -254,7 +254,7 @@ pub struct TopNAuxiliaryCollector {
     /// Note: If enabled, visibility checking is applied to to _both_ the TopN and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to TopN too.
-    pub vischeck: Option<TSVisibilityChecker>,
+    pub vischeck: Option<VisibilityChecker>,
 }
 
 pub struct SearchIndexReader {

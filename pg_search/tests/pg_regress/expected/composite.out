@@ -1587,11 +1587,10 @@ SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('categor
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: price
+         Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(7 rows)
 
 SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
  total_price 
@@ -1631,11 +1630,10 @@ WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: price, rating
+         Exec Method: NormalScanExecState
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(7 rows)
 
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test

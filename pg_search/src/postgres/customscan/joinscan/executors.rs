@@ -51,24 +51,33 @@ pub enum JoinExecResult {
 
 /// Execution method type for JoinSideExecutor.
 enum ExecMethod {
-    /// TopN execution for queries with LIMIT - fetches incrementally.
-    /// Note: Currently unused for joins (we use FastField), but kept for potential
-    /// single-relation scan use or future TopK joins with score ordering.
+    /// TopN execution for queries with LIMIT - fetches incrementally in batches.
+    /// For joins, the batch_size controls how many driving rows to fetch at once,
+    /// but the actual LIMIT is enforced by the join loop based on output rows.
+    /// Note: Currently unused for joins due to pagination bug with unordered results.
     #[allow(dead_code)]
     TopN(TopNExecState),
     /// FastField execution - batched ctid lookups for efficiency.
     FastField(FastFieldExecState),
 }
 
-/// State for TopN (limited) execution.
+/// State for TopN (batched) execution.
+///
+/// This fetches results in batches of `batch_size`, allowing incremental fetching
+/// without scanning the entire index upfront. For joins, the join loop controls
+/// when to stop based on output rows, not on driving rows fetched.
 struct TopNExecState {
-    limit: usize,
+    /// Batch size for each TopN query (how many to fetch at once).
+    batch_size: usize,
+    /// Current batch of search results.
     search_results: TopNSearchResults,
+    /// Offset into the index for pagination.
     offset: usize,
-    chunk_size: usize,
+    /// Scale factor for batch size growth.
     scale_factor: f64,
-    found: usize,
+    /// Whether the index is exhausted (no more results available).
     exhausted: bool,
+    /// Whether we've done at least one query.
     did_query: bool,
 }
 
@@ -101,14 +110,14 @@ pub struct JoinSideExecutor {
 impl JoinSideExecutor {
     /// Create a new TopN executor for driving side with LIMIT.
     ///
-    /// This executor fetches results incrementally - starting with a scaled
-    /// multiple of the limit, and asking for more if needed.
+    /// This executor fetches results incrementally in batches, allowing the join
+    /// to request more driving rows as needed until enough output rows are produced.
     ///
-    /// Note: Currently unused for joins (we use FastField), but kept for potential
-    /// single-relation scan use or future TopK joins with score ordering.
+    /// Note: Currently unused for joins due to pagination bug with unordered results.
+    /// Kept for potential single-relation scan use or future ordered TopK joins.
     ///
     /// # Arguments
-    /// * `limit` - The LIMIT value from the query
+    /// * `initial_batch_size` - Initial batch size (typically `limit * scale_factor`)
     /// * `heaprel` - The heap relation for the driving side
     /// * `indexrelid` - The BM25 index OID
     /// * `query` - The search query input
@@ -117,7 +126,7 @@ impl JoinSideExecutor {
     ///   calculates from dead tuple ratio at runtime.
     #[allow(dead_code)]
     pub fn new_topn(
-        limit: usize,
+        initial_batch_size: usize,
         heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
@@ -160,12 +169,10 @@ impl JoinSideExecutor {
         Self {
             search_reader,
             exec_method: ExecMethod::TopN(TopNExecState {
-                limit,
+                batch_size: initial_batch_size.max(10), // At least 10 to avoid tiny batches
                 search_results: TopNSearchResults::empty(),
                 offset: 0,
-                chunk_size: 0,
                 scale_factor,
-                found: 0,
                 exhausted: false,
                 did_query: false,
             }),
@@ -252,14 +259,14 @@ impl JoinSideExecutor {
         ctids
     }
 
-    /// Check if we've reached the limit (for TopN execution).
-    /// Note: This is not used for joins (where LIMIT applies to output rows),
-    /// but kept for potential single-relation scan use.
+    /// Check if the index is exhausted (no more results available).
     #[allow(dead_code)]
-    pub fn reached_limit(&self) -> bool {
+    pub fn is_exhausted(&self) -> bool {
         match &self.exec_method {
-            ExecMethod::TopN(state) => state.found >= state.limit,
-            ExecMethod::FastField(_) => false, // No limit for FastField
+            ExecMethod::TopN(state) => state.exhausted,
+            // For FastField, we can't easily check without mutating, so return false
+            // The next_visible() call will return Eof when truly exhausted
+            ExecMethod::FastField(_) => false,
         }
     }
 
@@ -273,8 +280,6 @@ impl JoinSideExecutor {
                 // Reset TopN state
                 state.search_results = TopNSearchResults::empty();
                 state.offset = 0;
-                state.chunk_size = 0;
-                state.found = 0;
                 state.exhausted = false;
                 state.did_query = false;
             }
@@ -297,22 +302,16 @@ impl JoinSideExecutor {
                 unreachable!()
             };
 
-            // Check if we've found enough
-            if state.found >= state.limit {
-                return JoinExecResult::Eof;
-            }
-
             // Try to get next result from current batch.
             // Return raw ctid without visibility checking - visibility is checked downstream.
             if let Some((scored, _doc_address)) = state.search_results.next() {
-                state.found += 1;
                 return JoinExecResult::Visible {
                     ctid: scored.ctid,
                     score: scored.bm25,
                 };
             }
 
-            // Current batch exhausted, try to query more
+            // Current batch exhausted, try to query more from the index
             if !self.query_topn_impl() {
                 return JoinExecResult::Eof;
             }
@@ -326,13 +325,12 @@ impl JoinSideExecutor {
 
         state.did_query = true;
 
-        if state.found >= state.limit || state.exhausted {
+        if state.exhausted {
             return false;
         }
 
-        // Calculate the limit for this query
-        let local_limit =
-            (state.limit as f64 * state.scale_factor).max(state.chunk_size as f64) as usize;
+        // Use current batch_size, growing it over time for efficiency
+        let fetch_size = state.batch_size;
 
         // Query for the next batch - use all segments
         let segment_ids = self
@@ -343,7 +341,7 @@ impl JoinSideExecutor {
 
         let results = self.search_reader.search_top_n_unordered_in_segments(
             segment_ids,
-            local_limit,
+            fetch_size,
             state.offset,
         );
 
@@ -355,11 +353,12 @@ impl JoinSideExecutor {
         }
 
         // Update state for next iteration
-        state.chunk_size = local_limit;
+        // Grow batch size for future fetches (up to a reasonable max)
+        state.batch_size = (state.batch_size as f64 * state.scale_factor).min(10000.0) as usize;
         state.offset += original_len;
         state.search_results = results;
 
-        original_len > 0
+        true
     }
 
     // --- FastField execution ---

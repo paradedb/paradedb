@@ -540,8 +540,8 @@ async fn generated_joinscan(database: Db) {
     let _numeric_columns = ["age", "price"];
 
     proptest!(|(
-        // Only 2-table joins for now (3-table joins cause nested scan issues)
-        // TODO: Re-enable 3-table joins when nested scan issues are resolved
+        // Only 2-table joins for now - 3-table joins have flaky behavior
+        // TODO: Investigate segment iteration issues in TopN for multi-table joins
         num_tables in 2..=2usize,
         // Outer table BM25 predicate (always present)
         // Using simple predicates to avoid JoinScan bugs with complex NOT/AND/OR

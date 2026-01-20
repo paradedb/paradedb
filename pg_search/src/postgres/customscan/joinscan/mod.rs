@@ -625,35 +625,23 @@ impl CustomScan for JoinScan {
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
-                    // Use TopN executor if we have a limit, otherwise use FastField.
-                    // IMPORTANT: For joins, we pass a very high limit to the TopN executor
-                    // because the query's LIMIT applies to output rows, not driving rows.
-                    // A single driving row might produce multiple output rows (fan-out) or
-                    // zero rows (no match). The actual LIMIT is enforced at the join level
-                    // by PostgreSQL's Limit node, not by JoinScan.
+                    // Use FastField executor which iterates all matching results.
                     //
-                    // We use FastField executor which doesn't have a limit, allowing us to
-                    // iterate through all matching driving rows without artificial cutoff.
-                    let executor = if join_clause.limit.is_some() {
-                        // Use FastField executor instead of TopN to avoid limit enforcement.
-                        // This fetches all matching rows, relying on PostgreSQL's Limit node.
-                        executors::JoinSideExecutor::new_fast_field(
-                            &heaprel,
-                            indexrelid,
-                            query.clone(),
-                            snapshot,
-                            driving_side.score_needed,
-                        )
-                    } else {
-                        // FastField executor - use score_needed from planning
-                        executors::JoinSideExecutor::new_fast_field(
-                            &heaprel,
-                            indexrelid,
-                            query.clone(),
-                            snapshot,
-                            driving_side.score_needed,
-                        )
-                    };
+                    // Note: We previously tried TopN with incremental batching, but
+                    // search_top_n_unordered_in_segments uses skip/offset pagination
+                    // which doesn't work correctly because results are "unordered" -
+                    // the order can differ between calls, causing incorrect skips.
+                    //
+                    // TODO: Fix TopN incremental fetching by keeping the iterator alive
+                    // instead of recreating it each batch. This would enable efficient
+                    // early termination for LIMIT queries.
+                    let executor = executors::JoinSideExecutor::new_fast_field(
+                        &heaprel,
+                        indexrelid,
+                        query.clone(),
+                        snapshot,
+                        driving_side.score_needed,
+                    );
                     state.custom_state_mut().driving_executor = Some(executor);
 
                     // Create visibility checker for fetching tuples by ctid from executor results

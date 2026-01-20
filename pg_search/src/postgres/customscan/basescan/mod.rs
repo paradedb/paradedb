@@ -1522,8 +1522,9 @@ fn compute_exec_which_fast_fields(
     Some(exec_which_fast_fields)
 }
 
-/// Use the [`VisibilityChecker`] to lookup the [`SearchIndexScore`] document in the underlying heap
-/// and if it exists return a formed [`TupleTableSlot`].
+/// Use the [`VisibilityChecker`] to verify the ctid is visible and fetch the tuple into the slot.
+/// Returns the slot if visible, None if the tuple is deleted/not visible.
+/// See [`VisibilityChecker`] docs for details on two-layer visibility.
 #[inline(always)]
 fn check_visibility(
     state: &mut CustomScanStateWrapper<BaseScan>,

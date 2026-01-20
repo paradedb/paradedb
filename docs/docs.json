@@ -9,13 +9,13 @@
   },
   "favicon": "/favicon.png",
   "banner": {
-    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](/legacy/indexing/create-index).",
+    "content": "As of `0.20.0`, ParadeDB has migrated to a new SQL syntax. The old syntax is still supported and we have preserved the [legacy docs here](https://github.com/paradedb/paradedb/tree/main/docs/legacy).",
     "dismissible": false
   },
   "navigation": {
     "versions": [
       {
-        "version": "v0.21.0",
+        "version": "v0.21.3",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -176,104 +176,6 @@
             ]
           },
           {
-            "anchor": "Legacy Docs",
-            "icon": "hourglass",
-            "groups": [
-              {
-                "group": "Legacy Docs",
-                "pages": [
-                  {
-                    "group": "Indexing",
-                    "pages": [
-                      "legacy/indexing/create-index",
-                      "legacy/indexing/inspect-index"
-                    ]
-                  },
-                  {
-                    "group": "Field Configuration",
-                    "pages": [
-                      "legacy/indexing/field-options",
-                      "legacy/indexing/tokenizers",
-                      "legacy/indexing/token-filters",
-                      "legacy/indexing/fast-fields",
-                      "legacy/indexing/record"
-                    ]
-                  },
-                  {
-                    "group": "Full Text Search",
-                    "pages": [
-                      "legacy/full-text/overview",
-                      "legacy/full-text/boolean",
-                      "legacy/full-text/phrase",
-                      "legacy/full-text/filtering",
-                      "legacy/full-text/pagination",
-                      "legacy/full-text/scoring",
-                      "legacy/full-text/highlighting",
-                      "legacy/full-text/sorting",
-                      "legacy/full-text/boosting"
-                    ]
-                  },
-                  {
-                    "group": "Query Builder",
-                    "pages": [
-                      "legacy/advanced/overview",
-                      {
-                        "group": "Full Text Queries",
-                        "pages": ["legacy/advanced/full-text/match"]
-                      },
-                      {
-                        "group": "Term-Level Queries",
-                        "pages": [
-                          "legacy/advanced/term/exists",
-                          "legacy/advanced/term/fuzzy-term",
-                          "legacy/advanced/term/range",
-                          "legacy/advanced/term/range-term",
-                          "legacy/advanced/term/regex",
-                          "legacy/advanced/term/term",
-                          "legacy/advanced/term/term-set"
-                        ]
-                      },
-                      {
-                        "group": "Phrase-Level Queries",
-                        "pages": [
-                          "legacy/advanced/phrase/phrase",
-                          "legacy/advanced/phrase/phrase-prefix"
-                        ]
-                      },
-                      {
-                        "group": "JSON Queries",
-                        "pages": [
-                          "legacy/advanced/json/overview",
-                          "legacy/advanced/json/arrays",
-                          "legacy/advanced/json/range"
-                        ]
-                      },
-                      {
-                        "group": "Compound Queries",
-                        "pages": [
-                          "legacy/advanced/compound/overview",
-                          "legacy/advanced/compound/all",
-                          "legacy/advanced/compound/boolean",
-                          "legacy/advanced/compound/boost",
-                          "legacy/advanced/compound/const",
-                          "legacy/advanced/compound/disjunction-max",
-                          "legacy/advanced/compound/empty",
-                          "legacy/advanced/compound/parse"
-                        ]
-                      },
-                      {
-                        "group": "Specialized Queries",
-                        "pages": [
-                          "legacy/advanced/specialized/more-like-this"
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          {
             "anchor": "Deploy",
             "icon": "server",
             "groups": [
@@ -322,6 +224,9 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.3",
+                  "changelog/0.21.2",
+                  "changelog/0.21.1",
                   "changelog/0.21.0",
                   "changelog/0.20.6",
                   "changelog/0.20.5",
@@ -445,6 +350,36 @@
       "href": "https://github.com/paradedb/paradedb"
     }
   },
+  "contextual": {
+    "options": [
+      "copy",
+      "mcp",
+      "cursor",
+      "vscode",
+      "perplexity",
+      "chatgpt",
+      "claude",
+      {
+        "title": "Share on X",
+        "description": "Share this page on X",
+        "icon": "x",
+        "iconType": "brands",
+        "href": {
+          "base": "https://x.com/intent/tweet",
+          "query": [
+            {
+              "key": "text",
+              "value": "Check out this ParadeDB doc!"
+            },
+            {
+              "key": "url",
+              "value": "https://docs.paradedb.com$path"
+            }
+          ]
+        }
+      }
+    ]
+  },
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
@@ -494,9 +429,9 @@
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres.",
+      "twitter:description": "Developer docs for ParadeDB: Simple, Elastic-Quality Search for Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
+      "twitter:image:alt": "ParadeDB: Simple, Elastic-Quality Search for Postgres."
     },
     "indexing": "navigable"
   }

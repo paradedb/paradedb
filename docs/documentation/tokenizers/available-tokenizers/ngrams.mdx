@@ -44,3 +44,16 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
  {tok}
 (1 row)
 ```
+
+## Phrase and Proximity Queries with Ngram
+
+Because multiple ngram tokens can overlap, the ngram tokenizer does not store token positions. As a result,
+queries that rely on token positions like [phrase](/documentation/full-text/phrase), [phrase prefix](/documentation/query-builder/phrase/phrase-prefix), [regex phrase](/documentation/query-builder/phrase/regex-phrase) and [proximity](/documentation/full-text/proximity) are not supported over ngram-tokenized
+fields.
+
+An exception is if the min gram size equals the max gram size, which guarantees unique token positions. In this case, setting
+`positions=true` enables these queries.
+
+```sql
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];
+```

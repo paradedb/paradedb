@@ -1,0 +1,60 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
+ text  
+-------
+ {tok}
+(1 row)
+
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=false')::text[];
+                      text                       
+-------------------------------------------------
+ {tok,oke,ken,eni,niz,ize,"ze ","e m"," me",me!}
+(1 row)
+
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];
+                      text                       
+-------------------------------------------------
+ {tok,oke,ken,eni,niz,ize,"ze ","e m"," me",me!}
+(1 row)
+
+SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=false')::text[];
+                      text                       
+-------------------------------------------------
+ {tok,oke,ken,eni,niz,ize,"ze ","e m"," me",me!}
+(1 row)
+
+SELECT 'Tokenize me!'::pdb.ngram(3,4,'positions=true')::text[];
+ERROR:  An invalid argument was passed: 'min_gram must equal max_gram when positions are enabled'
+CREATE TABLE ngram_positions (id serial primary key, description text);
+INSERT INTO ngram_positions (description) VALUES ('aaabbb'), ('bbbaaa');
+CREATE INDEX ON ngram_positions USING bm25 (id, (description::pdb.ngram(3,3,'positions=true'))) WITH (key_field = id);
+SELECT * FROM ngram_positions WHERE description ### ARRAY['aaa', 'aab'];
+ id | description 
+----+-------------
+  1 | aaabbb
+(1 row)
+
+SELECT * FROM ngram_positions WHERE description ### ARRAY['aab', 'aaa'];
+ id | description 
+----+-------------
+(0 rows)
+
+SELECT * FROM ngram_positions WHERE description @@@ ('aaa' ##> 2 ##> 'bbb');
+ id | description 
+----+-------------
+  1 | aaabbb
+(1 row)
+
+SELECT * FROM ngram_positions WHERE description @@@ ('aaa' ## 2 ## 'bbb');
+ id | description 
+----+-------------
+  1 | aaabbb
+  2 | bbbaaa
+(2 rows)
+
+DROP TABLE ngram_positions;

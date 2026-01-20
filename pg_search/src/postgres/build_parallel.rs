@@ -27,13 +27,13 @@ use crate::parallel_worker::{
     ParallelWorker, WorkerStyle,
 };
 use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
     GARBAGE_COLLECTING, INDEXING, MERGING,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
@@ -549,19 +549,17 @@ pub(super) fn build_index(
     concurrent: bool,
 ) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
-    impl Drop for SnapshotDropper {
-        fn drop(&mut self) {
-            unsafe {
-                let snapshot = self.0;
-                // if it's an mvcc snapshot we must unregister it
-                if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
-                    || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
-                {
-                    pg_sys::UnregisterSnapshot(snapshot);
-                }
+    crate::impl_safe_drop!(SnapshotDropper, |self| {
+        unsafe {
+            let snapshot = self.0;
+            // if it's an mvcc snapshot we must unregister it
+            if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
+                || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
+            {
+                pg_sys::UnregisterSnapshot(snapshot);
             }
         }
-    }
+    });
 
     let snapshot = SnapshotDropper(unsafe {
         if concurrent {

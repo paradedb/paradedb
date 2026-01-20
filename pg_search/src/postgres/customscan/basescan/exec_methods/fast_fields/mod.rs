@@ -254,7 +254,6 @@ fn collect_fast_field_try_for_attno(
                             | pg_sys::INT2OID
                             | pg_sys::INT4OID
                             | pg_sys::INT8OID
-                            | pg_sys::NUMERICOID
                             | pg_sys::TIMEOID
                             | pg_sys::TIMESTAMPOID
                             | pg_sys::TIMESTAMPTZOID
@@ -263,10 +262,15 @@ fn collect_fast_field_try_for_attno(
                                 // This fast field type is supported for pushdown of queries, but not for
                                 // rendering via fast field execution.
                                 //
-                                // NOTE: JSON/JSONB are included here because fast fields do not
-                                // contain the full content of the JSON in a way that we can easily
-                                // render: rather, the individual fields are exploded out into
-                                // dynamic columns.
+                                // JSON/JSONB are excluded because fast fields do not contain the
+                                // full content of the JSON in a way that we can easily render:
+                                // rather, the individual fields are exploded out into dynamic
+                                // columns.
+                                //
+                                // NUMERIC is excluded because we do not store the original
+                                // precision/scale in the index, so we cannot safely reconstruct the
+                                // value without potentially losing precision. See:
+                                // https://github.com/paradedb/paradedb/issues/2968
                                 return false;
                             }
                         };

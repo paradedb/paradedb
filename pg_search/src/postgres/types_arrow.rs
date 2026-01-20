@@ -21,7 +21,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::Array;
 use arrow_schema::DataType;
 use pgrx::pg_sys;
-use pgrx::{datum, AnyNumeric, IntoDatum, PgBuiltInOids, PgOid};
+use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
 /// Get a value of the given type from the given index/row of the given array.
 ///
@@ -72,7 +72,6 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
                     pgrx::pg_sys::Oid::from(val as u32).into_datum()
                 } // Cast u64 to u32 for OID
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
                 // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
                 _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
             }
@@ -84,7 +83,6 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
                         res?
@@ -100,9 +98,6 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::try_from(val)
-                    .map_err(|e| format!("Failed to encode: {e}"))?
-                    .into_datum(),
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
             }
         }
@@ -283,10 +278,6 @@ mod tests {
                 let oid_i16 = PgOid::from(PgBuiltInOids::INT2OID.value());
                 test_conversion_roundtrip(original_val, create_int64_array, oid_i16, |v| v as i16);
             }
-
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_int64_array, oid_numeric, AnyNumeric::from);
         });
     }
 
@@ -355,10 +346,6 @@ mod tests {
                 let oid_u32 = PgOid::from(PgBuiltInOids::OIDOID.value());
                 test_conversion_roundtrip(original_val, create_uint64_array, oid_u32, |v| v as u32);
             }
-
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_uint64_array, oid_numeric, AnyNumeric::from);
         });
     }
 
@@ -381,10 +368,6 @@ mod tests {
                 let oid_f32 = PgOid::from(PgBuiltInOids::FLOAT4OID.value());
                 test_conversion_roundtrip(original_val, create_float64_array, oid_f32, |v| v as f32);
             }
-
-            // Test NUMERICOID
-            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
-            test_conversion_roundtrip(original_val, create_float64_array, oid_numeric, |v| AnyNumeric::try_from(v).unwrap());
         });
     }
 

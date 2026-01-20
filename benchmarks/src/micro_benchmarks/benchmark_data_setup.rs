@@ -387,7 +387,7 @@ async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Re
         json_data TEXT NOT NULL,
         numeric_field1 INTEGER NOT NULL,
         numeric_field2 FLOAT NOT NULL,
-        numeric_field3 NUMERIC(10,2) NOT NULL
+        numeric_field3 BIGSERIAL NOT NULL
     )"
     );
 

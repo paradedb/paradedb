@@ -201,15 +201,11 @@ impl Drop for HeapFetchState {
 ///
 /// This is useful when you need to check visibility of ctids and extract current heap locations,
 /// but don't have an existing slot to use. The slot is automatically cleaned up on drop.
-///
-/// Note: This type is used in JoinScan execution (implemented in a later commit).
-#[allow(dead_code)]
 pub struct OwnedVisibilityChecker {
     checker: VisibilityChecker,
     slot: *mut pg_sys::TupleTableSlot,
 }
 
-#[allow(dead_code)]
 impl OwnedVisibilityChecker {
     /// Create a new `OwnedVisibilityChecker` for the given heap relation and snapshot.
     pub fn new(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {

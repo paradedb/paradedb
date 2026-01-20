@@ -16,11 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 //! Execution state for JoinScan custom scan.
-//!
-//! Note: Many types in this module are defined for the full execution implementation.
-//! They are marked allow(dead_code) until the execution commit.
-
-#![allow(dead_code)]
 
 use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::JoinCSClause;
@@ -81,6 +76,8 @@ pub struct JoinKeyInfo {
 pub struct InnerRow {
     /// The ctid of the inner row.
     pub ctid: u64,
+    /// The BM25 score of this row (if build side needs scores).
+    pub score: f32,
 }
 
 /// Which side of the join a predicate references.
@@ -206,9 +203,10 @@ pub struct JoinScanState {
     pub build_scan_desc: Option<*mut pg_sys::TableScanDescData>,
     /// Slot for build side heap scan.
     pub build_scan_slot: Option<*mut pg_sys::TupleTableSlot>,
-    /// Set of build side ctids that match the build side's search predicate (if any).
-    /// When this is Some, only rows with ctids in this set should be included in the hash table.
-    pub build_matching_ctids: Option<HashSet<u64>>,
+    /// Map of build side ctids to their BM25 scores (if build side has a search predicate).
+    /// When this is Some, only rows with ctids in this map should be included in the hash table.
+    /// The score is stored so it can be used if paradedb.score() references the build side.
+    pub build_matching_ctids: Option<std::collections::HashMap<u64, f32>>,
 
     // === Hash join state ===
     /// The hash table built from the build side.
@@ -232,8 +230,9 @@ pub struct JoinScanState {
     pub current_driving_ctid: Option<u64>,
     /// Current driving side score.
     pub current_driving_score: f32,
-    /// Pending build side ctids that match the current driving row.
-    pub pending_build_ctids: VecDeque<u64>,
+    /// Pending build side (ctid, score) pairs that match the current driving row.
+    /// The score is used when paradedb.score() references the build side.
+    pub pending_build_ctids: VecDeque<(u64, f32)>,
 
     // === Result state ===
     /// Result tuple slot.

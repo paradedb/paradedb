@@ -120,7 +120,13 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(3 rows)
+
 -- =============================================================================
 -- TEST 3: JoinScan should be proposed even if search predicate is on only one side
 -- =============================================================================
@@ -157,7 +163,11 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard'
 ORDER BY p.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |   name   | supplier_name 
+-----+----------+---------------
+ 203 | Keyboard | TechCorp
+(1 row)
+
 -- Query with LIMIT, predicate only on suppliers
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
@@ -191,7 +201,13 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY s.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 206 | Headphones     | TechCorp
+(3 rows)
+
 -- =============================================================================
 -- TEST 4: JoinScan should NOT be proposed for non-INNER joins (for now)
 -- =============================================================================
@@ -318,7 +334,13 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name |   score    
+-----+----------------+---------------+------------
+ 201 | Wireless Mouse | TechCorp      | 0.96774966
+ 206 | Headphones     | TechCorp      |  0.9080427
+ 207 | Mouse Pad      | GlobalSupply  |  0.9080427
+(3 rows)
+
 -- =============================================================================
 -- TEST 6B: SELECT paradedb.score() WITHOUT ORDER BY score
 -- =============================================================================
@@ -361,7 +383,119 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name |   score    
+-----+----------------+---------------+------------
+ 201 | Wireless Mouse | TechCorp      | 0.96774966
+ 206 | Headphones     | TechCorp      |  0.9080427
+ 207 | Mouse Pad      | GlobalSupply  |  0.9080427
+(3 rows)
+
+-- =============================================================================
+-- TEST 6C: paradedb.score() from build side (not driving side)
+-- =============================================================================
+-- This test verifies that paradedb.score() works correctly when it references
+-- the BUILD side (the side without the driving predicate), not the driving side.
+-- In this query:
+-- - p.description @@@ 'wireless' makes products the driving side (streams from Tantivy)
+-- - s.contact_info @@@ 'technology' filters the build side (suppliers)
+-- - paradedb.score(s.id) requests the score from the build side
+-- The build side's score is stored during materialization and returned correctly.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name, (paradedb.score(s.id))
+   ->  Sort
+         Output: p.id, p.name, s.name, (paradedb.score(s.id))
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name, (paradedb.score(s.id))
+               Join Type: Inner
+               Outer Relation: suppliers (s)
+               Inner Relation: products (p)
+               Join Cond: s.id = p.supplier_id
+               Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Algorithm Hint: Auto
+               Est. Build Rows: 1
+(16 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+ id  |      name      | supplier_name | supplier_score 
+-----+----------------+---------------+----------------
+ 201 | Wireless Mouse | TechCorp      |      1.2039728
+ 206 | Headphones     | TechCorp      |      1.2039728
+(2 rows)
+
+-- =============================================================================
+-- TEST 6D: Both driving side AND build side scores in the same query
+-- =============================================================================
+-- This test verifies that we can SELECT paradedb.score() from BOTH sides
+-- in the same query. This requires:
+-- - Computing scores for the driving side during streaming
+-- - Computing scores for the build side during materialization
+-- - Returning the correct score for each column based on which side it references
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name,
+       paradedb.score(p.id) AS product_score,
+       paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
+   ->  Sort
+         Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
+         Sort Key: p.id
+         ->  Result
+               Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.id, p.name, (paradedb.score(p.id)), s.name, (paradedb.score(s.id))
+                     Join Type: Inner
+                     Outer Relation: suppliers (s)
+                     Inner Relation: products (p)
+                     Join Cond: s.id = p.supplier_id
+                     Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                     Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Algorithm Hint: Auto
+                     Est. Build Rows: 1
+(18 rows)
+
+SELECT p.id, p.name, s.name AS supplier_name,
+       paradedb.score(p.id) AS product_score,
+       paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+ id  |      name      | supplier_name | product_score | supplier_score 
+-----+----------------+---------------+---------------+----------------
+ 201 | Wireless Mouse | TechCorp      |    0.96774966 |      1.2039728
+ 206 | Headphones     | TechCorp      |     0.9080427 |      1.2039728
+(2 rows)
+
 -- =============================================================================
 -- TEST 7: Both sides have search predicates
 -- =============================================================================
@@ -394,7 +528,12 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 206 | Headphones     | TechCorp
+(2 rows)
+
 -- =============================================================================
 -- TEST 7B: Both side-level AND join-level predicates combined
 -- =============================================================================
@@ -441,7 +580,12 @@ WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 206 | Headphones     | TechCorp
+(2 rows)
+
 -- =============================================================================
 -- TEST 8: Aggregate Score pattern - OR across tables (without LIMIT)
 -- =============================================================================
@@ -503,7 +647,14 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(4 rows)
+
 -- =============================================================================
 -- TEST 10: Multi-table joins (3 tables) - includes UPDATE that moves product ctids
 -- =============================================================================
@@ -562,7 +713,13 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name | category_name 
+-----+----------------+---------------+---------------
+ 201 | Wireless Mouse | TechCorp      | Electronics
+ 206 | Headphones     | TechCorp      | Electronics
+ 207 | Mouse Pad      | GlobalSupply  | Gaming
+(3 rows)
+
 -- =============================================================================
 -- TEST 11: OR across tables (without LIMIT) - AFTER UPDATE moved product ctids
 -- =============================================================================
@@ -639,7 +796,14 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(4 rows)
+
 -- =============================================================================
 -- TEST 13: Non-equijoin conditions (arbitrary join expressions)
 -- =============================================================================
@@ -695,7 +859,12 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 LIMIT 3;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(2 rows)
+
 -- LIMIT with ORDER BY on non-score column
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
@@ -731,7 +900,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(2 rows)
+
 -- =============================================================================
 -- TEST 15: TEXT join keys (non-integer)
 -- =============================================================================
@@ -789,7 +963,13 @@ JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |       description        | customer_name  
+----+--------------------------+----------------
+  1 | wireless mouse order     | Alice Corp
+  3 | wireless headphones bulk | Bob Industries
+  5 | cable wireless charger   | Bob Industries
+(3 rows)
+
 -- =============================================================================
 -- TEST 16: Composite join keys (multiple columns)
 -- =============================================================================
@@ -851,7 +1031,13 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |    product_name     |   warehouse_name   
+----+---------------------+--------------------
+  1 | wireless mouse      | East Coast Main
+  4 | wireless headphones | West Coast Main
+  5 | wireless charger    | West Coast Express
+(3 rows)
+
 -- =============================================================================
 -- TEST 17: Join key value of 0 (regression test for magic key collision)
 -- =============================================================================
@@ -909,7 +1095,13 @@ JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |      name      |   type_name   
+----+----------------+---------------
+  1 | Mystery Box    | Uncategorized
+  2 | Unknown Gadget | Uncategorized
+  3 | Smart Speaker  | Electronics
+(3 rows)
+
 -- Verify type_id = 0 items are joined to 'Uncategorized' type
 SELECT i.id, i.name, t.type_name, t.type_id
 FROM items i
@@ -983,7 +1175,20 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |      description       | supplier_name 
+----+------------------------+---------------
+  5 | wireless product order | Supplier 6
+ 10 | wireless product order | Supplier 11
+ 15 | wireless product order | Supplier 16
+ 20 | wireless product order | Supplier 21
+ 25 | wireless product order | Supplier 26
+ 30 | wireless product order | Supplier 31
+ 35 | wireless product order | Supplier 36
+ 40 | wireless product order | Supplier 41
+ 45 | wireless product order | Supplier 46
+ 50 | wireless product order | Supplier 51
+(10 rows)
+
 -- Reset work_mem
 RESET work_mem;
 -- =============================================================================
@@ -1024,7 +1229,13 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |    name    | supplier_name 
+-----+------------+---------------
+ 202 | USB Cable  | GlobalSupply
+ 206 | Headphones | TechCorp
+ 207 | Mouse Pad  | GlobalSupply
+(3 rows)
+
 -- Another complex pattern: NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
 -- Products that do NOT contain 'cable' AND do NOT contain 'stand'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1055,7 +1266,15 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 205 | Webcam         | QualityFirst
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(5 rows)
+
 -- =============================================================================
 -- TEST 20: Deeply nested boolean expressions
 -- =============================================================================
@@ -1095,7 +1314,13 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |    name    | supplier_name 
+-----+------------+---------------
+ 202 | USB Cable  | GlobalSupply
+ 203 | Keyboard   | TechCorp
+ 206 | Headphones | TechCorp
+(3 rows)
+
 -- AND of multiple single-table predicates combined with OR across tables
 -- ((p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK'))
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1126,7 +1351,13 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 202 | USB Cable      | GlobalSupply
+ 207 | Mouse Pad      | GlobalSupply
+(3 rows)
+
 -- Triple-nested NOT: NOT (NOT (NOT p.description @@@ 'cable'))
 -- Equivalent to: NOT p.description @@@ 'cable'
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1157,7 +1388,16 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name      | supplier_name 
+-----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
+ 203 | Keyboard       | TechCorp
+ 204 | Monitor Stand  | FastParts
+ 205 | Webcam         | QualityFirst
+ 206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
+(6 rows)
+
 -- =============================================================================
 -- TEST 15: Different join key types - TEXT keys
 -- =============================================================================
@@ -1214,7 +1454,12 @@ FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+        title        |    name     
+---------------------+-------------
+ Database Indexing   | Alice Smith
+ Search Optimization | Alice Smith
+(2 rows)
+
 -- =============================================================================
 -- TEST 16: NULL key handling
 -- =============================================================================
@@ -1274,7 +1519,12 @@ JOIN categories_with_nulls c ON i.category_id = c.id
 WHERE i.content @@@ 'item OR laptop OR novel'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ item_name | category_name 
+-----------+---------------
+ Laptop    | Electronics
+ Novel     | Books
+(2 rows)
+
 -- =============================================================================
 -- TEST 17: Cross join (no equi-join keys)
 -- =============================================================================
@@ -1330,7 +1580,19 @@ FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ color |  size  
+-------+--------
+ Red   | Small
+ Red   | Medium
+ Red   | Large
+ Blue  | Small
+ Blue  | Medium
+ Blue  | Large
+ Green | Small
+ Green | Medium
+ Green | Large
+(9 rows)
+
 -- =============================================================================
 -- TEST 18: Multi-column composite join keys
 -- =============================================================================
@@ -1392,7 +1654,11 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ product_name | quantity |         notes         
+--------------+----------+-----------------------
+ Gadget X     |        3 | Wireless gadget order
+(1 row)
+
 -- =============================================================================
 -- TEST 19: Memory overflow - nested loop fallback
 -- =============================================================================
@@ -1446,7 +1712,15 @@ JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+    name    | supplier_name 
+------------+---------------
+ Product 3  | Supplier 4
+ Product 6  | Supplier 7
+ Product 9  | Supplier 10
+ Product 12 | Supplier 13
+ Product 15 | Supplier 16
+(5 rows)
+
 RESET work_mem;
 -- =============================================================================
 -- TEST 20: UUID join keys
@@ -1505,7 +1779,12 @@ JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+       description       | name  
+-------------------------+-------
+ Wireless keyboard order | Alice
+ Wireless mouse order    | Carol
+(2 rows)
+
 -- =============================================================================
 -- TEST 21: NUMERIC join keys
 -- =============================================================================
@@ -1564,7 +1843,12 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+      description       | holder_name | amount  
+------------------------+-------------+---------
+ Wire transfer received | John Doe    | 1000.00
+ Stock purchase wire    | Bob Wilson  | 5000.00
+(2 rows)
+
 -- =============================================================================
 -- TEST 22: Large result set (functional, not performance)
 -- =============================================================================
@@ -1617,7 +1901,15 @@ JOIN large_categories lc ON li.category_id = lc.id
 WHERE li.content @@@ 'wireless'
 ORDER BY li.id
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+  name   | category_name 
+---------+---------------
+ Item 5  | Category 6
+ Item 10 | Category 11
+ Item 15 | Category 16
+ Item 20 | Category 21
+ Item 25 | Category 26
+(5 rows)
+
 -- =============================================================================
 -- TEST 23: Visibility after multiple UPDATEs
 -- =============================================================================
@@ -1650,7 +1942,12 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |        content        | ref_name | version 
+-----+-----------------------+----------+---------
+ 101 | wireless device alpha | Ref A    |       1
+ 103 | wireless device gamma | Ref C    |       1
+(2 rows)
+
 -- First UPDATE cycle
 UPDATE update_test_items SET version = 2 WHERE content LIKE '%wireless%';
 -- Query after first update - should still find wireless items
@@ -1660,7 +1957,12 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |        content        | ref_name | version 
+-----+-----------------------+----------+---------
+ 101 | wireless device alpha | Ref A    |       2
+ 103 | wireless device gamma | Ref C    |       2
+(2 rows)
+
 -- Second UPDATE cycle - change content
 UPDATE update_test_items SET content = 'updated wireless device', version = 3 WHERE id = 101;
 -- Query after content update
@@ -1670,7 +1972,12 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |         content         | ref_name | version 
+-----+-------------------------+----------+---------
+ 101 | updated wireless device | Ref A    |       3
+ 103 | wireless device gamma   | Ref C    |       2
+(2 rows)
+
 -- Third UPDATE cycle - change ref_id (join key)
 UPDATE update_test_items SET ref_id = 2, version = 4 WHERE id = 103;
 -- Query after join key update
@@ -1680,7 +1987,12 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |         content         | ref_name | version 
+-----+-------------------------+----------+---------
+ 101 | updated wireless device | Ref A    |       3
+ 103 | wireless device gamma   | Ref B    |       4
+(2 rows)
+
 -- =============================================================================
 -- TEST 24: Qgen-style setup - Index before data with NOT operator
 -- =============================================================================
@@ -1791,7 +2103,15 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE qgen_users.name @@@ 'bob' 
 ORDER BY qgen_users.id 
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id | name 
+----+------
+  1 | bob
+  1 | bob
+  1 | bob
+  1 | bob
+  1 | bob
+(5 rows)
+
 -- TEST 24B: Query with NOT operator (this is where the bug occurred)
 -- Error was: "could not read blocks 65536..65536: read only 0 of 8192 bytes"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1826,7 +2146,15 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE NOT (qgen_users.name @@@ 'bob') 
 ORDER BY qgen_users.id 
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |  name   
+----+---------
+  2 | brisket
+  2 | brisket
+  2 | brisket
+  3 | brisket
+  3 | brisket
+(5 rows)
+
 -- TEST 24C: OR with predicates spanning both tables
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
@@ -1860,7 +2188,15 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id | name 
+----+------
+  1 | bob
+  1 | bob
+  1 | bob
+  1 | bob
+  1 | bob
+(5 rows)
+
 -- =============================================================================
 -- TEST 25: Execution hints - small build side (nested loop preference)
 -- =============================================================================
@@ -1914,7 +2250,12 @@ JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
 ORDER BY tp.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      description      | name  
+-----+-----------------------+-------
+ 101 | wireless device alpha | Ref A
+ 103 | wireless device gamma | Ref A
+(2 rows)
+
 -- =============================================================================
 -- TEST 26: Execution hints - verify hash table pre-sizing (functional test)
 -- =============================================================================
@@ -1970,7 +2311,30 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
 ORDER BY hp.id
 LIMIT 20;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id |   description    | category_name 
+----+------------------+---------------
+  3 | wireless product | Category 4
+  6 | wireless product | Category 7
+  9 | wireless product | Category 10
+ 12 | wireless product | Category 13
+ 15 | wireless product | Category 16
+ 18 | wireless product | Category 19
+ 21 | wireless product | Category 22
+ 24 | wireless product | Category 25
+ 27 | wireless product | Category 28
+ 30 | wireless product | Category 31
+ 33 | wireless product | Category 34
+ 36 | wireless product | Category 37
+ 39 | wireless product | Category 40
+ 42 | wireless product | Category 43
+ 45 | wireless product | Category 46
+ 48 | wireless product | Category 49
+ 51 | wireless product | Category 2
+ 54 | wireless product | Category 5
+ 57 | wireless product | Category 8
+ 60 | wireless product | Category 11
+(20 rows)
+
 -- Verify count is correct
 SELECT COUNT(*) AS wireless_count
 FROM hint_test_products hp
@@ -2042,7 +2406,12 @@ WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |    name    | price  |   supplier   | min_order_value 
+-----+------------+--------+--------------+-----------------
+ 206 | Headphones | 199.99 | TechCorp     |           50.00
+ 207 | Mouse Pad  |  29.99 | GlobalSupply |           15.00
+(2 rows)
+
 -- Test case: Search predicate OR cross-relation condition (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
 -- This demonstrates the unified expression tree where JoinScan can handle OR between
@@ -2079,7 +2448,16 @@ WHERE p.description @@@ 'cable'
    OR p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
-ERROR:  not implemented: JoinScan execution not implemented - see next commit
+ id  |      name       | price  |   supplier   | min_order_value 
+-----+-----------------+--------+--------------+-----------------
+ 202 | USB Cable       |   9.99 | GlobalSupply |           15.00
+ 203 | Keyboard        |  89.99 | TechCorp     |           50.00
+ 204 | Monitor Stand   |  49.99 | FastParts    |           30.00
+ 206 | Headphones      | 199.99 | TechCorp     |           50.00
+ 207 | Mouse Pad       |  29.99 | GlobalSupply |           15.00
+ 208 | Cable Organizer |  14.99 | FastParts    |           30.00
+(6 rows)
+
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

@@ -222,6 +222,64 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 6C: paradedb.score() from build side (not driving side)
+-- =============================================================================
+
+-- This test verifies that paradedb.score() works correctly when it references
+-- the BUILD side (the side without the driving predicate), not the driving side.
+-- In this query:
+-- - p.description @@@ 'wireless' makes products the driving side (streams from Tantivy)
+-- - s.contact_info @@@ 'technology' filters the build side (suppliers)
+-- - paradedb.score(s.id) requests the score from the build side
+-- The build side's score is stored during materialization and returned correctly.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
+-- TEST 6D: Both driving side AND build side scores in the same query
+-- =============================================================================
+
+-- This test verifies that we can SELECT paradedb.score() from BOTH sides
+-- in the same query. This requires:
+-- - Computing scores for the driving side during streaming
+-- - Computing scores for the build side during materialization
+-- - Returning the correct score for each column based on which side it references
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name,
+       paradedb.score(p.id) AS product_score,
+       paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.name, s.name AS supplier_name,
+       paradedb.score(p.id) AS product_score,
+       paradedb.score(s.id) AS supplier_score
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND s.contact_info @@@ 'technology'
+ORDER BY p.id
+LIMIT 10;
+
+-- =============================================================================
 -- TEST 7: Both sides have search predicates
 -- =============================================================================
 

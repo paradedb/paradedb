@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod crossrelgen;
 pub mod groupbygen;
 pub mod joingen;
 pub mod opexprgen;
@@ -271,13 +272,14 @@ pub fn arb_joins_and_wheres(
 
 #[derive(Copy, Clone, Debug, Arbitrary)]
 pub struct PgGucs {
-    aggregate_custom_scan: bool,
-    custom_scan: bool,
-    custom_scan_without_operator: bool,
-    filter_pushdown: bool,
-    seqscan: bool,
-    indexscan: bool,
-    parallel_workers: bool,
+    pub aggregate_custom_scan: bool,
+    pub custom_scan: bool,
+    pub custom_scan_without_operator: bool,
+    pub filter_pushdown: bool,
+    pub join_custom_scan: bool,
+    pub seqscan: bool,
+    pub indexscan: bool,
+    pub parallel_workers: bool,
 }
 
 impl Default for PgGucs {
@@ -287,6 +289,7 @@ impl Default for PgGucs {
             custom_scan: false,
             custom_scan_without_operator: false,
             filter_pushdown: false,
+            join_custom_scan: false,
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
@@ -301,6 +304,7 @@ impl PgGucs {
             custom_scan,
             custom_scan_without_operator,
             filter_pushdown,
+            join_custom_scan,
             seqscan,
             indexscan,
             parallel_workers,
@@ -323,6 +327,11 @@ impl PgGucs {
         writeln!(
             gucs,
             "SET paradedb.enable_filter_pushdown TO {filter_pushdown};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_join_custom_scan TO {join_custom_scan};"
         )
         .unwrap();
         writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();

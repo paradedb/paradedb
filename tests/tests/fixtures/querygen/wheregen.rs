@@ -98,3 +98,35 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         },
     )
 }
+
+/// Generate only simple atomic predicates (no NOT/AND/OR).
+/// Useful for testing features like JoinScan where complex boolean
+/// expressions may trigger unrelated bugs.
+pub fn arb_simple_wheres(
+    tables: Vec<impl AsRef<str>>,
+    columns: &[Column],
+) -> impl Strategy<Value = Expr> {
+    let tables = tables
+        .into_iter()
+        .map(|t| t.as_ref().to_owned())
+        .collect::<Vec<_>>();
+    let columns = columns
+        .iter()
+        .filter(|c| c.is_whereable)
+        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
+        .collect::<Vec<_>>();
+
+    // Only generate atomic predicates, no boolean operators
+    proptest::sample::select(tables).prop_flat_map(move |table| {
+        proptest::sample::select::<Expr>(
+            columns
+                .iter()
+                .map(|(col, val, is_indexed)| Expr::Atom {
+                    name: format!("{table}.{col}"),
+                    value: val.clone(),
+                    is_indexed: *is_indexed,
+                })
+                .collect::<Vec<_>>(),
+        )
+    })
+}

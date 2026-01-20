@@ -15,10 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod crossrelgen;
 pub mod groupbygen;
 pub mod joingen;
 pub mod opexprgen;
 pub mod pagegen;
+pub mod scoregen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768929398023,
+  "lastUpdate": 1768929402773,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30446,6 +30446,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.07328305296816, max segment_count: 127.0, count: 57544"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a2f3fa0d8701d6aa18501738abcf33088bb8e40",
+          "message": "fix: Aliased JSON fields index correctly (#3947)\n\n# Ticket(s) Closed\n\n- Closes #3944 \n\n## What\n\nFixes an issue where the \"inner typoid\" of a JSON field cast to a\ntokenizer was not being pulled out, causing JSON aliased fields to get\nincorrectly indexed as text.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-20T11:44:57-05:00",
+          "tree_id": "89f373f01470b83a5cadaa831cc9d724b1b75eef",
+          "url": "https://github.com/paradedb/paradedb/commit/2a2f3fa0d8701d6aa18501738abcf33088bb8e40"
+        },
+        "date": 1768929399619,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.43199804010337, max cpu: 42.899704, count: 57543"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.75,
+            "unit": "median mem",
+            "extra": "avg mem: 232.5902643593704, max mem: 234.2265625, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.315581782080773, max cpu: 33.333336, count: 57543"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 172.25536887903394, max mem: 172.69921875, count: 57543"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33726,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33242.54520966929, max block_count: 35561.0, count: 57543"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.49024207983595, max segment_count: 125.0, count: 57543"
           }
         ]
       }

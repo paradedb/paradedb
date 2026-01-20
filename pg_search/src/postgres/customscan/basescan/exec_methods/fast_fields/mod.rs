@@ -33,6 +33,7 @@ use crate::postgres::customscan::score_funcoids;
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
+use crate::schema::FieldSource;
 
 use arrow_array::builder::StringViewBuilder;
 use arrow_array::ArrayRef;
@@ -225,6 +226,22 @@ fn collect_fast_field_try_for_attno(
                     .schema()
                     .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
+                    let categorized_fields = schema.categorized_fields();
+                    let field_data = categorized_fields
+                        .iter()
+                        .find(|(sf, _)| sf == &search_field)
+                        .map(|(_, data)| data);
+
+                    if let Some(data) = field_data {
+                        // Ensure that the expression used to index the value exactly matches the
+                        // expression used in the target list (which we know is a Var, because
+                        // that is the only thing that calls this function with attno > 0).
+                        if !matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
+                        {
+                            return true;
+                        }
+                    }
+
                     if search_field.is_fast() {
                         let ff_type = match att.type_oid().value() {
                             pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => {
@@ -286,24 +303,28 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        let maybe_var = if let Some(var) = find_one_var((*te).expr.cast()) {
-            if (*var).varno as i32 != rti as i32 {
-                // We expect all Vars in the target list to be from the same range table as the
-                // index we're searching, so if we see a Var from a different range table, we skip it.
-                if is_execution_time {
-                    // This is a sanity check to ensure that the target list is consistent with the
-                    // index we're searching. As we're not supporting JOINs and Projection, at
-                    // execution time (not planning time), we expect all Vars in the target list to
-                    // be from the same range table as the index we're searching.
-                    debug_assert_eq!(
-                        (*var).varno as i32,
-                        rti as i32,
-                        "Encountered a Var with a different range table index.",
-                    );
+        let maybe_var = if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Var) {
+            if let Some(var) = find_one_var((*te).expr.cast()) {
+                if (*var).varno as i32 != rti as i32 {
+                    // We expect all Vars in the target list to be from the same range table as the
+                    // index we're searching, so if we see a Var from a different range table, we skip it.
+                    if is_execution_time {
+                        // This is a sanity check to ensure that the target list is consistent with the
+                        // index we're searching. As we're not supporting JOINs and Projection, at
+                        // execution time (not planning time), we expect all Vars in the target list to
+                        // be from the same range table as the index we're searching.
+                        debug_assert_eq!(
+                            (*var).varno as i32,
+                            rti as i32,
+                            "Encountered a Var with a different range table index.",
+                        );
+                    }
+                    continue;
                 }
-                continue;
+                find_one_var_and_fieldname(VarContext::from_exec(heaprel.oid()), (*te).expr.cast())
+            } else {
+                None
             }
-            find_one_var_and_fieldname(VarContext::from_exec(heaprel.oid()), (*te).expr.cast())
         } else {
             None
         };

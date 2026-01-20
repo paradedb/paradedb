@@ -1666,11 +1666,10 @@ ORDER BY count DESC, category;
          ->  Custom Scan (ParadeDB Scan) on smoke_test
                Table: smoke_test
                Index: smoke_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category, rating
+               Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+(10 rows)
 
 SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
 FROM smoke_test

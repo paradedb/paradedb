@@ -325,15 +325,8 @@ pub unsafe fn extract_field_attributes(
                     normalizer = parsed_typmod.normalizer();
                     attname = parsed_typmod.alias();
 
-                    if attname.is_none() && vars.len() == 1 {
+                    if vars.len() == 1 {
                         let var = vars[0];
-                        let heap_attname = heap_relation
-                            .tuple_desc()
-                            .get((*var).varattno as usize - 1)
-                            .unwrap()
-                            .name()
-                            .to_string();
-
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
                             if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
@@ -350,7 +343,15 @@ pub unsafe fn extract_field_attributes(
                             }
                         }
 
-                        attname = Some(heap_attname);
+                        if attname.is_none() {
+                            let heap_attname = heap_relation
+                                .tuple_desc()
+                                .get((*var).varattno as usize - 1)
+                                .unwrap()
+                                .name()
+                                .to_string();
+                            attname = Some(heap_attname);
+                        }
                     }
 
                     if type_is_alias(typoid) {

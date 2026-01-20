@@ -37,7 +37,8 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
@@ -840,6 +841,39 @@ pub unsafe fn expr_contains_any_operator(
 
     walker(node, addr_of_mut!(context).cast());
     context.found
+}
+
+/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
+/// Returns a HashSet of RTIs referenced by the expression.
+pub unsafe fn expr_collect_rtis(
+    node: *mut pg_sys::Node,
+) -> std::collections::HashSet<pg_sys::Index> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
+                rtis.insert(varno);
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut rtis = HashSet::new();
+    walker(node, addr_of_mut!(rtis).cast());
+    rtis
 }
 
 /// Look up a function in the pdb schema by name and argument types.

@@ -48,7 +48,6 @@ pub struct JoinSideInfo {
     /// Whether scores are needed for this side's results.
     /// True when ORDER BY paradedb.score() is present for this side.
     /// Used to optimize FastField executor (skip score computation when not needed).
-    /// Note: TopN executor always computes scores internally for ranking.
     pub score_needed: bool,
 }
 
@@ -147,11 +146,6 @@ pub struct ExecutionHints {
     /// Estimated memory needed for hash table (bytes).
     /// Helps executor decide if hash join is feasible before building.
     pub estimated_hash_memory: Option<usize>,
-
-    /// Scale factor hint for TopN batch sizing.
-    /// Higher values fetch more rows per batch (fewer round trips, more memory).
-    /// If None, executor calculates from dead tuple ratio at runtime.
-    pub topn_batch_scale: Option<f64>,
 }
 
 impl ExecutionHints {
@@ -171,11 +165,6 @@ impl ExecutionHints {
 
     pub fn with_estimated_hash_memory(mut self, bytes: usize) -> Self {
         self.estimated_hash_memory = Some(bytes);
-        self
-    }
-
-    pub fn with_topn_batch_scale(mut self, scale: f64) -> Self {
-        self.topn_batch_scale = Some(scale);
         self
     }
 }

@@ -99,9 +99,10 @@ impl CustomScan for JoinScan {
             // This is overly restrictive. We should allow no-limit joins when:
             // 1. Both sides have search predicates (Aggregate Score pattern), OR
             // 2. Join-level predicates exist that benefit from index
-            // Use FastField executor for both sides in unlimited mode.
-            // The current restriction exists because TopN executor needs a limit for
-            // incremental fetching with dead tuple scaling.
+            //
+            // JoinScan currently requires a LIMIT clause. This restriction exists because
+            // without a limit, scanning the entire index may not be more efficient than
+            // PostgreSQL's native join execution.
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
@@ -139,12 +140,8 @@ impl CustomScan for JoinScan {
             // Check if ORDER BY paradedb.score() is present for the driving side.
             // This determines whether we need to compute and return scores.
             //
-            // Note: Currently JoinScan requires LIMIT, so TopN executor is always used.
-            // TopN always computes scores internally (for ranking), so score_needed only
-            // affects future no-limit joins using FastField executor.
-            //
-            // Edge case: SELECT paradedb.score() without ORDER BY score still works
-            // because TopN computes scores regardless of this field.
+            // The score_needed flag is passed to the FastField executor which can
+            // optionally skip score computation if not needed for the query.
             let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
             let score_needed = score_pathkey.is_some();
 
@@ -625,16 +622,8 @@ impl CustomScan for JoinScan {
                 if let (Some(indexrelid), Some(ref query)) =
                     (driving_side.indexrelid, &driving_side.query)
                 {
-                    // Use FastField executor which iterates all matching results.
-                    //
-                    // Note: We previously tried TopN with incremental batching, but
-                    // search_top_n_unordered_in_segments uses skip/offset pagination
-                    // which doesn't work correctly because results are "unordered" -
-                    // the order can differ between calls, causing incorrect skips.
-                    //
-                    // TODO: Fix TopN incremental fetching by keeping the iterator alive
-                    // instead of recreating it each batch. This would enable efficient
-                    // early termination for LIMIT queries.
+                    // Use FastField executor which iterates all matching results
+                    // using batched ctid lookups for efficiency.
                     let executor = executors::JoinSideExecutor::new_fast_field(
                         &heaprel,
                         indexrelid,
@@ -2104,7 +2093,6 @@ fn compute_execution_hints(estimated_build_rows: f64, limit: Option<usize>) -> E
         .with_algorithm(algorithm)
         .with_estimated_build_rows(estimated_build_rows)
         .with_estimated_hash_memory(estimated_hash_memory)
-    // topn_batch_scale left as None - executor will calculate from dead tuple ratio
 }
 
 /// Determine preferred join algorithm based on build side size and limit.

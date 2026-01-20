@@ -185,7 +185,7 @@ pub struct JoinScanState {
     // === Driving side state (side with search predicate - we iterate through this) ===
     /// The heap relation for the driving side.
     pub driving_heaprel: Option<PgSearchRelation>,
-    /// Executor for the driving side (TopN or Normal).
+    /// Executor for the driving side (FastField batched ctid lookups).
     pub driving_executor: Option<JoinSideExecutor>,
     /// Visibility checker for the driving side.
     pub driving_visibility_checker: Option<VisibilityChecker>,

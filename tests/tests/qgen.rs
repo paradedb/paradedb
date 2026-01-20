@@ -536,34 +536,29 @@ async fn generated_joinscan(database: Db) {
     let text_columns = columns_named(vec!["name"]);
     // Numeric columns for join keys and cross-relation predicates
     let join_key_columns = vec!["id", "age"];
-    // TODO: Re-enable when HeapCondition bug is fixed
+    // Unused until HeapCondition is re-enabled
     let _numeric_columns = ["age", "price"];
 
     proptest!(|(
         // Test 2-3 table joins
         num_tables in 2..=3usize,
         // Outer table BM25 predicate (always present)
-        // Using simple predicates to avoid JoinScan bugs with complex NOT/AND/OR
+        // Using simple predicates - complex NOT/AND/OR across tables is not yet supported
         outer_bm25 in arb_simple_wheres(vec![all_tables[0]], &text_columns),
-        // Inner table BM25 predicate - disabled pending investigation of dual-predicate bug
-        // TODO: Re-enable when dual BM25 predicate bug is fixed
-        // include_inner_bm25 in proptest::bool::ANY,
-        // inner_bm25 in arb_simple_wheres(vec![all_tables[1]], &text_columns),
-        // HeapCondition (cross-relation predicate) - disabled for now due to JoinScan bug
-        // TODO: Re-enable when HeapCondition + NOT predicate bug is fixed
+        // Inner table BM25 predicate (optional)
+        include_inner_bm25 in proptest::bool::ANY,
+        inner_bm25 in arb_simple_wheres(vec![all_tables[1]], &text_columns),
+        // HeapCondition (cross-relation predicate) - disabled, see Issue 2 in issues.md
+        // There's a bug where HeapCondition matches different rows than PostgreSQL
+        // TODO: Re-enable when HeapCondition evaluation bug is fixed
         // include_heap_condition in proptest::bool::ANY,
-        // heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.clone()),
-        // Score ordering - disabled due to JoinScan score ordering bug
-        // TODO: Re-enable when score ordering bug is fixed
-        // use_score_order in proptest::bool::ANY,
-        // score_order in arb_score_order(all_tables[0], "id"),
+        // heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
+        // Score ordering (optional)
+        use_score_order in proptest::bool::ANY,
+        score_order in arb_score_order(all_tables[0], "id"),
         // Result limit
         limit in 1..=50usize,
     )| {
-        // Inner BM25 disabled - set to false
-        let include_inner_bm25 = false;
-        let inner_bm25 = outer_bm25.clone(); // dummy, not used
-
         // HeapCondition disabled - set to false
         let include_heap_condition = false;
         let heap_condition = crate::fixtures::querygen::crossrelgen::CrossRelExpr {
@@ -574,9 +569,6 @@ async fn generated_joinscan(database: Db) {
             right_col: "age".to_string(),
         };
 
-        // Score ordering disabled - set to false
-        let use_score_order = false;
-        let score_order = String::new(); // dummy, not used
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 

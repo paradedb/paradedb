@@ -456,7 +456,7 @@ impl ExecMethod for TopNScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    return ExecState::RequiresVisibilityCheck {
+                    return ExecState::FromHeap {
                         ctid: scored.ctid,
                         score: scored.bm25,
                         doc_address,

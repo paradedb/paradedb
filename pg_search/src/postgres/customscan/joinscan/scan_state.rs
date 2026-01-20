@@ -311,6 +311,38 @@ impl JoinScanState {
             false
         }
     }
+
+    /// Returns (outer_slot, inner_slot) based on which side is driving.
+    ///
+    /// This maps the driving/build slots to outer/inner positions:
+    /// - If driving_is_outer: driving_slot=outer, build_slot=inner
+    /// - If driving_is_inner: driving_slot=inner, build_slot=outer
+    pub fn outer_inner_slots(
+        &self,
+    ) -> (
+        Option<*mut pg_sys::TupleTableSlot>,
+        Option<*mut pg_sys::TupleTableSlot>,
+    ) {
+        if self.driving_is_outer {
+            (self.driving_fetch_slot, self.build_scan_slot)
+        } else {
+            (self.build_scan_slot, self.driving_fetch_slot)
+        }
+    }
+
+    /// Get the appropriate score for an output column.
+    ///
+    /// This determines whether to use the driving side score or the build side score
+    /// based on which side the column references:
+    /// - If `col_is_outer == driving_is_outer`: column references driving side → use driving_score
+    /// - Otherwise: column references build side → use build_score
+    pub fn score_for_column(&self, col_is_outer: bool, build_score: f32) -> f32 {
+        if col_is_outer == self.driving_is_outer {
+            self.current_driving_score
+        } else {
+            build_score
+        }
+    }
 }
 
 impl CustomScanState for JoinScanState {

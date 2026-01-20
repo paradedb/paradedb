@@ -42,6 +42,14 @@ WITH (
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name AS value
+FROM test_text_agg
+WHERE id @@@ paradedb.all()
+GROUP BY name
+ORDER BY count(name) DESC, name DESC
+LIMIT 5;
+
 SELECT name AS value
 FROM test_text_agg
 WHERE id @@@ paradedb.all()
@@ -53,6 +61,16 @@ LIMIT 5;
 -- TEST 2: pdb.agg value_count on text field with GROUP BY
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT
+    name AS value,
+    pdb.agg('{"value_count": {"field": "name"}}') AS count
+FROM test_text_agg
+WHERE id @@@ paradedb.all()
+GROUP BY name
+ORDER BY 2 DESC, name DESC
+LIMIT 5;
 
 SELECT
     name AS value,
@@ -68,6 +86,16 @@ LIMIT 5;
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{
+    "histogram": {"field": "score", "interval": 25},
+    "aggs": {
+        "name_count": {"value_count": {"field": "name"}}
+    }
+}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
+
 SELECT pdb.agg('{
     "histogram": {"field": "score", "interval": 25},
     "aggs": {
@@ -82,6 +110,16 @@ WHERE id @@@ paradedb.all();
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{
+    "range": {"field": "score", "ranges": [{"to": 50}, {"from": 50}]},
+    "aggs": {
+        "name_count": {"value_count": {"field": "name"}}
+    }
+}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
+
 SELECT pdb.agg('{
     "range": {"field": "score", "ranges": [{"to": 50}, {"from": 50}]},
     "aggs": {
@@ -95,6 +133,11 @@ WHERE id @@@ paradedb.all();
 -- TEST 5: Simple value_count on text field (top-level, no bucket parent)
 -- This worked in v0.21.2 and should continue to work
 -- =====================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT pdb.agg('{"value_count": {"field": "name"}}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
 
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg

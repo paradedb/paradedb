@@ -34,13 +34,37 @@ WITH (
 -- TEST 1: GROUP BY on text field + ORDER BY count()
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name AS value
 FROM test_text_agg
 WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY count(name) DESC, name DESC
 LIMIT 5;
-    value
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: name, (pdb.agg_fn('COUNT'::text))
+   ->  Sort
+         Output: name, (pdb.agg_fn('COUNT'::text))
+         Sort Key: (pdb.agg_fn('COUNT'::text)) DESC, test_text_agg.name DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
+               Output: name, pdb.agg_fn('COUNT'::text)
+               Index: test_text_agg_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: COUNT(name)
+                 Group By: name
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"name","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+(13 rows)
+
+SELECT name AS value
+FROM test_text_agg
+WHERE id @@@ paradedb.all()
+GROUP BY name
+ORDER BY count(name) DESC, name DESC
+LIMIT 5;
+    value    
 -------------
  language_99
  language_98
@@ -53,6 +77,7 @@ LIMIT 5;
 -- TEST 2: pdb.agg value_count on text field with GROUP BY
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT
     name AS value,
     pdb.agg('{"value_count": {"field": "name"}}') AS count
@@ -61,7 +86,32 @@ WHERE id @@@ paradedb.all()
 GROUP BY name
 ORDER BY 2 DESC, name DESC
 LIMIT 5;
-    value    |     count
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: name, (pdb.agg_fn('pdb.agg'::text))
+   ->  Sort
+         Output: name, (pdb.agg_fn('pdb.agg'::text))
+         Sort Key: (pdb.agg_fn('pdb.agg'::text)) DESC, test_text_agg.name DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
+               Output: name, pdb.agg_fn('pdb.agg'::text)
+               Index: test_text_agg_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+                 Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"name"}})
+                 Group By: name
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"name","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
+(13 rows)
+
+SELECT
+    name AS value,
+    pdb.agg('{"value_count": {"field": "name"}}') AS count
+FROM test_text_agg
+WHERE id @@@ paradedb.all()
+GROUP BY name
+ORDER BY 2 DESC, name DESC
+LIMIT 5;
+    value    |     count      
 -------------+----------------
  language_99 | {"value": 1.0}
  language_98 | {"value": 1.0}
@@ -74,6 +124,7 @@ LIMIT 5;
 -- TEST 3: Histogram + value_count sub-aggregation on text field
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{
     "histogram": {"field": "score", "interval": 25},
     "aggs": {
@@ -82,7 +133,25 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
-                                                                                                                                       agg
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: test_text_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"name_count":{"value_count":{"field":"name"}}},"histogram":{"field":"score","interval":25}})
+     Aggregate Definition: {"0":{"aggs":{"name_count":{"value_count":{"field":"name","missing":null}}},"histogram":{"extended_bounds":null,"field":"score","hard_bounds":null,"interval":25.0,"is_normalized_to_ns":false,"keyed":false,"min_doc_count":null,"offset":null}}}
+(6 rows)
+
+SELECT pdb.agg('{
+    "histogram": {"field": "score", "interval": 25},
+    "aggs": {
+        "name_count": {"value_count": {"field": "name"}}
+    }
+}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
+                                                                                                                                       agg                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"key": 0.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 25.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 50.0, "doc_count": 125, "name_count": {"value": 125.0}}, {"key": 75.0, "doc_count": 125, "name_count": {"value": 125.0}}]}
 (1 row)
@@ -91,6 +160,7 @@ WHERE id @@@ paradedb.all();
 -- TEST 4: Range + value_count sub-aggregation on text field
 -- This was failing in v0.21.2 with "unexpected type Str"
 -- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{
     "range": {"field": "score", "ranges": [{"to": 50}, {"from": 50}]},
     "aggs": {
@@ -99,7 +169,25 @@ SELECT pdb.agg('{
 }')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
-                                                                                      agg
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: test_text_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"aggs":{"name_count":{"value_count":{"field":"name"}}},"range":{"field":"score","ranges":[{"to":50},{"from":50}]}})
+     Aggregate Definition: {"0":{"aggs":{"name_count":{"value_count":{"field":"name","missing":null}}},"range":{"field":"score","keyed":false,"ranges":[{"to":50.0},{"from":50.0}]}}}
+(6 rows)
+
+SELECT pdb.agg('{
+    "range": {"field": "score", "ranges": [{"to": 50}, {"from": 50}]},
+    "aggs": {
+        "name_count": {"value_count": {"field": "name"}}
+    }
+}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
+                                                                                      agg                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  {"buckets": [{"to": 50.0, "key": "*-50", "doc_count": 250, "name_count": {"value": 250.0}}, {"key": "50-*", "from": 50.0, "doc_count": 250, "name_count": {"value": 250.0}}]}
 (1 row)
@@ -108,10 +196,24 @@ WHERE id @@@ paradedb.all();
 -- TEST 5: Simple value_count on text field (top-level, no bucket parent)
 -- This worked in v0.21.2 and should continue to work
 -- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"value_count": {"field": "name"}}')
 FROM test_text_agg
 WHERE id @@@ paradedb.all();
-       agg
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.test_text_agg
+   Output: pdb.agg_fn('pdb.agg'::text)
+   Index: test_text_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"name"}})
+     Aggregate Definition: {"0":{"value_count":{"field":"name","missing":null}}}
+(6 rows)
+
+SELECT pdb.agg('{"value_count": {"field": "name"}}')
+FROM test_text_agg
+WHERE id @@@ paradedb.all();
+       agg        
 ------------------
  {"value": 500.0}
 (1 row)

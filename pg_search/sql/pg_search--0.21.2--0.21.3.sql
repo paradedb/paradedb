@@ -1,4 +1,4 @@
-DROP TYPE pdb.icu;
+DROP TYPE IF EXISTS pdb.icu CASCADE;
 CREATE TYPE pdb.icu;
 CREATE OR REPLACE FUNCTION pdb.icu_in(cstring) RETURNS pdb.icu AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
 CREATE OR REPLACE FUNCTION pdb.icu_out(pdb.icu) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1768930179724,
+  "lastUpdate": 1768930911029,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -51740,6 +51740,60 @@ window.BENCHMARK_DATA = {
             "value": 14.777213850949103,
             "unit": "median tps",
             "extra": "avg tps: 14.82885919461513, max tps: 19.28017765218413, count: 55435"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a2f3fa0d8701d6aa18501738abcf33088bb8e40",
+          "message": "fix: Aliased JSON fields index correctly (#3947)\n\n# Ticket(s) Closed\n\n- Closes #3944 \n\n## What\n\nFixes an issue where the \"inner typoid\" of a JSON field cast to a\ntokenizer was not being pulled out, causing JSON aliased fields to get\nincorrectly indexed as text.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-01-20T11:44:57-05:00",
+          "tree_id": "89f373f01470b83a5cadaa831cc9d724b1b75eef",
+          "url": "https://github.com/paradedb/paradedb/commit/2a2f3fa0d8701d6aa18501738abcf33088bb8e40"
+        },
+        "date": 1768930907760,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.14047312901314,
+            "unit": "median tps",
+            "extra": "avg tps: 32.80031775640285, max tps: 34.6680181258571, count: 55469"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 237.41371338907265,
+            "unit": "median tps",
+            "extra": "avg tps: 260.339949999124, max tps: 2788.4855783694243, count: 55469"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1963.7795421288743,
+            "unit": "median tps",
+            "extra": "avg tps: 1948.9942048096555, max tps: 2285.8527986668514, count: 55469"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.72421733554444,
+            "unit": "median tps",
+            "extra": "avg tps: 199.99958687856744, max tps: 1788.336778746068, count: 110938"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.514473069882994,
+            "unit": "median tps",
+            "extra": "avg tps: 15.404743936190025, max tps: 20.826901291984328, count: 55469"
           }
         ]
       }

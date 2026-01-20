@@ -76,6 +76,14 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
             }
         }
+        DataType::UInt32 => {
+            let arr = array.as_primitive::<arrow_array::types::UInt32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => pgrx::pg_sys::Oid::from(val).into_datum(),
+                _ => return Err(format!("Unsupported OID for UInt32 Arrow type: {oid:?}")),
+            }
+        }
         DataType::Int64 => {
             let arr = array.as_primitive::<arrow_array::types::Int64Type>();
             let val = arr.value(index);
@@ -99,6 +107,15 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Float32 => {
+            let arr = array.as_primitive::<arrow_array::types::Float32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                _ => return Err(format!("Unsupported OID for Float32 Arrow type: {oid:?}")),
             }
         }
         DataType::Boolean => {

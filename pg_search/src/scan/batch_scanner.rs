@@ -22,8 +22,9 @@ use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder, TimestampNanosecondBuilder,
     UInt64Builder,
 };
-use arrow_array::ArrayRef;
+use arrow_array::{ArrayRef, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
+use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, SegmentOrdinal};
@@ -80,11 +81,31 @@ pub struct Batch {
     pub fields: Vec<Option<ArrayRef>>,
 }
 
+impl Batch {
+    /// Convert the batch to an Arrow `RecordBatch`.
+    #[allow(dead_code)]
+    pub fn to_record_batch(&self, schema: &SchemaRef) -> RecordBatch {
+        let columns: Vec<ArrayRef> = self
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, field)| {
+                field.clone().unwrap_or_else(|| {
+                    let data_type = schema.field(i).data_type();
+                    arrow_array::new_null_array(data_type, self.ids.len())
+                })
+            })
+            .collect();
+        RecordBatch::try_new(schema.clone(), columns).expect("Failed to create RecordBatch")
+    }
+}
+
 /// A scanner that iterates over search results in batches, fetching fast fields.
 pub struct Scanner {
     search_results: MultiSegmentSearchResults,
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
+    table_oid: u32,
 }
 
 impl Scanner {
@@ -96,6 +117,7 @@ impl Scanner {
         search_results: MultiSegmentSearchResults,
         batch_size_hint: Option<usize>,
         which_fast_fields: Vec<WhichFastField>,
+        table_oid: u32,
     ) -> Self {
         let batch_size = batch_size_hint
             .unwrap_or(MAX_BATCH_SIZE)
@@ -104,7 +126,33 @@ impl Scanner {
             search_results,
             batch_size,
             which_fast_fields,
+            table_oid,
         }
+    }
+
+    /// Returns the Arrow schema for this scanner.
+    #[allow(dead_code)]
+    pub fn schema(&self) -> SchemaRef {
+        let fields: Vec<Field> = self
+            .which_fast_fields
+            .iter()
+            .map(|wff| {
+                let data_type = match wff {
+                    WhichFastField::Ctid => DataType::UInt64,
+                    WhichFastField::TableOid => DataType::UInt32,
+                    WhichFastField::Score => DataType::Float32,
+                    WhichFastField::Named(_, ff_type) => match ff_type {
+                        crate::index::fast_fields_helper::FastFieldType::String => {
+                            DataType::Utf8View
+                        }
+                        crate::index::fast_fields_helper::FastFieldType::Numeric => DataType::Int64,
+                    },
+                    WhichFastField::Junk(_) => DataType::Null,
+                };
+                Field::new(wff.name(), data_type, true)
+            })
+            .collect();
+        Arc::new(Schema::new(fields))
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
@@ -142,7 +190,7 @@ impl Scanner {
     pub fn next(
         &mut self,
         ffhelper: &mut FFHelper,
-        visibility: &mut impl VisibilityChecker,
+        visibility: &mut (impl VisibilityChecker + ?Sized),
     ) -> Option<Batch> {
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
@@ -181,8 +229,22 @@ impl Scanner {
             .which_fast_fields
             .iter()
             .enumerate()
-            .map(
-                |(ff_index, _)| match ffhelper.column(segment_ord, ff_index) {
+            .map(|(ff_index, which_ff)| match which_ff {
+                WhichFastField::Ctid => {
+                    Some(Arc::new(UInt64Array::from(ctids.clone())) as ArrayRef)
+                }
+                WhichFastField::Score => {
+                    Some(Arc::new(Float32Array::from(scores.clone())) as ArrayRef)
+                }
+                WhichFastField::TableOid => {
+                    let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());
+                    for _ in 0..ids.len() {
+                        builder.append_value(self.table_oid);
+                    }
+                    Some(Arc::new(builder.finish()) as ArrayRef)
+                }
+                WhichFastField::Junk(_) => None,
+                WhichFastField::Named(_, _) => match ffhelper.column(segment_ord, ff_index) {
                     FFType::Text(str_column) => {
                         // Get the term ordinals.
                         let mut term_ords = Vec::with_capacity(ids.len());
@@ -204,7 +266,7 @@ impl Scanner {
                         Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
                     )),
                 },
-            )
+            })
             .collect();
 
         Some(Batch {

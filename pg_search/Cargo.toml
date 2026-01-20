@@ -25,9 +25,9 @@ debug-logging = [
 [dependencies]
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-arrow-array = "55.2.0"
-arrow-buffer = "55.2.0"
-arrow-schema = "55.2.0"
+arrow-array = "57.2.0"
+arrow-buffer = "57.2.0"
+arrow-schema = "57.2.0"
 bitpacking = "0.9.2"
 chrono = "0.4.42"
 time = "0.3.44"
@@ -71,6 +71,12 @@ half = "2.7.1"
 bytemuck = { version = "1.24.0", features = ["derive", "min_const_generics"] }
 paste = "1.0.15"
 typetag = "0.2"
+tokio = { version = "1", features = ["rt"] }
+datafusion-common = { version = "52.0.0", default-features = false }
+datafusion-execution = { version = "52.0.0", default-features = false }
+datafusion-physical-expr = { version = "52.0.0", default-features = false }
+datafusion-physical-plan = { version = "52.0.0", default-features = false }
+futures = "0.3"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

@@ -119,7 +119,6 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.fuzzy;
         "#,
         name = "FuzzyType_shell",

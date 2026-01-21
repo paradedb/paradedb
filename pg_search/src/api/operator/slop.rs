@@ -119,7 +119,6 @@ mod typedef {
 
     extension_sql!(
         r#"
-            CREATE SCHEMA IF NOT EXISTS pdb;
             CREATE TYPE pdb.slop;
         "#,
         name = "SlopType_shell",

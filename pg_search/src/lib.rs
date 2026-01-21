@@ -51,8 +51,29 @@ pgrx::pg_module_magic!();
 
 extension_sql!(
     r#"
-        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
-        GRANT ALL ON SCHEMA pdb TO PUBLIC;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='paradedb') THEN
+    EXECUTE 'GRANT ALL ON SCHEMA paradedb TO PUBLIC';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname='pdb') THEN
+    -- schema privileges
+    EXECUTE 'GRANT USAGE, CREATE ON SCHEMA pdb TO PUBLIC';
+
+    -- existing objects
+    EXECUTE 'GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA pdb TO PUBLIC';
+    EXECUTE 'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA pdb TO PUBLIC';
+    EXECUTE 'GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA pdb TO PUBLIC';
+    EXECUTE 'GRANT USAGE          ON ALL TYPES     IN SCHEMA pdb TO PUBLIC';
+
+    -- future objects (defaults are per creator role; extension objects are typically created by postgres)
+    EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pdb GRANT ALL PRIVILEGES ON TABLES TO PUBLIC';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pdb GRANT ALL PRIVILEGES ON SEQUENCES TO PUBLIC';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pdb GRANT ALL PRIVILEGES ON FUNCTIONS TO PUBLIC';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA pdb GRANT USAGE ON TYPES TO PUBLIC';
+    END IF;
+END $$;
     "#,
     name = "paradedb_grant_all",
     finalize

@@ -30,8 +30,9 @@ use super::explain::format_expr_for_explain;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::{expr_collect_rtis, expr_contains_any_operator};
+use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
@@ -107,10 +108,23 @@ pub(super) unsafe fn extract_join_level_conditions(
             }
         } else if other_cond_set.contains(&(ri as usize)) {
             // This is a top-level heap condition (cross-relation, no search operator)
+            // Only accept if all referenced columns are fast fields
+            if !all_vars_are_fast_fields(
+                clause.cast(),
+                outer_rti,
+                inner_rti,
+                outer_side,
+                inner_side,
+            ) {
+                return Err(format!(
+                    "Multi-table predicate '{}' references non-fast-field columns",
+                    format_expr_for_explain(clause.cast())
+                ));
+            }
             // Create a MultiTablePredicate leaf node
             let description = format_expr_for_explain(clause.cast());
-            let predicate_idx =
-                join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+            let predicate_idx = join_clause
+                .add_multi_table_predicate(description, multi_table_predicate_clauses.len());
             multi_table_predicate_clauses.push(clause);
             expr_trees.push(JoinLevelExpr::MultiTablePredicate { predicate_idx });
         }
@@ -181,7 +195,17 @@ pub(super) unsafe fn transform_to_search_expr(
     }
 
     // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
+    // but only if all referenced columns are fast fields
     if !has_search_op && refs_outer && refs_inner {
+        // Check if all columns are fast fields - if not, we can't handle this predicate
+        if !all_vars_are_fast_fields(node, outer_rti, inner_rti, outer_side, inner_side) {
+            pgrx::debug1!(
+                "JoinScan: multi-table predicate '{}' references non-fast-field columns, rejecting",
+                format_expr_for_explain(node)
+            );
+            return None;
+        }
+
         // Create a MultiTablePredicate and store the clause pointer for custom_exprs
         let description = format_expr_for_explain(node);
         let predicate_idx =
@@ -324,4 +348,70 @@ pub(super) unsafe fn extract_single_table_predicate(
     let query = SearchQueryInput::from(&qual);
     let idx = join_clause.add_join_level_predicate(indexrelid, heaprelid, query);
     Some(idx)
+}
+
+/// Check if all Var references in an expression are fast fields.
+///
+/// Returns true if every column referenced in the expression is available as a fast field
+/// in its respective relation's BM25 index. Returns false if any column is not a fast field
+/// or if the relation doesn't have a BM25 index.
+unsafe fn all_vars_are_fast_fields(
+    node: *mut pg_sys::Node,
+    outer_rti: pg_sys::Index,
+    inner_rti: pg_sys::Index,
+    outer_side: &JoinSideInfo,
+    inner_side: &JoinSideInfo,
+) -> bool {
+    let vars = expr_collect_vars(node);
+
+    for var_ref in vars {
+        // Determine which side this var belongs to
+        let side = if var_ref.rti == outer_rti {
+            outer_side
+        } else if var_ref.rti == inner_rti {
+            inner_side
+        } else {
+            // Unknown RTI - can't verify
+            return false;
+        };
+
+        // Check if this column is a fast field
+        if !is_column_fast_field(side, var_ref.attno) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check if a specific column is available as a fast field in the relation's BM25 index.
+unsafe fn is_column_fast_field(side: &JoinSideInfo, attno: pg_sys::AttrNumber) -> bool {
+    // Need both heap and index relations
+    let Some(heaprelid) = side.heaprelid else {
+        return false;
+    };
+    let Some(indexrelid) = side.indexrelid else {
+        return false;
+    };
+
+    // Open relations to check schema
+    let heaprel = PgSearchRelation::open(heaprelid);
+    let indexrel = PgSearchRelation::open(indexrelid);
+
+    // Get tuple descriptor and attribute name
+    let tupdesc = heaprel.tuple_desc();
+    let Some(att) = tupdesc.get((attno - 1) as usize) else {
+        return false;
+    };
+    let att_name = att.name();
+
+    // Check if this field is marked as fast in the index schema
+    let Ok(schema) = indexrel.schema() else {
+        return false;
+    };
+    let Some(search_field) = schema.search_field(att_name) else {
+        return false;
+    };
+
+    search_field.is_fast()
 }

@@ -21,7 +21,7 @@
 //! in PostgreSQL's EXPLAIN output, including expression tree formatting
 //! and column name resolution.
 
-use super::build::{MultiTablePredicateInfo, JoinLevelExpr, JoinLevelSearchPredicate, JoinSide};
+use super::build::{JoinLevelExpr, JoinLevelSearchPredicate, JoinSide, MultiTablePredicateInfo};
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;

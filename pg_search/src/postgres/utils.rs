@@ -906,6 +906,50 @@ pub unsafe fn expr_collect_rtis(
     rtis
 }
 
+/// A Var reference with its range table index and attribute number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VarRef {
+    /// Range table index (varno)
+    pub rti: pg_sys::Index,
+    /// Attribute number (varattno), 1-indexed
+    pub attno: pg_sys::AttrNumber,
+}
+
+/// Collects all unique Var references (RTI + attribute number) from an expression tree.
+/// Returns a Vec of VarRef structs for each column referenced by the expression.
+pub unsafe fn expr_collect_vars(node: *mut pg_sys::Node) -> Vec<VarRef> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let vars = &mut *(data as *mut Vec<VarRef>);
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR and system columns (attno <= 0)
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index && varattno > 0 {
+                vars.push(VarRef {
+                    rti: varno,
+                    attno: varattno,
+                });
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut vars = Vec::new();
+    walker(node, addr_of_mut!(vars).cast());
+    vars
+}
+
 /// Look up a function in the pdb schema by name and argument types.
 /// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation).
 pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys::Oid {

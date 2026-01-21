@@ -42,10 +42,11 @@
 //! 5. **Base relations**: Each side of the join must be a single base relation
 //!    - Join trees (e.g., `(A JOIN B) JOIN C`) on one side are not yet supported
 //!
-//! 6. **No multi-table predicates**: Conditions that reference columns from both
-//!    tables (e.g., `a.price > b.min_price`) are not supported
-//!    - These require heap access which defeats the fast-field optimization
-//!    - Equi-join keys (e.g., `a.id = b.id`) are supported as they're used for hash join
+//! 6. **Fast-field multi-table predicates**: Conditions that reference columns from both
+//!    tables (e.g., `a.price > b.min_price`) are supported only if ALL referenced columns
+//!    are fast fields in their respective BM25 indexes
+//!    - If any column is not a fast field, the query falls back to PostgreSQL
+//!    - Equi-join keys (e.g., `a.id = b.id`) are used for hash join and don't require fast fields
 //!
 //! 7. **Join conditions**: For non-equijoin conditions, there must also be at least
 //!    one equi-join key - pure cross-joins fall back to PostgreSQL
@@ -73,12 +74,15 @@
 //! WHERE p.description @@@ 'wireless'
 //! LIMIT 10;
 //!
-//! -- JoinScan is NOT proposed (multi-table predicate p.price > s.min_price)
+//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
 //! SELECT p.name, s.name
 //! FROM products p
 //! JOIN suppliers s ON p.supplier_id = s.id
 //! WHERE p.description @@@ 'wireless' AND p.price > s.min_price
 //! LIMIT 10;
+//!
+//! -- JoinScan is NOT proposed if price is NOT a fast field
+//! -- (falls back to PostgreSQL's native join)
 //! ```
 //!
 //! # Architecture
@@ -273,21 +277,22 @@ impl CustomScan for JoinScan {
             // - MultiTablePredicate nodes: PostgreSQL expressions
             // Returns the updated join_clause and a list of heap condition clause pointers
             let multi_table_predicate_clauses: Vec<*mut pg_sys::Expr>;
-            let (mut join_clause, multi_table_predicate_clauses) = match extract_join_level_conditions(
-                root,
-                extra,
-                &outer_side,
-                &inner_side,
-                &join_conditions.other_conditions,
-                join_clause,
-            ) {
-                Ok(result) => result,
-                Err(err) => {
-                    // Log the error for debugging - JoinScan won't be proposed for this query
-                    pgrx::debug1!("JoinScan: failed to extract join-level conditions: {}", err);
-                    return None;
-                }
-            };
+            let (mut join_clause, multi_table_predicate_clauses) =
+                match extract_join_level_conditions(
+                    root,
+                    extra,
+                    &outer_side,
+                    &inner_side,
+                    &join_conditions.other_conditions,
+                    join_clause,
+                ) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        // Log the error for debugging - JoinScan won't be proposed for this query
+                        pgrx::debug1!("JoinScan: failed to extract join-level conditions: {}", err);
+                        return None;
+                    }
+                };
 
             // Check if this is a valid join for JoinScan
             // We need at least one side with a BM25 index AND a search predicate,
@@ -301,17 +306,10 @@ impl CustomScan for JoinScan {
                 return None;
             }
 
-            // Reject joins with multi-table predicates (conditions like `a.price > b.price`).
-            // These require heap access to evaluate and cannot be executed via fast fields.
-            // In the future, DataFusion integration may support these via late materialization.
-            if !join_clause.multi_table_predicates.is_empty() {
-                pgrx::debug1!(
-                    "JoinScan: rejecting query with {} multi-table predicate(s) - \
-                     cannot evaluate cross-table conditions without heap access",
-                    join_clause.multi_table_predicates.len()
-                );
-                return None;
-            }
+            // Note: Multi-table predicates (conditions like `a.price > b.price`) are allowed
+            // only if all referenced columns are fast fields. The check happens during
+            // predicate extraction in predicate.rs - if any column is not a fast field,
+            // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Get the cheapest total paths from outer and inner relations
             // These are needed so PostgreSQL can resolve Vars in custom_scan_tlist

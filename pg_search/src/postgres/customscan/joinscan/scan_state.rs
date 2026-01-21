@@ -157,7 +157,8 @@ impl JoinLevelExpr {
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 // Evaluate the PostgreSQL expression
-                if let Some(&expr_state) = eval_ctx.multi_table_predicate_states.get(*predicate_idx) {
+                if let Some(&expr_state) = eval_ctx.multi_table_predicate_states.get(*predicate_idx)
+                {
                     if !expr_state.is_null() && !eval_ctx.econtext.is_null() {
                         // ExecQual returns true if the expression evaluates to true
                         return pg_sys::ExecQual(expr_state, eval_ctx.econtext);

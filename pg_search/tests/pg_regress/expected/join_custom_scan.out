@@ -2314,34 +2314,31 @@ WHERE hp.description @@@ 'wireless';
 (1 row)
 
 -- =============================================================================
--- TEST 27: Unified expression tree - search predicate OR cross-relation condition
+-- TEST 27: Multi-table predicates with fast fields
 -- =============================================================================
--- This test demonstrates the need for a unified expression tree where
--- join_level_expr can reference BOTH search predicates (evaluated via Tantivy)
--- AND cross-relation conditions (evaluated via PostgreSQL).
+-- This test demonstrates JoinScan handling multi-table predicates (conditions
+-- that reference columns from both tables) when ALL referenced columns are
+-- fast fields in their respective BM25 indexes.
 --
--- Current architecture limitation:
--- - join_level_predicates: Vec<JoinLevelSearchPredicate> - Tantivy queries
--- - has_other_join_conditions: bool + custom_exprs - PostgreSQL conditions
--- - These are evaluated separately and implicitly ANDed
---
--- Desired architecture:
--- - join_level_predicates: Vec<JoinLevelSearchPredicate> - Tantivy queries
--- - other_join_conditions: Vec<SerializedExpr> - PostgreSQL conditions
--- - join_level_expr can reference EITHER via:
---   * Predicate { side, predicate_idx } -> join_level_predicates[idx]
---   * OtherCondition { idx } -> other_join_conditions[idx]
---
--- This allows OR combinations like:
---   OR(Predicate(search), OtherCondition(price_check))
+-- Multi-table predicates like `p.price >= s.min_order_value` are supported
+-- when both `price` and `min_order_value` are indexed as fast fields.
+-- If any column is NOT a fast field, JoinScan will not be proposed.
 -- Add min_order_value to suppliers for cross-relation comparison
 ALTER TABLE suppliers ADD COLUMN min_order_value DECIMAL(10,2) DEFAULT 0;
 UPDATE suppliers SET min_order_value = 50.00 WHERE id = 151;  -- TechCorp
 UPDATE suppliers SET min_order_value = 15.00 WHERE id = 152;  -- GlobalSupply
 UPDATE suppliers SET min_order_value = 30.00 WHERE id = 153;  -- FastParts
 UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
--- Test case: Search predicate AND cross-relation condition (current architecture handles this)
+-- Recreate indexes with price and min_order_value as fast fields
+DROP INDEX IF EXISTS products_bm25_idx;
+DROP INDEX IF EXISTS suppliers_bm25_idx;
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, price)
+WITH (key_field = 'id', numeric_fields = '{"price": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country, min_order_value)
+WITH (key_field = 'id', numeric_fields = '{"min_order_value": {"fast": true}}');
+-- Test case: Search predicate AND multi-table predicate (both columns are fast fields)
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
+-- JoinScan SHOULD be proposed because price and min_order_value are fast fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2349,26 +2346,22 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Hash Join
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Hash Cond: (s.id = p.supplier_id)
-         Join Filter: (p.price >= s.min_order_value)
-         ->  Seq Scan on public.suppliers s
-               Output: s.name, s.min_order_value, s.id
-         ->  Hash
-               Output: p.id, p.name, p.price, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
-                     Output: p.id, p.name, p.price, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+         Join Type: Inner
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
+         Heap Conditions: 1
+         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Limit: 10
+         Algorithm Hint: Auto
+(13 rows)
 
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2383,10 +2376,9 @@ LIMIT 10;
  207 | Mouse Pad  |  29.99 | GlobalSupply |           15.00
 (2 rows)
 
--- Test case: Search predicate OR cross-relation condition (unified expression tree)
+-- Test case: Search predicate OR multi-table predicate (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
--- This demonstrates the unified expression tree where JoinScan can handle OR between
--- a Tantivy search predicate and a cross-relation heap condition.
+-- JoinScan SHOULD be proposed because all columns in the multi-table predicate are fast fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2394,22 +2386,21 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Hash Join
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Inner Unique: true
-         Hash Cond: (p.supplier_id = s.id)
-         Join Filter: ((p.id @@@ '{"with_index":{"oid":513996,"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (p.price >= s.min_order_value))
-         ->  Seq Scan on public.products p
-               Output: p.id, p.name, p.description, p.supplier_id, p.price, p.category_id
-         ->  Hash
-               Output: s.name, s.min_order_value, s.id
-               ->  Seq Scan on public.suppliers s
-                     Output: s.name, s.min_order_value, s.id
-(13 rows)
+         Join Type: Inner
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
+         Heap Conditions: 1
+         Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
+         Limit: 10
+         Algorithm Hint: Auto
+(12 rows)
 
 -- Verify correct results
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
@@ -2428,6 +2419,37 @@ LIMIT 10;
  207 | Mouse Pad       |  29.99 | GlobalSupply |           15.00
  208 | Cable Organizer |  14.99 | FastParts    |           30.00
 (6 rows)
+
+-- Test case: Multi-table predicate with NON-fast-field column
+-- This should NOT use JoinScan because supplier_id is not a fast field
+-- (demonstrating the rejection of non-fast-field multi-table predicates)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name as supplier
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND p.supplier_id > s.id  -- supplier_id is NOT a fast field
+LIMIT 10;
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Hash Join
+         Output: p.id, p.name, s.name
+         Hash Cond: (s.id = p.supplier_id)
+         Join Filter: (p.supplier_id > s.id)
+         ->  Seq Scan on public.suppliers s
+               Output: s.name, s.id
+         ->  Hash
+               Output: p.id, p.name, p.supplier_id
+               ->  Custom Scan (ParadeDB Scan) on public.products p
+                     Output: p.id, p.name, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- =============================================================================
 -- CLEANUP

@@ -322,7 +322,11 @@ impl JoinCSClause {
     }
 
     /// Add a heap condition and return its index.
-    pub fn add_multi_table_predicate(&mut self, description: String, restrictinfo_index: usize) -> usize {
+    pub fn add_multi_table_predicate(
+        &mut self,
+        description: String,
+        restrictinfo_index: usize,
+    ) -> usize {
         let idx = self.multi_table_predicates.len();
         self.multi_table_predicates.push(MultiTablePredicateInfo {
             description,

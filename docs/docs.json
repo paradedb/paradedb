@@ -170,6 +170,7 @@
                       }
                     ]
                   },
+                  "welcome/ai-agents",
                   "welcome/support"
                 ]
               }
@@ -214,6 +215,16 @@
                     "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
                   }
                 ]
+              }
+            ]
+          },
+          {
+            "anchor": "AI Agents",
+            "icon": "robot",
+            "groups": [
+              {
+                "group": "AI Agents",
+                "pages": ["welcome/ai-agents"]
               }
             ]
           },

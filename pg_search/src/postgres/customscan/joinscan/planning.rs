@@ -309,18 +309,21 @@ pub(super) unsafe fn estimate_joinscan_cost(
         (inner_rows, outer_rows)
     };
 
-    // If driving side has a search predicate, assume selectivity reduces rows
-    // This is a rough estimate - ideally we'd get stats from Tantivy
+    // TODO(cost-model): The 0.1 selectivity is a rough placeholder. To improve:
+    // 1. Query Tantivy for estimated document frequency of the search terms
+    // 2. Use PostgreSQL's extended statistics if available
+    // 3. Track actual selectivity across queries and use adaptive estimates
+    // 4. Consider query complexity (AND/OR structure affects selectivity)
     let driving_selectivity = if join_clause.driving_side().has_search_predicate {
-        0.1 // Assume search predicate selects ~10% of rows
+        0.1 // Placeholder: assume search predicate selects ~10% of rows
     } else {
         1.0
     };
     let estimated_driving_rows = (driving_rows * driving_selectivity).max(1.0);
 
-    // If build side has a search predicate, reduce build side estimate too
+    // Same placeholder selectivity for build side
     let build_selectivity = if join_clause.build_side().has_search_predicate {
-        0.1
+        0.1 // Placeholder: assume search predicate selects ~10% of rows
     } else {
         1.0
     };
@@ -333,7 +336,6 @@ pub(super) unsafe fn estimate_joinscan_cost(
     };
 
     // Cost components using PostgreSQL's cost constants
-    let seq_page_cost = pg_sys::seq_page_cost;
     let cpu_tuple_cost = pg_sys::cpu_tuple_cost;
     let cpu_operator_cost = pg_sys::cpu_operator_cost;
 
@@ -367,9 +369,6 @@ pub(super) unsafe fn estimate_joinscan_cost(
     let run_cost = driving_rows_to_process * per_driving_tuple_cost;
 
     let total_cost = startup_cost + run_cost;
-
-    // Suppress unused variable warning - seq_page_cost is available for future use
-    let _ = seq_page_cost;
 
     (startup_cost, total_cost, result_rows, estimated_build_rows)
 }

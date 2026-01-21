@@ -280,6 +280,90 @@ pub(super) fn compute_execution_hints(_limit: Option<usize>) -> ExecutionHints {
     ExecutionHints::new().with_algorithm(JoinAlgorithmHint::Auto)
 }
 
+/// Check if all ORDER BY columns are fast fields.
+///
+/// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
+/// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
+///
+/// Returns true if:
+/// - No ORDER BY clause exists
+/// - All ORDER BY columns are fast fields or score functions
+///
+/// Returns false if any ORDER BY column is not a fast field.
+pub(super) unsafe fn order_by_columns_are_fast_fields(
+    root: *mut pg_sys::PlannerInfo,
+    outer_side: &JoinSideInfo,
+    inner_side: &JoinSideInfo,
+) -> bool {
+    use super::predicate::is_column_fast_field;
+
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return true; // No ORDER BY, nothing to check
+    }
+
+    let outer_rti = outer_side.heap_rti.unwrap_or(0);
+    let inner_rti = inner_side.heap_rti.unwrap_or(0);
+
+    for pathkey_ptr in pathkeys.iter_ptr() {
+        let equivclass = (*pathkey_ptr).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+        // Check each member of the equivalence class
+        for member in members.iter_ptr() {
+            let expr = (*member).em_expr;
+
+            // Skip if this is a score function (handled separately)
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                if !phv.is_null() && !(*phv).phexpr.is_null() {
+                    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+                        if is_score_func(funcexpr.cast(), outer_rti)
+                            || is_score_func(funcexpr.cast(), inner_rti)
+                        {
+                            continue; // Score function, skip fast field check
+                        }
+                    }
+                }
+            }
+            if is_score_func(expr.cast(), outer_rti) || is_score_func(expr.cast(), inner_rti) {
+                continue; // Score function, skip fast field check
+            }
+
+            // Check if this is a Var (column reference)
+            if let Some(var) = nodecast!(Var, T_Var, expr) {
+                let varno = (*var).varno as pg_sys::Index;
+                let varattno = (*var).varattno;
+
+                // Determine which side this column belongs to
+                let side = if varno == outer_rti {
+                    outer_side
+                } else if varno == inner_rti {
+                    inner_side
+                } else {
+                    // Unknown relation - can't verify, reject
+                    pgrx::debug1!(
+                        "JoinScan: ORDER BY column (varno={}) not from join sides, rejecting",
+                        varno
+                    );
+                    return false;
+                };
+
+                // Check if the column is a fast field
+                if !is_column_fast_field(side, varattno) {
+                    pgrx::debug1!(
+                        "JoinScan: ORDER BY column (varno={}, attno={}) is not a fast field, rejecting",
+                        varno,
+                        varattno
+                    );
+                    return false;
+                }
+            }
+        }
+    }
+
+    true // All ORDER BY columns are fast fields
+}
+
 /// Extract ORDER BY score pathkey for the driving side.
 ///
 /// This checks if the query has an ORDER BY clause with paradedb.score()

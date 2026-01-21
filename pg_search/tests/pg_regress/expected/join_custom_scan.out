@@ -45,9 +45,9 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 29.99),
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 -- Create BM25 indexes on both tables
--- Note: JoinScan requires all join key columns to be fast fields
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id)
-WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+-- Note: JoinScan requires all join key columns and ORDER BY columns to be fast fields
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
 CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
 WITH (key_field = 'id');
 -- =============================================================================
@@ -857,7 +857,7 @@ LIMIT 3;
  207 | Mouse Pad      | GlobalSupply
 (2 rows)
 
--- LIMIT with ORDER BY on non-score column
+-- LIMIT with ORDER BY on fast field column (price is a fast field)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

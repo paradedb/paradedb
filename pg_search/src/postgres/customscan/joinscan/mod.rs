@@ -46,6 +46,7 @@
 //!    respective BM25 indexes:
 //!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for hash table lookup
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
+//!    - ORDER BY columns must be fast fields for efficient sorting
 //!    - If any required column is not a fast field, the query falls back to PostgreSQL
 //!
 //! 7. **Join conditions**: For non-equijoin conditions, there must also be at least
@@ -126,7 +127,8 @@ pub mod scan_state;
 use self::build::{JoinAlgorithmHint, JoinCSClause, JoinType};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::planning::{
-    compute_execution_hints, extract_join_conditions, extract_join_side_info, extract_score_pathkey,
+    compute_execution_hints, extract_join_conditions, extract_join_side_info,
+    extract_score_pathkey, order_by_columns_are_fast_fields,
 };
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
@@ -211,6 +213,12 @@ impl CustomScan for JoinScan {
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
             let has_non_equijoin_conditions = !join_conditions.other_conditions.is_empty();
             if !has_equi_join_keys && has_non_equijoin_conditions {
+                return None;
+            }
+
+            // Check if all ORDER BY columns are fast fields
+            // JoinScan requires fast field access for efficient sorting
+            if !order_by_columns_are_fast_fields(root, &outer_side, &inner_side) {
                 return None;
             }
 

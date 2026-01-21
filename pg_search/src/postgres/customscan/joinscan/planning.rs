@@ -398,13 +398,21 @@ pub(super) fn compute_execution_hints(
 }
 
 /// Determine preferred join algorithm based on build side size and limit.
-pub(super) fn determine_algorithm_hint(build_rows: f64, limit: Option<usize>) -> JoinAlgorithmHint {
-    // No limit with large build side: hash is better for full scans
-    if limit.is_none() && build_rows > 100.0 {
-        return JoinAlgorithmHint::PreferHash;
-    }
-
-    // Default: let executor decide based on runtime conditions
+///
+/// Note: Currently JoinScan requires a LIMIT clause, so the PreferHash hint
+/// is never returned. When non-LIMIT joins are supported (TODO(no-limit)),
+/// this function should be revisited to provide meaningful hints.
+pub(super) fn determine_algorithm_hint(
+    _build_rows: f64,
+    _limit: Option<usize>,
+) -> JoinAlgorithmHint {
+    // Currently always return Auto since:
+    // 1. JoinScan requires LIMIT, and
+    // 2. With LIMIT, hash join is almost always the best choice
+    //
+    // TODO(no-limit): When non-LIMIT joins are supported, consider:
+    // - PreferHash for large build sides without LIMIT (full table scans)
+    // - Other heuristics based on estimated selectivity
     JoinAlgorithmHint::Auto
 }
 

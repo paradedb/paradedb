@@ -125,7 +125,11 @@ impl From<pg_sys::JoinType::Type> for SerializableJoinType {
 ///
 /// Allows the planner to suggest which join algorithm the executor should use
 /// based on statistics available at planning time.
+///
+/// Note: Currently only Auto is used since JoinScan requires LIMIT.
+/// PreferHash is reserved for future non-LIMIT join support.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+#[allow(dead_code)]
 pub enum JoinAlgorithmHint {
     /// Let executor decide based on runtime conditions (default)
     #[default]

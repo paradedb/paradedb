@@ -495,7 +495,10 @@ impl CustomScan for JoinScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        // Transfer join clause and output column mapping to scan state
+        // Transfer join clause and output column mapping to scan state.
+        // Note: This clone happens once per query execution, not in a hot loop.
+        // The builder API doesn't expose mutable access to custom_private,
+        // so we can't use std::mem::take() here without changing the builder.
         builder.custom_state().join_clause = builder.custom_private().join_clause.clone();
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
         builder.build()
@@ -930,6 +933,9 @@ impl CustomScan for JoinScan {
                 return Self::exec_nested_loop(state);
             }
 
+            // Extract key info once before the loop to avoid repeated clones
+            let driving_key_info = state.custom_state().driving_key_info.clone();
+
             // Phase 2: Probe hash table with driving side search results
             loop {
                 // If we have pending matches, return one
@@ -990,7 +996,8 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().current_driving_score = driving_score;
 
                 // Extract join key from driving tuple
-                let join_key = Self::extract_driving_join_key(state, driving_ctid);
+                let join_key =
+                    Self::extract_driving_join_key(state, driving_ctid, &driving_key_info);
                 let Some(key) = join_key else {
                     // Couldn't extract join key (tuple not visible), try next driving row
                     continue;
@@ -1162,6 +1169,11 @@ impl JoinScan {
             return std::ptr::null_mut();
         };
 
+        // Extract key info once before the loop to avoid repeated clones in the hot path.
+        // These are read-only during execution so we can safely clone them once here.
+        let driving_key_info = state.custom_state().driving_key_info.clone();
+        let build_key_info = state.custom_state().build_key_info.clone();
+
         loop {
             // Note: We don't check reached_limit() here because JoinScan might be nested
             // inside another join. PostgreSQL's Limit node handles limiting.
@@ -1227,8 +1239,11 @@ impl JoinScan {
                 pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
             }
 
-            // Get build_matching_ctids reference (if build side has a search predicate)
-            let build_matching_ctids = state.custom_state().build_matching_ctids.clone();
+            // Collect matching build rows for this driving row.
+            // We collect matches first to avoid borrow conflicts (need both immutable
+            // access to build_matching_ctids and mutable access to pending_build_ctids).
+            let mut matches: Vec<(u64, f32)> = Vec::new();
+            let driving_slot = state.custom_state().driving_fetch_slot;
 
             // Now scan the build side for this driving row
             while pg_sys::table_scan_getnextslot(
@@ -1240,19 +1255,15 @@ impl JoinScan {
 
                 // If build side has a search predicate, filter to only matching rows
                 // and get the BM25 score (if build side needs scores)
-                let build_score = if let Some(ref matching) = build_matching_ctids {
-                    match matching.get(&build_ctid) {
-                        Some(&score) => score,
-                        None => continue, // Skip rows that don't match the build side predicate
-                    }
-                } else {
-                    0.0 // No search predicate on build side
-                };
-
-                // For nested loop, we compare keys on the fly
-                let driving_key_info = state.custom_state().driving_key_info.clone();
-                let build_key_info = state.custom_state().build_key_info.clone();
-                let driving_slot = state.custom_state().driving_fetch_slot;
+                let build_score =
+                    if let Some(ref matching) = state.custom_state().build_matching_ctids {
+                        match matching.get(&build_ctid) {
+                            Some(&score) => score,
+                            None => continue, // Skip rows that don't match the build side predicate
+                        }
+                    } else {
+                        0.0 // No search predicate on build side
+                    };
 
                 // Extract keys and compare
                 if let Some(driving_slot) = driving_slot {
@@ -1267,13 +1278,17 @@ impl JoinScan {
                     };
 
                     if keys_match {
-                        // Add to pending matches with score
-                        state
-                            .custom_state_mut()
-                            .pending_build_ctids
-                            .push_back((build_ctid, build_score));
+                        matches.push((build_ctid, build_score));
                     }
                 }
+            }
+
+            // Add collected matches to pending queue
+            for (build_ctid, build_score) in matches {
+                state
+                    .custom_state_mut()
+                    .pending_build_ctids
+                    .push_back((build_ctid, build_score));
             }
 
             // Done with this driving row, clear it to get the next one
@@ -1283,14 +1298,19 @@ impl JoinScan {
 
     /// Extract the join key from the driving tuple.
     /// For cross joins (no equi-join keys), returns CompositeKey::CrossJoin.
+    ///
+    /// # Arguments
+    /// * `state` - The custom scan state
+    /// * `driving_ctid` - The ctid of the driving tuple
+    /// * `driving_key_info` - Key extraction info (passed to avoid repeated clones in hot paths)
     unsafe fn extract_driving_join_key(
         state: &mut CustomScanStateWrapper<Self>,
         driving_ctid: u64,
+        driving_key_info: &[JoinKeyInfo],
     ) -> Option<CompositeKey> {
         let driving_slot = state.custom_state().driving_fetch_slot?;
         let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
         let is_cross_join = state.custom_state().is_cross_join;
-        let driving_key_info = state.custom_state().driving_key_info.clone();
 
         // For cross joins, just return the cross join key
         if is_cross_join {
@@ -1311,7 +1331,7 @@ impl JoinScan {
 
         if uses_heap_scan {
             // Tuple already in slot from heap scan
-            extract_composite_key(driving_slot, &driving_key_info)
+            extract_composite_key(driving_slot, driving_key_info)
         } else {
             // Fetch tuple by ctid and verify visibility
             let vis_checker = state
@@ -1320,7 +1340,7 @@ impl JoinScan {
                 .as_mut()?;
 
             vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
-                extract_composite_key(driving_slot, &driving_key_info)
+                extract_composite_key(driving_slot, driving_key_info)
             })?
         }
     }

@@ -96,7 +96,6 @@ impl JoinSideInfo {
 /// Note: Currently only Inner join is supported, but other variants are
 /// defined for future extensibility and to match PostgreSQL's JoinType enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
-#[allow(dead_code)]
 pub enum SerializableJoinType {
     #[default]
     Inner,
@@ -129,7 +128,6 @@ impl From<pg_sys::JoinType::Type> for SerializableJoinType {
 /// Note: Currently only Auto is used since JoinScan requires LIMIT.
 /// PreferHash is reserved for future non-LIMIT join support.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
-#[allow(dead_code)]
 pub enum JoinAlgorithmHint {
     /// Let executor decide based on runtime conditions (default)
     #[default]

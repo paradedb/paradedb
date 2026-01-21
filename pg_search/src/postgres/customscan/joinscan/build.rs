@@ -115,7 +115,7 @@ impl From<pg_sys::JoinType::Type> for SerializableJoinType {
             pg_sys::JoinType::JOIN_RIGHT => SerializableJoinType::Right,
             pg_sys::JoinType::JOIN_SEMI => SerializableJoinType::Semi,
             pg_sys::JoinType::JOIN_ANTI => SerializableJoinType::Anti,
-            _ => SerializableJoinType::Inner, // fallback
+            other => panic!("JoinScan: unsupported join type {:?}", other),
         }
     }
 }

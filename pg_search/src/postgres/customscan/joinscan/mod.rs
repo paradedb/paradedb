@@ -123,6 +123,7 @@ use self::scan_state::{
     CompositeKey, InnerRow, JoinKeyInfo, JoinLevelEvalContext, JoinLevelExpr, JoinScanState,
     JoinSide, KeyValue,
 };
+use crate::api::HashMap;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
@@ -794,7 +795,7 @@ impl CustomScan for JoinScan {
 
                     if let Ok(reader) = search_reader {
                         // Store ctid -> score mapping (score is 0.0 if not needed)
-                        let mut build_ctids = std::collections::HashMap::new();
+                        let mut build_ctids = HashMap::default();
 
                         // Create a visibility checker to resolve stale ctids
                         let mut vis_checker = OwnedVisibilityChecker::new(&heaprel, snapshot);

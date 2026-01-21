@@ -206,7 +206,7 @@ pub struct JoinScanState {
     /// Map of build side ctids to their BM25 scores (if build side has a search predicate).
     /// When this is Some, only rows with ctids in this map should be included in the hash table.
     /// The score is stored so it can be used if paradedb.score() references the build side.
-    pub build_matching_ctids: Option<std::collections::HashMap<u64, f32>>,
+    pub build_matching_ctids: Option<HashMap<u64, f32>>,
 
     // === Hash join state ===
     /// The hash table built from the build side.

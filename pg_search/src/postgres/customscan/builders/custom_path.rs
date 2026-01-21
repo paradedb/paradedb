@@ -42,7 +42,7 @@ impl OrderByStyle {
             assert!(!pathkey.is_null());
             let nulls_first = (*pathkey).pk_nulls_first;
 
-            #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
             let is_asc = match (*pathkey).pk_strategy as u32 {
                 pg_sys::BTLessStrategyNumber => true,
                 pg_sys::BTGreaterStrategyNumber => false,

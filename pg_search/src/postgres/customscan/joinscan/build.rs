@@ -39,8 +39,6 @@ pub struct JoinSideInfo {
     /// The search query for this side (extracted from WHERE clause predicates).
     /// None if this side has no BM25 index or no search predicate.
     pub query: Option<SearchQueryInput>,
-    /// Whether this side has a valid BM25 index.
-    pub has_bm25_index: bool,
     /// Whether this side has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
@@ -68,8 +66,12 @@ impl JoinSideInfo {
 
     pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
         self.indexrelid = Some(oid);
-        self.has_bm25_index = true;
         self
+    }
+
+    /// Returns true if this side has a BM25 index.
+    pub fn has_bm25_index(&self) -> bool {
+        self.indexrelid.is_some()
     }
 
     pub fn with_query(mut self, query: SearchQueryInput) -> Self {
@@ -360,8 +362,8 @@ impl JoinCSClause {
 
     /// Returns true if at least one side has a BM25 index with a search predicate.
     pub fn has_driving_side(&self) -> bool {
-        (self.outer_side.has_bm25_index && self.outer_side.has_search_predicate)
-            || (self.inner_side.has_bm25_index && self.inner_side.has_search_predicate)
+        (self.outer_side.has_bm25_index() && self.outer_side.has_search_predicate)
+            || (self.inner_side.has_bm25_index() && self.inner_side.has_search_predicate)
     }
 
     /// Returns true if this is a valid join for M1 (Single Feature with LIMIT).

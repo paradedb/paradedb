@@ -195,8 +195,9 @@ impl CustomScan for JoinScan {
             // We need at least one side with a BM25 index AND a search predicate,
             // OR successfully extracted join-level predicates.
             // Note: Heap conditions alone don't justify using JoinScan (no search advantage).
-            let has_side_predicate = (outer_side.has_bm25_index && outer_side.has_search_predicate)
-                || (inner_side.has_bm25_index && inner_side.has_search_predicate);
+            let has_side_predicate = (outer_side.has_bm25_index()
+                && outer_side.has_search_predicate)
+                || (inner_side.has_bm25_index() && inner_side.has_search_predicate);
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {

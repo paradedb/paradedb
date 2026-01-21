@@ -42,11 +42,11 @@
 //! 5. **Base relations**: Each side of the join must be a single base relation
 //!    - Join trees (e.g., `(A JOIN B) JOIN C`) on one side are not yet supported
 //!
-//! 6. **Fast-field multi-table predicates**: Conditions that reference columns from both
-//!    tables (e.g., `a.price > b.min_price`) are supported only if ALL referenced columns
-//!    are fast fields in their respective BM25 indexes
-//!    - If any column is not a fast field, the query falls back to PostgreSQL
-//!    - Equi-join keys (e.g., `a.id = b.id`) are used for hash join and don't require fast fields
+//! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
+//!    respective BM25 indexes:
+//!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for hash table lookup
+//!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
+//!    - If any required column is not a fast field, the query falls back to PostgreSQL
 //!
 //! 7. **Join conditions**: For non-equijoin conditions, there must also be at least
 //!    one equi-join key - pure cross-joins fall back to PostgreSQL
@@ -128,7 +128,7 @@ use self::explain::{format_join_level_expr, get_attname_safe};
 use self::planning::{
     compute_execution_hints, extract_join_conditions, extract_join_side_info, extract_score_pathkey,
 };
-use self::predicate::extract_join_level_conditions;
+use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 use self::scan_state::{
     CompositeKey, InnerRow, JoinKeyInfo, JoinLevelEvalContext, JoinLevelExpr, JoinScanState,
@@ -261,7 +261,24 @@ impl CustomScan for JoinScan {
                 .with_limit(limit);
 
             // Add extracted equi-join keys with type info
+            // All equi-join key columns must be fast fields in their respective BM25 indexes
             for jk in join_conditions.equi_keys {
+                // Check if outer join key column is a fast field
+                if !is_column_fast_field(&outer_side, jk.outer_attno) {
+                    pgrx::debug1!(
+                        "JoinScan: outer equi-join key column (attno={}) is not a fast field, rejecting",
+                        jk.outer_attno
+                    );
+                    return None;
+                }
+                // Check if inner join key column is a fast field
+                if !is_column_fast_field(&inner_side, jk.inner_attno) {
+                    pgrx::debug1!(
+                        "JoinScan: inner equi-join key column (attno={}) is not a fast field, rejecting",
+                        jk.inner_attno
+                    );
+                    return None;
+                }
                 join_clause = join_clause.add_join_key(
                     jk.outer_attno,
                     jk.inner_attno,

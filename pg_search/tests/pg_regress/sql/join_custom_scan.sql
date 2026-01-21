@@ -54,8 +54,11 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 
 -- Create BM25 indexes on both tables
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description) WITH (key_field = 'id');
-CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country) WITH (key_field = 'id');
+-- Note: JoinScan requires all join key columns to be fast fields
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+WITH (key_field = 'id');
 
 -- =============================================================================
 -- TEST 1: JoinScan should NOT be proposed without LIMIT
@@ -541,7 +544,10 @@ INSERT INTO orders (id, customer_code, description, amount) VALUES
 (4, 'CUST-003', 'monitor stand', 49.99),
 (5, 'CUST-002', 'cable wireless charger', 19.99);
 
-CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: orders.customer_code must be a fast field for the join key
+CREATE INDEX orders_bm25_idx ON orders USING bm25 (id, description, customer_code)
+WITH (key_field = 'id', text_fields = '{"customer_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX customers_bm25_idx ON customers USING bm25 (customer_code, name, email) WITH (key_field = 'customer_code');
 
 -- TEXT join key test
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -595,7 +601,13 @@ INSERT INTO inventory (id, region_id, warehouse_code, product_name, quantity) VA
 (4, 2, 'WH-A', 'wireless headphones', 75),
 (5, 2, 'WH-B', 'wireless charger', 200);
 
-CREATE INDEX inventory_bm25_idx ON inventory USING bm25 (id, product_name) WITH (key_field = 'id');
+-- Note: inventory needs region_id and warehouse_code as fast fields for composite join keys
+CREATE INDEX inventory_bm25_idx ON inventory USING bm25 (id, product_name, region_id, warehouse_code)
+WITH (key_field = 'id', numeric_fields = '{"region_id": {"fast": true}}',
+      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+CREATE INDEX warehouses_bm25_idx ON warehouses USING bm25 (region_id, warehouse_code, name, description)
+WITH (key_field = 'region_id',
+      text_fields = '{"warehouse_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
 
 -- Composite key join test (region_id AND warehouse_code)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -645,7 +657,10 @@ INSERT INTO items (id, type_id, name, details) VALUES
 (3, 1, 'Smart Speaker', 'wireless bluetooth speaker'),
 (4, 2, 'Phone Case', 'protective case');
 
-CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, details) WITH (key_field = 'id');
+-- Note: items.type_id must be a fast field for the join key
+CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, details, type_id)
+WITH (key_field = 'id', numeric_fields = '{"type_id": {"fast": true}}');
+CREATE INDEX item_types_bm25_idx ON item_types USING bm25 (type_id, type_name, description) WITH (key_field = 'type_id');
 
 -- Test that items with type_id = 0 are correctly joined (not treated as cross-join)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -707,7 +722,10 @@ SELECT
     CASE WHEN i % 5 = 0 THEN 'wireless product order' ELSE 'regular product order' END
 FROM generate_series(1, 1000) i;
 
-CREATE INDEX large_orders_bm25_idx ON large_orders USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: large_orders.supplier_id must be a fast field for the join key
+CREATE INDEX large_orders_bm25_idx ON large_orders USING bm25 (id, description, supplier_id)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX large_suppliers_bm25_idx ON large_suppliers USING bm25 (id, name, country) WITH (key_field = 'id');
 
 -- This query may fall back to nested loop due to small work_mem
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -857,7 +875,9 @@ INSERT INTO docs (title, content, author_code) VALUES
 ('Distributed Systems', 'Building scalable distributed architectures', 'AUTH002'),
 ('ML Basics', 'Introduction to machine learning concepts', 'AUTH003');
 
-CREATE INDEX docs_bm25_idx ON docs USING bm25 (id, title, content) WITH (key_field = 'id');
+-- Note: docs.author_code must be a fast field for the join key
+CREATE INDEX docs_bm25_idx ON docs USING bm25 (id, title, content, author_code)
+WITH (key_field = 'id', text_fields = '{"author_code": {"fast": true, "tokenizer": {"type": "keyword"}}}');
 CREATE INDEX authors_bm25_idx ON authors USING bm25 (author_code, name, bio) WITH (key_field = 'author_code');
 
 -- JoinScan with TEXT join keys
@@ -907,7 +927,10 @@ INSERT INTO items_with_nulls (id, name, content, category_id) VALUES
 (104, 'Orphan Item', 'Item with no category assignment', NULL),  -- NULL category
 (105, 'Another Orphan', 'Another uncategorized item', NULL);     -- NULL category
 
-CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING bm25 (id, name, content) WITH (key_field = 'id');
+-- Note: items.category_id must be a fast field for the join key
+CREATE INDEX items_nulls_bm25_idx ON items_with_nulls USING bm25 (id, name, content, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX categories_nulls_bm25_idx ON categories_with_nulls USING bm25 (id, name, description) WITH (key_field = 'id');
 
 -- Query should NOT return items with NULL category_id
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1009,8 +1032,11 @@ INSERT INTO order_items (order_id, line_num, quantity, notes) VALUES
 (2, 1, 3, 'Wireless gadget order'),
 (2, 2, 7, 'Bulk order');
 
-CREATE INDEX order_details_bm25_idx ON order_details USING bm25 (order_id, product_name, description) WITH (key_field = 'order_id');
-CREATE INDEX order_items_bm25_idx ON order_items USING bm25 (id, notes) WITH (key_field = 'id');
+-- Note: Both tables need order_id and line_num as fast fields for composite join keys
+CREATE INDEX order_details_bm25_idx ON order_details USING bm25 (order_id, product_name, description, line_num)
+WITH (key_field = 'order_id', numeric_fields = '{"line_num": {"fast": true}}');
+CREATE INDEX order_items_bm25_idx ON order_items USING bm25 (id, notes, order_id, line_num)
+WITH (key_field = 'id', numeric_fields = '{"order_id": {"fast": true}, "line_num": {"fast": true}}');
 
 -- Join on composite key (order_id, line_num)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1063,8 +1089,12 @@ SELECT i,
        (i % 100) + 1
 FROM generate_series(1, 500) AS i;
 
+-- Note: mem_test_products.supplier_id must be a fast field for the join key
 CREATE INDEX mem_test_products_bm25_idx ON mem_test_products 
-    USING bm25 (id, name, description) WITH (key_field = 'id');
+    USING bm25 (id, name, description, supplier_id)
+    WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+CREATE INDEX mem_test_suppliers_bm25_idx ON mem_test_suppliers
+    USING bm25 (id, name, info) WITH (key_field = 'id');
 
 -- Run with constrained work_mem to test memory handling
 -- Note: 64 is the minimum work_mem in PostgreSQL (KB)
@@ -1120,7 +1150,12 @@ INSERT INTO uuid_orders (customer_id, description, amount) VALUES
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
 ('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.99);
 
-CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: uuid_orders.customer_id must be a fast field for the join key
+-- UUID columns use key_field which is implicitly fast, or explicit text_fields config
+CREATE INDEX uuid_orders_bm25_idx ON uuid_orders USING bm25 (id, description, customer_id)
+WITH (key_field = 'id', text_fields = '{"customer_id": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+-- uuid_customers.id is the key_field, which is implicitly fast
+CREATE INDEX uuid_customers_bm25_idx ON uuid_customers USING bm25 (id, name, email) WITH (key_field = 'id');
 
 -- JoinScan with UUID join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1169,7 +1204,12 @@ INSERT INTO numeric_transactions (account_num, description, amount) VALUES
 (98765432109876543210, 'Interest payment', 50.00),
 (11111111111111111111, 'Stock purchase wire', 5000.00);
 
-CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: numeric_transactions.account_num must be a fast field for the join key
+CREATE INDEX numeric_trans_bm25_idx ON numeric_transactions USING bm25 (id, description, account_num)
+WITH (key_field = 'id', numeric_fields = '{"account_num": {"fast": true}}');
+-- numeric_accounts.account_num is the key_field, which is implicitly fast
+CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING bm25 (account_num, holder_name, account_type)
+WITH (key_field = 'account_num');
 
 -- JoinScan with NUMERIC join keys
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1225,7 +1265,10 @@ SELECT
     (i % 50) + 1
 FROM generate_series(1, 1000) AS i;
 
-CREATE INDEX large_items_bm25_idx ON large_items USING bm25 (id, name, content) WITH (key_field = 'id');
+-- Note: large_items.category_id must be a fast field for the join key
+CREATE INDEX large_items_bm25_idx ON large_items USING bm25 (id, name, content, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX large_categories_bm25_idx ON large_categories USING bm25 (id, name, description) WITH (key_field = 'id');
 
 -- Query with larger LIMIT to test larger result sets
 SELECT COUNT(*) AS wireless_count
@@ -1272,7 +1315,10 @@ INSERT INTO update_test_items (id, content, ref_id) VALUES
 (102, 'wired device beta', 2),
 (103, 'wireless device gamma', 3);
 
-CREATE INDEX update_items_bm25_idx ON update_test_items USING bm25 (id, content) WITH (key_field = 'id');
+-- Note: update_test_items.ref_id must be a fast field for the join key
+CREATE INDEX update_items_bm25_idx ON update_test_items USING bm25 (id, content, ref_id)
+WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX update_refs_bm25_idx ON update_test_refs USING bm25 (id, ref_name) WITH (key_field = 'id');
 
 -- Initial query
 SELECT i.id, i.content, r.ref_name, i.version
@@ -1353,14 +1399,17 @@ CREATE TABLE qgen_products (
 
 -- Create index BEFORE inserting data (this is the key difference from other tests)
 -- This causes multiple segments to be created as data is inserted
-CREATE INDEX qgen_users_bm25_idx ON qgen_users USING bm25 (id, name) WITH (
+-- Note: age must be a fast field for the join key
+CREATE INDEX qgen_users_bm25_idx ON qgen_users USING bm25 (id, name, age) WITH (
     key_field = 'id',
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }'
+    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true } }'
 );
 
-CREATE INDEX qgen_products_bm25_idx ON qgen_products USING bm25 (id, name) WITH (
+CREATE INDEX qgen_products_bm25_idx ON qgen_products USING bm25 (id, name, age) WITH (
     key_field = 'id',
-    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }'
+    text_fields = '{ "name": { "tokenizer": { "type": "keyword" }, "fast": true } }',
+    numeric_fields = '{ "age": { "fast": true } }'
 );
 
 -- Insert sample value first
@@ -1477,7 +1526,10 @@ INSERT INTO tiny_products VALUES
 (102, 2, 'wired device beta'),
 (103, 1, 'wireless device gamma');
 
-CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: tiny_products.ref_id must be a fast field for the join key
+CREATE INDEX tiny_products_bm25_idx ON tiny_products USING bm25 (id, description, ref_id)
+WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+CREATE INDEX tiny_refs_bm25_idx ON tiny_refs USING bm25 (id, name) WITH (key_field = 'id');
 
 -- Query with very small build side - should work correctly regardless of algorithm
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1525,7 +1577,10 @@ SELECT i, (i % 50) + 1,
     CASE WHEN i % 3 = 0 THEN 'wireless product' ELSE 'standard product' END
 FROM generate_series(1, 200) i;
 
-CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description) WITH (key_field = 'id');
+-- Note: hint_test_products.category_id must be a fast field for the join key
+CREATE INDEX hint_test_products_bm25_idx ON hint_test_products USING bm25 (id, description, category_id)
+WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+CREATE INDEX hint_test_categories_bm25_idx ON hint_test_categories USING bm25 (id, name) WITH (key_field = 'id');
 
 -- Query that exercises hash table with medium build side
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -1566,12 +1621,12 @@ UPDATE suppliers SET min_order_value = 15.00 WHERE id = 152;  -- GlobalSupply
 UPDATE suppliers SET min_order_value = 30.00 WHERE id = 153;  -- FastParts
 UPDATE suppliers SET min_order_value = 100.00 WHERE id = 154; -- QualityFirst
 
--- Recreate indexes with price and min_order_value as fast fields
+-- Recreate indexes with price, min_order_value, and join key columns as fast fields
 DROP INDEX IF EXISTS products_bm25_idx;
 DROP INDEX IF EXISTS suppliers_bm25_idx;
 
-CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, price)
-WITH (key_field = 'id', numeric_fields = '{"price": {"fast": true}}');
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
 
 CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country, min_order_value)
 WITH (key_field = 'id', numeric_fields = '{"min_order_value": {"fast": true}}');
@@ -1615,15 +1670,16 @@ WHERE p.description @@@ 'cable'
 ORDER BY p.id
 LIMIT 10;
 
--- Test case: Multi-table predicate with NON-fast-field column
--- This should NOT use JoinScan because supplier_id is not a fast field
+-- Test case: Multi-table predicate with NON-indexed column
+-- This should NOT use JoinScan because category_id is not in the BM25 index
 -- (demonstrating the rejection of non-fast-field multi-table predicates)
+-- Note: category_id was added via ALTER TABLE but is NOT in the recreated index
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name as supplier
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-  AND p.supplier_id > s.id  -- supplier_id is NOT a fast field
+  AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
 
 -- =============================================================================

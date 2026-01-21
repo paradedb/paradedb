@@ -441,8 +441,15 @@ impl SearchField {
         // NOTE: This list of supported field types must be synced with the field types which are
         // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
+            #[allow(deprecated)]
             FieldType::Str(options) => {
                 options.is_fast()
+                    // todo: support ordering by a literal_normalized field
+                    // since those now default to fast
+                    && matches!(
+                        self.field_config().tokenizer(),
+                        Some(SearchTokenizer::Keyword) | Some(SearchTokenizer::KeywordDeprecated) | Some(SearchTokenizer::Raw(..))
+                    )
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
             }
             FieldType::I64(options) => options.is_fast(),

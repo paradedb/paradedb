@@ -87,7 +87,7 @@ SELECT id FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC, created_at DESC, id DESC, category DESC  -- 4 columns, max is 3
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (3 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topn_scan = false
  id 
 ----
  12

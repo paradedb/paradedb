@@ -81,13 +81,13 @@ impl JoinSideExecutor {
     /// This executor uses batched ctid lookups via FFHelper for efficiency.
     ///
     /// # Arguments
+    /// * `indexrelid` - The OID of the BM25 index to use
+    /// * `query` - The search query to execute
     /// * `need_scores` - Whether to compute BM25 scores. Set to true if
     ///   paradedb.score() is used anywhere in the query (SELECT, ORDER BY, etc.)
     pub fn new_fast_field(
-        _heaprel: &PgSearchRelation,
         indexrelid: pg_sys::Oid,
         query: SearchQueryInput,
-        _snapshot: pg_sys::Snapshot,
         need_scores: bool,
     ) -> Self {
         let indexrel = PgSearchRelation::open(indexrelid);

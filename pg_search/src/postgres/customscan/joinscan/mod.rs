@@ -639,10 +639,8 @@ impl CustomScan for JoinScan {
                     // Use FastField executor which iterates all matching results
                     // using batched ctid lookups for efficiency.
                     let executor = executors::JoinSideExecutor::new_fast_field(
-                        &heaprel,
                         indexrelid,
                         query.clone(),
-                        snapshot,
                         driving_side.score_needed,
                     );
                     state.custom_state_mut().driving_executor = Some(executor);

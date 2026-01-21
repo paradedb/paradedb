@@ -97,7 +97,8 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         (105, 'Shirt', 'cotton casual wear', 3),
         (106, 'Jacket', 'wireless heated outerwear', 3);
 
-    CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, content) WITH (key_field = 'id');
+    CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, content, category_id)
+        WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
     "#
     .execute(&mut setup_conn);
 
@@ -337,7 +338,8 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
         (1, 'Widget', 'wireless widget device', 1),
         (2, 'Gadget', 'wired gadget tool', 2);
 
-    CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, content) WITH (key_field = 'id');
+    CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, content, supplier_id)
+        WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
     "#
     .execute(&mut setup_conn);
 
@@ -405,7 +407,8 @@ async fn joinscan_rapid_updates_stress(database: Db) -> Result<()> {
         (2, 'wireless beta', 2),
         (3, 'wired gamma', 1);
 
-    CREATE INDEX stress_items_bm25_idx ON stress_items USING bm25 (id, content) WITH (key_field = 'id');
+    CREATE INDEX stress_items_bm25_idx ON stress_items USING bm25 (id, content, ref_id)
+        WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
     "#
     .execute(&mut setup_conn);
 

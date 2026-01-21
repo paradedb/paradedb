@@ -387,15 +387,18 @@ unsafe fn all_vars_are_fast_fields(
 /// Check if a specific column is available as a fast field in the relation's BM25 index.
 ///
 /// Returns true if:
+/// - The relation has no BM25 index (fast field check doesn't apply - will use heap access)
 /// - The column is explicitly marked as a fast field in the index schema, OR
 /// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
 pub(super) unsafe fn is_column_fast_field(side: &JoinSideInfo, attno: pg_sys::AttrNumber) -> bool {
-    // Need both heap and index relations
+    // Need heap relation
     let Some(heaprelid) = side.heaprelid else {
         return false;
     };
+
+    // If there's no BM25 index, fast field check doesn't apply - we'll use heap access
     let Some(indexrelid) = side.indexrelid else {
-        return false;
+        return true;
     };
 
     // Open relations to check schema

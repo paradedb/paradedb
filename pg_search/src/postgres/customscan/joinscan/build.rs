@@ -92,7 +92,11 @@ impl JoinSideInfo {
 }
 
 /// Represents the join type for serialization.
+///
+/// Note: Currently only Inner join is supported, but other variants are
+/// defined for future extensibility and to match PostgreSQL's JoinType enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+#[allow(dead_code)]
 pub enum SerializableJoinType {
     #[default]
     Inner,

@@ -9,7 +9,8 @@ DROP TABLE IF EXISTS test CASCADE;
 CREATE EXTENSION pg_search;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
-    message TEXT
+    message TEXT,
+    category TEXT DEFAULT 'common'
 );
 
 INSERT INTO test (message) VALUES ('beer wine cheese a');
@@ -27,7 +28,12 @@ INSERT INTO test (message) VALUES ('wine cheese a');
 INSERT INTO test (message) VALUES ('wine a');
 INSERT INTO test (message) VALUES ('cheese a');
 
-CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id');
+CREATE INDEX idxtest ON test USING bm25(
+    id,
+    message,
+    (category::pdb.literal)
+) WITH (key_field = 'id');
+
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
@@ -43,6 +49,25 @@ BEGIN
     RETURN true;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION assert_plan_contains(
+    p_query text,
+    p_expected_text text
+) RETURNS boolean AS $$
+DECLARE
+    plan_line text;
+BEGIN
+    -- Loop through each line of the EXPLAIN output
+    FOR plan_line IN EXECUTE 'EXPLAIN ' || p_query LOOP
+        -- Check if the current line contains the expected text
+        IF plan_line ILIKE '%' || p_expected_text || '%' THEN
+            RETURN true;
+        END IF;
+    END LOOP;
+
+    RAISE EXCEPTION 'Plan assertion failed: Expected text "%" not found in plan for query: %', p_expected_text, p_query;
+END;
+$$ LANGUAGE plpgsql;
 
 
 ALTER SYSTEM SET autovacuum_naptime = '1s';
@@ -74,30 +99,58 @@ refresh_ms = 100
 title = "Index Scan"
 log_tps = true
 on_connect = """
-SET enable_indexonlyscan to OFF;
+SET paradedb.enable_custom_scan = off;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test where message ||| 'cheese' $q$,
+    'Index Only Scan'
+);
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'cheese';
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Custom Scan"
+title = "Normal Scan"
 log_tps = true
 on_connect = """
-SET enable_indexonlyscan to OFF;
-SET enable_indexscan to OFF;
+SELECT assert_plan_contains(
+    $q$ SELECT count(*) FROM test where message ||| 'wine' $q$,
+    'NormalScanExecState'
+);
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:beer';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where message ||| 'wine';
 """
 
 [[jobs]]
 refresh_ms = 5
-title = "Index Only Scan"
+title = "Mixed Fast Field Scan"
 log_tps = true
+on_connect = """
+SET paradedb.enable_mixed_fast_field_exec = on;
+SELECT assert_plan_contains(
+    $q$ SELECT id, category FROM test WHERE message ||| 'beer' $q$,
+    'MixedFastFieldExecState'
+);
+"""
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:wine';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM (SELECT id, category FROM test WHERE message ||| 'beer') sub;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Aggregate Custom Scan"
+log_tps = true
+on_connect = """
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT assert_plan_contains(
+    $q$ SELECT pdb.agg('{"value_count": {"field": "id"}}'::jsonb) FROM test WHERE message ||| 'beer' $q$,
+    'ParadeDB Aggregate Scan'
+);
+"""
+sql = """
+SELECT assert((pdb.agg('{"value_count": {"field": "id"}}'::jsonb)->>'value')::numeric::bigint, 8::bigint) FROM test WHERE message ||| 'beer';
 """
 
 [[jobs]]

@@ -200,59 +200,56 @@ impl MixedFastFieldExecState {
         };
 
         // Filter out invisible rows.
-        unsafe {
-            let heaprel = self
-                .inner
-                .heaprel
-                .as_ref()
-                .expect("MixedFastFieldsExecState: heaprel should be initialized");
-            let mut write_idx = 0;
-            let mut tts_tid = pg_sys::ItemPointerData::default();
+        let heaprel = self
+            .inner
+            .heaprel
+            .as_ref()
+            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+        let mut write_idx = 0;
+        let mut tts_tid = pg_sys::ItemPointerData::default();
 
-            for read_idx in 0..ctids.len() {
-                let mut ctid = ctids[read_idx];
-                crate::postgres::utils::u64_to_item_pointer(ctid, &mut tts_tid);
+        for read_idx in 0..ctids.len() {
+            let mut ctid = ctids[read_idx];
+            crate::postgres::utils::u64_to_item_pointer(ctid, &mut tts_tid);
 
-                // Check visibility of the current block
-                let blockno = item_pointer_get_block_number(&tts_tid);
-                let is_visible = if blockno == self.inner.blockvis.0 {
-                    // We already know the visibility of this block because we just checked it last time
-                    self.inner.blockvis.1
-                } else {
-                    // New block, check visibility
-                    self.inner.blockvis.0 = blockno;
-                    self.inner.blockvis.1 =
-                        is_block_all_visible(heaprel, &mut self.inner.vmbuff, blockno);
-                    self.inner.blockvis.1
-                };
+            // Check visibility of the current block
+            let blockno = unsafe { item_pointer_get_block_number(&tts_tid) };
+            let mut visible = if blockno == self.inner.blockvis.0 {
+                // We already know the visibility of this block because we just checked it last time
+                self.inner.blockvis.1
+            } else {
+                // New block, check visibility
+                self.inner.blockvis.0 = blockno;
+                self.inner.blockvis.1 =
+                    is_block_all_visible(heaprel, &mut self.inner.vmbuff, blockno);
+                self.inner.blockvis.1
+            };
 
-                let visible = if is_visible {
-                    self.inner.blockvis = (blockno, true);
-                    true
-                } else if let Some(visible_ctid) = state.visibility_checker().check_visibility(ctid)
-                {
-                    if visible_ctid != ctid {
-                        ctid = visible_ctid;
-                    }
-                    true
-                } else {
-                    false
-                };
-
-                if visible {
-                    if read_idx != write_idx {
-                        ctids[write_idx] = ctid;
-                        ids[write_idx] = ids[read_idx];
-                        scores[write_idx] = scores[read_idx];
-                    }
-                    write_idx += 1;
+            // We weren't able to prove it visible via its block: go to the heap to confirm.
+            if !visible {
+                state.heap_tuple_check_count += 1;
+                if let Some(visible_ctid) = state.visibility_checker().check_visibility(ctid) {
+                    ctid = visible_ctid;
+                    visible = true
                 }
             }
 
-            ctids.truncate(write_idx);
-            ids.truncate(write_idx);
-            scores.truncate(write_idx);
+            if visible {
+                // The ctid may have been updated by visibility checking: always rewrite it.
+                ctids[write_idx] = ctid;
+                if read_idx != write_idx {
+                    ids[write_idx] = ids[read_idx];
+                    scores[write_idx] = scores[read_idx];
+                }
+                write_idx += 1;
+            } else {
+                state.invisible_tuple_count += 1;
+            }
         }
+
+        ctids.truncate(write_idx);
+        ids.truncate(write_idx);
+        scores.truncate(write_idx);
 
         // Execute batch lookups of the fast-field values, and construct the batch.
         self.batch.fields = self

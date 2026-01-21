@@ -95,12 +95,13 @@ impl VisibilityChecker {
 
             let block_num = item_pointer_get_block_number(&self.tid);
 
-            // get_buffer acquires a pin and a share lock, and will release them on Drop
-            let buffer = self.bman.get_buffer(block_num);
-
             let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
             let mut all_dead = false;
 
+            // get_buffer acquires a pin and a share lock, and will release them on Drop
+            // TODO: Consider exposing a method for bulk filtering of ctids which holds buffers
+            // across multiple ctids.
+            let buffer = self.bman.get_buffer(block_num);
             let found = pg_sys::heap_hot_search_buffer(
                 &mut self.tid,
                 self.heaprel.as_ptr(),
@@ -110,6 +111,7 @@ impl VisibilityChecker {
                 &mut all_dead,
                 true, // first_call
             );
+            std::mem::drop(buffer);
 
             if found {
                 Some(utils::item_pointer_to_u64(self.tid))

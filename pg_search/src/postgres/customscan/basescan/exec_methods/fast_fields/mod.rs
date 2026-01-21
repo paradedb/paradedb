@@ -236,6 +236,9 @@ fn collect_fast_field_try_for_attno(
                         // Ensure that the expression used to index the value exactly matches the
                         // expression used in the target list (which we know is a Var, because
                         // that is the only thing that calls this function with attno > 0).
+                        //
+                        // Expression indices where target list references original column are not supported.
+                        // See: https://github.com/paradedb/paradedb/issues/3978
                         if !matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
                         {
                             return true;
@@ -285,7 +288,10 @@ fn collect_fast_field_try_for_attno(
     true
 }
 
-/// Find all fields that can be used as "fast fields" without failing if some fields are not fast fields
+/// If all referenced fields in the given node can be fetched from the index as "fast fields",
+/// return WhichFastFields covering them.
+///
+/// There are inline comments explaining the restrictions on what is supported.
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
@@ -360,6 +366,9 @@ pub unsafe fn pullup_fast_fields(
                 continue;
             }
             // Fallthrough: expression is local but complex -> cannot use fast fields
+            //
+            // Complex expressions involving score which are not going to be solved in upper nodes are not supported.
+            // See: https://github.com/paradedb/paradedb/issues/3978
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)
             || nodecast!(Const, T_Const, (*te).expr).is_some()
             || nodecast!(WindowFunc, T_WindowFunc, (*te).expr).is_some()
@@ -386,7 +395,10 @@ pub unsafe fn pullup_fast_fields(
         }
         // we only support Vars or our score function in the target list
         // Other nodes (e.g., T_SubPlan, T_FuncExpr, T_OpExpr, T_CaseExpr, T_PlaceHolderVar, etc.)
-        // are not supported in FastFields yet
+        // are not supported in FastFields yet.
+        //
+        // Casts of key fields (e.g. `CAST(id AS TEXT)`) are not supported.
+        // See: https://github.com/paradedb/paradedb/issues/3978
         return None;
     }
 

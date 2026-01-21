@@ -16,3 +16,36 @@ CREATE TYPE pdb.icu (
                       );
 
 ALTER TYPE pdb.icu SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);
+
+CREATE FUNCTION pdb."json_to_icu"(
+    "json" json
+) RETURNS pdb.icu
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c
+AS 'MODULE_PATHNAME', 'json_to_icu_wrapper';
+
+CREATE FUNCTION pdb."jsonb_to_icu"(
+    "jsonb" jsonb
+) RETURNS pdb.icu
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c
+AS 'MODULE_PATHNAME', 'jsonb_to_icu_wrapper';
+
+CREATE FUNCTION pdb."tokenize_icu"(
+    "s" pdb.icu
+) RETURNS TEXT[]
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c
+AS 'MODULE_PATHNAME', 'tokenize_icu_wrapper';
+
+CREATE FUNCTION pdb.varchar_array_to_icu(
+    "arr" varchar[]
+) RETURNS pdb.icu
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c
+AS 'MODULE_PATHNAME', 'varchar_array_to_icu_wrapper';
+
+CREATE CAST (json AS pdb.icu) WITH FUNCTION pdb.json_to_icu AS ASSIGNMENT;
+CREATE CAST (jsonb AS pdb.icu) WITH FUNCTION pdb.jsonb_to_icu AS ASSIGNMENT;
+CREATE CAST (pdb.icu AS TEXT[]) WITH FUNCTION pdb.tokenize_icu AS IMPLICIT;
+CREATE CAST (varchar[] AS pdb.icu) WITH FUNCTION pdb.varchar_array_to_icu AS ASSIGNMENT;

@@ -141,7 +141,7 @@ pub fn compute_nworkers(
         nworkers = 0;
     }
 
-    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+    #[cfg(not(feature = "pg15"))]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             // force a parallel worker if the `debug_parallel_query` GUC is on

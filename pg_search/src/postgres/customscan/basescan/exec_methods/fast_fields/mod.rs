@@ -32,8 +32,9 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::score_funcoids;
 
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
-use crate::schema::FieldSource;
+use crate::schema::{FieldSource, SearchIndexSchema};
 
 use arrow_array::builder::StringViewBuilder;
 use arrow_array::ArrayRef;
@@ -186,6 +187,41 @@ pub unsafe fn collect_fast_fields(
         .unwrap_or_default()
 }
 
+fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<FastFieldType> {
+    if is_array {
+        return None;
+    }
+    match base_oid {
+        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => Some(FastFieldType::String),
+        pg_sys::BOOLOID
+        | pg_sys::DATEOID
+        | pg_sys::FLOAT4OID
+        | pg_sys::FLOAT8OID
+        | pg_sys::INT2OID
+        | pg_sys::INT4OID
+        | pg_sys::INT8OID
+        | pg_sys::TIMEOID
+        | pg_sys::TIMESTAMPOID
+        | pg_sys::TIMESTAMPTZOID
+        | pg_sys::TIMETZOID => Some(FastFieldType::Numeric),
+        _ => {
+            // This fast field type is supported for pushdown of queries, but not for
+            // rendering via fast field execution.
+            //
+            // JSON/JSONB are excluded because fast fields do not contain the
+            // full content of the JSON in a way that we can easily render:
+            // rather, the individual fields are exploded out into dynamic
+            // columns.
+            //
+            // NUMERIC is excluded because we do not store the original
+            // precision/scale in the index, so we cannot safely reconstruct the
+            // value without potentially losing precision. See:
+            // https://github.com/paradedb/paradedb/issues/2968
+            None
+        }
+    }
+}
+
 // Helper function to process an attribute number and add a fast field if appropriate
 fn collect_fast_field_try_for_attno(
     attno: i32,
@@ -243,41 +279,19 @@ fn collect_fast_field_try_for_attno(
                         {
                             return true;
                         }
-                    }
 
-                    if search_field.is_fast() {
-                        let ff_type = match att.type_oid().value() {
-                            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => {
-                                FastFieldType::String
-                            }
-                            pg_sys::BOOLOID
-                            | pg_sys::DATEOID
-                            | pg_sys::FLOAT4OID
-                            | pg_sys::FLOAT8OID
-                            | pg_sys::INT2OID
-                            | pg_sys::INT4OID
-                            | pg_sys::INT8OID
-                            | pg_sys::TIMEOID
-                            | pg_sys::TIMESTAMPOID
-                            | pg_sys::TIMESTAMPTZOID
-                            | pg_sys::TIMETZOID => FastFieldType::Numeric,
-                            _ => {
-                                // This fast field type is supported for pushdown of queries, but not for
-                                // rendering via fast field execution.
-                                //
-                                // JSON/JSONB are excluded because fast fields do not contain the
-                                // full content of the JSON in a way that we can easily render:
-                                // rather, the individual fields are exploded out into dynamic
-                                // columns.
-                                //
-                                // NUMERIC is excluded because we do not store the original
-                                // precision/scale in the index, so we cannot safely reconstruct the
-                                // value without potentially losing precision. See:
-                                // https://github.com/paradedb/paradedb/issues/2968
+                        if search_field.is_fast() {
+                            if let Some(ff_type) =
+                                fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
+                            {
+                                matches
+                                    .push(WhichFastField::Named(att.name().to_string(), ff_type));
+                            } else {
+                                // If the field is fast but the type is not supported (e.g. array, numeric, json),
+                                // we treat it as not fast field capable.
                                 return false;
                             }
-                        };
-                        matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
+                        }
                     }
                 }
             }
@@ -286,6 +300,80 @@ fn collect_fast_field_try_for_attno(
         }
     }
     true
+}
+
+unsafe fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
+    if list.is_null() {
+        return;
+    }
+    let list = PgList::<pg_sys::Node>::from_pg(list);
+    for node in list.iter_ptr() {
+        fix_varno_in_place(node, old_varno, new_varno);
+    }
+}
+
+unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno: i32) {
+    if node.is_null() {
+        return;
+    }
+    if let Some(var) = nodecast!(Var, T_Var, node) {
+        if (*var).varno as i32 == old_varno {
+            (*var).varno = new_varno as _;
+        }
+    } else if let Some(expr) = nodecast!(OpExpr, T_OpExpr, node) {
+        fix_varno_list((*expr).args, old_varno, new_varno);
+    } else if let Some(expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        fix_varno_list((*expr).args, old_varno, new_varno);
+    } else if let Some(expr) = nodecast!(BoolExpr, T_BoolExpr, node) {
+        fix_varno_list((*expr).args, old_varno, new_varno);
+    } else if let Some(expr) = nodecast!(RelabelType, T_RelabelType, node) {
+        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
+    } else if let Some(expr) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
+    } else if let Some(expr) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        fix_varno_in_place((*expr).arg.cast(), old_varno, new_varno);
+    }
+}
+
+unsafe fn find_matching_fast_field(
+    node: *mut pg_sys::Node,
+    index_expressions: &PgList<pg_sys::Expr>,
+    schema: SearchIndexSchema,
+    rti: pg_sys::Index,
+) -> Option<WhichFastField> {
+    for (i, expr) in index_expressions.iter_ptr().enumerate() {
+        let expr = expr as *mut pg_sys::Node;
+        // Check if the unwrapped index expression matches the target node
+        let unwrapped_index_expr = strip_tokenizer_cast(expr);
+
+        // Adjust varno in index expression to match query rti
+        fix_varno_in_place(unwrapped_index_expr, 1, rti as i32);
+
+        if pg_sys::equal(
+            node as *const core::ffi::c_void,
+            unwrapped_index_expr as *const core::ffi::c_void,
+        ) {
+            // Find the search field corresponding to this expression index
+            let categorized_fields = schema.categorized_fields();
+            let field_data = categorized_fields.iter().find(|(sf, data)| {
+                matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i)
+            });
+
+            if let Some((search_field, data)) = field_data {
+                if search_field.is_fast() {
+                    if let Some(ff_type) =
+                        fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
+                    {
+                        return Some(WhichFastField::Named(
+                            search_field.field_name().to_string(),
+                            ff_type,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// If all referenced fields in the given node can be fetched from the index as "fast fields",
@@ -303,6 +391,10 @@ pub unsafe fn pullup_fast_fields(
     let mut matches = Vec::new();
 
     let tupdesc = heaprel.tuple_desc();
+
+    // Get index expressions to check for matching expressions
+    let index_info = pg_sys::BuildIndexInfo(index.as_ptr());
+    let index_expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
@@ -340,6 +432,7 @@ pub unsafe fn pullup_fast_fields(
         };
 
         if let Some((var, fieldname)) = maybe_var {
+            let start_len = matches.len();
             if !collect_fast_field_try_for_attno(
                 (*var).varattno as i32,
                 &mut matches,
@@ -350,8 +443,25 @@ pub unsafe fn pullup_fast_fields(
             ) {
                 return None;
             }
+            // If the var was successfully added as a fast field, continue.
+            // If not (e.g. source mismatch), fall through to expression matching.
+            if matches.len() > start_len {
+                continue;
+            }
+        }
+
+        // Try to match complex expression (or Var with source mismatch) against index expressions
+        if let Some(ff) = find_matching_fast_field(
+            (*te).expr as *mut pg_sys::Node,
+            &index_expressions,
+            index.schema().ok()?,
+            rti,
+        ) {
+            matches.push(ff);
             continue;
-        } else if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
+        }
+
+        if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
             // we can only pull up a score if the score is:
             // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
             // 2. a call to `pdb.score` inside of an expression which will be solved by a
@@ -404,6 +514,7 @@ pub unsafe fn pullup_fast_fields(
 
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
+        let start_len = matches.len();
         if !collect_fast_field_try_for_attno(
             attno as i32,
             &mut matches,
@@ -413,6 +524,45 @@ pub unsafe fn pullup_fast_fields(
             None,
         ) {
             return None;
+        }
+        // If not added (e.g. because of source mismatch), try expression matching for this column.
+        if matches.len() == start_len {
+            // For columns referenced in other parts of the query (e.g. WHERE), we only have
+            // the attribute number. To support cases where the column is indexed via an
+            // expression (e.g. `col::pdb.literal`), we create a synthetic Var to match
+            // against index expressions.
+            let mut dummy_var = pg_sys::Var {
+                xpr: pg_sys::Expr {
+                    type_: pg_sys::NodeTag::T_Var,
+                },
+                varno: rti as _,
+                varattno: attno as i16,
+                vartype: pg_sys::InvalidOid,
+                vartypmod: -1,
+                varcollid: pg_sys::InvalidOid,
+                varlevelsup: 0,
+                varnosyn: 0,
+                varattnosyn: 0,
+                location: -1,
+                #[cfg(not(feature = "pg15"))]
+                varnullingrels: std::ptr::null_mut(),
+                #[cfg(feature = "pg18")]
+                varreturningtype: pg_sys::InvalidOid.into(),
+            };
+            if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                dummy_var.vartype = att.atttypid;
+                dummy_var.vartypmod = att.atttypmod;
+                dummy_var.varcollid = att.attcollation;
+
+                if let Some(ff) = find_matching_fast_field(
+                    &mut dummy_var as *mut _ as *mut pg_sys::Node,
+                    &index_expressions,
+                    index.schema().ok()?,
+                    rti,
+                ) {
+                    matches.push(ff);
+                }
+            }
         }
     }
 

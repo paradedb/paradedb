@@ -328,7 +328,7 @@ pub unsafe fn find_one_var_and_fieldname(
         }
         None
     } else if is_a(node, pg_sys::NodeTag::T_SubscriptingRef) {
-        // Handle PostgreSQL 15+ bracket notation: json['key']
+        // Handle PostgreSQL 14+ bracket notation: json['key']
         let var = find_one_var(node)?;
         let path = find_json_path(&context, node);
         Some((var, path.join(".").into()))

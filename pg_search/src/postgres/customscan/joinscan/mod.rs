@@ -15,6 +15,91 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! JoinScan: Custom scan operator for optimizing joins with BM25 full-text search.
+//!
+//! JoinScan intercepts PostgreSQL join operations and executes them using Tantivy's
+//! search capabilities combined with a hash-join algorithm, providing significant
+//! performance improvements for queries that combine full-text search with joins.
+//!
+//! # Activation Conditions
+//!
+//! JoinScan is proposed by the planner when **all** of the following conditions are met:
+//!
+//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
+//!
+//! 2. **Join type**: Only `INNER JOIN` is currently supported
+//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
+//!
+//! 3. **LIMIT clause**: Query must have a LIMIT clause
+//!    - This restriction exists because without LIMIT, scanning the entire index
+//!      may not be more efficient than PostgreSQL's native join execution
+//!    - Future work will allow no-limit joins when both sides have search predicates
+//!
+//! 4. **Search predicate**: At least one side must have:
+//!    - A BM25 index on the table
+//!    - A `@@@` search predicate in the WHERE clause
+//!
+//! 5. **Base relations**: Each side of the join must be a single base relation
+//!    - Join trees (e.g., `(A JOIN B) JOIN C`) on one side are not yet supported
+//!
+//! 6. **Join conditions**: For non-equijoin conditions (e.g., `a.x > b.y`), there must
+//!    also be at least one equi-join key (e.g., `a.id = b.id`)
+//!    - Pure cross-joins with only non-equijoin conditions fall back to PostgreSQL
+//!
+//! # Example Queries
+//!
+//! ```sql
+//! -- JoinScan IS proposed (has LIMIT, has @@@ predicate)
+//! SELECT p.name, s.name
+//! FROM products p
+//! JOIN suppliers s ON p.supplier_id = s.id
+//! WHERE p.description @@@ 'wireless'
+//! LIMIT 10;
+//!
+//! -- JoinScan is NOT proposed (no LIMIT)
+//! SELECT p.name, s.name
+//! FROM products p
+//! JOIN suppliers s ON p.supplier_id = s.id
+//! WHERE p.description @@@ 'wireless';
+//!
+//! -- JoinScan is NOT proposed (LEFT JOIN not supported)
+//! SELECT p.name, s.name
+//! FROM products p
+//! LEFT JOIN suppliers s ON p.supplier_id = s.id
+//! WHERE p.description @@@ 'wireless'
+//! LIMIT 10;
+//! ```
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
+//! │   PostgreSQL    │     │    JoinScan      │     │     Tantivy        │
+//! │   Planner       │────▶│   Custom Scan    │────▶│   BM25 Index       │
+//! │   (hook)        │     │   (planning +    │     │   (search + ctids) │
+//! │                 │     │    execution)    │     │                    │
+//! └─────────────────┘     └──────────────────┘     └────────────────────┘
+//! ```
+//!
+//! ## Execution Strategy
+//!
+//! 1. **Driving side**: The side with the `@@@` predicate streams results from Tantivy
+//! 2. **Build side**: The other side is scanned to build a hash table keyed by join columns
+//! 3. **Probe**: For each driving row, probe the hash table for matching build rows
+//! 4. **Result**: Emit joined tuples, respecting LIMIT
+//!
+//! If the hash table exceeds `work_mem`, JoinScan falls back to a nested loop algorithm.
+//!
+//! # Submodules
+//!
+//! - [`build`]: Data structures for planning serialization (`JoinCSClause`, `JoinSideInfo`)
+//! - [`executors`]: FastField executor for batched ctid lookups from Tantivy
+//! - [`planning`]: Cost estimation, condition extraction, pathkey handling
+//! - [`predicate`]: Transform PostgreSQL expressions to evaluable expression trees
+//! - [`scan_state`]: Execution state (hash table, visibility checkers, slots)
+//! - [`privdat`]: Private data serialization between planning and execution
+//! - [`explain`]: EXPLAIN output formatting
+
 pub mod build;
 pub mod executors;
 mod explain;

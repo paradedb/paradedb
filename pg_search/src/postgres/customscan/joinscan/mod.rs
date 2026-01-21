@@ -180,15 +180,20 @@ impl CustomScan for JoinScan {
             // - HeapCondition nodes: PostgreSQL expressions
             // Returns the updated join_clause and a list of heap condition clause pointers
             let heap_condition_clauses: Vec<*mut pg_sys::Expr>;
-            let Ok((mut join_clause, heap_condition_clauses)) = extract_join_level_conditions(
+            let (mut join_clause, heap_condition_clauses) = match extract_join_level_conditions(
                 root,
                 extra,
                 &outer_side,
                 &inner_side,
                 &join_conditions.other_conditions,
                 join_clause,
-            ) else {
-                return None;
+            ) {
+                Ok(result) => result,
+                Err(err) => {
+                    // Log the error for debugging - JoinScan won't be proposed for this query
+                    pgrx::debug1!("JoinScan: failed to extract join-level conditions: {}", err);
+                    return None;
+                }
             };
 
             // Check if this is a valid join for JoinScan

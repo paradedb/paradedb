@@ -218,6 +218,16 @@
             ]
           },
           {
+            "anchor": "AI Agents",
+            "icon": "robot",
+            "groups": [
+              {
+                "group": "AI Agents",
+                "pages": ["welcome/ai-agents"]
+              }
+            ]
+          },
+          {
             "anchor": "Changelog",
             "icon": "clock",
             "groups": [

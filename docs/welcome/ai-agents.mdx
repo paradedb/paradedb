@@ -1,0 +1,59 @@
+---
+title: AI Agents
+description: Integrate ParadeDB with AI coding assistants and LLM-powered agents.
+---
+
+ParadeDB provides first-class support for AI coding assistants and LLM-powered agents. Whether you're using Claude, Cursor, VS Code Copilot, or building custom AI workflows, you can give your agent expert knowledge of ParadeDB.
+
+## Agent Skills
+
+Agent skills are instruction files that teach AI coding assistants about ParadeDB. Once installed, your agent will automatically provide accurate, up-to-date guidance when you ask about BM25 indexing, full-text search, or any ParadeDB feature.
+
+The skill uses a **pointer-based approach**—instead of bundling static documentation that can go stale, it instructs agents to fetch the latest docs in real-time.
+
+### Installation
+
+Install the ParadeDB skill for your preferred AI coding assistant:
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash amp skill install github.com/paradedb/agent-skills ```
+  </Tab>
+  <Tab title="Cursor">
+    Add to `.cursor/rules/paradedb.mdc`: ```markdown --- description: ParadeDB -
+    Full-text search in Postgres globs: **/*.sql alwaysApply: false --- For
+    ParadeDB questions, fetch https://docs.paradedb.com/llms-full.txt ```
+  </Tab>
+  <Tab title="VS Code Copilot">
+    Add to `.github/copilot-instructions.md`: ```markdown For ParadeDB
+    questions, fetch https://docs.paradedb.com/llms-full.txt ```
+  </Tab>
+  <Tab title="Other Agents">
+    Point your agent to fetch documentation from: ```
+    https://docs.paradedb.com/llms-full.txt ```
+  </Tab>
+</Tabs>
+
+For more details, see the [agent-skills repository](https://github.com/paradedb/agent-skills).
+
+## MCP Integration
+
+ParadeDB documentation is available via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for direct integration with MCP-compatible agents.
+
+**MCP Endpoint:**
+
+```
+https://docs.paradedb.com/mcp
+```
+
+This allows MCP-enabled tools to query ParadeDB documentation programmatically and provide contextual assistance.
+
+## LLM-Optimized Documentation
+
+For custom AI integrations or agents that don't support skills or MCP, we provide a single text file containing the complete ParadeDB documentation optimized for LLM consumption:
+
+```
+https://docs.paradedb.com/llms-full.txt
+```
+
+This follows the [llms.txt standard](https://llmstxt.org/) and can be used with any AI system that supports fetching external context.

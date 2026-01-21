@@ -18,19 +18,77 @@
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::merge::acquire_cleanup_lock_for_vacuum;
+use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntryContent;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
 use pgrx::pg_sys;
-use pgrx::{pg_sys::ItemPointerData, *};
+use pgrx::{direct_function_call, pg_sys::ItemPointerData, IntoDatum, PgTryBuilder, *};
+use std::cell::RefCell;
+use std::panic::AssertUnwindSafe;
+use std::rc::Rc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
 use tantivy::SegmentMeta;
 use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
+
+// random key, ensures that this advisory lock key doesn't conflict
+// with other Postgres advisory locks
+const VACUUM_SIGNAL_KEY_BASE: u32 = 0x50475641; // "PGVA"
+
+/// Internal vacuum signal lock - use `vacuum_wants_cancel` or the VACUUM flow below instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VacuumSignal {
+    index_oid: pg_sys::Oid,
+}
+
+impl VacuumSignal {
+    fn new(index_oid: pg_sys::Oid) -> Self {
+        Self { index_oid }
+    }
+
+    fn key(&self) -> i64 {
+        ((VACUUM_SIGNAL_KEY_BASE as i64) << 32) | (u32::from(self.index_oid) as i64)
+    }
+
+    fn lock(&self) -> AdvisoryLock {
+        AdvisoryLock::lock_session(self.key())
+    }
+
+    fn is_signaled(&self) -> bool {
+        let key = self.key();
+        let acquired = unsafe {
+            direct_function_call::<bool>(
+                pg_sys::pg_try_advisory_lock_shared_int8,
+                &[key.into_datum()],
+            )
+        }
+        .unwrap_or(false);
+
+        if acquired {
+            unsafe {
+                direct_function_call::<bool>(
+                    pg_sys::pg_advisory_unlock_shared_int8,
+                    &[key.into_datum()],
+                );
+            }
+            false
+        } else {
+            true
+        }
+    }
+}
+
+/// Check if vacuum wants background merge workers to cancel.
+///
+/// Used by background merge workers to detect if VACUUM is waiting.
+/// Returns `true` if VACUUM holds the exclusive signal lock.
+pub(crate) fn vacuum_wants_cancel(index_oid: pg_sys::Oid) -> bool {
+    VacuumSignal::new(index_oid).is_signaled()
+}
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambulkdelete(
@@ -51,9 +109,35 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     };
 
     // First, we need an exclusive lock on the CLEANUP_LOCK. Once we get it, we know that there
-    // are no concurrent merges happening. This function also signals background merge workers
-    // to exit early so we don't wait for long-running merges to complete.
-    let (mut metadata, cleanup_lock) = acquire_cleanup_lock_for_vacuum(&index_relation);
+    // are no concurrent merges happening. We signal background merge workers via an advisory lock
+    // so they exit early and we don't wait for long-running merges to complete.
+    // Open metadata before taking the signal to keep the lock window small.
+    let mut metadata = MetaPage::open(&index_relation);
+    let signal = Rc::new(RefCell::new(Some(
+        VacuumSignal::new(index_relation.oid()).lock(),
+    )));
+    let signal_finally = signal.clone();
+
+    // Ensure the signal advisory lock is released if a PostgreSQL ERROR
+    // occurs while acquiring cleanup_lock_exclusive.
+    let cleanup_lock = PgTryBuilder::new(AssertUnwindSafe(|| {
+        // Acquire cleanup_lock - blocks until workers release
+        let cleanup_lock = metadata.cleanup_lock_exclusive();
+
+        // Workers have exited - release signal
+        if let Some(lock) = signal.borrow_mut().take() {
+            drop(lock);
+        }
+
+        cleanup_lock
+    }))
+    .finally(move || {
+        // Release signal if error occurred before we released it
+        if let Some(lock) = signal_finally.borrow_mut().take() {
+            drop(lock);
+        }
+    })
+    .execute();
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();

@@ -99,7 +99,8 @@ impl AdvisoryLock {
         }
     }
 
-    pub fn new_session(key: i64) -> Option<Self> {
+    /// Non-blocking (conditional) session-level lock. Returns `None` if lock is already held.
+    pub fn conditional_lock_session(key: i64) -> Option<Self> {
         let acquired = unsafe {
             direct_function_call::<bool>(pg_sys::pg_try_advisory_lock_int8, &[key.into_datum()])
         }

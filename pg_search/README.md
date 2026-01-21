@@ -45,7 +45,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux for Postgres 14+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide prebuilt binaries for Debian-based Linux for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 #### RHEL/Rocky and Other Linux Distributions Using Pigsty
 

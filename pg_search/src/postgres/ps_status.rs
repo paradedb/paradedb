@@ -9,7 +9,7 @@ pub const GARBAGE_COLLECTING: &CStr = c"gc-ing";
 pub const FINALIZING: &CStr = c"finalizing";
 
 pub unsafe fn set_ps_display_suffix(suffix: *const c_char) {
-    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    #[cfg(feature = "pg15")]
     pg_sys::set_ps_display(suffix);
 
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]

@@ -41,7 +41,7 @@ jobs:
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
             echo "Pull request event detected, using all PostgreSQL versions."
-            echo "matrix=[14, 15, 16, 17, 18]" >> $GITHUB_OUTPUT
+            echo "matrix=[15, 16, 17, 18]" >> $GITHUB_OUTPUT
           fi
 
   test-pg_search:
@@ -137,7 +137,6 @@ jobs:
 
       # Needed for Citus compatibility tests
       # Note: Citus doesn't support ARM architecture or PostgreSQL 18 yet
-      # Note: Citus 13 supports PG 15-17 (not PG14)
       - name: Build & install Citus 13 (PG 15-17)
         if: matrix.arch == 'amd64' && matrix.pg_version >= 15 && matrix.pg_version <= 17
         env:
@@ -171,7 +170,7 @@ jobs:
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
 
       - name: Add extensions to shared_preload_libraries (without Citus)
-        if: matrix.arch != 'amd64' || matrix.pg_version <= 14 || matrix.pg_version >= 18
+        if: matrix.arch != 'amd64' || matrix.pg_version >= 18
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 

@@ -623,10 +623,6 @@ impl CustomScan for JoinScan {
             if let Some(heaprelid) = driving_side.heaprelid {
                 let heaprel = PgSearchRelation::open(heaprelid);
 
-                // Create visibility checker for driving side
-                let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                state.custom_state_mut().driving_visibility_checker = Some(vis_checker);
-
                 // Create a slot for fetching driving tuples
                 let driving_slot =
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
@@ -646,6 +642,7 @@ impl CustomScan for JoinScan {
                     state.custom_state_mut().driving_executor = Some(executor);
 
                     // Create visibility checker for fetching tuples by ctid from executor results
+                    // Only needed when using search executor (not heap scan)
                     let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
                     state.custom_state_mut().driving_visibility_checker = Some(vis_checker);
                 } else {

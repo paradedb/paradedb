@@ -108,14 +108,10 @@ mod predicate;
 pub mod privdat;
 pub mod scan_state;
 
-use self::build::{
-    JoinAlgorithmHint, JoinCSClause, SerializableJoinLevelExpr, SerializableJoinSide,
-    SerializableJoinType,
-};
+use self::build::{JoinAlgorithmHint, JoinCSClause, JoinType};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::planning::{
-    compute_execution_hints, estimate_joinscan_cost, extract_join_conditions,
-    extract_join_side_info, extract_score_pathkey,
+    compute_execution_hints, extract_join_conditions, extract_join_side_info, extract_score_pathkey,
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
@@ -246,7 +242,7 @@ impl CustomScan for JoinScan {
             let mut join_clause = JoinCSClause::new()
                 .with_outer_side(outer_side.clone())
                 .with_inner_side(inner_side.clone())
-                .with_join_type(SerializableJoinType::from(jointype))
+                .with_join_type(JoinType::from(jointype))
                 .with_limit(limit);
 
             // Add extracted equi-join keys with type info
@@ -300,17 +296,14 @@ impl CustomScan for JoinScan {
             let outer_path = (*outerrel).cheapest_total_path;
             let inner_path = (*innerrel).cheapest_total_path;
 
-            // Cost model for JoinScan
-            // We estimate costs based on:
-            // - Driving side: rows after search filtering, limited by LIMIT
-            // - Build side: full scan to build hash table
-            // - Hash table build cost: sequential scan + hashing
-            // - Probe cost: per driving row, hash lookup + heap fetch
-            let (startup_cost, total_cost, result_rows, estimated_build_rows) =
-                estimate_joinscan_cost(&join_clause, outerrel, innerrel, limit);
+            // Use simple fixed costs since we force the path anyway.
+            // Cost estimation is deferred to DataFusion integration.
+            let startup_cost = crate::DEFAULT_STARTUP_COST;
+            let total_cost = startup_cost + 1.0;
+            let result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
 
-            // Compute execution hints based on planning information
-            let hints = compute_execution_hints(estimated_build_rows, limit);
+            // Simple execution hints
+            let hints = compute_execution_hints(limit);
             join_clause = join_clause.with_hints(hints);
 
             // Create the private data with hints included
@@ -514,12 +507,12 @@ impl CustomScan for JoinScan {
 
         // Show join type
         let join_type_str = match join_clause.join_type {
-            SerializableJoinType::Inner => "Inner",
-            SerializableJoinType::Left => "Left",
-            SerializableJoinType::Right => "Right",
-            SerializableJoinType::Full => "Full",
-            SerializableJoinType::Semi => "Semi",
-            SerializableJoinType::Anti => "Anti",
+            JoinType::Inner => "Inner",
+            JoinType::Left => "Left",
+            JoinType::Right => "Right",
+            JoinType::Full => "Full",
+            JoinType::Semi => "Semi",
+            JoinType::Anti => "Anti",
         };
         explainer.add_text("Join Type", join_type_str);
 
@@ -636,12 +629,7 @@ impl CustomScan for JoinScan {
 
         // For EXPLAIN ANALYZE, show the actual execution method used
         if explainer.is_analyze() {
-            let exec_method = if state.custom_state().using_nested_loop {
-                "Nested Loop"
-            } else {
-                "Hash Join"
-            };
-            explainer.add_text("Exec Method", exec_method);
+            explainer.add_text("Exec Method", "Hash Join");
         }
     }
 
@@ -695,11 +683,9 @@ impl CustomScan for JoinScan {
             state.custom_state_mut().max_hash_memory = work_mem_bytes;
 
             // Note: Execution hints (algorithm preference, memory estimates) are stored in
-            // join_clause.hints and used during hash table building to make informed decisions.
-            // We don't pre-set using_nested_loop here because build side state isn't initialized yet.
-            // The hints are used in build_hash_table() to:
+            // join_clause.hints and used during hash table building to make informed decisions:
             // 1. Pre-size the hash table based on estimated_build_rows
-            // 2. Inform early termination decisions based on estimated_hash_memory
+            // 2. Panic if hash table exceeds work_mem (DataFusion will handle spilling)
 
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
@@ -929,11 +915,6 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().hash_table_built = true;
             }
 
-            // If we exceeded memory limit, use nested loop instead of hash join
-            if state.custom_state().using_nested_loop {
-                return Self::exec_nested_loop(state);
-            }
-
             // Extract key info once before the loop to avoid repeated clones
             let driving_key_info = state.custom_state().driving_key_info.clone();
 
@@ -1117,14 +1098,11 @@ impl JoinScan {
 
             // Check memory limit
             if new_memory > max_hash_memory && max_hash_memory > 0 {
-                // Exceeded memory limit - switch to nested loop
-                state.custom_state_mut().hash_table.clear();
-                state.custom_state_mut().hash_table_memory = 0;
-                state.custom_state_mut().using_nested_loop = true;
-
-                // Reset scan to beginning for nested loop
-                pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
-                break;
+                panic!(
+                    "JoinScan: hash table exceeded work_mem limit ({} bytes). \
+                     Consider increasing work_mem or using a more restrictive query.",
+                    max_hash_memory
+                );
             }
 
             state.custom_state_mut().hash_table_memory = new_memory;
@@ -1148,153 +1126,6 @@ impl JoinScan {
         // Consider: immediate nested loop fallback for cross joins, stricter memory limits,
         // or emitting a warning in EXPLAIN about cross-join performance.
         state.custom_state_mut().is_cross_join = !has_equi_join_keys;
-    }
-
-    /// Execute nested loop join when hash join exceeds memory limit.
-    /// This is a fallback that uses less memory but has O(N*M) complexity.
-    ///
-    /// TODO(nested-loop-perf): This fallback rescans the entire build side for EACH driving
-    /// row, resulting in O(D*B) I/O. For large tables this is severely worse than PostgreSQL's
-    /// native join which would spill to disk. Consider alternatives:
-    /// - Block nested loop (batch driving rows)
-    /// - Spill hash table to disk like PostgreSQL
-    /// - Fall back entirely to PostgreSQL's native join execution
-    /// - At minimum, emit a WARNING when this fallback triggers
-    unsafe fn exec_nested_loop(
-        state: &mut CustomScanStateWrapper<Self>,
-    ) -> *mut pg_sys::TupleTableSlot {
-        let Some(scan_desc) = state.custom_state().build_scan_desc else {
-            return std::ptr::null_mut();
-        };
-        let Some(build_slot) = state.custom_state().build_scan_slot else {
-            return std::ptr::null_mut();
-        };
-
-        // Extract key info once before the loop to avoid repeated clones in the hot path.
-        // These are read-only during execution so we can safely clone them once here.
-        let driving_key_info = state.custom_state().driving_key_info.clone();
-        let build_key_info = state.custom_state().build_key_info.clone();
-
-        loop {
-            // Note: We don't check reached_limit() here because JoinScan might be nested
-            // inside another join. PostgreSQL's Limit node handles limiting.
-
-            // If we have pending matches, return one
-            if let Some((build_ctid, build_score)) =
-                state.custom_state_mut().pending_build_ctids.pop_front()
-            {
-                if let Some(slot) = Self::build_result_tuple(state, build_ctid, build_score) {
-                    // Check join-level predicate using the expression tree
-                    if !Self::evaluate_join_level_predicate(state, slot) {
-                        continue;
-                    }
-
-                    state.custom_state_mut().rows_returned += 1;
-                    return slot;
-                }
-                continue;
-            }
-
-            // Need a driving row. If we don't have one, get the next one.
-            if state.custom_state().current_driving_ctid.is_none() {
-                // Get next driving row - either from executor or heap scan
-                let (driving_ctid, driving_score) =
-                    if state.custom_state().driving_executor.is_some() {
-                        // Use the executor for incremental fetching
-                        let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
-
-                        // Note: We don't check executor.reached_limit() here because
-                        // for joins the LIMIT applies to output rows (tracked by rows_returned),
-                        // not input driving rows.
-                        match executor.next_visible() {
-                            executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
-                            executors::JoinExecResult::Eof => return std::ptr::null_mut(),
-                        }
-                    } else if let Some(driving_scan_desc) = state.custom_state().driving_scan_desc {
-                        // Fallback to heap scan (no search predicate case)
-                        let slot = state.custom_state().driving_fetch_slot;
-                        let Some(slot) = slot else {
-                            return std::ptr::null_mut();
-                        };
-
-                        let has_tuple = pg_sys::table_scan_getnextslot(
-                            driving_scan_desc,
-                            pg_sys::ScanDirection::ForwardScanDirection,
-                            slot,
-                        );
-
-                        if !has_tuple {
-                            return std::ptr::null_mut();
-                        }
-
-                        let ctid = item_pointer_to_u64((*slot).tts_tid);
-                        (ctid, 0.0)
-                    } else {
-                        return std::ptr::null_mut();
-                    };
-
-                state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
-                state.custom_state_mut().current_driving_score = driving_score;
-
-                // Reset build side scan for this driving row
-                pg_sys::table_rescan(scan_desc, std::ptr::null_mut());
-            }
-
-            // Collect matching build rows for this driving row.
-            // We collect matches first to avoid borrow conflicts (need both immutable
-            // access to build_matching_ctids and mutable access to pending_build_ctids).
-            let mut matches: Vec<(u64, f32)> = Vec::new();
-            let driving_slot = state.custom_state().driving_fetch_slot;
-
-            // Now scan the build side for this driving row
-            while pg_sys::table_scan_getnextslot(
-                scan_desc,
-                pg_sys::ScanDirection::ForwardScanDirection,
-                build_slot,
-            ) {
-                let build_ctid = item_pointer_to_u64((*build_slot).tts_tid);
-
-                // If build side has a search predicate, filter to only matching rows
-                // and get the BM25 score (if build side needs scores)
-                let build_score =
-                    if let Some(ref matching) = state.custom_state().build_matching_ctids {
-                        match matching.get(&build_ctid) {
-                            Some(&score) => score,
-                            None => continue, // Skip rows that don't match the build side predicate
-                        }
-                    } else {
-                        0.0 // No search predicate on build side
-                    };
-
-                // Extract keys and compare
-                if let Some(driving_slot) = driving_slot {
-                    let driving_key = extract_composite_key(driving_slot, &driving_key_info);
-                    let build_key = extract_composite_key(build_slot, &build_key_info);
-
-                    // Check if keys match (or if it's a cross join)
-                    let keys_match = match (&driving_key, &build_key) {
-                        (Some(CompositeKey::CrossJoin), Some(CompositeKey::CrossJoin)) => true,
-                        (Some(dk), Some(bk)) => dk == bk,
-                        _ => false, // NULL keys don't match
-                    };
-
-                    if keys_match {
-                        matches.push((build_ctid, build_score));
-                    }
-                }
-            }
-
-            // Add collected matches to pending queue
-            for (build_ctid, build_score) in matches {
-                state
-                    .custom_state_mut()
-                    .pending_build_ctids
-                    .push_back((build_ctid, build_score));
-            }
-
-            // Done with this driving row, clear it to get the next one
-            state.custom_state_mut().current_driving_ctid = None;
-        }
     }
 
     /// Extract the join key from the driving tuple.
@@ -1615,33 +1446,31 @@ unsafe fn copy_datum_to_key_value(datum: pg_sys::Datum, typlen: i16, typbyval: b
 }
 
 /// Convert a serializable join-level expression to a runtime expression.
-fn convert_to_runtime_expr(expr: &SerializableJoinLevelExpr) -> JoinLevelExpr {
+fn convert_to_runtime_expr(expr: &build::JoinLevelExpr) -> JoinLevelExpr {
     match expr {
-        SerializableJoinLevelExpr::Predicate {
+        build::JoinLevelExpr::Predicate {
             side,
             predicate_idx,
         } => {
             let runtime_side = match side {
-                SerializableJoinSide::Outer => JoinSide::Outer,
-                SerializableJoinSide::Inner => JoinSide::Inner,
+                build::JoinSide::Outer => JoinSide::Outer,
+                build::JoinSide::Inner => JoinSide::Inner,
             };
             JoinLevelExpr::Predicate {
                 side: runtime_side,
                 ctid_set_idx: *predicate_idx,
             }
         }
-        SerializableJoinLevelExpr::HeapCondition { condition_idx } => {
-            JoinLevelExpr::HeapCondition {
-                condition_idx: *condition_idx,
-            }
-        }
-        SerializableJoinLevelExpr::And(children) => {
+        build::JoinLevelExpr::HeapCondition { condition_idx } => JoinLevelExpr::HeapCondition {
+            condition_idx: *condition_idx,
+        },
+        build::JoinLevelExpr::And(children) => {
             JoinLevelExpr::And(children.iter().map(convert_to_runtime_expr).collect())
         }
-        SerializableJoinLevelExpr::Or(children) => {
+        build::JoinLevelExpr::Or(children) => {
             JoinLevelExpr::Or(children.iter().map(convert_to_runtime_expr).collect())
         }
-        SerializableJoinLevelExpr::Not(child) => {
+        build::JoinLevelExpr::Not(child) => {
             JoinLevelExpr::Not(Box::new(convert_to_runtime_expr(child)))
         }
     }

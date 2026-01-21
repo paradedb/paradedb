@@ -20,10 +20,9 @@
 //! This module contains functions used during the planning phase to:
 //! - Extract and analyze join conditions
 //! - Gather information about join sides (tables, indexes, predicates)
-//! - Estimate costs and determine execution hints
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{ExecutionHints, JoinAlgorithmHint, JoinCSClause, JoinKeyPair, JoinSideInfo};
+use super::build::{ExecutionHints, JoinAlgorithmHint, JoinKeyPair, JoinSideInfo};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
@@ -34,7 +33,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::expr_contains_any_operator;
 use crate::query::SearchQueryInput;
-use crate::DEFAULT_STARTUP_COST;
 use pgrx::{pg_sys, PgList};
 
 /// Result of extracting join conditions from the restrict list.
@@ -274,145 +272,12 @@ pub(super) unsafe fn extract_join_side_info(
     Some(side_info)
 }
 
-/// Estimate the cost of a JoinScan operation.
-///
-/// Returns (startup_cost, total_cost, result_rows, estimated_build_rows).
-///
-/// Cost model components:
-/// - Startup cost: Build side sequential scan + hash table construction
-/// - Per-tuple cost: Hash lookup + heap fetch for driving side
-/// - Result rows: Min(limit, estimated_matches)
-/// - estimated_build_rows: Estimated rows in build side (for execution hints)
-pub(super) unsafe fn estimate_joinscan_cost(
-    join_clause: &JoinCSClause,
-    outerrel: *mut pg_sys::RelOptInfo,
-    innerrel: *mut pg_sys::RelOptInfo,
-    limit: Option<usize>,
-) -> (f64, f64, f64, f64) {
-    // Get row estimates from PostgreSQL's statistics
-    let outer_rows = if !outerrel.is_null() {
-        (*outerrel).rows.max(1.0)
-    } else {
-        1000.0
-    };
-    let inner_rows = if !innerrel.is_null() {
-        (*innerrel).rows.max(1.0)
-    } else {
-        1000.0
-    };
-
-    // Determine driving and build side rows
-    let driving_is_outer = join_clause.driving_side_is_outer();
-    let (driving_rows, build_rows) = if driving_is_outer {
-        (outer_rows, inner_rows)
-    } else {
-        (inner_rows, outer_rows)
-    };
-
-    // TODO(cost-model): The 0.1 selectivity is a rough placeholder. To improve:
-    // 1. Query Tantivy for estimated document frequency of the search terms
-    // 2. Use PostgreSQL's extended statistics if available
-    // 3. Track actual selectivity across queries and use adaptive estimates
-    // 4. Consider query complexity (AND/OR structure affects selectivity)
-    let driving_selectivity = if join_clause.driving_side().has_search_predicate {
-        0.1 // Placeholder: assume search predicate selects ~10% of rows
-    } else {
-        1.0
-    };
-    let estimated_driving_rows = (driving_rows * driving_selectivity).max(1.0);
-
-    // Same placeholder selectivity for build side
-    let build_selectivity = if join_clause.build_side().has_search_predicate {
-        0.1 // Placeholder: assume search predicate selects ~10% of rows
-    } else {
-        1.0
-    };
-    let estimated_build_rows = (build_rows * build_selectivity).max(1.0);
-
-    // Apply limit to result estimate
-    let result_rows = match limit {
-        Some(lim) => (estimated_driving_rows * 0.5).min(lim as f64).max(1.0), // Assume ~50% join selectivity
-        None => estimated_driving_rows * 0.5,
-    };
-
-    // Cost components using PostgreSQL's cost constants
-    let cpu_tuple_cost = pg_sys::cpu_tuple_cost;
-    let cpu_operator_cost = pg_sys::cpu_operator_cost;
-
-    // Startup cost: Build the hash table from build side
-    // - Sequential scan of build side
-    // - Hashing each tuple
-    let build_scan_cost = estimated_build_rows * cpu_tuple_cost;
-    let build_hash_cost = estimated_build_rows * cpu_operator_cost;
-    let startup_cost = DEFAULT_STARTUP_COST + build_scan_cost + build_hash_cost;
-
-    // Per-tuple cost for driving side:
-    // - Fetch from index (via Tantivy)
-    // - Heap fetch for driving tuple
-    // - Hash lookup
-    // - Heap fetch for matching build tuples (if any)
-    let index_fetch_cost = cpu_operator_cost; // Tantivy lookup
-    let heap_fetch_cost = cpu_tuple_cost; // Heap access for driving tuple
-    let hash_lookup_cost = cpu_operator_cost; // Hash table probe
-    let per_driving_tuple_cost = index_fetch_cost + heap_fetch_cost + hash_lookup_cost;
-
-    // Total run cost: process estimated driving rows
-    // But we may short-circuit due to LIMIT
-    let driving_rows_to_process = match limit {
-        Some(lim) => {
-            // We might need to process more driving rows than the limit
-            // due to join selectivity (not all driving rows will have matches)
-            (lim as f64 * 2.0).min(estimated_driving_rows)
-        }
-        None => estimated_driving_rows,
-    };
-    let run_cost = driving_rows_to_process * per_driving_tuple_cost;
-
-    let total_cost = startup_cost + run_cost;
-
-    (startup_cost, total_cost, result_rows, estimated_build_rows)
-}
-
 /// Compute execution hints based on planning information.
 ///
-/// These hints help the executor make better decisions about algorithm selection,
-/// memory allocation, and batch sizing.
-pub(super) fn compute_execution_hints(
-    estimated_build_rows: f64,
-    limit: Option<usize>,
-) -> ExecutionHints {
-    // Determine algorithm hint based on build side size
-    let algorithm = determine_algorithm_hint(estimated_build_rows, limit);
-
-    // Estimate hash table memory: each entry is roughly 64-128 bytes
-    // (CompositeKey + Vec overhead + InnerRow + HashMap entry overhead)
-    // Use a conservative estimate of 128 bytes per entry
-    const ESTIMATED_ENTRY_SIZE: usize = 128;
-    let estimated_hash_memory = (estimated_build_rows as usize) * ESTIMATED_ENTRY_SIZE;
-
-    ExecutionHints::new()
-        .with_algorithm(algorithm)
-        .with_estimated_build_rows(estimated_build_rows)
-        .with_estimated_hash_memory(estimated_hash_memory)
-}
-
-/// Determine preferred join algorithm based on build side size and limit.
-///
-/// Note: Currently JoinScan requires a LIMIT clause, so the PreferHash hint
-/// is never returned. When non-LIMIT joins are supported (TODO(no-limit)),
-/// this function should be revisited to provide meaningful hints.
-pub(super) fn determine_algorithm_hint(
-    _build_rows: f64,
-    _limit: Option<usize>,
-) -> JoinAlgorithmHint {
-    // Currently always return Auto since:
-    // 1. JoinScan requires LIMIT, and
-    // 2. With LIMIT, hash join is almost always the best choice
-    //
-    // TODO(no-limit): When non-LIMIT joins are supported, consider:
-    // - PreferHash for large build sides without LIMIT (full table scans)
-    // - Other heuristics based on estimated selectivity
-    JoinAlgorithmHint::Auto
+/// Simplified version without cost estimation - just sets basic hints.
+/// Detailed cost estimation is deferred to DataFusion integration.
+pub(super) fn compute_execution_hints(_limit: Option<usize>) -> ExecutionHints {
+    ExecutionHints::new().with_algorithm(JoinAlgorithmHint::Auto)
 }
 
 /// Extract ORDER BY score pathkey for the driving side.

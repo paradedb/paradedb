@@ -21,9 +21,7 @@
 //! in PostgreSQL's EXPLAIN output, including expression tree formatting
 //! and column name resolution.
 
-use super::build::{
-    HeapConditionInfo, JoinLevelSearchPredicate, SerializableJoinLevelExpr, SerializableJoinSide,
-};
+use super::build::{HeapConditionInfo, JoinLevelExpr, JoinLevelSearchPredicate, JoinSide};
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
@@ -64,18 +62,18 @@ pub(super) fn get_attname_safe(
 
 /// Format a join-level expression tree for EXPLAIN output.
 pub(super) fn format_join_level_expr(
-    expr: &SerializableJoinLevelExpr,
+    expr: &JoinLevelExpr,
     predicates: &[JoinLevelSearchPredicate],
     heap_conditions: &[HeapConditionInfo],
 ) -> String {
     match expr {
-        SerializableJoinLevelExpr::Predicate {
+        JoinLevelExpr::Predicate {
             side,
             predicate_idx,
         } => {
             let side_str = match side {
-                SerializableJoinSide::Outer => "outer",
-                SerializableJoinSide::Inner => "inner",
+                JoinSide::Outer => "outer",
+                JoinSide::Inner => "inner",
             };
             if let Some(pred) = predicates.get(*predicate_idx) {
                 format!("{}:{}", side_str, pred.query.explain_format())
@@ -83,14 +81,14 @@ pub(super) fn format_join_level_expr(
                 format!("{}:?", side_str)
             }
         }
-        SerializableJoinLevelExpr::HeapCondition { condition_idx } => {
+        JoinLevelExpr::HeapCondition { condition_idx } => {
             if let Some(cond) = heap_conditions.get(*condition_idx) {
                 format!("heap:{}", cond.description)
             } else {
                 "heap:?".to_string()
             }
         }
-        SerializableJoinLevelExpr::And(children) => {
+        JoinLevelExpr::And(children) => {
             let parts: Vec<_> = children
                 .iter()
                 .map(|c| format_join_level_expr(c, predicates, heap_conditions))
@@ -101,7 +99,7 @@ pub(super) fn format_join_level_expr(
                 format!("({})", parts.join(" AND "))
             }
         }
-        SerializableJoinLevelExpr::Or(children) => {
+        JoinLevelExpr::Or(children) => {
             let parts: Vec<_> = children
                 .iter()
                 .map(|c| format_join_level_expr(c, predicates, heap_conditions))
@@ -112,7 +110,7 @@ pub(super) fn format_join_level_expr(
                 format!("({})", parts.join(" OR "))
             }
         }
-        SerializableJoinLevelExpr::Not(child) => {
+        JoinLevelExpr::Not(child) => {
             format!(
                 "NOT {}",
                 format_join_level_expr(child, predicates, heap_conditions)

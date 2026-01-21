@@ -274,8 +274,6 @@ pub struct JoinScanState {
     pub hash_table_memory: usize,
     /// Maximum allowed memory for hash table (from work_mem, in bytes).
     pub max_hash_memory: usize,
-    /// Whether we exceeded memory limit and fell back to nested loop.
-    pub using_nested_loop: bool,
 }
 
 impl JoinScanState {
@@ -291,7 +289,6 @@ impl JoinScanState {
         // and reused across rescans, so we don't clear them here.
         // The driving_executor maintains its own state for incremental fetching.
         self.hash_table_memory = 0;
-        self.using_nested_loop = false;
     }
 
     /// Returns (outer_slot, inner_slot) based on which side is driving.

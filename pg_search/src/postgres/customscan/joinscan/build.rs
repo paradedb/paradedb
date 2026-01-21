@@ -96,7 +96,7 @@ impl JoinSideInfo {
 /// Note: Currently only Inner join is supported, but other variants are
 /// defined for future extensibility and to match PostgreSQL's JoinType enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
-pub enum SerializableJoinType {
+pub enum JoinType {
     #[default]
     Inner,
     Left,
@@ -106,15 +106,15 @@ pub enum SerializableJoinType {
     Anti,
 }
 
-impl From<pg_sys::JoinType::Type> for SerializableJoinType {
+impl From<pg_sys::JoinType::Type> for JoinType {
     fn from(jt: pg_sys::JoinType::Type) -> Self {
         match jt {
-            pg_sys::JoinType::JOIN_INNER => SerializableJoinType::Inner,
-            pg_sys::JoinType::JOIN_LEFT => SerializableJoinType::Left,
-            pg_sys::JoinType::JOIN_FULL => SerializableJoinType::Full,
-            pg_sys::JoinType::JOIN_RIGHT => SerializableJoinType::Right,
-            pg_sys::JoinType::JOIN_SEMI => SerializableJoinType::Semi,
-            pg_sys::JoinType::JOIN_ANTI => SerializableJoinType::Anti,
+            pg_sys::JoinType::JOIN_INNER => JoinType::Inner,
+            pg_sys::JoinType::JOIN_LEFT => JoinType::Left,
+            pg_sys::JoinType::JOIN_FULL => JoinType::Full,
+            pg_sys::JoinType::JOIN_RIGHT => JoinType::Right,
+            pg_sys::JoinType::JOIN_SEMI => JoinType::Semi,
+            pg_sys::JoinType::JOIN_ANTI => JoinType::Anti,
             other => panic!("JoinScan: unsupported join type {:?}", other),
         }
     }
@@ -205,7 +205,7 @@ pub struct JoinLevelSearchPredicate {
 
 /// Which side of the join a predicate references (serializable version).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SerializableJoinSide {
+pub enum JoinSide {
     Outer,
     Inner,
 }
@@ -233,11 +233,11 @@ pub struct HeapConditionInfo {
 /// - `Predicate`: A Tantivy search query (evaluated via ctid set membership)
 /// - `HeapCondition`: A PostgreSQL expression (evaluated via ExecQual at runtime)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SerializableJoinLevelExpr {
+pub enum JoinLevelExpr {
     /// Leaf: check if the row's ctid is in the predicate's result set (Tantivy).
     Predicate {
         /// Which side of the join this predicate references.
-        side: SerializableJoinSide,
+        side: JoinSide,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
     },
@@ -247,11 +247,11 @@ pub enum SerializableJoinLevelExpr {
         condition_idx: usize,
     },
     /// Logical AND of child expressions.
-    And(Vec<SerializableJoinLevelExpr>),
+    And(Vec<JoinLevelExpr>),
     /// Logical OR of child expressions.
-    Or(Vec<SerializableJoinLevelExpr>),
+    Or(Vec<JoinLevelExpr>),
     /// Logical NOT of a child expression.
-    Not(Box<SerializableJoinLevelExpr>),
+    Not(Box<JoinLevelExpr>),
 }
 
 /// The clause information for a Join Custom Scan.
@@ -262,7 +262,7 @@ pub struct JoinCSClause {
     /// Information about the inner (right) side of the join.
     pub inner_side: JoinSideInfo,
     /// The type of join.
-    pub join_type: SerializableJoinType,
+    pub join_type: JoinType,
     /// The join key column pairs (for equi-joins).
     pub join_keys: Vec<JoinKeyPair>,
     /// The LIMIT value from the query, if any.
@@ -275,7 +275,7 @@ pub struct JoinCSClause {
     pub heap_conditions: Vec<HeapConditionInfo>,
     /// The boolean expression tree that combines predicates and heap conditions.
     /// When Some, this expression must be evaluated for each row-pair.
-    pub join_level_expr: Option<SerializableJoinLevelExpr>,
+    pub join_level_expr: Option<JoinLevelExpr>,
     /// Execution hints from planner to guide runtime decisions.
     pub hints: ExecutionHints,
 }
@@ -295,7 +295,7 @@ impl JoinCSClause {
         self
     }
 
-    pub fn with_join_type(mut self, join_type: SerializableJoinType) -> Self {
+    pub fn with_join_type(mut self, join_type: JoinType) -> Self {
         self.join_type = join_type;
         self
     }
@@ -337,7 +337,7 @@ impl JoinCSClause {
     }
 
     /// Set the join-level expression tree.
-    pub fn with_join_level_expr(mut self, expr: SerializableJoinLevelExpr) -> Self {
+    pub fn with_join_level_expr(mut self, expr: JoinLevelExpr) -> Self {
         self.join_level_expr = Some(expr);
         self
     }
@@ -379,7 +379,7 @@ impl JoinCSClause {
 
     /// Returns true if this join has INNER join type (the only type we support in M1).
     pub fn is_inner_join(&self) -> bool {
-        self.join_type == SerializableJoinType::Inner
+        self.join_type == JoinType::Inner
     }
 
     /// Returns which side (outer=true, inner=false) is the driving side (has search predicate).

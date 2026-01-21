@@ -112,8 +112,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -154,8 +153,7 @@ LIMIT 5;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 4
-(15 rows)
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -192,8 +190,7 @@ LIMIT 5;
                Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 8
-(15 rows)
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -325,8 +322,7 @@ LIMIT 5;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 4
-(14 rows)
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -374,8 +370,7 @@ LIMIT 5;
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Algorithm Hint: Auto
-                     Est. Build Rows: 4
-(17 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -425,8 +420,7 @@ LIMIT 10;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Algorithm Hint: Auto
-               Est. Build Rows: 1
-(16 rows)
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
@@ -478,8 +472,7 @@ LIMIT 10;
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Algorithm Hint: Auto
-                     Est. Build Rows: 1
-(18 rows)
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(p.id) AS product_score,
@@ -520,8 +513,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 1
-(13 rows)
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -570,8 +562,7 @@ LIMIT 10;
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 1
-(14 rows)
+(13 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -638,8 +629,7 @@ LIMIT 10;
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -688,10 +678,10 @@ LIMIT 5;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, c.name
-   ->  Nested Loop
+   ->  Hash Join
          Output: p.id, p.name, s.name, c.name
          Inner Unique: true
-         Join Filter: (c.id = p.category_id)
+         Hash Cond: (p.category_id = c.id)
          ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, p.category_id, s.name
                Join Type: Inner
@@ -701,10 +691,11 @@ LIMIT 5;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 4
-         ->  Seq Scan on public.categories c
-               Output: c.id, c.name, c.description
-(18 rows)
+         ->  Hash
+               Output: c.name, c.id
+               ->  Seq Scan on public.categories c
+                     Output: c.name, c.id
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -787,8 +778,7 @@ LIMIT 10;
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -851,8 +841,7 @@ LIMIT 3;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
          Limit: 3
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -891,8 +880,7 @@ LIMIT 3;
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                      Limit: 3
                      Algorithm Hint: Auto
-                     Est. Build Rows: 4
-(17 rows)
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -954,8 +942,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 650
-(12 rows)
+(11 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -1022,8 +1009,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 630
-(12 rows)
+(11 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -1086,8 +1072,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 850
-(12 rows)
+(11 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -1166,8 +1151,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 850
-(12 rows)
+(11 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -1220,8 +1204,7 @@ LIMIT 10;
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1257,8 +1240,7 @@ LIMIT 10;
          Inner Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1305,8 +1287,7 @@ LIMIT 10;
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (outer:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND inner:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(13 rows)
+(12 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1342,8 +1323,7 @@ LIMIT 10;
          Join Predicate: (inner:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR outer:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1379,8 +1359,7 @@ LIMIT 10;
          Inner Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1446,8 +1425,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 3
-(12 rows)
+(11 rows)
 
 SELECT d.title, a.name
 FROM docs d
@@ -1508,8 +1486,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR phone OR novel","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 850
-(12 rows)
+(11 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1572,8 +1549,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 1
-(13 rows)
+(12 rows)
 
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
@@ -1645,8 +1621,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(12 rows)
+(11 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1770,8 +1745,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 750
-(12 rows)
+(11 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -1834,8 +1808,7 @@ LIMIT 10;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Algorithm Hint: Auto
-               Est. Build Rows: 720
-(14 rows)
+(13 rows)
 
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
@@ -2094,8 +2067,7 @@ LIMIT 5;
                Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 101
-(15 rows)
+(14 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2137,8 +2109,7 @@ LIMIT 5;
                Inner Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 101
-(15 rows)
+(14 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2179,8 +2150,7 @@ LIMIT 5;
                Join Predicate: (outer:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}} OR inner:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
                Limit: 5
                Algorithm Hint: Auto
-               Est. Build Rows: 101
-(15 rows)
+(14 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2241,8 +2211,7 @@ LIMIT 10;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 1270
-(12 rows)
+(11 rows)
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
@@ -2302,8 +2271,7 @@ LIMIT 20;
          Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 20
          Algorithm Hint: Auto
-         Est. Build Rows: 1270
-(12 rows)
+(11 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
@@ -2396,8 +2364,7 @@ LIMIT 10;
          Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(14 rows)
+(13 rows)
 
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2437,8 +2404,7 @@ LIMIT 10;
          Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
          Limit: 10
          Algorithm Hint: Auto
-         Est. Build Rows: 4
-(13 rows)
+(12 rows)
 
 -- Verify correct results
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value

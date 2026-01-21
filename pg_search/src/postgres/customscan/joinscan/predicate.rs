@@ -18,14 +18,14 @@
 //! Predicate extraction functions for JoinScan.
 //!
 //! This module handles the transformation of PostgreSQL expressions containing
-//! search predicates into `SerializableJoinLevelExpr` trees that can be evaluated
+//! search predicates into `JoinLevelExpr` trees that can be evaluated
 //! during join execution. It supports:
 //!
 //! - Single-table search predicates (converted to Tantivy queries)
 //! - Cross-relation heap conditions (evaluated by PostgreSQL)
 //! - Boolean expression trees (AND/OR/NOT)
 
-use super::build::{JoinCSClause, JoinSideInfo, SerializableJoinLevelExpr, SerializableJoinSide};
+use super::build::{JoinCSClause, JoinLevelExpr, JoinSide, JoinSideInfo};
 use super::explain::format_expr_for_explain;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
@@ -36,7 +36,7 @@ use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 
 /// Extract join-level conditions from the restrict list and transform them into
-/// a `SerializableJoinLevelExpr` tree.
+/// a `JoinLevelExpr` tree.
 ///
 /// This function processes the join's restrict list to identify:
 /// - Search predicates (@@@ operator): transformed into Predicate nodes
@@ -71,7 +71,7 @@ pub(super) unsafe fn extract_join_level_conditions(
     let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
 
     // Collect all expressions into the expression tree
-    let mut expr_trees: Vec<SerializableJoinLevelExpr> = Vec::new();
+    let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     // Track which RestrictInfos are heap conditions (by pointer) for index lookup
     let other_cond_set: std::collections::HashSet<usize> =
@@ -112,7 +112,7 @@ pub(super) unsafe fn extract_join_level_conditions(
             let condition_idx =
                 join_clause.add_heap_condition(description, heap_condition_clauses.len());
             heap_condition_clauses.push(clause);
-            expr_trees.push(SerializableJoinLevelExpr::HeapCondition { condition_idx });
+            expr_trees.push(JoinLevelExpr::HeapCondition { condition_idx });
         }
     }
 
@@ -121,7 +121,7 @@ pub(super) unsafe fn extract_join_level_conditions(
         let final_expr = if expr_trees.len() == 1 {
             expr_trees.pop().unwrap()
         } else {
-            SerializableJoinLevelExpr::And(expr_trees)
+            JoinLevelExpr::And(expr_trees)
         };
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
@@ -129,7 +129,7 @@ pub(super) unsafe fn extract_join_level_conditions(
     Ok((join_clause, heap_condition_clauses))
 }
 
-/// Recursively transform a PostgreSQL expression with search predicates into a SerializableJoinLevelExpr.
+/// Recursively transform a PostgreSQL expression with search predicates into a JoinLevelExpr.
 ///
 /// - For single-table sub-trees with search predicates: extract as a Predicate leaf
 /// - For cross-relation sub-trees without search predicates: extract as a HeapCondition leaf
@@ -147,7 +147,7 @@ pub(super) unsafe fn transform_to_search_expr(
     inner_side: &JoinSideInfo,
     join_clause: &mut JoinCSClause,
     heap_condition_clauses: &mut Vec<*mut pg_sys::Expr>,
-) -> Option<SerializableJoinLevelExpr> {
+) -> Option<JoinLevelExpr> {
     if node.is_null() {
         return None;
     }
@@ -163,16 +163,16 @@ pub(super) unsafe fn transform_to_search_expr(
     // If this is a single-table expression with search predicate, extract as Predicate
     if has_search_op && rtis.len() == 1 && (refs_outer || refs_inner) {
         let (rti, side, join_side) = if refs_outer {
-            (outer_rti, outer_side, SerializableJoinSide::Outer)
+            (outer_rti, outer_side, JoinSide::Outer)
         } else {
-            (inner_rti, inner_side, SerializableJoinSide::Inner)
+            (inner_rti, inner_side, JoinSide::Inner)
         };
 
         // Extract the Tantivy query for this expression
         if let Some(predicate_idx) =
             extract_single_table_predicate(root, rti, side, node, join_clause)
         {
-            return Some(SerializableJoinLevelExpr::Predicate {
+            return Some(JoinLevelExpr::Predicate {
                 side: join_side,
                 predicate_idx,
             });
@@ -187,7 +187,7 @@ pub(super) unsafe fn transform_to_search_expr(
         let condition_idx =
             join_clause.add_heap_condition(description, heap_condition_clauses.len());
         heap_condition_clauses.push(node as *mut pg_sys::Expr);
-        return Some(SerializableJoinLevelExpr::HeapCondition { condition_idx });
+        return Some(JoinLevelExpr::HeapCondition { condition_idx });
     }
 
     // Handle BoolExpr (AND/OR/NOT) by recursively processing children
@@ -224,7 +224,7 @@ pub(super) unsafe fn transform_to_search_expr(
                 } else if children.len() == 1 {
                     Some(children.pop().unwrap())
                 } else {
-                    Some(SerializableJoinLevelExpr::And(children))
+                    Some(JoinLevelExpr::And(children))
                 }
             }
             pg_sys::BoolExprType::OR_EXPR => {
@@ -254,7 +254,7 @@ pub(super) unsafe fn transform_to_search_expr(
                 } else if children.len() == 1 {
                     Some(children.pop().unwrap())
                 } else {
-                    Some(SerializableJoinLevelExpr::Or(children))
+                    Some(JoinLevelExpr::Or(children))
                 }
             }
             pg_sys::BoolExprType::NOT_EXPR => {
@@ -270,7 +270,7 @@ pub(super) unsafe fn transform_to_search_expr(
                         join_clause,
                         heap_condition_clauses,
                     ) {
-                        return Some(SerializableJoinLevelExpr::Not(Box::new(child_expr)));
+                        return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                     }
                 }
                 None

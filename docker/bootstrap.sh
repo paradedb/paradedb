@@ -30,7 +30,7 @@ done
 
 # Add the ParadeDB schemas to both template1 and $POSTGRES_DB
 for DB in template1 "$POSTGRES_DB"; do
-  echo "Adding 'paradedb' search_path to $DB"
+  echo "Adding 'paradedb' and 'pdb' search_path to $DB"
   psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb,pdb;"
 done
 

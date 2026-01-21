@@ -215,17 +215,14 @@ impl OwnedVisibilityChecker {
     }
 }
 
-// TODO: use !safe_drop_impl
-impl Drop for OwnedVisibilityChecker {
-    fn drop(&mut self) {
-        unsafe {
-            if std::thread::panicking() || !crate::postgres::utils::IsTransactionState() {
-                return;
-            }
-            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+crate::impl_safe_drop!(OwnedVisibilityChecker, |self| {
+    unsafe {
+        if !crate::postgres::utils::IsTransactionState() {
+            return;
         }
+        pg_sys::ExecDropSingleTupleTableSlot(self.slot);
     }
-}
+});
 
 /// A wrapper for expression evaluation state.
 #[derive(Debug)]

@@ -24,8 +24,8 @@ use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::condition_variable::ConditionVariable;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
 
 use pgrx::*;
@@ -57,9 +57,9 @@ pub mod fake_aminsertcleanup;
 pub mod heap;
 pub mod index;
 mod jsonb_support;
+pub mod locks;
 mod parallel;
 pub mod rel;
-pub mod spinlock;
 pub mod storage;
 pub mod types;
 pub mod types_arrow;
@@ -629,7 +629,7 @@ impl ParallelScanState {
         // by the time we get here since amrescan calls maybe_init_parallel_scan first)
         self.wait_for_initialization();
 
-        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
 
         loop {
@@ -646,7 +646,7 @@ impl ParallelScanState {
             // This significantly improves the reproducibility of parallel worker issues with small
             // datasets, since it means that unlike in the non-parallel case, the leader will be
             // unlikely to emit all of the segments before the workers have had a chance to start up.
-            #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+            #[cfg(not(feature = "pg15"))]
             if unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1
                 && remaining == self.nsegments

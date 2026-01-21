@@ -103,6 +103,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::basescan::BaseScan);
     customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
+    customscan::register_join_pathlist(customscan::joinscan::JoinScan);
 
     // Register global planner hook for window function support
     customscan::register_window_aggregate_hook();

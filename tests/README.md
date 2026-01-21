@@ -10,10 +10,10 @@ If you are using pgrx’s bundled PostgreSQL, follow these steps from the root o
 #! /bin/sh
 
 set -x
-export DATABASE_URL=postgresql://localhost:28817/pg_search
+export DATABASE_URL=postgresql://localhost:28818/pg_search
 export RUST_BACKTRACE=1
 cargo pgrx stop --package pg_search
-cargo pgrx install --package pg_search --pg-config ~/.pgrx/17.0/pgrx-install/bin/pg_config
+cargo pgrx install --package pg_search --pg-config ~/.pgrx/18.1/pgrx-install/bin/pg_config
 cargo pgrx start --package pg_search
 
 cargo test --package tests
@@ -27,10 +27,10 @@ If you are using a self-hosted PostgreSQL installation, install the `pg_search` 
 #! /bin/sh
 
 set -x
-export DATABASE_URL=postgresql://localhost:28817/pg_search
+export DATABASE_URL=postgresql://localhost:28818/pg_search
 export RUST_BACKTRACE=1
 cargo pgrx stop --package pg_search
-cargo pgrx install --package pg_search --pg-config /opt/homebrew/opt/postgresql@17/bin/pg_config
+cargo pgrx install --package pg_search --pg-config /opt/homebrew/opt/postgresql@18/bin/pg_config
 cargo pgrx start --package pg_search
 
 cargo test --package tests

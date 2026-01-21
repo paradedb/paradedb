@@ -150,11 +150,13 @@ ORDER BY avg_rating DESC;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
-(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A')
+ORDER BY author;
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
-(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+(SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A')
+ORDER BY author;
 
 -- Verify actual results of UNION (not just execution method)
 SELECT title, author, rating, price

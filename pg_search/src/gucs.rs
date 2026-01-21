@@ -32,6 +32,9 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Allows the user to toggle the use of our "ParadeDB Join Scan".
+static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -95,6 +98,9 @@ static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
 static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Validate TopN scan eligibility for LIMIT queries
+static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -113,6 +119,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_custom_scan",
+        c"Enable ParadeDB's experimental join custom scan",
+        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -280,6 +295,17 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.check_topn_scan",
+        c"Validate TopN scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use TopN scan. \
+          This helps detect performance issues during development where queries expected \
+          to use TopN optimization fall back to slower execution methods.",
+        &CHECK_TOPN_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -288,6 +314,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_join_custom_scan() -> bool {
+    ENABLE_JOIN_CUSTOM_SCAN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -418,6 +448,10 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
 
 pub fn explain_recursive_estimates() -> bool {
     EXPLAIN_RECURSIVE_ESTIMATES.get()
+}
+
+pub fn check_topn_scan() -> bool {
+    CHECK_TOPN_SCAN.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

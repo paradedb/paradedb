@@ -297,6 +297,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 \echo 'Test: Mixed fast/non-fast fields'
 Test: Mixed fast/non-fast fields
 -- Check execution plan for fast fields (should use mixed fast exec)

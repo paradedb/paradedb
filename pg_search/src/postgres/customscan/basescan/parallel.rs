@@ -101,7 +101,7 @@ pub fn compute_nworkers(
     estimated_total_rows: Cardinality,
     segment_count: usize,
     contains_external_var: bool,
-    contains_exec_param: bool,
+    contains_correlated_param: bool,
 ) -> usize {
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -133,17 +133,15 @@ pub fn compute_nworkers(
         nworkers = 0;
     }
 
-    if contains_exec_param {
-        // Don't attempt to parallelize when we have PARAM_EXEC nodes (from scalar subqueries,
-        // correlated subqueries, InitPlans, etc.). These parameters are evaluated by the leader
-        // and need special handling to be made available to parallel workers. Currently, we don't
-        // support this, so we disable parallelism to avoid crashes when workers try to access
-        // these parameters.
-        // TODO: Implement proper PARAM_EXEC parameter sharing with parallel workers.
+    if contains_correlated_param {
+        // Don't attempt to parallelize when we have correlated PARAM_EXEC nodes. Uncorrelated
+        // params are solved during BeginCustomScan and pushed down to parallel workers, but
+        // correlated params need to be evaluated during the scan itself.
+        // TODO: Implement proper correlated PARAM_EXEC param sharing with parallel workers.
         nworkers = 0;
     }
 
-    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+    #[cfg(not(feature = "pg15"))]
     unsafe {
         if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
             // force a parallel worker if the `debug_parallel_query` GUC is on

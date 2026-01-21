@@ -42,9 +42,13 @@
 //! 5. **Base relations**: Each side of the join must be a single base relation
 //!    - Join trees (e.g., `(A JOIN B) JOIN C`) on one side are not yet supported
 //!
-//! 6. **Join conditions**: For non-equijoin conditions (e.g., `a.x > b.y`), there must
-//!    also be at least one equi-join key (e.g., `a.id = b.id`)
-//!    - Pure cross-joins with only non-equijoin conditions fall back to PostgreSQL
+//! 6. **No multi-table predicates**: Conditions that reference columns from both
+//!    tables (e.g., `a.price > b.min_price`) are not supported
+//!    - These require heap access which defeats the fast-field optimization
+//!    - Equi-join keys (e.g., `a.id = b.id`) are supported as they're used for hash join
+//!
+//! 7. **Join conditions**: For non-equijoin conditions, there must also be at least
+//!    one equi-join key - pure cross-joins fall back to PostgreSQL
 //!
 //! # Example Queries
 //!
@@ -67,6 +71,13 @@
 //! FROM products p
 //! LEFT JOIN suppliers s ON p.supplier_id = s.id
 //! WHERE p.description @@@ 'wireless'
+//! LIMIT 10;
+//!
+//! -- JoinScan is NOT proposed (multi-table predicate p.price > s.min_price)
+//! SELECT p.name, s.name
+//! FROM products p
+//! JOIN suppliers s ON p.supplier_id = s.id
+//! WHERE p.description @@@ 'wireless' AND p.price > s.min_price
 //! LIMIT 10;
 //! ```
 //!
@@ -259,10 +270,10 @@ impl CustomScan for JoinScan {
             // Extract join-level predicates (search predicates and heap conditions)
             // This builds an expression tree that can reference:
             // - Predicate nodes: Tantivy search queries
-            // - HeapCondition nodes: PostgreSQL expressions
+            // - MultiTablePredicate nodes: PostgreSQL expressions
             // Returns the updated join_clause and a list of heap condition clause pointers
-            let heap_condition_clauses: Vec<*mut pg_sys::Expr>;
-            let (mut join_clause, heap_condition_clauses) = match extract_join_level_conditions(
+            let multi_table_predicate_clauses: Vec<*mut pg_sys::Expr>;
+            let (mut join_clause, multi_table_predicate_clauses) = match extract_join_level_conditions(
                 root,
                 extra,
                 &outer_side,
@@ -281,13 +292,24 @@ impl CustomScan for JoinScan {
             // Check if this is a valid join for JoinScan
             // We need at least one side with a BM25 index AND a search predicate,
             // OR successfully extracted join-level predicates.
-            // Note: Heap conditions alone don't justify using JoinScan (no search advantage).
             let has_side_predicate = (outer_side.has_bm25_index()
                 && outer_side.has_search_predicate)
                 || (inner_side.has_bm25_index() && inner_side.has_search_predicate);
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {
+                return None;
+            }
+
+            // Reject joins with multi-table predicates (conditions like `a.price > b.price`).
+            // These require heap access to evaluate and cannot be executed via fast fields.
+            // In the future, DataFusion integration may support these via late materialization.
+            if !join_clause.multi_table_predicates.is_empty() {
+                pgrx::debug1!(
+                    "JoinScan: rejecting query with {} multi-table predicate(s) - \
+                     cannot evaluate cross-table conditions without heap access",
+                    join_clause.multi_table_predicates.len()
+                );
                 return None;
             }
 
@@ -340,7 +362,7 @@ impl CustomScan for JoinScan {
             }
 
             // Add heap condition clauses as subsequent elements
-            for clause in heap_condition_clauses {
+            for clause in multi_table_predicate_clauses {
                 private_list.push(clause.cast());
             }
 
@@ -454,9 +476,9 @@ impl CustomScan for JoinScan {
             // the builder only copies the PrivateData JSON to node.custom_private, not the full list.
             let path_private = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
             let mut custom_exprs = PgList::<pg_sys::Node>::new();
-            let num_heap_conditions = private_data.join_clause.heap_conditions.len();
+            let num_multi_table_predicates = private_data.join_clause.multi_table_predicates.len();
 
-            for i in 0..num_heap_conditions {
+            for i in 0..num_multi_table_predicates {
                 // Index 0 = PrivateData, Index 1 = restrictlist, Index 2+ = heap condition clauses
                 let clause_idx = 2 + i;
                 if clause_idx < path_private.len() {
@@ -581,10 +603,10 @@ impl CustomScan for JoinScan {
         }
 
         // Show if there are heap conditions (cross-relation filters)
-        if join_clause.has_heap_conditions() {
+        if join_clause.has_multi_table_predicates() {
             explainer.add_text(
                 "Heap Conditions",
-                join_clause.heap_conditions.len().to_string(),
+                join_clause.multi_table_predicates.len().to_string(),
             );
         }
 
@@ -605,7 +627,7 @@ impl CustomScan for JoinScan {
             let expr_str = format_join_level_expr(
                 expr,
                 &join_clause.join_level_predicates,
-                &join_clause.heap_conditions,
+                &join_clause.multi_table_predicates,
             );
             explainer.add_text("Join Predicate", expr_str);
         }
@@ -804,17 +826,17 @@ impl CustomScan for JoinScan {
             // Initialize heap condition evaluation if we have any
             // The heap condition expressions were added to custom_exprs during plan_custom_path
             // and have been transformed by set_customscan_references to use INDEX_VAR references.
-            if join_clause.has_heap_conditions() {
+            if join_clause.has_multi_table_predicates() {
                 let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
                 let custom_exprs = PgList::<pg_sys::Node>::from_pg((*cscan).custom_exprs);
 
                 // Create expression context for all heap conditions
                 let econtext = pg_sys::CreateExprContext(estate);
-                state.custom_state_mut().heap_condition_econtext = Some(econtext);
+                state.custom_state_mut().multi_table_predicate_econtext = Some(econtext);
 
                 // Initialize expression state for each heap condition
-                // The expressions in custom_exprs are in the same order as heap_conditions
-                for (i, _heap_cond) in join_clause.heap_conditions.iter().enumerate() {
+                // The expressions in custom_exprs are in the same order as multi_table_predicates
+                for (i, _heap_cond) in join_clause.multi_table_predicates.iter().enumerate() {
                     if i < custom_exprs.len() {
                         if let Some(expr_node) = custom_exprs.get_ptr(i) {
                             if !expr_node.is_null() {
@@ -827,7 +849,7 @@ impl CustomScan for JoinScan {
                                 );
                                 state
                                     .custom_state_mut()
-                                    .heap_condition_states
+                                    .multi_table_predicate_states
                                     .push(qual_state);
                                 continue;
                             }
@@ -836,7 +858,7 @@ impl CustomScan for JoinScan {
                     // If we couldn't initialize this condition, push null
                     state
                         .custom_state_mut()
-                        .heap_condition_states
+                        .multi_table_predicate_states
                         .push(std::ptr::null_mut());
                 }
             }
@@ -1333,7 +1355,7 @@ impl JoinScan {
             .unwrap_or(0);
 
         // Set up expression context for heap condition evaluation (if any)
-        if let Some(econtext) = state.custom_state().heap_condition_econtext {
+        if let Some(econtext) = state.custom_state().multi_table_predicate_econtext {
             (*econtext).ecxt_scantuple = result_slot;
 
             // Also set outer/inner tuple slots for the expression context
@@ -1346,16 +1368,16 @@ impl JoinScan {
         // Create evaluation context for the unified expression tree
         let econtext = state
             .custom_state()
-            .heap_condition_econtext
+            .multi_table_predicate_econtext
             .unwrap_or(std::ptr::null_mut());
         let eval_ctx = JoinLevelEvalContext {
             ctid_sets: &state.custom_state().join_level_ctid_sets,
-            heap_condition_states: &state.custom_state().heap_condition_states,
+            multi_table_predicate_states: &state.custom_state().multi_table_predicate_states,
             econtext,
         };
 
         // Evaluate the full boolean expression tree (includes both
-        // Predicate nodes for Tantivy searches and HeapCondition nodes
+        // Predicate nodes for Tantivy searches and MultiTablePredicate nodes
         // for PostgreSQL expressions)
         expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx)
     }
@@ -1448,7 +1470,7 @@ unsafe fn copy_datum_to_key_value(datum: pg_sys::Datum, typlen: i16, typbyval: b
 /// Convert a serializable join-level expression to a runtime expression.
 fn convert_to_runtime_expr(expr: &build::JoinLevelExpr) -> JoinLevelExpr {
     match expr {
-        build::JoinLevelExpr::Predicate {
+        build::JoinLevelExpr::SingleTablePredicate {
             side,
             predicate_idx,
         } => {
@@ -1456,14 +1478,16 @@ fn convert_to_runtime_expr(expr: &build::JoinLevelExpr) -> JoinLevelExpr {
                 build::JoinSide::Outer => JoinSide::Outer,
                 build::JoinSide::Inner => JoinSide::Inner,
             };
-            JoinLevelExpr::Predicate {
+            JoinLevelExpr::SingleTablePredicate {
                 side: runtime_side,
                 ctid_set_idx: *predicate_idx,
             }
         }
-        build::JoinLevelExpr::HeapCondition { condition_idx } => JoinLevelExpr::HeapCondition {
-            condition_idx: *condition_idx,
-        },
+        build::JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
+            JoinLevelExpr::MultiTablePredicate {
+                predicate_idx: *predicate_idx,
+            }
+        }
         build::JoinLevelExpr::And(children) => {
             JoinLevelExpr::And(children.iter().map(convert_to_runtime_expr).collect())
         }

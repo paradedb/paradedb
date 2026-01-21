@@ -94,22 +94,21 @@ pub enum JoinSide {
 /// `(search_pred OR heap_cond)` or `(tbl1_search AND NOT tbl2_search)`
 ///
 /// The tree can reference two types of leaf conditions:
-/// - `Predicate`: A Tantivy search result (evaluated via ctid set membership)
-/// - `HeapCondition`: A PostgreSQL expression (evaluated via ExecQual at runtime)
+/// - `SingleTablePredicate`: A Tantivy search result (evaluated via ctid set membership)
+/// - `MultiTablePredicate`: A condition spanning multiple tables (evaluated via ExecQual)
 #[derive(Debug, Clone)]
 pub enum JoinLevelExpr {
-    /// Leaf: check if the row's ctid is in the predicate's result set (Tantivy).
-    Predicate {
+    /// Leaf: single-table predicate, check if ctid is in the Tantivy result set.
+    SingleTablePredicate {
         /// Which side of the join this predicate references.
         side: JoinSide,
         /// Index into the `join_level_ctid_sets` vector.
         ctid_set_idx: usize,
     },
-    /// Leaf: evaluate a PostgreSQL expression (heap condition).
-    /// This requires runtime evaluation via ExecQual.
-    HeapCondition {
-        /// Index into the `heap_condition_states` vector.
-        condition_idx: usize,
+    /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
+    MultiTablePredicate {
+        /// Index into the `multi_table_predicate_states` vector.
+        predicate_idx: usize,
     },
     /// Logical AND of child expressions.
     And(Vec<JoinLevelExpr>),
@@ -119,21 +118,21 @@ pub enum JoinLevelExpr {
     Not(Box<JoinLevelExpr>),
 }
 
-/// Context needed to evaluate a JoinLevelExpr that may contain HeapConditions.
+/// Context needed to evaluate a JoinLevelExpr.
 pub struct JoinLevelEvalContext<'a> {
-    /// Ctid sets from Tantivy queries.
+    /// Ctid sets from Tantivy queries (for SingleTablePredicate evaluation).
     pub ctid_sets: &'a [HashSet<u64>],
-    /// Expression states for heap conditions (parallel to heap_conditions in JoinCSClause).
-    pub heap_condition_states: &'a [*mut pg_sys::ExprState],
-    /// Expression context for evaluating heap conditions.
+    /// Expression states for multi-table predicates.
+    pub multi_table_predicate_states: &'a [*mut pg_sys::ExprState],
+    /// Expression context for evaluating multi-table predicates.
     pub econtext: *mut pg_sys::ExprContext,
 }
 
 impl JoinLevelExpr {
     /// Evaluate this expression for a given row-pair.
     ///
-    /// For `Predicate` nodes: checks ctid membership in the pre-computed sets.
-    /// For `HeapCondition` nodes: evaluates the PostgreSQL expression via ExecQual.
+    /// For `SingleTablePredicate` nodes: checks ctid membership in pre-computed Tantivy sets.
+    /// For `MultiTablePredicate` nodes: evaluates the PostgreSQL expression via ExecQual.
     ///
     /// # Safety
     /// The econtext in eval_ctx must have ecxt_scantuple set to a slot containing
@@ -145,7 +144,7 @@ impl JoinLevelExpr {
         eval_ctx: &JoinLevelEvalContext,
     ) -> bool {
         match self {
-            JoinLevelExpr::Predicate { side, ctid_set_idx } => {
+            JoinLevelExpr::SingleTablePredicate { side, ctid_set_idx } => {
                 let ctid = match side {
                     JoinSide::Outer => outer_ctid,
                     JoinSide::Inner => inner_ctid,
@@ -156,9 +155,9 @@ impl JoinLevelExpr {
                     .map(|set| set.contains(&ctid))
                     .unwrap_or(false)
             }
-            JoinLevelExpr::HeapCondition { condition_idx } => {
+            JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 // Evaluate the PostgreSQL expression
-                if let Some(&expr_state) = eval_ctx.heap_condition_states.get(*condition_idx) {
+                if let Some(&expr_state) = eval_ctx.multi_table_predicate_states.get(*predicate_idx) {
                     if !expr_state.is_null() && !eval_ctx.econtext.is_null() {
                         // ExecQual returns true if the expression evaluates to true
                         return pg_sys::ExecQual(expr_state, eval_ctx.econtext);
@@ -250,11 +249,11 @@ pub struct JoinScanState {
     pub driving_uses_heap_scan: bool,
 
     // === Heap condition evaluation ===
-    /// Compiled expression states for heap conditions (parallel to heap_conditions in JoinCSClause).
-    /// Each HeapCondition in join_level_expr references an index into this vector.
-    pub heap_condition_states: Vec<*mut pg_sys::ExprState>,
+    /// Compiled expression states for heap conditions (parallel to multi_table_predicates in JoinCSClause).
+    /// Each MultiTablePredicate in join_level_expr references an index into this vector.
+    pub multi_table_predicate_states: Vec<*mut pg_sys::ExprState>,
     /// Expression context for evaluating heap conditions.
-    pub heap_condition_econtext: Option<*mut pg_sys::ExprContext>,
+    pub multi_table_predicate_econtext: Option<*mut pg_sys::ExprContext>,
 
     // === Output column mapping ===
     /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.

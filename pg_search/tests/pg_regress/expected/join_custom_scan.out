@@ -2349,22 +2349,26 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Hash Join
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Join Type: Inner
-         Outer Relation: suppliers (s)
-         Inner Relation: products (p)
-         Join Cond: s.id = p.supplier_id
-         Heap Conditions: 1
-         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
-         Limit: 10
-         Algorithm Hint: Auto
-(13 rows)
+         Hash Cond: (s.id = p.supplier_id)
+         Join Filter: (p.price >= s.min_order_value)
+         ->  Seq Scan on public.suppliers s
+               Output: s.name, s.min_order_value, s.id
+         ->  Hash
+               Output: p.id, p.name, p.price, p.supplier_id
+               ->  Custom Scan (ParadeDB Scan) on public.products p
+                     Output: p.id, p.name, p.price, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2390,21 +2394,22 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Hash Join
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Join Type: Inner
-         Outer Relation: suppliers (s)
-         Inner Relation: products (p)
-         Join Cond: s.id = p.supplier_id
-         Heap Conditions: 1
-         Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
-         Limit: 10
-         Algorithm Hint: Auto
-(12 rows)
+         Inner Unique: true
+         Hash Cond: (p.supplier_id = s.id)
+         Join Filter: ((p.id @@@ '{"with_index":{"oid":513996,"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (p.price >= s.min_order_value))
+         ->  Seq Scan on public.products p
+               Output: p.id, p.name, p.description, p.supplier_id, p.price, p.category_id
+         ->  Hash
+               Output: s.name, s.min_order_value, s.id
+               ->  Seq Scan on public.suppliers s
+                     Output: s.name, s.min_order_value, s.id
+(13 rows)
 
 -- Verify correct results
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value

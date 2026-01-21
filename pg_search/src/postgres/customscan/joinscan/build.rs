@@ -210,41 +210,41 @@ pub enum JoinSide {
     Inner,
 }
 
-/// A serialized heap condition - a PostgreSQL expression that must be evaluated
-/// by reading tuples from the heap (not via Tantivy index).
+/// A multi-table predicate - a condition that references columns from multiple
+/// tables and must be evaluated at join time (not pushed to a single table's index).
 ///
 /// These are cross-relation conditions like `a.price > b.min_value` that reference
-/// columns from both sides of the join and cannot be pushed to Tantivy.
+/// columns from both sides of the join.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeapConditionInfo {
+pub struct MultiTablePredicateInfo {
     /// Human-readable description for EXPLAIN output.
     pub description: String,
     /// Index of this condition in the restrictlist (for runtime extraction).
     pub restrictinfo_index: usize,
 }
 
-/// A serializable boolean expression tree for join-level conditions.
+/// A boolean expression tree for join-level conditions.
 ///
 /// This preserves the full AND/OR/NOT structure of complex join-level predicates,
 /// allowing correct evaluation of expressions like:
-/// `(search_pred OR heap_cond)` or `(tbl1_search AND NOT tbl2_search)`
+/// `(search_pred OR multi_table_pred)` or `(tbl1_search AND NOT tbl2_search)`
 ///
 /// The tree can reference two types of leaf conditions:
-/// - `Predicate`: A Tantivy search query (evaluated via ctid set membership)
-/// - `HeapCondition`: A PostgreSQL expression (evaluated via ExecQual at runtime)
+/// - `SingleTablePredicate`: A condition on one table (evaluated via Tantivy ctid set)
+/// - `MultiTablePredicate`: A condition spanning multiple tables (evaluated at runtime)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum JoinLevelExpr {
-    /// Leaf: check if the row's ctid is in the predicate's result set (Tantivy).
-    Predicate {
+    /// Leaf: single-table predicate, check if ctid is in the Tantivy result set.
+    SingleTablePredicate {
         /// Which side of the join this predicate references.
         side: JoinSide,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
     },
-    /// Leaf: evaluate a PostgreSQL expression against the current row pair.
-    HeapCondition {
-        /// Index into the `heap_conditions` vector.
-        condition_idx: usize,
+    /// Leaf: multi-table predicate, evaluate at runtime against the joined row pair.
+    MultiTablePredicate {
+        /// Index into the `multi_table_predicates` vector.
+        predicate_idx: usize,
     },
     /// Logical AND of child expressions.
     And(Vec<JoinLevelExpr>),
@@ -272,7 +272,7 @@ pub struct JoinCSClause {
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
     /// Each condition is referenced by index from `join_level_expr` via `HeapCondition` variant.
-    pub heap_conditions: Vec<HeapConditionInfo>,
+    pub multi_table_predicates: Vec<MultiTablePredicateInfo>,
     /// The boolean expression tree that combines predicates and heap conditions.
     /// When Some, this expression must be evaluated for each row-pair.
     pub join_level_expr: Option<JoinLevelExpr>,
@@ -322,9 +322,9 @@ impl JoinCSClause {
     }
 
     /// Add a heap condition and return its index.
-    pub fn add_heap_condition(&mut self, description: String, restrictinfo_index: usize) -> usize {
-        let idx = self.heap_conditions.len();
-        self.heap_conditions.push(HeapConditionInfo {
+    pub fn add_multi_table_predicate(&mut self, description: String, restrictinfo_index: usize) -> usize {
+        let idx = self.multi_table_predicates.len();
+        self.multi_table_predicates.push(MultiTablePredicateInfo {
             description,
             restrictinfo_index,
         });
@@ -332,8 +332,8 @@ impl JoinCSClause {
     }
 
     /// Returns true if there are heap conditions to evaluate.
-    pub fn has_heap_conditions(&self) -> bool {
-        !self.heap_conditions.is_empty()
+    pub fn has_multi_table_predicates(&self) -> bool {
+        !self.multi_table_predicates.is_empty()
     }
 
     /// Set the join-level expression tree.

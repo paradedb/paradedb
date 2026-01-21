@@ -40,11 +40,11 @@ use pgrx::{pg_sys, PgList};
 ///
 /// This function processes the join's restrict list to identify:
 /// - Search predicates (@@@ operator): transformed into Predicate nodes
-/// - Cross-relation conditions: transformed into HeapCondition nodes
+/// - Cross-relation conditions: transformed into MultiTablePredicate nodes
 /// - Boolean expressions: recursively processed to preserve structure
 ///
 /// Returns the updated JoinCSClause and a list of heap condition clause pointers
-/// (in the same order as heap_conditions in the clause) for adding to custom_exprs.
+/// (in the same order as multi_table_predicates in the clause) for adding to custom_exprs.
 pub(super) unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
@@ -53,15 +53,15 @@ pub(super) unsafe fn extract_join_level_conditions(
     other_conditions: &[*mut pg_sys::RestrictInfo],
     mut join_clause: JoinCSClause,
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
-    let mut heap_condition_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
+    let mut multi_table_predicate_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
     if extra.is_null() {
-        return Ok((join_clause, heap_condition_clauses));
+        return Ok((join_clause, multi_table_predicate_clauses));
     }
 
     let restrictlist = (*extra).restrictlist;
     if restrictlist.is_null() {
-        return Ok((join_clause, heap_condition_clauses));
+        return Ok((join_clause, multi_table_predicate_clauses));
     }
 
     let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -96,7 +96,7 @@ pub(super) unsafe fn extract_join_level_conditions(
                 outer_side,
                 inner_side,
                 &mut join_clause,
-                &mut heap_condition_clauses,
+                &mut multi_table_predicate_clauses,
             ) {
                 expr_trees.push(expr);
             } else {
@@ -107,12 +107,12 @@ pub(super) unsafe fn extract_join_level_conditions(
             }
         } else if other_cond_set.contains(&(ri as usize)) {
             // This is a top-level heap condition (cross-relation, no search operator)
-            // Create a HeapCondition leaf node
+            // Create a MultiTablePredicate leaf node
             let description = format_expr_for_explain(clause.cast());
-            let condition_idx =
-                join_clause.add_heap_condition(description, heap_condition_clauses.len());
-            heap_condition_clauses.push(clause);
-            expr_trees.push(JoinLevelExpr::HeapCondition { condition_idx });
+            let predicate_idx =
+                join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+            multi_table_predicate_clauses.push(clause);
+            expr_trees.push(JoinLevelExpr::MultiTablePredicate { predicate_idx });
         }
     }
 
@@ -126,16 +126,16 @@ pub(super) unsafe fn extract_join_level_conditions(
         join_clause = join_clause.with_join_level_expr(final_expr);
     }
 
-    Ok((join_clause, heap_condition_clauses))
+    Ok((join_clause, multi_table_predicate_clauses))
 }
 
 /// Recursively transform a PostgreSQL expression with search predicates into a JoinLevelExpr.
 ///
 /// - For single-table sub-trees with search predicates: extract as a Predicate leaf
-/// - For cross-relation sub-trees without search predicates: extract as a HeapCondition leaf
+/// - For cross-relation sub-trees without search predicates: extract as a MultiTablePredicate leaf
 /// - For BoolExpr (AND/OR/NOT): recursively transform children
 ///
-/// Also collects heap condition clause pointers into `heap_condition_clauses` for adding
+/// Also collects heap condition clause pointers into `multi_table_predicate_clauses` for adding
 /// to custom_exprs during plan_custom_path.
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn transform_to_search_expr(
@@ -146,7 +146,7 @@ pub(super) unsafe fn transform_to_search_expr(
     outer_side: &JoinSideInfo,
     inner_side: &JoinSideInfo,
     join_clause: &mut JoinCSClause,
-    heap_condition_clauses: &mut Vec<*mut pg_sys::Expr>,
+    multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
     if node.is_null() {
         return None;
@@ -172,7 +172,7 @@ pub(super) unsafe fn transform_to_search_expr(
         if let Some(predicate_idx) =
             extract_single_table_predicate(root, rti, side, node, join_clause)
         {
-            return Some(JoinLevelExpr::Predicate {
+            return Some(JoinLevelExpr::SingleTablePredicate {
                 side: join_side,
                 predicate_idx,
             });
@@ -180,14 +180,14 @@ pub(super) unsafe fn transform_to_search_expr(
         return None;
     }
 
-    // If this is a cross-relation expression WITHOUT search predicate, create HeapCondition
+    // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
     if !has_search_op && refs_outer && refs_inner {
-        // Create a HeapCondition and store the clause pointer for custom_exprs
+        // Create a MultiTablePredicate and store the clause pointer for custom_exprs
         let description = format_expr_for_explain(node);
-        let condition_idx =
-            join_clause.add_heap_condition(description, heap_condition_clauses.len());
-        heap_condition_clauses.push(node as *mut pg_sys::Expr);
-        return Some(JoinLevelExpr::HeapCondition { condition_idx });
+        let predicate_idx =
+            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+        multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
+        return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
     // Handle BoolExpr (AND/OR/NOT) by recursively processing children
@@ -211,7 +211,7 @@ pub(super) unsafe fn transform_to_search_expr(
                         outer_side,
                         inner_side,
                         join_clause,
-                        heap_condition_clauses,
+                        multi_table_predicate_clauses,
                     ) {
                         children.push(child_expr);
                     } else {
@@ -241,7 +241,7 @@ pub(super) unsafe fn transform_to_search_expr(
                         outer_side,
                         inner_side,
                         join_clause,
-                        heap_condition_clauses,
+                        multi_table_predicate_clauses,
                     ) {
                         children.push(child_expr);
                     } else {
@@ -268,7 +268,7 @@ pub(super) unsafe fn transform_to_search_expr(
                         outer_side,
                         inner_side,
                         join_clause,
-                        heap_condition_clauses,
+                        multi_table_predicate_clauses,
                     ) {
                         return Some(JoinLevelExpr::Not(Box::new(child_expr)));
                     }

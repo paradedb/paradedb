@@ -21,7 +21,7 @@
 //! in PostgreSQL's EXPLAIN output, including expression tree formatting
 //! and column name resolution.
 
-use super::build::{HeapConditionInfo, JoinLevelExpr, JoinLevelSearchPredicate, JoinSide};
+use super::build::{MultiTablePredicateInfo, JoinLevelExpr, JoinLevelSearchPredicate, JoinSide};
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
@@ -64,10 +64,10 @@ pub(super) fn get_attname_safe(
 pub(super) fn format_join_level_expr(
     expr: &JoinLevelExpr,
     predicates: &[JoinLevelSearchPredicate],
-    heap_conditions: &[HeapConditionInfo],
+    multi_table_predicates: &[MultiTablePredicateInfo],
 ) -> String {
     match expr {
-        JoinLevelExpr::Predicate {
+        JoinLevelExpr::SingleTablePredicate {
             side,
             predicate_idx,
         } => {
@@ -81,8 +81,8 @@ pub(super) fn format_join_level_expr(
                 format!("{}:?", side_str)
             }
         }
-        JoinLevelExpr::HeapCondition { condition_idx } => {
-            if let Some(cond) = heap_conditions.get(*condition_idx) {
+        JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
+            if let Some(cond) = multi_table_predicates.get(*predicate_idx) {
                 format!("heap:{}", cond.description)
             } else {
                 "heap:?".to_string()
@@ -91,7 +91,7 @@ pub(super) fn format_join_level_expr(
         JoinLevelExpr::And(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, predicates, heap_conditions))
+                .map(|c| format_join_level_expr(c, predicates, multi_table_predicates))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -102,7 +102,7 @@ pub(super) fn format_join_level_expr(
         JoinLevelExpr::Or(children) => {
             let parts: Vec<_> = children
                 .iter()
-                .map(|c| format_join_level_expr(c, predicates, heap_conditions))
+                .map(|c| format_join_level_expr(c, predicates, multi_table_predicates))
                 .collect();
             if parts.len() == 1 {
                 parts.into_iter().next().unwrap()
@@ -113,7 +113,7 @@ pub(super) fn format_join_level_expr(
         JoinLevelExpr::Not(child) => {
             format!(
                 "NOT {}",
-                format_join_level_expr(child, predicates, heap_conditions)
+                format_join_level_expr(child, predicates, multi_table_predicates)
             )
         }
     }

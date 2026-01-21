@@ -853,48 +853,8 @@ impl CustomScan for JoinScan {
                 {
                     if let Some(slot) = Self::build_result_tuple(state, build_ctid, build_score) {
                         // Check join-level predicate using the expression tree
-                        if let Some(ref expr) = state.custom_state().join_level_expr {
-                            // Map driving/build to outer/inner based on driving_is_outer
-                            let (outer_slot, inner_slot) = state.custom_state().outer_inner_slots();
-
-                            // Convert heap ctids to u64 using the SAME encoding as the BM25 index
-                            let outer_ctid_u64 = outer_slot
-                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-                                .unwrap_or(0);
-
-                            let inner_ctid_u64 = inner_slot
-                                .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-                                .unwrap_or(0);
-
-                            // Set up expression context for heap condition evaluation (if any)
-                            if let Some(econtext) = state.custom_state().heap_condition_econtext {
-                                (*econtext).ecxt_scantuple = slot;
-
-                                // Also set outer/inner tuple slots for the expression context
-                                if let (Some(outer), Some(inner)) = (outer_slot, inner_slot) {
-                                    (*econtext).ecxt_outertuple = outer;
-                                    (*econtext).ecxt_innertuple = inner;
-                                }
-                            }
-
-                            // Create evaluation context for the unified expression tree
-                            let econtext = state
-                                .custom_state()
-                                .heap_condition_econtext
-                                .unwrap_or(std::ptr::null_mut());
-                            let eval_ctx = JoinLevelEvalContext {
-                                ctid_sets: &state.custom_state().join_level_ctid_sets,
-                                heap_condition_states: &state.custom_state().heap_condition_states,
-                                econtext,
-                            };
-
-                            // Evaluate the full boolean expression tree (includes both
-                            // Predicate nodes for Tantivy searches and HeapCondition nodes
-                            // for PostgreSQL expressions)
-                            if !expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx) {
-                                // Expression not satisfied, try next match
-                                continue;
-                            }
+                        if !Self::evaluate_join_level_predicate(state, slot) {
+                            continue;
                         }
 
                         state.custom_state_mut().rows_returned += 1;
@@ -1127,49 +1087,8 @@ impl JoinScan {
             {
                 if let Some(slot) = Self::build_result_tuple(state, build_ctid, build_score) {
                     // Check join-level predicate using the expression tree
-                    // (same logic as hash join path in exec_custom_scan)
-                    if let Some(ref expr) = state.custom_state().join_level_expr {
-                        // Map driving/build to outer/inner based on driving_is_outer
-                        let (outer_slot, inner_slot) = state.custom_state().outer_inner_slots();
-
-                        // Convert heap ctids to u64 using the SAME encoding as the BM25 index
-                        let outer_ctid_u64 = outer_slot
-                            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-                            .unwrap_or(0);
-
-                        let inner_ctid_u64 = inner_slot
-                            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-                            .unwrap_or(0);
-
-                        // Set up expression context for heap condition evaluation (if any)
-                        if let Some(econtext) = state.custom_state().heap_condition_econtext {
-                            (*econtext).ecxt_scantuple = slot;
-
-                            // Also set outer/inner tuple slots for the expression context
-                            if let (Some(outer), Some(inner)) = (outer_slot, inner_slot) {
-                                (*econtext).ecxt_outertuple = outer;
-                                (*econtext).ecxt_innertuple = inner;
-                            }
-                        }
-
-                        // Create evaluation context for the unified expression tree
-                        let econtext = state
-                            .custom_state()
-                            .heap_condition_econtext
-                            .unwrap_or(std::ptr::null_mut());
-                        let eval_ctx = JoinLevelEvalContext {
-                            ctid_sets: &state.custom_state().join_level_ctid_sets,
-                            heap_condition_states: &state.custom_state().heap_condition_states,
-                            econtext,
-                        };
-
-                        // Evaluate the full boolean expression tree (includes both
-                        // Predicate nodes for Tantivy searches and HeapCondition nodes
-                        // for PostgreSQL expressions)
-                        if !expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx) {
-                            // Expression not satisfied, try next match
-                            continue;
-                        }
+                    if !Self::evaluate_join_level_predicate(state, slot) {
+                        continue;
                     }
 
                     state.custom_state_mut().rows_returned += 1;
@@ -1444,6 +1363,64 @@ impl JoinScan {
         pg_sys::ExecStoreVirtualTuple(result_slot);
 
         Some(result_slot)
+    }
+
+    /// Evaluate the join-level predicate for a result tuple.
+    ///
+    /// Returns `true` if:
+    /// - There is no join-level predicate (unconditionally passes), or
+    /// - The predicate evaluates to true for the current row pair
+    ///
+    /// Returns `false` if the predicate evaluates to false (row should be skipped).
+    ///
+    /// This is used by both hash join and nested loop execution paths.
+    unsafe fn evaluate_join_level_predicate(
+        state: &mut CustomScanStateWrapper<Self>,
+        result_slot: *mut pg_sys::TupleTableSlot,
+    ) -> bool {
+        let Some(ref expr) = state.custom_state().join_level_expr else {
+            // No join-level predicate - passes unconditionally
+            return true;
+        };
+
+        // Map driving/build to outer/inner based on driving_is_outer
+        let (outer_slot, inner_slot) = state.custom_state().outer_inner_slots();
+
+        // Convert heap ctids to u64 using the SAME encoding as the BM25 index
+        let outer_ctid_u64 = outer_slot
+            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
+            .unwrap_or(0);
+
+        let inner_ctid_u64 = inner_slot
+            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
+            .unwrap_or(0);
+
+        // Set up expression context for heap condition evaluation (if any)
+        if let Some(econtext) = state.custom_state().heap_condition_econtext {
+            (*econtext).ecxt_scantuple = result_slot;
+
+            // Also set outer/inner tuple slots for the expression context
+            if let (Some(outer), Some(inner)) = (outer_slot, inner_slot) {
+                (*econtext).ecxt_outertuple = outer;
+                (*econtext).ecxt_innertuple = inner;
+            }
+        }
+
+        // Create evaluation context for the unified expression tree
+        let econtext = state
+            .custom_state()
+            .heap_condition_econtext
+            .unwrap_or(std::ptr::null_mut());
+        let eval_ctx = JoinLevelEvalContext {
+            ctid_sets: &state.custom_state().join_level_ctid_sets,
+            heap_condition_states: &state.custom_state().heap_condition_states,
+            econtext,
+        };
+
+        // Evaluate the full boolean expression tree (includes both
+        // Predicate nodes for Tantivy searches and HeapCondition nodes
+        // for PostgreSQL expressions)
+        expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx)
     }
 }
 

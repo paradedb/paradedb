@@ -587,7 +587,7 @@ impl CustomScan for BaseScan {
                 .expect("custom_scan: should have a schema");
             let topn_pathkey_info = pullup_topn_pathkeys(&mut builder, rti, &schema, root);
 
-            #[cfg(any(feature = "pg14", feature = "pg15"))]
+            #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
             #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             let baserels = (*builder.args().root).all_query_rels;

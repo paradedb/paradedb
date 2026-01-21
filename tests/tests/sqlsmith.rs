@@ -77,7 +77,7 @@ fn crash_in_subquery(mut conn: PgConnection) {
     .execute_result(&mut conn);
 
     let pg_ver = pg_major_version(&mut conn);
-    if pg_ver == 14 {
+    if pg_ver == 15 {
         assert!(result.is_ok());
     } else {
         assert!(result.is_err());

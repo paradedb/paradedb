@@ -101,9 +101,6 @@ macro_rules! nodecast {
 // came to life in pg15
 pub type Cardinality = f64;
 
-#[cfg(feature = "pg14")]
-pub type Varno = pgrx::pg_sys::Index;
-#[cfg(not(feature = "pg14"))]
 pub type Varno = i32;
 
 #[allow(dead_code)]
@@ -115,15 +112,6 @@ pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
 
-#[cfg(feature = "pg14")]
-impl AsBool for *mut pgrx::pg_sys::Node {
-    unsafe fn as_bool(&self) -> Option<bool> {
-        let node = nodecast!(Value, T_Integer, *self)?;
-        Some((*node).val.ival != 0)
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsBool for *mut pgrx::pg_sys::Node {
     unsafe fn as_bool(&self) -> Option<bool> {
         let node = nodecast!(Boolean, T_Boolean, *self)?;
@@ -131,15 +119,6 @@ impl AsBool for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(feature = "pg14")]
-impl AsCStr for *mut pgrx::pg_sys::Node {
-    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
-        let node = nodecast!(Value, T_String, *self)?;
-        Some(std::ffi::CStr::from_ptr((*node).val.str_))
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(String, T_String, *self)?;

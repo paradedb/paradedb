@@ -97,8 +97,17 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         (105, 'Shirt', 'cotton casual wear', 3),
         (106, 'Jacket', 'wireless heated outerwear', 3);
 
-    CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, content, category_id)
-        WITH (key_field = 'id', numeric_fields = '{"category_id": {"fast": true}}');
+    -- items index: id (key), name (fast), content, category_id (fast), version (fast)
+    CREATE INDEX items_bm25_idx ON items USING bm25 (id, name, content, category_id, version)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
+            numeric_fields = '{"category_id": {"fast": true}, "version": {"fast": true}}'
+        );
+
+    -- categories needs BM25 index with fast fields for all columns used in query
+    CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name)
+        WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}');
     "#
     .execute(&mut setup_conn);
 
@@ -338,8 +347,17 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
         (1, 'Widget', 'wireless widget device', 1),
         (2, 'Gadget', 'wired gadget tool', 2);
 
+    -- products index: id (key), name (fast), content, supplier_id (fast)
     CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, content, supplier_id)
-        WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}}');
+        WITH (
+            key_field = 'id',
+            text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}',
+            numeric_fields = '{"supplier_id": {"fast": true}}'
+        );
+
+    -- suppliers needs BM25 index with fast fields for all columns used in query
+    CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name)
+        WITH (key_field = 'id', text_fields = '{"name": {"fast": true, "tokenizer": {"type": "raw"}}}');
     "#
     .execute(&mut setup_conn);
 
@@ -349,6 +367,7 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
         FROM products p
         JOIN suppliers s ON p.supplier_id = s.id
         WHERE p.content @@@ 'wireless'
+        ORDER BY p.id
         LIMIT 10
     "#;
 
@@ -407,8 +426,17 @@ async fn joinscan_rapid_updates_stress(database: Db) -> Result<()> {
         (2, 'wireless beta', 2),
         (3, 'wired gamma', 1);
 
-    CREATE INDEX stress_items_bm25_idx ON stress_items USING bm25 (id, content, ref_id)
-        WITH (key_field = 'id', numeric_fields = '{"ref_id": {"fast": true}}');
+    -- stress_items index: id (key), content (fast text), ref_id (fast), counter (fast)
+    CREATE INDEX stress_items_bm25_idx ON stress_items USING bm25 (id, content, ref_id, counter)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {"fast": true}}',
+            numeric_fields = '{"ref_id": {"fast": true}, "counter": {"fast": true}}'
+        );
+
+    -- stress_refs needs BM25 index with fast fields for all columns used in query
+    CREATE INDEX stress_refs_bm25_idx ON stress_refs USING bm25 (id, ref_name)
+        WITH (key_field = 'id', text_fields = '{"ref_name": {"fast": true, "tokenizer": {"type": "raw"}}}');
     "#
     .execute(&mut setup_conn);
 

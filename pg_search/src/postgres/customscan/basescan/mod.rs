@@ -1242,7 +1242,7 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::RequiresVisibilityCheck {
+                ExecState::FromHeap {
                     ctid,
                     score,
                     doc_address,

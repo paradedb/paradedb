@@ -148,7 +148,7 @@ impl ExecMethod for NormalScanExecState {
                     ExecState::Virtual { slot }
                 } else {
                     // not sure about the block visibility so the tuple requires a heap check
-                    ExecState::RequiresVisibilityCheck {
+                    ExecState::FromHeap {
                         ctid: scored.ctid,
                         score: scored.bm25,
                         doc_address,
@@ -157,7 +157,7 @@ impl ExecMethod for NormalScanExecState {
             },
 
             // we have a row, but we can't use the visibility map
-            Some((scored, doc_address)) => ExecState::RequiresVisibilityCheck {
+            Some((scored, doc_address)) => ExecState::FromHeap {
                 ctid: scored.ctid,
                 score: scored.bm25,
                 doc_address,

@@ -196,6 +196,13 @@ impl Drop for Buffer {
     }
 }
 
+impl Deref for Buffer {
+    type Target = pg_sys::Buffer;
+    fn deref(&self) -> &Self::Target {
+        &self.pg_buffer
+    }
+}
+
 impl Buffer {
     fn new(pg_buffer: pg_sys::Buffer) -> Self {
         assert!(

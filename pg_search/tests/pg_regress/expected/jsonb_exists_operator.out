@@ -1,0 +1,81 @@
+-- =====================================================================
+-- Test JSON ? operator pushsown 
+-- =====================================================================
+-- The JSONB ? operator should be equivalent to paradedb.exists()
+DROP TABLE IF EXISTS jsonb_exists_test;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE jsonb_exists_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    data JSONB
+);
+INSERT INTO jsonb_exists_test (description, data) VALUES ('Marketing manager', '{"first_name": "John", "last_name": "Smith"}');
+INSERT INTO jsonb_exists_test (description, data) VALUES ('Sales manager', '{"first_name": "Jane"}');
+INSERT INTO jsonb_exists_test (description, data) VALUES ('Engineer', '{"last_name": "Wilson"}');
+INSERT INTO jsonb_exists_test (description, data) VALUES ('CEO', NULL);
+INSERT INTO jsonb_exists_test (description, data) VALUES ('CTO', '{"first_name": "Jim", "last_name": "Johnson"}');
+INSERT INTO jsonb_exists_test (description, data) VALUES ('Intern', '{"address": {"city": "New York", "zip": "10001"}}');
+CREATE INDEX idx_jsonb_exists_test ON jsonb_exists_test USING bm25 (id, description, (data::pdb.literal))
+WITH (key_field = 'id');
+-- Test 1: Basic JSONB ? operator - should return rows where data has 'first_name' key
+-- This should be equivalent to: id @@@ paradedb.exists('data.first_name')
+SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() ORDER BY id;
+ id |    description    |                     data                      
+----+-------------------+-----------------------------------------------
+  1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
+  2 | Sales manager     | {"first_name": "Jane"}
+  5 | CTO               | {"last_name": "Johnson", "first_name": "Jim"}
+(3 rows)
+
+-- Test 2: JSONB ? operator with OR condition
+SELECT * FROM jsonb_exists_test WHERE data ? 'last_name' OR description ||| 'CEO' ORDER BY id;
+ id |    description    |                     data                      
+----+-------------------+-----------------------------------------------
+  1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
+  3 | Engineer          | {"last_name": "Wilson"}
+  4 | CEO               | 
+  5 | CTO               | {"last_name": "Johnson", "first_name": "Jim"}
+(4 rows)
+
+-- Test 3: JSONB ? operator with AND condition
+SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND data ? 'last_name'  AND id @@@ pdb.all() ORDER BY id;
+ id |    description    |                     data                      
+----+-------------------+-----------------------------------------------
+  1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
+  5 | CTO               | {"last_name": "Johnson", "first_name": "Jim"}
+(2 rows)
+
+-- Test 5: JSONB ? with nested path using -> operator
+-- data->'address' ? 'city' checks if 'city' key exists in data.address
+SELECT * FROM jsonb_exists_test WHERE data->'address' ? 'city' AND id @@@ pdb.all() ORDER BY id;
+ id | description |                       data                        
+----+-------------+---------------------------------------------------
+  6 | Intern      | {"address": {"zip": "10001", "city": "New York"}}
+(1 row)
+
+-- Test 7: NOT EXISTS using JSONB ? operator
+SELECT * FROM jsonb_exists_test WHERE NOT (data ? 'first_name') AND id @@@ pdb.all() ORDER BY id;
+ id | description |                       data                        
+----+-------------+---------------------------------------------------
+  3 | Engineer    | {"last_name": "Wilson"}
+  4 | CEO         | 
+  6 | Intern      | {"address": {"zip": "10001", "city": "New York"}}
+(3 rows)
+
+-- Test 8: Check plan
+EXPLAIN SELECT * FROM jsonb_exists_test WHERE data ? 'first_name' AND id @@@ pdb.all() ORDER BY id;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=10.05..10.06 rows=3 width=68)
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on jsonb_exists_test  (cost=10.00..10.03 rows=3 width=68)
+         Table: jsonb_exists_test
+         Index: idx_jsonb_exists_test
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"exists":{"field":"data.first_name"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+(9 rows)
+
+-- Clean up
+DROP TABLE IF EXISTS jsonb_exists_test;

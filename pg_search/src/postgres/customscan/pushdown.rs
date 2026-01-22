@@ -17,21 +17,21 @@
 
 use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
-use crate::api::{FieldName, HashMap, fieldname_typoid};
+use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{
-    OpExpr, OperatorAccepts, PostgresOperatorOid, TantivyOperator, TantivyOperatorExt,
-    initialize_equality_operator_lookup,
+    initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
+    TantivyOperator, TantivyOperatorExt,
 };
-use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
+use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{VarContext, find_json_path, find_vars};
+use crate::postgres::var::{find_json_path, find_vars, VarContext};
 use crate::schema::SearchField;
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, is_a, pg_guard, pg_sys};
+use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]

@@ -151,6 +151,7 @@ use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, 
 use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::item_pointer_to_u64;
+use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
 
@@ -798,26 +799,17 @@ impl CustomScan for JoinScan {
                     pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
                 state.custom_state_mut().build_scan_slot = Some(build_slot);
 
-                // Start a sequential scan on the build relation for building hash table
-                let scan_desc =
-                    pg_sys::table_beginscan(heaprel.as_ptr(), snapshot, 0, std::ptr::null_mut());
-                state.custom_state_mut().build_scan_desc = Some(scan_desc);
+                // Use the BM25 index to get all matching ctids
+                // If there's a search predicate, only matching rows will be included
+                // If there's no search predicate, use All query to get all rows from the index
+                if let Some(indexrelid) = build_side.indexrelid {
+                    // Use the search query if present, otherwise match all documents
+                    let query = build_side.query.clone().unwrap_or(SearchQueryInput::All);
 
-                // TODO(build-side-streaming): Currently, if the build side has a search
-                // predicate, we pre-materialize ALL matching ctids into a HashMap upfront.
-                // This defeats the incremental fetching benefit for large result sets.
-                //
-                // A better approach would be to use JoinSideExecutor for build side too:
-                // - During hash table build, filter rows lazily using the executor
-                // - This would allow early termination if hash table exceeds work_mem
-                // - Could also enable build side ordering for merge-join style execution
-                if let (Some(indexrelid), Some(ref query)) =
-                    (build_side.indexrelid, &build_side.query)
-                {
                     let indexrel = PgSearchRelation::open(indexrelid);
                     let search_reader = SearchIndexReader::open_with_context(
                         &indexrel,
-                        query.clone(),
+                        query,
                         build_side.score_needed, // need scores if paradedb.score() references build side
                         MvccSatisfies::Snapshot,
                         None,
@@ -1055,11 +1047,6 @@ impl CustomScan for JoinScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         unsafe {
-            // End build scan if active
-            if let Some(scan_desc) = state.custom_state().build_scan_desc {
-                pg_sys::table_endscan(scan_desc);
-            }
-
             // End driving heap scan if active
             if let Some(scan_desc) = state.custom_state().driving_scan_desc {
                 pg_sys::table_endscan(scan_desc);
@@ -1080,7 +1067,6 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().driving_executor = None;
         state.custom_state_mut().driving_scan_desc = None;
         state.custom_state_mut().build_heaprel = None;
-        state.custom_state_mut().build_scan_desc = None;
         state.custom_state_mut().build_scan_slot = None;
         state.custom_state_mut().driving_fetch_slot = None;
         state.custom_state_mut().result_slot = None;
@@ -1088,16 +1074,25 @@ impl CustomScan for JoinScan {
 }
 
 impl JoinScan {
-    /// Build the hash table from the build side by scanning the heap.
+    /// Build the hash table from the build side using ctids from the BM25 index.
+    ///
+    /// This iterates over the ctids collected during begin_custom_scan (from the BM25 index)
+    /// and fetches each tuple to extract the join key. The ctids have already been validated
+    /// for visibility when they were collected.
     unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
         let build_key_info = state.custom_state().build_key_info.clone();
         let has_equi_join_keys = !build_key_info.is_empty();
         let max_hash_memory = state.custom_state().max_hash_memory;
 
-        let Some(scan_desc) = state.custom_state().build_scan_desc else {
+        // Get the ctids from the index (collected during begin_custom_scan)
+        let Some(build_matching_ctids) = state.custom_state().build_matching_ctids.clone() else {
             return;
         };
         let Some(slot) = state.custom_state().build_scan_slot else {
+            return;
+        };
+        // Clone the visibility checker to avoid borrow conflicts with state mutation
+        let Some(vis_checker) = state.custom_state().build_visibility_checker.clone() else {
             return;
         };
 
@@ -1108,30 +1103,14 @@ impl JoinScan {
             state.custom_state_mut().hash_table.reserve(capacity);
         }
 
-        // Get build_matching_ctids reference (if build side has a search predicate)
-        let build_matching_ctids = state.custom_state().build_matching_ctids.clone();
+        // Iterate over ctids from the index and fetch each tuple to extract the join key
+        for (&ctid, &build_score) in &build_matching_ctids {
+            // Fetch the tuple by ctid - these ctids were already visibility-checked when collected
+            if !vis_checker.fetch_tuple_direct(ctid, slot) {
+                continue; // Tuple no longer visible (rare race condition)
+            }
 
-        // Scan all build side tuples
-        while pg_sys::table_scan_getnextslot(
-            scan_desc,
-            pg_sys::ScanDirection::ForwardScanDirection,
-            slot,
-        ) {
-            // Extract the ctid from the slot
-            let ctid = item_pointer_to_u64((*slot).tts_tid);
-
-            // If build side has a search predicate, filter to only matching rows
-            // and get the BM25 score (if build side needs scores)
-            let build_score = if let Some(ref matching) = build_matching_ctids {
-                match matching.get(&ctid) {
-                    Some(&score) => score,
-                    None => continue, // Skip rows that don't match the build side predicate
-                }
-            } else {
-                0.0 // No search predicate on build side
-            };
-
-            // Extract the composite key
+            // Extract the composite key from the fetched tuple
             let key = match extract_composite_key(slot, &build_key_info) {
                 Some(k) => k,
                 None => continue, // Skip rows with NULL keys

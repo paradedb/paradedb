@@ -203,9 +203,9 @@ ORDER BY s.id
 LIMIT 5;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 201 | Wireless Mouse | TechCorp
  203 | Keyboard       | TechCorp
  206 | Headphones     | TechCorp
+ 201 | Wireless Mouse | TechCorp
 (3 rows)
 
 -- =============================================================================
@@ -525,8 +525,8 @@ WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 201 | Wireless Mouse | TechCorp
  206 | Headphones     | TechCorp
+ 201 | Wireless Mouse | TechCorp
 (2 rows)
 
 -- =============================================================================
@@ -576,8 +576,8 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 201 | Wireless Mouse | TechCorp
  206 | Headphones     | TechCorp
+ 201 | Wireless Mouse | TechCorp
 (2 rows)
 
 -- =============================================================================

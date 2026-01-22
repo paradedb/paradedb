@@ -397,8 +397,16 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     }
 }
 
+/// Deprecated: Use `pdb.verify_index` instead, which includes checksum validation
+/// along with additional integrity checks.
 #[pg_extern]
 fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+    pgrx::warning!(
+        "validate_checksum is deprecated. Use pdb.verify_index('{}') instead, \
+         which includes checksum validation along with additional integrity checks.",
+        index.name()
+    );
+
     // # Safety
     //
     // Lock the index relation until the end of this function so it is not dropped or

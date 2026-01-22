@@ -28,7 +28,6 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::is_block_all_visible;
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::types_arrow::{arrow_array_to_datum, date_time_to_ts_nanos};
@@ -37,7 +36,6 @@ use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
 };
 use arrow_array::ArrayRef;
-use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use tantivy::DocAddress;
@@ -206,44 +204,16 @@ impl MixedFastFieldExecState {
             .as_ref()
             .expect("MixedFastFieldsExecState: heaprel should be initialized");
         let mut write_idx = 0;
-        let mut tts_tid = pg_sys::ItemPointerData::default();
 
         for read_idx in 0..ctids.len() {
-            let mut ctid = ctids[read_idx];
-            crate::postgres::utils::u64_to_item_pointer(ctid, &mut tts_tid);
-
-            // Check visibility of the current block
-            let blockno = unsafe { item_pointer_get_block_number(&tts_tid) };
-            let mut visible = if blockno == self.inner.blockvis.0 {
-                // We already know the visibility of this block because we just checked it last time
-                self.inner.blockvis.1
-            } else {
-                // New block, check visibility
-                self.inner.blockvis.0 = blockno;
-                self.inner.blockvis.1 =
-                    is_block_all_visible(heaprel, &mut self.inner.vmbuff, blockno);
-                self.inner.blockvis.1
-            };
-
-            // We weren't able to prove it visible via its block: go to the heap to confirm.
-            if !visible {
-                state.heap_tuple_check_count += 1;
-                if let Some(visible_ctid) = state.visibility_checker().check_visibility(ctid) {
-                    ctid = visible_ctid;
-                    visible = true
-                }
-            }
-
-            if visible {
-                // The ctid may have been updated by visibility checking: always rewrite it.
-                ctids[write_idx] = ctid;
+            let ctid = ctids[read_idx];
+            if let Some(visible_ctid) = state.visibility_checker().check(ctid) {
+                ctids[write_idx] = visible_ctid;
                 if read_idx != write_idx {
                     ids[write_idx] = ids[read_idx];
                     scores[write_idx] = scores[read_idx];
                 }
                 write_idx += 1;
-            } else {
-                state.invisible_tuple_count += 1;
             }
         }
 

@@ -485,6 +485,11 @@ impl SqlNameMarker for JsonbMarker {
     const SQL_NAME: &'static str = "jsonb";
 }
 
+pub struct UuidMarker;
+impl SqlNameMarker for UuidMarker {
+    const SQL_NAME: &'static str = "uuid";
+}
+
 //
 // taken from pgrx
 //

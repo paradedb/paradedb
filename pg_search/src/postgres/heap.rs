@@ -24,17 +24,9 @@ use pgrx::PgList;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
-/// ## Two-Layer Visibility in pg_search
-///
-/// When querying BM25 indexes, visibility must be checked at two levels:
-///
-/// 1. **Segment-level** (`MvccSatisfies::Snapshot`): Determines which Tantivy segments
-///    are visible based on transaction visibility. A segment is visible if it was
-///    committed before our snapshot.
-///
-/// 2. **Tuple-level** (this struct): Within a visible segment, individual ctid entries
-///    may be stale. After an UPDATE, the old tuple is marked dead and a new tuple is
-///    created at a new ctid, but the index still has the old ctid until VACUUM runs.
+/// When querying BM25 indexes, individual ctid entries may be stale. After an UPDATE,
+/// the old tuple is marked dead and a new tuple is created at a new ctid, but the
+/// index still has the old ctid until VACUUM runs.
 ///
 /// The visibility checker uses `table_index_fetch_tuple` which:
 /// - Verifies the tuple exists and is visible (following HOT chains if needed)

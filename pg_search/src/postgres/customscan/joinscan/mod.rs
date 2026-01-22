@@ -49,8 +49,8 @@
 //!    - ORDER BY columns must be fast fields for efficient sorting
 //!    - If any required column is not a fast field, the query falls back to PostgreSQL
 //!
-//! 7. **Join conditions**: For non-equijoin conditions, there must also be at least
-//!    one equi-join key - pure cross-joins fall back to PostgreSQL
+//! 7. **Equi-join keys required**: At least one equi-join key (e.g., `a.id = b.id`) is
+//!    required. Cross joins (cartesian products) fall back to PostgreSQL
 //!
 //! # Example Queries
 //!
@@ -207,13 +207,13 @@ impl CustomScan for JoinScan {
             let inner_rti = inner_side.heap_rti.unwrap_or(0);
             let join_conditions = extract_join_conditions(extra, outer_rti, inner_rti);
 
-            // Don't propose JoinScan for non-equijoin conditions without equi-join keys.
-            // Without equi-join keys, we'd need to do an O(N*M) cross-product scan
-            // checking every row pair against the conditions. PostgreSQL's native join
-            // handles this more efficiently with its optimized cartesian product logic.
+            // Require equi-join keys for JoinScan.
+            // Without equi-join keys, we'd have a cross join requiring O(N*M) comparisons
+            // where ALL build rows map to a single hash bucket. PostgreSQL's native join
+            // handles cartesian products more efficiently.
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
-            let has_non_equijoin_conditions = !join_conditions.other_conditions.is_empty();
-            if !has_equi_join_keys && has_non_equijoin_conditions {
+            if !has_equi_join_keys {
+                pgrx::debug1!("JoinScan: no equi-join keys (cross join), rejecting");
                 return None;
             }
 
@@ -603,28 +603,29 @@ impl CustomScan for JoinScan {
         explainer.add_text("Inner Relation", inner_display);
 
         // Show join keys (equi-join condition) with column names using aliases
-        if !join_clause.join_keys.is_empty() {
-            let keys_str: Vec<String> = join_clause
-                .join_keys
-                .iter()
-                .map(|k| {
-                    let outer_col = get_attname_safe(
-                        join_clause.outer_side.heaprelid,
-                        k.outer_attno,
-                        &outer_alias,
-                    );
-                    let inner_col = get_attname_safe(
-                        join_clause.inner_side.heaprelid,
-                        k.inner_attno,
-                        &inner_alias,
-                    );
-                    format!("{} = {}", outer_col, inner_col)
-                })
-                .collect();
-            explainer.add_text("Join Cond", keys_str.join(", "));
-        } else {
-            explainer.add_text("Join Cond", "cross join");
-        }
+        // Note: Cross joins are rejected during planning, so join_keys is never empty
+        debug_assert!(
+            !join_clause.join_keys.is_empty(),
+            "JoinScan requires equi-join keys - cross joins should be rejected during planning"
+        );
+        let keys_str: Vec<String> = join_clause
+            .join_keys
+            .iter()
+            .map(|k| {
+                let outer_col = get_attname_safe(
+                    join_clause.outer_side.heaprelid,
+                    k.outer_attno,
+                    &outer_alias,
+                );
+                let inner_col = get_attname_safe(
+                    join_clause.inner_side.heaprelid,
+                    k.inner_attno,
+                    &inner_alias,
+                );
+                format!("{} = {}", outer_col, inner_col)
+            })
+            .collect();
+        explainer.add_text("Join Cond", keys_str.join(", "));
 
         // Show if there are heap conditions (cross-relation filters)
         if join_clause.has_multi_table_predicates() {
@@ -705,6 +706,9 @@ impl CustomScan for JoinScan {
             };
 
             // Populate join key info for execution
+            let build_relid = build_side.heaprelid.unwrap_or(pg_sys::InvalidOid);
+            let driving_relid = driving_side.heaprelid.unwrap_or(pg_sys::InvalidOid);
+
             for jk in &join_clause.join_keys {
                 let (build_attno, driving_attno) = if driving_is_outer {
                     (jk.inner_attno as i32, jk.outer_attno as i32)
@@ -713,11 +717,13 @@ impl CustomScan for JoinScan {
                 };
 
                 state.custom_state_mut().build_key_info.push(JoinKeyInfo {
+                    relid: build_relid,
                     attno: build_attno,
                     typlen: jk.typlen,
                     typbyval: jk.typbyval,
                 });
                 state.custom_state_mut().driving_key_info.push(JoinKeyInfo {
+                    relid: driving_relid,
                     attno: driving_attno,
                     typlen: jk.typlen,
                     typbyval: jk.typbyval,
@@ -880,12 +886,19 @@ impl CustomScan for JoinScan {
 
             // Initialize join-level predicate evaluation if we have a join-level expression
             //
-            // TODO(memory-limit): All matching ctids are materialized into HashSets upfront
-            // with no memory limit. A broad predicate like `content @@@ 'the'` could match
-            // millions of rows, causing OOM. Consider:
-            // - Applying work_mem limit and falling back to row-by-row evaluation
-            // - Using lazy/streaming evaluation instead of full materialization
-            // - Adding an upper bound on ctid_set size
+            // TODO(ordered-merge): Currently, all matching ctids are materialized into HashSets
+            // upfront with no memory limit. A broad predicate like `content @@@ 'the'` could
+            // match millions of rows, causing OOM.
+            //
+            // A better approach would be to use ordered-merge instead of hashing. If we require
+            // that BM25 indexes are sorted by the join key (see issue #3053), we could implement
+            // this as a sorted merge of three streams all sorted on the join key:
+            //   1. outer relation rows
+            //   2. inner relation rows
+            //   3. inner single-table predicate results
+            //
+            // This would avoid materializing large ctid sets and instead stream results with
+            // O(1) memory per predicate instead of O(N).
             if let Some(ref serializable_expr) = join_clause.join_level_expr {
                 let join_level_predicates = &join_clause.join_level_predicates;
 
@@ -1142,18 +1155,9 @@ impl JoinScan {
                     score: build_score,
                 });
         }
-
-        // Store whether we're doing a cross join for later use
-        // TODO(cross-join-memory): For cross joins, all build rows map to CompositeKey::CrossJoin,
-        // creating a single hash bucket with ALL build rows. During probe, this generates O(N*M)
-        // row pairs which can cause memory exhaustion even though hash table build succeeded.
-        // Consider: immediate nested loop fallback for cross joins, stricter memory limits,
-        // or emitting a warning in EXPLAIN about cross-join performance.
-        state.custom_state_mut().is_cross_join = !has_equi_join_keys;
     }
 
     /// Extract the join key from the driving tuple.
-    /// For cross joins (no equi-join keys), returns CompositeKey::CrossJoin.
     ///
     /// # Arguments
     /// * `state` - The custom scan state
@@ -1166,24 +1170,6 @@ impl JoinScan {
     ) -> Option<CompositeKey> {
         let driving_slot = state.custom_state().driving_fetch_slot?;
         let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
-        let is_cross_join = state.custom_state().is_cross_join;
-
-        // For cross joins, just return the cross join key
-        if is_cross_join {
-            if uses_heap_scan {
-                // Tuple already in slot from heap scan, no visibility check needed
-                return Some(CompositeKey::CrossJoin);
-            } else {
-                // Fetch tuple by ctid and verify visibility
-                let vis_checker = state
-                    .custom_state_mut()
-                    .driving_visibility_checker
-                    .as_mut()?;
-                return vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
-                    Some(CompositeKey::CrossJoin)
-                })?;
-            }
-        }
 
         if uses_heap_scan {
             // Tuple already in slot from heap scan
@@ -1395,29 +1381,29 @@ impl PlainExecCapable for JoinScan {}
 
 /// Estimate the memory size of a hash table entry.
 fn estimate_entry_size(key: &CompositeKey) -> usize {
-    let key_size = match key {
-        CompositeKey::CrossJoin => 0,
-        CompositeKey::Values(values) => {
-            values
-                .iter()
-                .map(|v| v.data.len() + std::mem::size_of::<Vec<u8>>())
-                .sum::<usize>()
-                + std::mem::size_of::<Vec<KeyValue>>()
-        }
-    };
+    let key_size = key
+        .0
+        .iter()
+        .map(|v| v.data.len() + std::mem::size_of::<Vec<u8>>())
+        .sum::<usize>()
+        + std::mem::size_of::<Vec<KeyValue>>();
     // InnerRow (ctid: u64) + Vec overhead + HashMap entry overhead
     std::mem::size_of::<InnerRow>() + key_size + 64
 }
 
 /// Extract a composite key from a tuple slot using the given key info.
 /// Returns None if any key column is NULL.
+///
+/// Note: key_info should never be empty since JoinScan requires equi-join keys.
+/// Cross joins are rejected during planning.
 unsafe fn extract_composite_key(
     slot: *mut pg_sys::TupleTableSlot,
     key_info: &[JoinKeyInfo],
 ) -> Option<CompositeKey> {
-    if key_info.is_empty() {
-        return Some(CompositeKey::CrossJoin);
-    }
+    debug_assert!(
+        !key_info.is_empty(),
+        "extract_composite_key called with empty key_info - cross joins should be rejected"
+    );
 
     let mut values = Vec::with_capacity(key_info.len());
     for info in key_info {
@@ -1431,7 +1417,7 @@ unsafe fn extract_composite_key(
         let key_value = copy_datum_to_key_value(datum, info.typlen, info.typbyval);
         values.push(key_value);
     }
-    Some(CompositeKey::Values(values))
+    Some(CompositeKey(values))
 }
 
 /// Extract non-equijoin predicates from a restrictlist.

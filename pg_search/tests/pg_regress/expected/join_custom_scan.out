@@ -1526,9 +1526,10 @@ LIMIT 10;
 (2 rows)
 
 -- =============================================================================
--- TEST 17: Cross join (no equi-join keys)
+-- TEST 17: Cross join (no equi-join keys) - JoinScan NOT proposed
 -- =============================================================================
--- Verify JoinScan handles cross joins where there are no equi-join conditions
+-- Verify JoinScan does NOT handle cross joins (no equi-join conditions).
+-- Cross joins require O(N*M) comparisons and are better handled by PostgreSQL.
 DROP TABLE IF EXISTS colors CASCADE;
 DROP TABLE IF EXISTS sizes CASCADE;
 CREATE TABLE colors (
@@ -1552,27 +1553,35 @@ INSERT INTO sizes (id, name, description) VALUES
 CREATE INDEX colors_bm25_idx ON colors USING bm25 (id, name, description) WITH (key_field = 'id');
 CREATE INDEX sizes_bm25_idx ON sizes USING bm25 (id, name, description) WITH (key_field = 'id');
 -- Cross join with search predicates on both sides
--- Note: This may or may not use JoinScan depending on planner decisions
+-- JoinScan should NOT be proposed - falls back to PostgreSQL's Nested Loop
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 LIMIT 10;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: c.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Nested Loop
          Output: c.name, s.name
-         Join Type: Inner
-         Outer Relation: colors (c)
-         Inner Relation: sizes (s)
-         Join Cond: cross join
-         Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
-         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-         Algorithm Hint: Auto
-(12 rows)
+         ->  Custom Scan (ParadeDB Scan) on public.colors c
+               Output: c.name
+               Table: colors
+               Index: colors_bm25_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
+         ->  Materialize
+               Output: s.name
+               ->  Custom Scan (ParadeDB Scan) on public.sizes s
+                     Output: s.name
+                     Table: sizes
+                     Index: sizes_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s

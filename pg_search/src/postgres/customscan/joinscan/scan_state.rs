@@ -52,18 +52,25 @@ impl Hash for KeyValue {
 
 /// Composite join key that stores actual values.
 /// This avoids hash collisions by comparing the actual key data.
+///
+/// Note: JoinScan requires at least one equi-join key, so there's always
+/// at least one KeyValue in the vector. Cross joins are rejected during planning.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CompositeKey {
-    /// Cross-join (no equi-join keys) - distinct variant that cannot collide with real keys.
-    CrossJoin,
-    /// Actual key values (one per join column).
-    Values(Vec<KeyValue>),
-}
+pub struct CompositeKey(pub Vec<KeyValue>);
 
 /// Runtime key info for extracting join keys during execution.
+///
+/// Each JoinKeyInfo corresponds to one column in the composite join key.
+/// For a join condition like `a.id = b.ref_id`, there would be two JoinKeyInfo
+/// structs - one for the outer relation's column and one for the inner's.
 #[derive(Debug, Clone, Default)]
 pub struct JoinKeyInfo {
-    /// Attribute number (1-indexed).
+    /// The heap relation OID this key column belongs to.
+    /// Stored for self-documentation and debugging; can be used in future
+    /// optimizations like reading key values directly from fast fields.
+    #[allow(dead_code)]
+    pub relid: pg_sys::Oid,
+    /// Attribute number (1-indexed) within the relation.
     pub attno: i32,
     /// Type length from pg_type.typlen (-1 for varlena, -2 for cstring).
     pub typlen: i16,
@@ -71,13 +78,16 @@ pub struct JoinKeyInfo {
     pub typbyval: bool,
 }
 
+/// BM25 score type alias for clarity.
+pub type Score = f32;
+
 /// Represents an inner side row stored in the hash table.
 #[derive(Debug, Clone)]
 pub struct InnerRow {
     /// The ctid of the inner row.
     pub ctid: u64,
     /// The BM25 score of this row (if build side needs scores).
-    pub score: f32,
+    pub score: Score,
 }
 
 /// Which side of the join a predicate references.
@@ -149,23 +159,37 @@ impl JoinLevelExpr {
                     JoinSide::Outer => outer_ctid,
                     JoinSide::Inner => inner_ctid,
                 };
-                eval_ctx
-                    .ctid_sets
-                    .get(*ctid_set_idx)
-                    .map(|set| set.contains(&ctid))
-                    .unwrap_or(false)
+                let set = eval_ctx.ctid_sets.get(*ctid_set_idx).unwrap_or_else(|| {
+                    panic!(
+                        "JoinScan: ctid_set_idx {} out of bounds (have {} sets). \
+                         This indicates a bug in join predicate planning.",
+                        ctid_set_idx,
+                        eval_ctx.ctid_sets.len()
+                    )
+                });
+                set.contains(&ctid)
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
-                // Evaluate the PostgreSQL expression
-                if let Some(&expr_state) = eval_ctx.multi_table_predicate_states.get(*predicate_idx)
-                {
-                    if !expr_state.is_null() && !eval_ctx.econtext.is_null() {
-                        // ExecQual returns true if the expression evaluates to true
-                        return pg_sys::ExecQual(expr_state, eval_ctx.econtext);
-                    }
+                let expr_state = eval_ctx
+                    .multi_table_predicate_states
+                    .get(*predicate_idx)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "JoinScan: predicate_idx {} out of bounds (have {} states). \
+                                 This indicates a bug in join predicate planning.",
+                            predicate_idx,
+                            eval_ctx.multi_table_predicate_states.len()
+                        )
+                    });
+                if expr_state.is_null() || eval_ctx.econtext.is_null() {
+                    panic!(
+                        "JoinScan: expression state or econtext is null for predicate_idx {}. \
+                         This indicates incomplete initialization in begin_custom_scan.",
+                        predicate_idx
+                    );
                 }
-                // If state is not initialized, treat as false (fail-safe)
-                false
+                // ExecQual returns true if the expression evaluates to true
+                pg_sys::ExecQual(*expr_state, eval_ctx.econtext)
             }
             JoinLevelExpr::And(children) => children
                 .iter()
@@ -241,8 +265,6 @@ pub struct JoinScanState {
     // === Side tracking ===
     /// Whether the driving side is the outer side (true) or inner side (false).
     pub driving_is_outer: bool,
-    /// Whether this is a cross join (no equi-join keys).
-    pub is_cross_join: bool,
     /// Whether driving side uses heap scan (vs search scan).
     /// When true, driving tuple is already in driving_fetch_slot.
     pub driving_uses_heap_scan: bool,

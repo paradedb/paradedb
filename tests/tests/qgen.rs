@@ -535,8 +535,8 @@ async fn generated_joinscan(database: Db) {
     let _numeric_columns = ["age", "price"];
 
     proptest!(|(
-        // Test 2-3 table joins
-        num_tables in 2..=3usize,
+        // Test 2-table joins only (JoinScan doesn't support 3+ table joins yet)
+        num_tables in 2..=2usize,
         // Outer table BM25 predicate (always present)
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // Inner table BM25 predicate (optional)

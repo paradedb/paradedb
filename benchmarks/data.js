@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1769118548342,
+  "lastUpdate": 1769119305346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -57260,6 +57260,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 51.9425,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b47b50bcf5c2b130f0e296d0ab2cd3b4c1c68e42",
+          "message": "feat: custom join scan planning (with simple execution) (#3930)\n\n## Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nImplements the planning infrastructure for `JoinScan`, a PostgreSQL\ncustom scan operator for JOIN queries with BM25 full-text search\npredicates. Includes a basic execution implementation to validate the\nplanning logic.\n\n## Why\n\nWhen joining tables where one side has a BM25 search predicate and the\nquery has a LIMIT, PostgreSQL's native planner doesn't know that Tantivy\ncan efficiently return top-N results (in score order). This PR lays the\ngroundwork for optimized join execution by:\n\n1. Detecting join opportunities where BM25 indexes can accelerate the\nquery\n2. Extracting and serializing all necessary planning information for\nexecution\n3. Integrating with PostgreSQL's cost model and pathkey system\n\n## How\n\n**Planning (main focus):**\n- Detects INNER JOINs with LIMIT where at least one side has a BM25\npredicate\n- Extracts equi-join keys with type information (INTEGER, TEXT, UUID,\nNUMERIC, composite)\n- Extracts join-level predicates (OR/AND/NOT spanning both tables) into\na serializable expression tree\n- Declares pathkeys for ORDER BY score to eliminate Sort nodes\n- Integrates with PostgreSQL's custom scan infrastructure\n(`create_custom_path`, `plan_custom_path`)\n\n**Execution (simple/unoptimized):**\n- Basic driving-side hash join to validate planning correctness\n- TopN executor for streaming Tantivy results with LIMIT\n- Hash table with `work_mem` limit and nested loop fallback\n- Visibility checking for stale ctids after UPDATE\n\n## Tests\n\n- **pg_regress**:added test cases covering planning scenarios (join\ntypes, key types, predicates, cross joins, ORDER BY score)\n- **Concurrent updates**: Validates visibility handling under concurrent\nUPDATEs\n- **Property-based (qgen)**: Generated queries comparing JoinScan\nresults against PostgreSQL's native joins\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-01-22T13:15:58-08:00",
+          "tree_id": "af62c12248693ff0ce66f319a34878d22bc24519",
+          "url": "https://github.com/paradedb/paradedb/commit/b47b50bcf5c2b130f0e296d0ab2cd3b4c1c68e42"
+        },
+        "date": 1769119301835,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1209.9245,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 639.5799999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1497.9865,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 697.022,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 670.854,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 907.479,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 20.646,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 43.230999999999995,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 52.85,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

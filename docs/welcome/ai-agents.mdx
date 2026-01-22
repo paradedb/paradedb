@@ -1,0 +1,41 @@
+---
+title: AI Agents
+description: Integrate ParadeDB with AI coding assistants and LLM-powered agents.
+canonical: https://docs.paradedb.com/welcome/ai-agents
+---
+
+ParadeDB provides first-class support for AI coding assistants and LLM-powered agents. Whether you're using Claude, Cursor, VS Code Copilot, or building custom AI workflows, you can give your agent expert knowledge of ParadeDB.
+
+## Agent Skills
+
+Agent skills are instruction files that teach AI coding assistants about ParadeDB. Once installed, your agent will automatically provide accurate, up-to-date guidance when you ask about BM25 indexing, full-text search, or any ParadeDB feature.
+
+The skill uses a **pointer-based approach**—instead of bundling static documentation that can go stale, it instructs agents to fetch the latest docs in real-time.
+
+For installation instructions, see the [agent-skills repository](https://github.com/paradedb/agent-skills).
+
+## MCP Integration
+
+ParadeDB documentation is available via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for direct integration with MCP-compatible agents.
+
+**MCP Endpoint:**
+
+```
+https://docs.paradedb.com/mcp
+```
+
+This allows MCP-enabled tools to query ParadeDB documentation programmatically and provide contextual assistance.
+
+## Built-in AI Features
+
+Every page in the ParadeDB documentation includes AI-powered features:
+
+### Copy Page Menu
+
+Click **"Copy page"** in the top-right corner of any page to access quick integrations:
+
+- **Copy page** — Copy the page content as Markdown for LLMs
+- **Copy MCP Server** — Copy the MCP server URL to your clipboard
+- **Connect to Cursor** — Install the MCP server directly in Cursor
+- **Connect to VS Code** — Install the MCP server directly in VS Code
+- **Open in Perplexity / ChatGPT / Claude** — Ask questions about the current page in your preferred AI assistant

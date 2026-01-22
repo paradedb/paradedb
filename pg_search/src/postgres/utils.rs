@@ -379,6 +379,30 @@ pub struct ExtractedFieldAttribute {
     pub normalizer: Option<SearchNormalizer>,
 }
 
+/// Recursively strips tokenizer casts (e.g. `pdb.literal`, `pdb.alias`) from an expression.
+pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if type_is_tokenizer((*func).funcresulttype) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if let Some(arg) = args.get_ptr(0) {
+                return strip_tokenizer_cast(arg);
+            }
+        }
+    } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+        return strip_tokenizer_cast((*relabel).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    }
+
+    node
+}
+
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(
@@ -469,7 +493,14 @@ pub unsafe fn extract_field_attributes(
                     normalizer = parsed_typmod.normalizer();
                     attname = parsed_typmod.alias();
 
-                    if vars.len() == 1 {
+                    // Attempt to determine inner_typoid by peeling the tokenizer cast/function.
+                    // This handles cases like `(a || b)::pdb.literal('alias=...')` where vars.len() > 1.
+                    if inner_typoid == typoid {
+                        let inner_node = strip_tokenizer_cast(expression.cast());
+                        inner_typoid = pg_sys::exprType(inner_node);
+                    }
+
+                    if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {

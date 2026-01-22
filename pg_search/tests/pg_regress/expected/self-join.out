@@ -42,11 +42,10 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Output: b.id, paradedb.score(b.id), b.id, paradedb.score(b.id)
    Table: test_items
    Index: test_items_idx
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id
+   Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
-(8 rows)
+(7 rows)
 
 SELECT a.id,
        paradedb.score(a.id) as a_score,
@@ -116,11 +115,10 @@ WHERE a.description @@@ 'bear' AND b.description @@@ 'teddy bear';
    Output: test_items.id, paradedb.score(test_items.id), test_items.id, paradedb.score(test_items.id)
    Table: test_items
    Index: test_items_idx
-   Exec Method: MixedFastFieldExecState
-   Fast Fields: id
+   Exec Method: NormalScanExecState
    Scores: true
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"bear","lenient":null,"conjunction_mode":null}}}}]}}
-(8 rows)
+(7 rows)
 
 SELECT a.id, a.score, b.id, b.score
 FROM (SELECT paradedb.score(id) as score, * FROM test_items) a
@@ -198,8 +196,7 @@ WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
          Output: i.id, paradedb.score(i.id), paradedb.score(i.id)
          Table: test_items
          Index: test_items_idx
-         Exec Method: MixedFastFieldExecState
-         Fast Fields: id
+         Exec Method: NormalScanExecState
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"teddy bear","lenient":null,"conjunction_mode":null}}}}
    ->  Hash
@@ -211,7 +208,7 @@ WHERE i.description @@@ 'teddy bear' AND o.customer @@@ 'alice';
                Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"customer","query_string":"alice","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(19 rows)
 
 SELECT i.id,
        paradedb.score(i.id) as item_score,

@@ -1044,7 +1044,11 @@ impl CustomScan for BaseScan {
         if explainer.is_analyze() {
             explainer.add_unsigned_integer(
                 "Heap Fetches",
-                state.custom_state().heap_tuple_check_count as u64,
+                state
+                    .custom_state()
+                    .visibility_checker
+                    .as_ref()
+                    .map_or(0, |vc| vc.heap_tuple_check_count) as u64,
                 None,
             );
             if explainer.is_verbose() {
@@ -1055,7 +1059,11 @@ impl CustomScan for BaseScan {
                 );
                 explainer.add_unsigned_integer(
                     "Invisible Tuples",
-                    state.custom_state().invisible_tuple_count as u64,
+                    state
+                        .custom_state()
+                        .visibility_checker
+                        .as_ref()
+                        .map_or(0, |vc| vc.invisible_tuple_count) as u64,
                     None,
                 );
                 if let Some(explain_data) = &state.custom_state().parallel_explain_data {
@@ -1242,7 +1250,7 @@ impl CustomScan for BaseScan {
                 }
 
                 // SearchResults found a match
-                ExecState::RequiresVisibilityCheck {
+                ExecState::FromHeap {
                     ctid,
                     score,
                     doc_address,
@@ -1252,13 +1260,11 @@ impl CustomScan for BaseScan {
                             // the ctid is visible
                             Some(slot) => {
                                 exec_method.increment_visible();
-                                state.custom_state_mut().heap_tuple_check_count += 1;
                                 slot
                             }
 
                             // the ctid is not visible
                             None => {
-                                state.custom_state_mut().invisible_tuple_count += 1;
                                 continue;
                             }
                         };
@@ -2114,18 +2120,6 @@ pub fn text_lower_funcoid() -> pg_sys::Oid {
             &[c"pg_catalog.lower(text)".into_datum()],
         )
         .expect("the `pg_catalog.lower(text)` function should exist")
-    }
-}
-
-#[inline(always)]
-pub fn is_block_all_visible(
-    heaprel: &PgSearchRelation,
-    vmbuff: &mut pg_sys::Buffer,
-    heap_blockno: pg_sys::BlockNumber,
-) -> bool {
-    unsafe {
-        let status = pg_sys::visibilitymap_get_status(heaprel.as_ptr(), heap_blockno, vmbuff);
-        status != 0
     }
 }
 

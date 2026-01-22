@@ -17,7 +17,6 @@
 
 use std::cell::RefCell;
 
-use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::{HashMap, MvccVisibility, OrderByInfo};
 use crate::gucs;
 use crate::index::reader::index::{
@@ -30,6 +29,7 @@ use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
@@ -354,10 +354,9 @@ impl ExecMethod for TopNScanExecState {
                 // See: https://github.com/paradedb/paradedb/issues/3500
                 let vischeck = if aggregations.mvcc_enabled {
                     let heaprel = state.heaprel();
-                    Some(TSVisibilityChecker::with_rel_and_snap(
-                        heaprel.as_ptr(),
-                        unsafe { pg_sys::GetActiveSnapshot() },
-                    ))
+                    Some(VisibilityChecker::with_rel_and_snap(heaprel, unsafe {
+                        pg_sys::GetActiveSnapshot()
+                    }))
                 } else {
                     None
                 };
@@ -456,7 +455,7 @@ impl ExecMethod for TopNScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    return ExecState::RequiresVisibilityCheck {
+                    return ExecState::FromHeap {
                         ctid: scored.ctid,
                         score: scored.bm25,
                         doc_address,

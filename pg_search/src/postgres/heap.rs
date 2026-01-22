@@ -36,6 +36,9 @@ pub struct VisibilityChecker {
     vmbuff: pg_sys::Buffer,
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
+
+    pub heap_tuple_check_count: usize,
+    pub invisible_tuple_count: usize,
 }
 
 impl Clone for VisibilityChecker {
@@ -68,6 +71,8 @@ impl VisibilityChecker {
                 bman: BufferManager::new(heaprel),
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
+                heap_tuple_check_count: 0,
+                invisible_tuple_count: 0,
             }
         }
     }
@@ -83,6 +88,7 @@ impl VisibilityChecker {
         slot: *mut pg_sys::TupleTableSlot,
         mut func: F,
     ) -> Option<T> {
+        self.heap_tuple_check_count += 1;
         unsafe {
             utils::u64_to_item_pointer(ctid, &mut self.tid);
 
@@ -100,6 +106,7 @@ impl VisibilityChecker {
             if found {
                 Some(func((*self.scan).rel))
             } else {
+                self.invisible_tuple_count += 1;
                 None
             }
         }
@@ -166,13 +173,17 @@ impl VisibilityChecker {
 
             if is_visible {
                 Some(ctid)
-            } else if let Some(visible_ctid) = self.check_visibility(ctid) {
-                if visible_ctid != ctid {
-                    ctid = visible_ctid;
-                }
-                Some(ctid)
             } else {
-                None
+                self.heap_tuple_check_count += 1;
+                if let Some(visible_ctid) = self.check_visibility(ctid) {
+                    if visible_ctid != ctid {
+                        ctid = visible_ctid;
+                    }
+                    Some(ctid)
+                } else {
+                    self.invisible_tuple_count += 1;
+                    None
+                }
             }
         }
     }

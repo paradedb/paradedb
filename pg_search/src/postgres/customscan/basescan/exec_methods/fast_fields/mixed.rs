@@ -207,7 +207,6 @@ impl MixedFastFieldExecState {
 
         for read_idx in 0..ctids.len() {
             let ctid = ctids[read_idx];
-            // TODO: Restore `state.heap_tuple_check_count` increments.
             if let Some(visible_ctid) = state.visibility_checker().check(ctid) {
                 ctids[write_idx] = visible_ctid;
                 if read_idx != write_idx {
@@ -215,8 +214,6 @@ impl MixedFastFieldExecState {
                     scores[write_idx] = scores[read_idx];
                 }
                 write_idx += 1;
-            } else {
-                state.invisible_tuple_count += 1;
             }
         }
 

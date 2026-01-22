@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1769055301284,
+  "lastUpdate": 1769056390783,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -55580,6 +55580,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 53.501000000000005,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9cdaad332973d5ee5d5fced4dc04d76c33955501",
+          "message": "fix: Always use virtual tuples for fast fields scan (#3957)\n\n## What\n\nPreviously, when the fast fields scan encountered a tuple which couldn't\nbe proven visible via the visibility map, it would emit a\n`ExecState::RequiresVisibilityCheck` tuple.\n\nThe effect of this was that the `RequiresVisibilityCheck` fetched the\nentire tuple from the heap, evaluated expressions, and then emitted it.\n\nThis change pushes visibility checking down into the fast fields scan\n(using a cheap `heap_hot_search_buffer` check), so that it always emits\n`ExecState::Virtual` tuples, which are immediately emitted by the scan.\nAdditionally, it fixes a handful of planning cases where a mixed fast\nfield scan was being used incorrectly: casts, expressions, and `NUMERIC`\nfast fields.\n\n## Why\n\nThe previous behavior had two problems:\n\n### Mixed data sources\n\nWhen an index is covering, but the index content associated with a ctid\nhas changed (i.e. _not_ a HOT update), that ctid will _never_ be\nconsidered visible, even with a changed ctid. A tuple can only be\nconsidered visible with a new `ctid` when it has received a HOT update,\nand in that case, the indexed content is still valid.\n\nThat means that a covering index scan like the fast fields scan _never_\nactually needs to fetch data from the heap: only handle hot updates that\nmight have changed the `ctid`. Concretely: we can always emit data from\nArrow/the-index: we just need to visibility-filter it first.\n\nThis is good for performance (we don't double-fetch/double-deserialize\nthings), but it also makes the scan much easier to extract for reuse: it\ncan always emit (filtered) Arrow from the index, without ever having to\nactually convert from heap tuples into Arrow.\n\n### Silent planning failures\n\nWe have never had support for solving expressions for Virtual tuples\n(although we should potentially add it in the future!). But after fixing\nthe above, it became clear that there were a variety of cases where we\nwere planning fast field scans which needed expression solving. This\nmeant that the data from the fast field scan wasn't actually being used\n(or, not exclusively: we were still going to the heap for it)... so\nusing the fast field scan rather than the normal scan was doing\nredundant data fetching.\n\nTo resolve this, we remove use of the fast field scan for cases which\nrequire expression solving, and for `NUMERIC` fields (due to #2968): all\nof which had previously been fetched from the heap instead.\n\n## Tests\n\nOur existing tests covered all of these cases: see regression test\noutput changes.\n\nBenchmarks are unchanged -- likely because we don't have benchmarks\nwhich cover the case where the visibility map is partially out of date.\nWe would expect to see improvements with a stale visibility map, because\nwe'd be skipping heap deserialization.",
+          "timestamp": "2026-01-21T19:46:04-08:00",
+          "tree_id": "0254046a53b20ffbb55734e06ddc52953bc97ad8",
+          "url": "https://github.com/paradedb/paradedb/commit/9cdaad332973d5ee5d5fced4dc04d76c33955501"
+        },
+        "date": 1769056387183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1194.0525,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 644.33,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1466.3020000000001,
+            "unit": "median ms",
+            "extra": "SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 707.552,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 672.7585,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 888.141,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 20.539,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 43.355000000000004,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 53.921,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

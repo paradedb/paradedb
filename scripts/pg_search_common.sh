@@ -6,10 +6,10 @@
 # for the pg_search extension. It is meant to be sourced by other scripts.
 #
 # Possible PostgreSQL version values:
-#  - 14.17
-#  - 15.12
-#  - 16.8
-#  - 17.4 (default)
+#  - 15.15
+#  - 16.11
+#  - 17.7
+#  - 18.1 (default)
 
 set -Eeuo pipefail
 
@@ -46,8 +46,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # Change to pg_search directory
 cd "${SCRIPT_DIR}/../pg_search" || exit 1
 
-# Set PostgreSQL version or use default 17.4
-PGVER=${PGVER:-17.4}
+# Set PostgreSQL version or use default 18.1
+PGVER=${PGVER:-18.1}
 
 # Extract major version and set port and feature flag
 BASEVER=$(echo "${PGVER}" | cut -f1 -d.)

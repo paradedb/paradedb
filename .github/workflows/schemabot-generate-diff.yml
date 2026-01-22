@@ -31,7 +31,7 @@ jobs:
         shell: bash -eo pipefail {0}
     strategy:
       matrix:
-        pg_version: [14] # pg_search's minimum supported Postgres version
+        pg_version: [15] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository

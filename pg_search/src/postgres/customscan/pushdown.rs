@@ -17,21 +17,21 @@
 
 use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
-use crate::api::{fieldname_typoid, FieldName, HashMap};
+use crate::api::{FieldName, HashMap, fieldname_typoid};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
-use crate::postgres::customscan::opexpr::{
-    initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
-    TantivyOperator, TantivyOperatorExt,
-};
 use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
+use crate::postgres::customscan::opexpr::{
+    OpExpr, OperatorAccepts, PostgresOperatorOid, TantivyOperator, TantivyOperatorExt,
+    initialize_equality_operator_lookup,
+};
+use crate::postgres::customscan::qual_inspect::{PlannerContext, Qual, contains_correlated_param};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_json_path, find_vars, VarContext};
+use crate::postgres::var::{VarContext, find_json_path, find_vars};
 use crate::schema::SearchField;
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{FromDatum, IntoDatum, PgList, direct_function_call, is_a, pg_guard, pg_sys};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -240,20 +240,30 @@ unsafe fn try_pushdown_jsonb_exists(
 
     // Build field path: extract JSON path from LHS and append the key
     let mut path = find_json_path(&VarContext::from_planner(root), lhs);
-    if path.is_empty() { return None; }
+    if path.is_empty() {
+        return None;
+    }
     path.push(key);
 
     // Verify the root field is an indexed JSON field with fast=true (required for exists)
     let field_name = FieldName::from(path.join("."));
     let search_field = indexrel.schema().ok()?.search_field(field_name.root())?;
-    if !search_field.is_json() || !search_field.is_fast() { return None; }
+    if !search_field.is_json() || !search_field.is_fast() {
+        return None;
+    }
 
     // Check if field belongs to this relation or is from a join
     let varno = (**find_vars(lhs).first()?).varno as pg_sys::Index;
-    if varno != rti { return Some(Qual::ExternalVar); }
+    if varno != rti {
+        return Some(Qual::ExternalVar);
+    }
 
     Some(Qual::PushdownIsNotNull {
-        field: PushdownField { field_name, varno, search_field: Some(search_field) },
+        field: PushdownField {
+            field_name,
+            varno,
+            search_field: Some(search_field),
+        },
     })
 }
 

@@ -39,14 +39,14 @@ use tantivy::{Directory, DocId, Index, IndexMeta, Opstamp};
 // with other Postgres advisory locks
 const VACUUM_SIGNAL_KEY_BASE: u32 = 0x50475641; // "PGVA"
 
-/// Internal vacuum signal lock - use `vacuum_wants_cancel` or the VACUUM flow below instead.
+/// Vacuum signal lock for cooperative cancellation of background merge workers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct VacuumSignal {
+pub(crate) struct VacuumSignal {
     index_oid: pg_sys::Oid,
 }
 
 impl VacuumSignal {
-    fn new(index_oid: pg_sys::Oid) -> Self {
+    pub(crate) fn new(index_oid: pg_sys::Oid) -> Self {
         Self { index_oid }
     }
 
@@ -58,7 +58,10 @@ impl VacuumSignal {
         AdvisoryLock::lock_session(self.key())
     }
 
-    fn is_signaled(&self) -> bool {
+    /// Check if vacuum wants background merge workers to cancel.
+    ///
+    /// Returns `true` if VACUUM holds the exclusive signal lock.
+    pub(crate) fn wants_cancel(&self) -> bool {
         let key = self.key();
         let acquired = unsafe {
             direct_function_call::<bool>(
@@ -75,19 +78,9 @@ impl VacuumSignal {
                     &[key.into_datum()],
                 );
             }
-            false
-        } else {
-            true
         }
+        !acquired
     }
-}
-
-/// Check if vacuum wants background merge workers to cancel.
-///
-/// Used by background merge workers to detect if VACUUM is waiting.
-/// Returns `true` if VACUUM holds the exclusive signal lock.
-pub(crate) fn vacuum_wants_cancel(index_oid: pg_sys::Oid) -> bool {
-    VacuumSignal::new(index_oid).is_signaled()
 }
 
 #[pg_guard]

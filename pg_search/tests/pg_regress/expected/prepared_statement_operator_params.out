@@ -410,12 +410,19 @@ ERROR:  prox must be a complete ProximityClause
 -- =============================================================================
 -- These tests use prepared statements with force_generic_plan, triggering the
 -- exec_rewrite code path where only the parameter TYPE is known at plan time.
+--
+-- Tests use patterns where:
+--   1. PREPARE has no explicit parameter types (PostgreSQL infers from usage)
+--   2. Type cast with modifier is in the query itself (e.g., $1::pdb.boost(2))
+--   3. EXECUTE passes plain text values
+--
+-- This matches how Prisma, SQLAlchemy generate queries.
 SET plan_cache_mode = force_generic_plan;
 -- -----------------------------------------------------------------------------
 -- 2.1 &&& Operator (Match Conjunction) - exec_rewrite
 -- -----------------------------------------------------------------------------
--- OK: text
-PREPARE exec_and_text(text) AS
+-- OK: text parameter (inferred)
+PREPARE exec_and_text AS
 SELECT array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description &&& $1;
 EXECUTE exec_and_text('keyboard');
@@ -424,87 +431,101 @@ EXECUTE exec_and_text('keyboard');
  {1,2}
 (1 row)
 
--- OK: varchar
-PREPARE exec_and_varchar(varchar) AS
+-- OK: text[] - array as parameter
+PREPARE exec_and_text_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
-EXECUTE exec_and_varchar('keyboard'::varchar);
-  ids  
--------
- {1,2}
-(1 row)
-
--- OK: text[]
-PREPARE exec_and_text_array(text[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
+FROM mock_items WHERE description &&& $1::text[];
 EXECUTE exec_and_text_array(ARRAY['keyboard', 'plastic']::text[]);
  ids 
 -----
  {2}
 (1 row)
 
--- OK: varchar[]
-PREPARE exec_and_varchar_array(varchar[]) AS
+-- OK: text[] - scalar-to-array pattern
+PREPARE exec_and_text_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
+FROM mock_items WHERE description &&& ARRAY[$1]::text[];
+EXECUTE exec_and_text_array_2('keyboard');
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: varchar[] - array as parameter
+PREPARE exec_and_varchar_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& $1::varchar[];
 EXECUTE exec_and_varchar_array(ARRAY['keyboard']::varchar[]);
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.query
-PREPARE exec_and_query(pdb.query) AS
+-- OK: varchar[] - scalar-to-array pattern like issue #3900
+PREPARE exec_and_varchar_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
-EXECUTE exec_and_query('keyboard'::pdb.query);
+FROM mock_items WHERE description &&& CAST(ARRAY[$1::varchar] AS text[]);
+EXECUTE exec_and_varchar_array_2('keyboard');
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.query - pattern with inline cast
+PREPARE exec_and_query AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& $1::pdb.query;
+EXECUTE exec_and_query('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
 -- Execute twice to verify repeated execution under generic plan
-EXECUTE exec_and_query('keyboard'::pdb.query);
+EXECUTE exec_and_query('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.boost (via implicit cast to pdb.query)
-PREPARE exec_and_boost(pdb.boost) AS
+-- OK: pdb.boost - pattern with inline cast and boost value
+PREPARE exec_and_boost AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
-EXECUTE exec_and_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description &&& $1::pdb.boost(2);
+EXECUTE exec_and_boost('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.fuzzy (via implicit cast to pdb.query)
-PREPARE exec_and_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.fuzzy - pattern with inline cast and fuzzy distance
+PREPARE exec_and_fuzzy AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
-EXECUTE exec_and_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description &&& $1::pdb.fuzzy(1);
+EXECUTE exec_and_fuzzy('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
-EXECUTE exec_and_fuzzy(ARRAY['keyboard']::pdb.fuzzy);
+-- OK: pdb.fuzzy with array - pattern
+PREPARE exec_and_fuzzy_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& ARRAY[$1]::pdb.fuzzy;
+EXECUTE exec_and_fuzzy_array('keyboard');
 ERROR:  assertion failed: matches!(query, pdb::Query::MatchArray { .. })
--- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
-PREPARE exec_and_slop(pdb.slop) AS
+-- REJECT: pdb.slop with &&& - operator is not unique
+PREPARE exec_and_slop AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description &&& $1;
-ERROR:  operator is not unique: text &&& pdb.slop at character 110
-EXECUTE exec_and_slop('keyboard'::pdb.slop(2));
+FROM mock_items WHERE description &&& $1::pdb.slop(2);
+ERROR:  operator is not unique: text &&& pdb.slop at character 100
+EXECUTE exec_and_slop('keyboard');
 ERROR:  prepared statement "exec_and_slop" does not exist
 -- -----------------------------------------------------------------------------
 -- 2.2 ||| Operator (Match Disjunction) - exec_rewrite
 -- -----------------------------------------------------------------------------
--- OK: text
-PREPARE exec_or_text(text) AS
+-- OK: text parameter (inferred)
+PREPARE exec_or_text AS
 SELECT array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description ||| $1;
 EXECUTE exec_or_text('keyboard');
@@ -513,80 +534,94 @@ EXECUTE exec_or_text('keyboard');
  {1,2}
 (1 row)
 
--- OK: varchar
-PREPARE exec_or_varchar(varchar) AS
+-- OK: text[] - array as parameter
+PREPARE exec_or_text_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
-EXECUTE exec_or_varchar('keyboard'::varchar);
-  ids  
--------
- {1,2}
-(1 row)
-
--- OK: text[]
-PREPARE exec_or_text_array(text[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
+FROM mock_items WHERE description ||| $1::text[];
 EXECUTE exec_or_text_array(ARRAY['keyboard', 'shoes']::text[]);
      ids     
 -------------
  {1,2,3,4,5}
 (1 row)
 
--- OK: varchar[]
-PREPARE exec_or_varchar_array(varchar[]) AS
+-- OK: text[] - scalar-to-array pattern
+PREPARE exec_or_text_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
+FROM mock_items WHERE description ||| ARRAY[$1, $2]::text[];
+EXECUTE exec_or_text_array_2('keyboard', 'shoes');
+     ids     
+-------------
+ {1,2,3,4,5}
+(1 row)
+
+-- OK: varchar[] - array as parameter
+PREPARE exec_or_varchar_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1::varchar[];
 EXECUTE exec_or_varchar_array(ARRAY['keyboard']::varchar[]);
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.query
-PREPARE exec_or_query(pdb.query) AS
+-- OK: varchar[] - scalar-to-array pattern like issue #3900
+PREPARE exec_or_varchar_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
-EXECUTE exec_or_query('keyboard'::pdb.query);
+FROM mock_items WHERE description ||| CAST(ARRAY[$1::varchar] AS text[]);
+EXECUTE exec_or_varchar_array_2('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.boost (via implicit cast to pdb.query)
-PREPARE exec_or_boost(pdb.boost) AS
+-- OK: pdb.query - pattern with inline cast
+PREPARE exec_or_query AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
-EXECUTE exec_or_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description ||| $1::pdb.query;
+EXECUTE exec_or_query('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.fuzzy (via implicit cast to pdb.query)
-PREPARE exec_or_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.boost - pattern with inline cast and boost value
+PREPARE exec_or_boost AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
-EXECUTE exec_or_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description ||| $1::pdb.boost(2);
+EXECUTE exec_or_boost('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
-EXECUTE exec_or_fuzzy(ARRAY['keyboard']::pdb.fuzzy);
+-- OK: pdb.fuzzy - pattern with inline cast and fuzzy distance
+PREPARE exec_or_fuzzy AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1::pdb.fuzzy(1);
+EXECUTE exec_or_fuzzy('keyboard');
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy with array - pattern
+PREPARE exec_or_fuzzy_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| ARRAY[$1]::pdb.fuzzy;
+EXECUTE exec_or_fuzzy_array('keyboard');
 ERROR:  assertion failed: matches!(query, pdb::Query::MatchArray { .. })
--- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
-PREPARE exec_or_slop(pdb.slop) AS
+-- REJECT: pdb.slop with ||| - operator is not unique
+PREPARE exec_or_slop AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ||| $1;
-ERROR:  operator is not unique: text ||| pdb.slop at character 109
-EXECUTE exec_or_slop('keyboard'::pdb.slop(2));
+FROM mock_items WHERE description ||| $1::pdb.slop(2);
+ERROR:  operator is not unique: text ||| pdb.slop at character 99
+EXECUTE exec_or_slop('keyboard');
 ERROR:  prepared statement "exec_or_slop" does not exist
 -- -----------------------------------------------------------------------------
 -- 2.3 ### Operator (Phrase) - exec_rewrite
 -- -----------------------------------------------------------------------------
--- OK: text
-PREPARE exec_phrase_text(text) AS
+-- OK: text parameter (inferred)
+PREPARE exec_phrase_text AS
 SELECT array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description ### $1;
 EXECUTE exec_phrase_text('running shoes');
@@ -595,78 +630,98 @@ EXECUTE exec_phrase_text('running shoes');
  {3}
 (1 row)
 
--- OK: varchar
-PREPARE exec_phrase_varchar(varchar) AS
+-- OK: varchar - pattern with inline cast
+PREPARE exec_phrase_varchar AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
-EXECUTE exec_phrase_varchar('running shoes'::varchar);
+FROM mock_items WHERE description ### $1::varchar;
+EXECUTE exec_phrase_varchar('running shoes');
  ids 
 -----
  {3}
 (1 row)
 
--- OK: text[]
-PREPARE exec_phrase_text_array(text[]) AS
+-- OK: text[] - array as parameter
+PREPARE exec_phrase_text_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
+FROM mock_items WHERE description ### $1::text[];
 EXECUTE exec_phrase_text_array(ARRAY['running', 'shoes']::text[]);
  ids 
 -----
  {3}
 (1 row)
 
--- OK: varchar[]
-PREPARE exec_phrase_varchar_array(varchar[]) AS
+-- OK: text[] - scalar-to-array pattern
+PREPARE exec_phrase_text_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
+FROM mock_items WHERE description ### ARRAY[$1, $2]::text[];
+EXECUTE exec_phrase_text_array_2('running', 'shoes');
+ ids 
+-----
+ {3}
+(1 row)
+
+-- OK: varchar[] - array as parameter
+PREPARE exec_phrase_varchar_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### $1::varchar[];
 EXECUTE exec_phrase_varchar_array(ARRAY['running', 'shoes']::varchar[]);
  ids 
 -----
  {3}
 (1 row)
 
--- OK: pdb.query
-PREPARE exec_phrase_query(pdb.query) AS
+-- OK: varchar[] - scalar-to-array pattern like issue #3900
+PREPARE exec_phrase_varchar_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
-EXECUTE exec_phrase_query('running shoes'::pdb.query);
+FROM mock_items WHERE description ### CAST(ARRAY[$1::varchar, $2::varchar] AS text[]);
+EXECUTE exec_phrase_varchar_array_2('running', 'shoes');
  ids 
 -----
  {3}
 (1 row)
 
--- OK: pdb.boost (via implicit cast to pdb.query)
-PREPARE exec_phrase_boost(pdb.boost) AS
+-- OK: pdb.query - pattern with inline cast
+PREPARE exec_phrase_query AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
-EXECUTE exec_phrase_boost('running shoes'::pdb.boost(2));
+FROM mock_items WHERE description ### $1::pdb.query;
+EXECUTE exec_phrase_query('running shoes');
  ids 
 -----
  {3}
 (1 row)
 
--- OK: pdb.slop
-PREPARE exec_phrase_slop(pdb.slop) AS
+-- OK: pdb.boost - pattern with inline cast and boost value
+PREPARE exec_phrase_boost AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
-EXECUTE exec_phrase_slop('running shoes'::pdb.slop(2));
+FROM mock_items WHERE description ### $1::pdb.boost(2);
+EXECUTE exec_phrase_boost('running shoes');
  ids 
 -----
  {3}
 (1 row)
 
--- IGNORED: pdb.fuzzy (via implicit cast; fuzzy_data ignored by phrase_query)
-PREPARE exec_phrase_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.slop - pattern with inline cast and slop value
+PREPARE exec_phrase_slop AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description ### $1;
-ERROR:  operator is not unique: text ### pdb.fuzzy at character 115
-EXECUTE exec_phrase_fuzzy('running shoes'::pdb.fuzzy(1));
+FROM mock_items WHERE description ### $1::pdb.slop(2);
+EXECUTE exec_phrase_slop('running shoes');
+ ids 
+-----
+ {3}
+(1 row)
+
+-- IGNORED: pdb.fuzzy (fuzzy_data ignored by phrase_query)
+PREPARE exec_phrase_fuzzy AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### $1::pdb.fuzzy(1);
+ERROR:  operator is not unique: text ### pdb.fuzzy at character 104
+EXECUTE exec_phrase_fuzzy('running shoes');
 ERROR:  prepared statement "exec_phrase_fuzzy" does not exist
 -- -----------------------------------------------------------------------------
 -- 2.4 === Operator (Term) - exec_rewrite
 -- -----------------------------------------------------------------------------
--- OK: text
-PREPARE exec_term_text(text) AS
+-- OK: text parameter (inferred)
+PREPARE exec_term_text AS
 SELECT array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description === $1;
 EXECUTE exec_term_text('keyboard');
@@ -675,84 +730,104 @@ EXECUTE exec_term_text('keyboard');
  {1,2}
 (1 row)
 
--- OK: varchar
-PREPARE exec_term_varchar(varchar) AS
+-- OK: varchar - pattern with inline cast
+PREPARE exec_term_varchar AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
-EXECUTE exec_term_varchar('keyboard'::varchar);
+FROM mock_items WHERE description === $1::varchar;
+EXECUTE exec_term_varchar('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: text[]
-PREPARE exec_term_text_array(text[]) AS
+-- OK: text[] - array as parameter
+PREPARE exec_term_text_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
+FROM mock_items WHERE description === $1::text[];
 EXECUTE exec_term_text_array(ARRAY['keyboard', 'plastic']::text[]);
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: varchar[]
-PREPARE exec_term_varchar_array(varchar[]) AS
+-- OK: text[] - scalar-to-array pattern
+PREPARE exec_term_text_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
+FROM mock_items WHERE description === ARRAY[$1, $2]::text[];
+EXECUTE exec_term_text_array_2('keyboard', 'plastic');
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: varchar[] - array as parameter
+PREPARE exec_term_varchar_array AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1::varchar[];
 EXECUTE exec_term_varchar_array(ARRAY['keyboard']::varchar[]);
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.query
-PREPARE exec_term_query(pdb.query) AS
+-- OK: varchar[] - scalar-to-array pattern like issue #3900
+PREPARE exec_term_varchar_array_2 AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
-EXECUTE exec_term_query('keyboard'::pdb.query);
+FROM mock_items WHERE description === CAST(ARRAY[$1::varchar] AS text[]);
+EXECUTE exec_term_varchar_array_2('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.boost (via implicit cast to pdb.query)
-PREPARE exec_term_boost(pdb.boost) AS
+-- OK: pdb.query - pattern with inline cast
+PREPARE exec_term_query AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
-EXECUTE exec_term_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description === $1::pdb.query;
+EXECUTE exec_term_query('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- OK: pdb.fuzzy (via implicit cast to pdb.query)
-PREPARE exec_term_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.boost - pattern with inline cast and boost value
+PREPARE exec_term_boost AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
-EXECUTE exec_term_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description === $1::pdb.boost(2);
+EXECUTE exec_term_boost('keyboard');
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy - pattern with inline cast and fuzzy distance
+PREPARE exec_term_fuzzy AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1::pdb.fuzzy(1);
+EXECUTE exec_term_fuzzy('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
 -- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
-PREPARE exec_term_slop(pdb.slop) AS
+PREPARE exec_term_slop AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
-ERROR:  operator is not unique: text === pdb.slop at character 111
-EXECUTE exec_term_slop('keyboard'::pdb.slop(2));
+FROM mock_items WHERE description === $1::pdb.slop(2);
+ERROR:  operator is not unique: text === pdb.slop at character 101
+EXECUTE exec_term_slop('keyboard');
 ERROR:  prepared statement "exec_term_slop" does not exist
 -- REJECT: pdb.parse() - already classified query rejected by ===
-PREPARE exec_term_parse_reject(pdb.query) AS
+PREPARE exec_term_parse_reject AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description === $1;
+FROM mock_items WHERE description === $1::pdb.query;
 EXECUTE exec_term_parse_reject(pdb.parse('keyboard'));
 ERROR:  The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value.
 -- -----------------------------------------------------------------------------
 -- 2.5 @@@ Operator (Parse/Proximity) - exec_rewrite
 -- -----------------------------------------------------------------------------
--- OK: text
-PREPARE exec_parse_text(text) AS
+-- OK: text parameter (inferred)
+PREPARE exec_parse_text AS
 SELECT array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description @@@ $1;
 EXECUTE exec_parse_text('running shoes');
@@ -761,116 +836,129 @@ EXECUTE exec_parse_text('running shoes');
  {3,4,5}
 (1 row)
 
--- OK: varchar
-PREPARE exec_parse_varchar(varchar) AS
+-- OK: varchar - pattern with inline cast
+PREPARE exec_parse_varchar AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_varchar('running shoes'::varchar);
+FROM mock_items WHERE description @@@ $1::varchar;
+EXECUTE exec_parse_varchar('running shoes');
    ids   
 ---------
  {3,4,5}
 (1 row)
 
--- OK: pdb.query
-PREPARE exec_parse_query(pdb.query) AS
+-- OK: pdb.query - pattern with inline cast
+PREPARE exec_parse_query AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_query('running shoes'::pdb.query);
+FROM mock_items WHERE description @@@ $1::pdb.query;
+EXECUTE exec_parse_query('running shoes');
    ids   
 ---------
  {3,4,5}
 (1 row)
 
--- OK: pdb.boost (via implicit cast to pdb.query)
-PREPARE exec_parse_boost(pdb.boost) AS
+-- OK: pdb.boost - pattern with inline cast and boost value
+PREPARE exec_parse_boost AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_boost('running shoes'::pdb.boost(2));
+FROM mock_items WHERE description @@@ $1::pdb.boost(2);
+EXECUTE exec_parse_boost('running shoes');
    ids   
 ---------
  {3,4,5}
 (1 row)
 
--- OK: pdb.fuzzy (via implicit cast to pdb.query)
-PREPARE exec_parse_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.fuzzy - pattern with inline cast and fuzzy distance
+PREPARE exec_parse_fuzzy AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_fuzzy('running'::pdb.fuzzy(1));
+FROM mock_items WHERE description @@@ $1::pdb.fuzzy(1);
+EXECUTE exec_parse_fuzzy('running');
  ids 
 -----
  {3}
 (1 row)
 
--- OK: pdb.ProximityClause
-PREPARE exec_parse_prox(pdb.proximityclause) AS
+-- OK: pdb.ProximityClause - function call builds the type
+PREPARE exec_parse_prox AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_prox(pdb.prox_clause('running', 1, 'shoes'));
+FROM mock_items WHERE description @@@ pdb.prox_clause($1, 1, $2);
+EXECUTE exec_parse_prox('running', 'shoes');
  ids 
 -----
  {3}
 (1 row)
 
 -- REJECT: text[] not supported by @@@
-PREPARE exec_parse_text_array(text[]) AS
+PREPARE exec_parse_text_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
+FROM mock_items WHERE description @@@ $1::text[];
 EXECUTE exec_parse_text_array(ARRAY['running', 'shoes']::text[]);
 ERROR:  prox must be a complete ProximityClause
 -- REJECT: varchar[] not supported by @@@
-PREPARE exec_parse_varchar_array(varchar[]) AS
+PREPARE exec_parse_varchar_array AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-ERROR:  operator does not exist: text @@@ character varying[] at character 122
+FROM mock_items WHERE description @@@ $1::varchar[];
+ERROR:  operator does not exist: text @@@ character varying[] at character 111
 EXECUTE exec_parse_varchar_array(ARRAY['running', 'shoes']::varchar[]);
 ERROR:  prepared statement "exec_parse_varchar_array" does not exist
--- REJECT: incomplete ProximityClause
-PREPARE exec_parse_prox_incomplete(pdb.proximityclause) AS
+-- REJECT: incomplete ProximityClause - function call builds incomplete clause
+PREPARE exec_parse_prox_incomplete AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items WHERE description @@@ $1;
-EXECUTE exec_parse_prox_incomplete(pdb.prox_term('running'));
+FROM mock_items WHERE description @@@ pdb.prox_term($1);
+EXECUTE exec_parse_prox_incomplete('running');
 ERROR:  prox must be a complete ProximityClause
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================
 -- Deallocate all prepared statements
+-- &&& statements
 DEALLOCATE exec_and_text;
-DEALLOCATE exec_and_varchar;
 DEALLOCATE exec_and_text_array;
+DEALLOCATE exec_and_text_array_2;
 DEALLOCATE exec_and_varchar_array;
+DEALLOCATE exec_and_varchar_array_2;
 DEALLOCATE exec_and_query;
 DEALLOCATE exec_and_boost;
 DEALLOCATE exec_and_fuzzy;
+DEALLOCATE exec_and_fuzzy_array;
 DEALLOCATE exec_and_slop;
 ERROR:  prepared statement "exec_and_slop" does not exist
+-- ||| statements
 DEALLOCATE exec_or_text;
-DEALLOCATE exec_or_varchar;
 DEALLOCATE exec_or_text_array;
+DEALLOCATE exec_or_text_array_2;
 DEALLOCATE exec_or_varchar_array;
+DEALLOCATE exec_or_varchar_array_2;
 DEALLOCATE exec_or_query;
 DEALLOCATE exec_or_boost;
 DEALLOCATE exec_or_fuzzy;
+DEALLOCATE exec_or_fuzzy_array;
 DEALLOCATE exec_or_slop;
 ERROR:  prepared statement "exec_or_slop" does not exist
+-- ### statements
 DEALLOCATE exec_phrase_text;
 DEALLOCATE exec_phrase_varchar;
 DEALLOCATE exec_phrase_text_array;
+DEALLOCATE exec_phrase_text_array_2;
 DEALLOCATE exec_phrase_varchar_array;
+DEALLOCATE exec_phrase_varchar_array_2;
 DEALLOCATE exec_phrase_query;
 DEALLOCATE exec_phrase_boost;
 DEALLOCATE exec_phrase_slop;
 DEALLOCATE exec_phrase_fuzzy;
 ERROR:  prepared statement "exec_phrase_fuzzy" does not exist
+-- === statements
 DEALLOCATE exec_term_text;
 DEALLOCATE exec_term_varchar;
 DEALLOCATE exec_term_text_array;
+DEALLOCATE exec_term_text_array_2;
 DEALLOCATE exec_term_varchar_array;
+DEALLOCATE exec_term_varchar_array_2;
 DEALLOCATE exec_term_query;
 DEALLOCATE exec_term_boost;
 DEALLOCATE exec_term_fuzzy;
 DEALLOCATE exec_term_slop;
 ERROR:  prepared statement "exec_term_slop" does not exist
 DEALLOCATE exec_term_parse_reject;
+-- @@@ statements
 DEALLOCATE exec_parse_text;
 DEALLOCATE exec_parse_varchar;
 DEALLOCATE exec_parse_query;

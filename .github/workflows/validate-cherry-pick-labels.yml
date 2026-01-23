@@ -1,11 +1,5 @@
 name: Validate Cherry Pick Labels
 
-on:
-  pull_request:
-    branches:
-      - main
-    types: [opened, synchronize, labeled, unlabeled]
-
 jobs:
   validate-cherry-pick-labels:
     name: Validate Cherry Pick Labels

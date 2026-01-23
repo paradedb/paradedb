@@ -5,17 +5,6 @@
 
 name: Test Stressgres (Docker)
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches:
-      - main
-    paths:
-      - ".github/workflows/test-stressgres-docker.yml"
-      - "docker/Dockerfile.stressgres"
-      - "stressgres/**"
-  workflow_dispatch:
-
 concurrency:
   group: test-stressgres-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true

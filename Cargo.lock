@@ -3946,7 +3946,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -6266,7 +6266,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -6321,7 +6321,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "bitpacking",
 ]
@@ -6329,7 +6329,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -6344,7 +6344,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -6377,7 +6377,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -6389,7 +6389,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -6402,7 +6402,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -6439,7 +6439,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-e9020d17#d49b339cfa00838b3b3057e2b4085d3d6b9a340e"
+source = "git+https://github.com/stuhood/tantivy.git?branch=stuhood.perf-quadsect-c0f21a45#9de325bee28f772023c859aa25b0b19e79550e6e"
 dependencies = [
  "serde",
 ]

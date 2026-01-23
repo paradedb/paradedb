@@ -49,12 +49,11 @@ fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
 pub fn generic_typmod_out(typmod: i32) -> CString {
     let parsed = load_typmod(typmod).expect("should not fail to load typmod");
 
-    // Make each typmod element a single-quoted SQL literal.
-    // Postgres accepts string literals as typmod “simple constants”.
+    // make sure the typmods are string-quoted literals
     let mut parts = Vec::with_capacity(parsed.len());
     for prop in parsed.properties.iter() {
-        let s = prop.to_string(); // already doubles internal single-quotes
-        parts.push(format!("'{}'", s)); // now it is a SQL string literal
+        let s = prop.to_string();
+        parts.push(format!("'{}'", s));
     }
 
     CString::new(format!("({})", parts.join(", "))).unwrap()

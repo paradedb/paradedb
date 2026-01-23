@@ -1,3 +1,5 @@
+GRANT ALL ON SCHEMA pdb TO PUBLIC;
+
 -- Migration for PR #3911: Support text[], pdb.* parameters in operators with generic plans
 -- This adds new functions and operators for pdb.boost, pdb.fuzzy, pdb.slop, and pdb.query types
 

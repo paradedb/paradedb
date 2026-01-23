@@ -57,9 +57,7 @@ pub struct BaseScanState {
     pub targetlist_len: usize,
 
     query_count: usize,
-    pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
-    pub invisible_tuple_count: usize,
 
     pub heaprelid: pg_sys::Oid,
     pub heaprel: Option<PgSearchRelation>,
@@ -360,9 +358,11 @@ impl BaseScanState {
             }
         }
         self.query_count = 0;
-        self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;
-        self.invisible_tuple_count = 0;
+        if let Some(vc) = &mut self.visibility_checker {
+            vc.heap_tuple_check_count = 0;
+            vc.invisible_tuple_count = 0;
+        }
         self.window_aggregate_results = None;
         self.exec_method_mut().reset(self);
     }

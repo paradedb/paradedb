@@ -28,7 +28,6 @@ use crate::postgres::customscan::basescan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::is_block_all_visible;
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::types_arrow::{arrow_array_to_datum, date_time_to_ts_nanos};
@@ -37,7 +36,6 @@ use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
 };
 use arrow_array::ArrayRef;
-use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
 use tantivy::DocAddress;
@@ -180,13 +178,13 @@ impl MixedFastFieldExecState {
 
     /// If our SearchResults iterator contains entries, take one batch, and construct a new
     /// `joined_results` value which will lazily join them.
-    fn try_join_batch(&mut self) -> bool {
-        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
+    fn try_join_batch(&mut self, state: &mut BaseScanState) -> bool {
+        let Some((segment_ord, mut scores, mut ids)) = self.try_get_batch_ids() else {
             return false;
         };
 
         // Batch lookup the ctids.
-        let ctids: Vec<u64> = {
+        let mut ctids: Vec<u64> = {
             let mut ctids = Vec::with_capacity(ids.len());
             ctids.resize(ids.len(), None);
             self.inner
@@ -198,6 +196,30 @@ impl MixedFastFieldExecState {
                 .map(|ctid| ctid.expect("All docs must have ctids"))
                 .collect()
         };
+
+        // Filter out invisible rows.
+        let heaprel = self
+            .inner
+            .heaprel
+            .as_ref()
+            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+        let mut write_idx = 0;
+
+        for read_idx in 0..ctids.len() {
+            let ctid = ctids[read_idx];
+            if let Some(visible_ctid) = state.visibility_checker().check(ctid) {
+                ctids[write_idx] = visible_ctid;
+                if read_idx != write_idx {
+                    ids[write_idx] = ids[read_idx];
+                    scores[write_idx] = scores[read_idx];
+                }
+                write_idx += 1;
+            }
+        }
+
+        ctids.truncate(write_idx);
+        ids.truncate(write_idx);
+        scores.truncate(write_idx);
 
         // Execute batch lookups of the fast-field values, and construct the batch.
         self.batch.fields = self
@@ -297,7 +319,7 @@ impl ExecMethod for MixedFastFieldExecState {
     ///
     /// `true` if there are results to process, `false` otherwise
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if self.try_join_batch() {
+        if self.try_join_batch(state) {
             // We collected another batch of ids from the SearchResult: construct a
             return true;
         }
@@ -340,7 +362,7 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Returns
     ///
     /// The next execution state containing the result or EOF
-    fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
+    fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         unsafe {
             // Process the next result from our optimized path
             match self.batch.next() {
@@ -362,62 +384,38 @@ impl ExecMethod for MixedFastFieldExecState {
                     crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
                     (*slot).tts_tableOid = heaprel.oid();
 
-                    // Check visibility of the current block
-                    let blockno = item_pointer_get_block_number(&(*slot).tts_tid);
-                    let is_visible = if blockno == self.inner.blockvis.0 {
-                        // We already know the visibility of this block because we just checked it last time
-                        self.inner.blockvis.1
-                    } else {
-                        // New block, check visibility
-                        self.inner.blockvis.0 = blockno;
-                        self.inner.blockvis.1 =
-                            is_block_all_visible(heaprel, &mut self.inner.vmbuff, blockno);
-                        self.inner.blockvis.1
-                    };
+                    // Setup slot for returning data
+                    (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                    (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                    (*slot).tts_nvalid = natts as _;
 
-                    if is_visible {
-                        self.inner.blockvis = (blockno, true);
+                    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+                    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-                        // Setup slot for returning data
-                        (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                        (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                        (*slot).tts_nvalid = natts as _;
-
-                        let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-                        // Initialize all values to NULL
-                        for i in 0..natts {
-                            datums[i] = pg_sys::Datum::null();
-                            isnull[i] = true;
-                        }
-
-                        let which_fast_fields = &self.inner.which_fast_fields;
-                        let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                        debug_assert!(natts == which_fast_fields.len());
-
-                        self.batch.populate(
-                            &self.const_values,
-                            row_idx,
-                            scored,
-                            doc_address,
-                            which_fast_fields,
-                            &mut self.inner.ffhelper,
-                            tupdesc,
-                            &mut *slot,
-                            datums,
-                            isnull,
-                        );
-
-                        ExecState::Virtual { slot }
-                    } else {
-                        // Row needs visibility check
-                        ExecState::RequiresVisibilityCheck {
-                            ctid: scored.ctid,
-                            score: scored.bm25,
-                            doc_address,
-                        }
+                    // Initialize all values to NULL
+                    for i in 0..natts {
+                        datums[i] = pg_sys::Datum::null();
+                        isnull[i] = true;
                     }
+
+                    let which_fast_fields = &self.inner.which_fast_fields;
+                    let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+                    debug_assert!(natts == which_fast_fields.len());
+
+                    self.batch.populate(
+                        &self.const_values,
+                        row_idx,
+                        scored,
+                        doc_address,
+                        which_fast_fields,
+                        &mut self.inner.ffhelper,
+                        tupdesc,
+                        &mut *slot,
+                        datums,
+                        isnull,
+                    );
+
+                    ExecState::Virtual { slot }
                 }
             }
         }

@@ -37,7 +37,8 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
@@ -378,6 +379,30 @@ pub struct ExtractedFieldAttribute {
     pub normalizer: Option<SearchNormalizer>,
 }
 
+/// Recursively strips tokenizer casts (e.g. `pdb.literal`, `pdb.alias`) from an expression.
+pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        if type_is_tokenizer((*func).funcresulttype) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if let Some(arg) = args.get_ptr(0) {
+                return strip_tokenizer_cast(arg);
+            }
+        }
+    } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
+        return strip_tokenizer_cast((*relabel).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceToDomain, T_CoerceToDomain, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    } else if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
+        return strip_tokenizer_cast((*coerce).arg.cast());
+    }
+
+    node
+}
+
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(
@@ -468,7 +493,14 @@ pub unsafe fn extract_field_attributes(
                     normalizer = parsed_typmod.normalizer();
                     attname = parsed_typmod.alias();
 
-                    if vars.len() == 1 {
+                    // Attempt to determine inner_typoid by peeling the tokenizer cast/function.
+                    // This handles cases like `(a || b)::pdb.literal('alias=...')` where vars.len() > 1.
+                    if inner_typoid == typoid {
+                        let inner_node = strip_tokenizer_cast(expression.cast());
+                        inner_typoid = pg_sys::exprType(inner_node);
+                    }
+
+                    if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
                         if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
@@ -870,6 +902,83 @@ pub unsafe fn expr_contains_any_operator(
 
     walker(node, addr_of_mut!(context).cast());
     context.found
+}
+
+/// Collects all unique RTIs (range table indices) from Var nodes in an expression tree.
+/// Returns a HashSet of RTIs referenced by the expression.
+pub unsafe fn expr_collect_rtis(
+    node: *mut pg_sys::Node,
+) -> std::collections::HashSet<pg_sys::Index> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let rtis = &mut *(data as *mut HashSet<pg_sys::Index>);
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index {
+                rtis.insert(varno);
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut rtis = HashSet::new();
+    walker(node, addr_of_mut!(rtis).cast());
+    rtis
+}
+
+/// A Var reference with its range table index and attribute number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VarRef {
+    /// Range table index (varno)
+    pub rti: pg_sys::Index,
+    /// Attribute number (varattno), 1-indexed
+    pub attno: pg_sys::AttrNumber,
+}
+
+/// Collects all unique Var references (RTI + attribute number) from an expression tree.
+/// Returns a Vec of VarRef structs for each column referenced by the expression.
+pub unsafe fn expr_collect_vars(node: *mut pg_sys::Node) -> Vec<VarRef> {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let vars = &mut *(data as *mut Vec<VarRef>);
+
+        if (*node).type_ == pg_sys::NodeTag::T_Var {
+            let var = node as *mut pg_sys::Var;
+            let varno = (*var).varno as pg_sys::Index;
+            let varattno = (*var).varattno;
+            // Skip special RTIs like INNER_VAR/OUTER_VAR and system columns (attno <= 0)
+            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index && varattno > 0 {
+                vars.push(VarRef {
+                    rti: varno,
+                    attno: varattno,
+                });
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let mut vars = Vec::new();
+    walker(node, addr_of_mut!(vars).cast());
+    vars
 }
 
 /// Look up a function in the pdb schema by name and argument types.

@@ -197,8 +197,7 @@ ORDER BY paradedb.score(a.id) DESC;
          ->  Custom Scan (ParadeDB Scan) on articles a
                Table: articles
                Index: articles_bm25_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: id, title
+               Exec Method: NormalScanExecState
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Limit
@@ -206,7 +205,7 @@ ORDER BY paradedb.score(a.id) DESC;
                      Sort Key: c.created_at DESC
                      ->  Seq Scan on comments c
                            Filter: (article_id = a.id)
-(15 rows)
+(14 rows)
 
 -- Execute to verify results work without LIMIT
 SELECT 
@@ -257,15 +256,14 @@ LIMIT 5;
                ->  Custom Scan (ParadeDB Scan) on articles a
                      Table: articles
                      Index: articles_bm25_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: id, title
+                     Exec Method: NormalScanExecState
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"database","lenient":null,"conjunction_mode":null}}}}
                ->  Aggregate
                      Filter: (count(*) > 5)
                      ->  Seq Scan on comments c
                            Filter: (article_id = a.id)
-(15 rows)
+(14 rows)
 
 -- Execute to verify results
 SELECT 

@@ -153,10 +153,11 @@ CREATE SUBSCRIPTION orders_sub
 
 ### Pros
 
-- ParadeDB cluster is straightforward without any extra overhead
-- Clear namespace isolation prevents naming conflicts
-- Enables true cross-database queries and joins
-- Maintains data lineage (you can tell which service owns which data)
+- **Multi Database BM25 Search**: Perform full-text search across tables distributed across multiple microservice databases in a single query
+- **Avoid Distributed Joins in Application**: Execute cross-database joins directly in ParadeDB instead of implementing complex join logic in your application
+- **Simple Architecture**: Uses standard PostgreSQL logical replication without extra infrastructure
+- **Namespace Isolation**: Schema-based separation prevents naming conflicts
+- **No Source Database Changes**: Microservices continue operating independently; ParadeDB acts as a read replica
 
 ### Cons
 

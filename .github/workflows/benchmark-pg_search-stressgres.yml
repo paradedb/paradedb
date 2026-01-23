@@ -10,7 +10,6 @@ name: Benchmark pg_search - Stressgres
 on:
   push:
     branches:
-      - main
       - 0.*.x # Release branches
     paths:
       - "stressgres/suites/**"

@@ -1,11 +1,5 @@
 name: Cherry Pick
 
-on:
-  pull_request:
-    branches:
-      - main
-    types: [closed]
-
 jobs:
   get-branches:
     name: Get Cherry Pick Branches

@@ -4,7 +4,20 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
--- Test prepared statements for &&&/|||/###/===/@@@ with pdb.* parameters under generic plans
+-- =============================================================================
+-- Test Suite: Operator Parameter Support for const_rewrite and exec_rewrite
+-- =============================================================================
+-- This test verifies that all operators (&&&, |||, ###, ===, @@@) work correctly
+-- with various parameter types in both:
+--   1. const_rewrite path: Literal values known at plan time
+--   2. exec_rewrite path: Parameters in prepared statements (generic plans)
+--
+-- Type Support Matrix Legend:
+--   OK     = Works correctly
+--   PANIC  = Accepted but fails at runtime
+--   REJECT = Rejected by type check with clear error
+--   IGNORED = Accepted but modifier has no effect
+-- =============================================================================
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
@@ -12,294 +25,862 @@ CALL paradedb.create_bm25_test_table(
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description)
 WITH (key_field='id');
+-- =============================================================================
+-- SECTION 1: const_rewrite PATH (Literal Values)
+-- =============================================================================
+-- These tests use literal values directly in SQL, triggering the const_rewrite
+-- code path where the value is known at plan time.
+-- -----------------------------------------------------------------------------
+-- 1.1 &&& Operator (Match Conjunction) - const_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+SELECT '&&& text (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard';
+       test       |  ids  
+------------------+-------
+ &&& text (const) | {1,2}
+(1 row)
+
+-- OK: varchar
+SELECT '&&& varchar (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard'::varchar;
+        test         |  ids  
+---------------------+-------
+ &&& varchar (const) | {1,2}
+(1 row)
+
+-- OK: text[]
+SELECT '&&& text[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& ARRAY['keyboard', 'plastic'];
+        test        | ids 
+--------------------+-----
+ &&& text[] (const) | {2}
+(1 row)
+
+-- OK: varchar[]
+SELECT '&&& varchar[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& ARRAY['keyboard']::varchar[];
+         test          |  ids  
+-----------------------+-------
+ &&& varchar[] (const) | {1,2}
+(1 row)
+
+-- OK: pdb.query (unclassified string)
+SELECT '&&& pdb.query (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard'::pdb.query;
+         test          |  ids  
+-----------------------+-------
+ &&& pdb.query (const) | {1,2}
+(1 row)
+
+-- OK: pdb.boost
+SELECT '&&& pdb.boost (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard'::pdb.boost(2.0);
+         test          |  ids  
+-----------------------+-------
+ &&& pdb.boost (const) | {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy
+SELECT '&&& pdb.fuzzy (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard'::pdb.fuzzy(1);
+         test          |  ids  
+-----------------------+-------
+ &&& pdb.fuzzy (const) | {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy with array
+SELECT '&&& pdb.fuzzy[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& ARRAY['keyboard']::pdb.fuzzy;
+ERROR:  assertion failed: matches!(query, pdb::Query::MatchArray { .. })
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+SELECT '&&& pdb.slop (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& 'keyboard'::pdb.slop(2);
+ERROR:  operator is not unique: text &&& pdb.slop at character 131
+-- -----------------------------------------------------------------------------
+-- 1.2 ||| Operator (Match Disjunction) - const_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+SELECT '||| text (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard';
+       test       |  ids  
+------------------+-------
+ ||| text (const) | {1,2}
+(1 row)
+
+-- OK: varchar
+SELECT '||| varchar (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard'::varchar;
+        test         |  ids  
+---------------------+-------
+ ||| varchar (const) | {1,2}
+(1 row)
+
+-- OK: text[]
+SELECT '||| text[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| ARRAY['keyboard', 'shoes'];
+        test        |     ids     
+--------------------+-------------
+ ||| text[] (const) | {1,2,3,4,5}
+(1 row)
+
+-- OK: varchar[]
+SELECT '||| varchar[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| ARRAY['keyboard']::varchar[];
+         test          |  ids  
+-----------------------+-------
+ ||| varchar[] (const) | {1,2}
+(1 row)
+
+-- OK: pdb.query (unclassified string)
+SELECT '||| pdb.query (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard'::pdb.query;
+         test          |  ids  
+-----------------------+-------
+ ||| pdb.query (const) | {1,2}
+(1 row)
+
+-- OK: pdb.boost
+SELECT '||| pdb.boost (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard'::pdb.boost(2.0);
+         test          |  ids  
+-----------------------+-------
+ ||| pdb.boost (const) | {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy
+SELECT '||| pdb.fuzzy (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard'::pdb.fuzzy(1);
+         test          |  ids  
+-----------------------+-------
+ ||| pdb.fuzzy (const) | {1,2}
+(1 row)
+
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+SELECT '||| pdb.slop (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| 'keyboard'::pdb.slop(2);
+ERROR:  operator is not unique: text ||| pdb.slop at character 131
+-- -----------------------------------------------------------------------------
+-- 1.3 ### Operator (Phrase) - const_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+SELECT '### text (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes';
+       test       | ids 
+------------------+-----
+ ### text (const) | {3}
+(1 row)
+
+-- OK: varchar
+SELECT '### varchar (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes'::varchar;
+        test         | ids 
+---------------------+-----
+ ### varchar (const) | {3}
+(1 row)
+
+-- OK: text[]
+SELECT '### text[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### ARRAY['running', 'shoes'];
+        test        | ids 
+--------------------+-----
+ ### text[] (const) | {3}
+(1 row)
+
+-- OK: varchar[]
+SELECT '### varchar[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### ARRAY['running', 'shoes']::varchar[];
+         test          | ids 
+-----------------------+-----
+ ### varchar[] (const) | {3}
+(1 row)
+
+-- OK: pdb.query (unclassified string)
+SELECT '### pdb.query (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes'::pdb.query;
+         test          | ids 
+-----------------------+-----
+ ### pdb.query (const) | {3}
+(1 row)
+
+-- OK: pdb.boost
+SELECT '### pdb.boost (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes'::pdb.boost(2.0);
+         test          | ids 
+-----------------------+-----
+ ### pdb.boost (const) | {3}
+(1 row)
+
+-- OK: pdb.slop (phrase with word distance)
+SELECT '### pdb.slop (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes'::pdb.slop(2);
+         test         | ids 
+----------------------+-----
+ ### pdb.slop (const) | {3}
+(1 row)
+
+-- IGNORED: pdb.fuzzy (accepted but fuzzy_data is ignored by phrase_query)
+SELECT '### pdb.fuzzy (const) - fuzzy ignored' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### 'running shoes'::pdb.fuzzy(1);
+ERROR:  operator is not unique: text ### pdb.fuzzy at character 131
+-- -----------------------------------------------------------------------------
+-- 1.4 === Operator (Term) - const_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+SELECT '=== text (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard';
+       test       |  ids  
+------------------+-------
+ === text (const) | {1,2}
+(1 row)
+
+-- OK: varchar
+SELECT '=== varchar (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard'::varchar;
+        test         |  ids  
+---------------------+-------
+ === varchar (const) | {1,2}
+(1 row)
+
+-- OK: text[]
+SELECT '=== text[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === ARRAY['keyboard', 'plastic'];
+        test        |  ids  
+--------------------+-------
+ === text[] (const) | {1,2}
+(1 row)
+
+-- OK: varchar[]
+SELECT '=== varchar[] (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === ARRAY['keyboard']::varchar[];
+         test          |  ids  
+-----------------------+-------
+ === varchar[] (const) | {1,2}
+(1 row)
+
+-- OK: pdb.query (unclassified string)
+SELECT '=== pdb.query (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard'::pdb.query;
+         test          |  ids  
+-----------------------+-------
+ === pdb.query (const) | {1,2}
+(1 row)
+
+-- OK: pdb.boost
+SELECT '=== pdb.boost (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard'::pdb.boost(2.0);
+         test          |  ids  
+-----------------------+-------
+ === pdb.boost (const) | {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy
+SELECT '=== pdb.fuzzy (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard'::pdb.fuzzy(1);
+         test          |  ids  
+-----------------------+-------
+ === pdb.fuzzy (const) | {1,2}
+(1 row)
+
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+SELECT '=== pdb.slop (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === 'keyboard'::pdb.slop(2);
+ERROR:  operator is not unique: text === pdb.slop at character 131
+-- REJECT: pdb.parse() - already classified query rejected by ===
+SELECT '=== pdb.parse (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === pdb.parse('keyboard');
+ERROR:  internal error: entered unreachable code: The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value.
+-- -----------------------------------------------------------------------------
+-- 1.5 @@@ Operator (Parse/Proximity) - const_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+SELECT '@@@ text (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ 'running shoes';
+       test       |   ids   
+------------------+---------
+ @@@ text (const) | {3,4,5}
+(1 row)
+
+-- OK: varchar
+SELECT '@@@ varchar (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ 'running shoes'::varchar;
+        test         |   ids   
+---------------------+---------
+ @@@ varchar (const) | {3,4,5}
+(1 row)
+
+-- OK: pdb.query (unclassified string -> ParseWithField)
+SELECT '@@@ pdb.query (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ 'running shoes'::pdb.query;
+         test          |   ids   
+-----------------------+---------
+ @@@ pdb.query (const) | {3,4,5}
+(1 row)
+
+-- OK: pdb.boost (via implicit cast to pdb.query)
+SELECT '@@@ pdb.boost (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ 'running shoes'::pdb.boost(2.0);
+         test          |   ids   
+-----------------------+---------
+ @@@ pdb.boost (const) | {3,4,5}
+(1 row)
+
+-- OK: pdb.fuzzy (via implicit cast to pdb.query)
+SELECT '@@@ pdb.fuzzy (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ 'running'::pdb.fuzzy(1);
+         test          | ids 
+-----------------------+-----
+ @@@ pdb.fuzzy (const) | {3}
+(1 row)
+
+-- OK: pdb.ProximityClause (complete clause)
+SELECT '@@@ pdb.ProximityClause (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ pdb.prox_clause('running', 1, 'shoes');
+              test               | ids 
+---------------------------------+-----
+ @@@ pdb.ProximityClause (const) | {3}
+(1 row)
+
+-- OK: pdb.parse (already classified query flows through)
+SELECT '@@@ pdb.parse (const)' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ pdb.parse('running OR shoes');
+         test          |   ids   
+-----------------------+---------
+ @@@ pdb.parse (const) | {3,4,5}
+(1 row)
+
+-- REJECT: text[] not supported by @@@
+SELECT '@@@ text[] (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ ARRAY['running', 'shoes'];
+ERROR:  prox must be a complete ProximityClause
+-- REJECT: varchar[] not supported by @@@
+SELECT '@@@ varchar[] (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ ARRAY['running', 'shoes']::varchar[];
+ERROR:  operator does not exist: text @@@ character varying[] at character 132
+-- REJECT: incomplete ProximityClause
+SELECT '@@@ incomplete prox (const) - expected error' AS test,
+       array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ pdb.prox_term('running');
+ERROR:  prox must be a complete ProximityClause
+-- =============================================================================
+-- SECTION 2: exec_rewrite PATH (Prepared Statements with Generic Plans)
+-- =============================================================================
+-- These tests use prepared statements with force_generic_plan, triggering the
+-- exec_rewrite code path where only the parameter TYPE is known at plan time.
 SET plan_cache_mode = force_generic_plan;
-PREPARE and_query(pdb.query) AS
+-- -----------------------------------------------------------------------------
+-- 2.1 &&& Operator (Match Conjunction) - exec_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+PREPARE exec_and_text(text) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_query('keyboard'::pdb.query);
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_text('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
--- Execute twice to exercise repeated execution under a forced generic plan.
-EXECUTE and_query('keyboard'::pdb.query);
+-- OK: varchar
+PREPARE exec_and_varchar(varchar) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_varchar('keyboard'::varchar);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE and_boost(pdb.boost) AS
+-- OK: text[]
+PREPARE exec_and_text_array(text[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_text_array(ARRAY['keyboard', 'plastic']::text[]);
+ ids 
+-----
+ {2}
+(1 row)
+
+-- OK: varchar[]
+PREPARE exec_and_varchar_array(varchar[]) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_varchar_array(ARRAY['keyboard']::varchar[]);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE and_fuzzy(pdb.fuzzy) AS
+-- OK: pdb.query
+PREPARE exec_and_query(pdb.query) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_query('keyboard'::pdb.query);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE and_varchar(varchar) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_varchar('keyboard'::varchar);
+-- Execute twice to verify repeated execution under generic plan
+EXECUTE exec_and_query('keyboard'::pdb.query);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE or_query(pdb.query) AS
+-- OK: pdb.boost (via implicit cast to pdb.query)
+PREPARE exec_and_boost(pdb.boost) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_query('keyboard'::pdb.query);
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_boost('keyboard'::pdb.boost(2));
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE or_boost(pdb.boost) AS
+-- OK: pdb.fuzzy (via implicit cast to pdb.query)
+PREPARE exec_and_fuzzy(pdb.fuzzy) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description &&& $1;
+EXECUTE exec_and_fuzzy('keyboard'::pdb.fuzzy(1));
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE or_fuzzy(pdb.fuzzy) AS
+EXECUTE exec_and_fuzzy(ARRAY['keyboard']::pdb.fuzzy);
+ERROR:  assertion failed: matches!(query, pdb::Query::MatchArray { .. })
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+PREPARE exec_and_slop(pdb.slop) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description &&& $1;
+ERROR:  operator is not unique: text &&& pdb.slop at character 110
+EXECUTE exec_and_slop('keyboard'::pdb.slop(2));
+ERROR:  prepared statement "exec_and_slop" does not exist
+-- -----------------------------------------------------------------------------
+-- 2.2 ||| Operator (Match Disjunction) - exec_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+PREPARE exec_or_text(text) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_text('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE or_varchar(varchar) AS
+-- OK: varchar
+PREPARE exec_or_varchar(varchar) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_varchar('keyboard'::varchar);
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_varchar('keyboard'::varchar);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE phrase_query(pdb.query) AS
+-- OK: text[]
+PREPARE exec_or_text_array(text[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_query('running shoes'::pdb.query);
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_text_array(ARRAY['keyboard', 'shoes']::text[]);
+     ids     
+-------------
+ {1,2,3,4,5}
+(1 row)
+
+-- OK: varchar[]
+PREPARE exec_or_varchar_array(varchar[]) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_varchar_array(ARRAY['keyboard']::varchar[]);
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.query
+PREPARE exec_or_query(pdb.query) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_query('keyboard'::pdb.query);
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.boost (via implicit cast to pdb.query)
+PREPARE exec_or_boost(pdb.boost) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_boost('keyboard'::pdb.boost(2));
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy (via implicit cast to pdb.query)
+PREPARE exec_or_fuzzy(pdb.fuzzy) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+EXECUTE exec_or_fuzzy('keyboard'::pdb.fuzzy(1));
+  ids  
+-------
+ {1,2}
+(1 row)
+
+EXECUTE exec_or_fuzzy(ARRAY['keyboard']::pdb.fuzzy);
+ERROR:  assertion failed: matches!(query, pdb::Query::MatchArray { .. })
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+PREPARE exec_or_slop(pdb.slop) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ||| $1;
+ERROR:  operator is not unique: text ||| pdb.slop at character 109
+EXECUTE exec_or_slop('keyboard'::pdb.slop(2));
+ERROR:  prepared statement "exec_or_slop" does not exist
+-- -----------------------------------------------------------------------------
+-- 2.3 ### Operator (Phrase) - exec_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+PREPARE exec_phrase_text(text) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_text('running shoes');
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE phrase_boost(pdb.boost) AS
+-- OK: varchar
+PREPARE exec_phrase_varchar(varchar) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_boost('running shoes'::pdb.boost(2));
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_varchar('running shoes'::varchar);
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE phrase_slop(pdb.slop) AS
+-- OK: text[]
+PREPARE exec_phrase_text_array(text[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_slop('running shoes'::pdb.slop(2));
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_text_array(ARRAY['running', 'shoes']::text[]);
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE phrase_varchar(varchar) AS
+-- OK: varchar[]
+PREPARE exec_phrase_varchar_array(varchar[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_varchar('running shoes'::varchar);
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_varchar_array(ARRAY['running', 'shoes']::varchar[]);
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE and_array_text(text[]) AS
+-- OK: pdb.query
+PREPARE exec_phrase_query(pdb.query) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_array_text(ARRAY['keyboard']::text[]);
-  ids  
--------
- {1,2}
-(1 row)
-
-PREPARE and_array_varchar(varchar[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description &&& $1;
-EXECUTE and_array_varchar(ARRAY['keyboard']::varchar[]);
-  ids  
--------
- {1,2}
-(1 row)
-
-PREPARE or_array_text(text[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_array_text(ARRAY['keyboard']::text[]);
-  ids  
--------
- {1,2}
-(1 row)
-
-PREPARE or_array_varchar(varchar[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ||| $1;
-EXECUTE or_array_varchar(ARRAY['keyboard']::varchar[]);
-  ids  
--------
- {1,2}
-(1 row)
-
-PREPARE phrase_array_text(text[]) AS
-SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_array_text(ARRAY['running', 'shoes']::text[]);
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_query('running shoes'::pdb.query);
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE phrase_array_varchar(varchar[]) AS
+-- OK: pdb.boost (via implicit cast to pdb.query)
+PREPARE exec_phrase_boost(pdb.boost) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description ### $1;
-EXECUTE phrase_array_varchar(ARRAY['running', 'shoes']::varchar[]);
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_boost('running shoes'::pdb.boost(2));
  ids 
 -----
  {3}
 (1 row)
 
-PREPARE term_query(pdb.query) AS
+-- OK: pdb.slop
+PREPARE exec_phrase_slop(pdb.slop) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description === $1;
-EXECUTE term_query('keyboard'::pdb.query);
+FROM mock_items WHERE description ### $1;
+EXECUTE exec_phrase_slop('running shoes'::pdb.slop(2));
+ ids 
+-----
+ {3}
+(1 row)
+
+-- IGNORED: pdb.fuzzy (via implicit cast; fuzzy_data ignored by phrase_query)
+PREPARE exec_phrase_fuzzy(pdb.fuzzy) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description ### $1;
+ERROR:  operator is not unique: text ### pdb.fuzzy at character 115
+EXECUTE exec_phrase_fuzzy('running shoes'::pdb.fuzzy(1));
+ERROR:  prepared statement "exec_phrase_fuzzy" does not exist
+-- -----------------------------------------------------------------------------
+-- 2.4 === Operator (Term) - exec_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+PREPARE exec_term_text(text) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_text('keyboard');
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE term_boost(pdb.boost) AS
+-- OK: varchar
+PREPARE exec_term_varchar(varchar) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description === $1;
-EXECUTE term_boost('keyboard'::pdb.boost(2));
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_varchar('keyboard'::varchar);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE term_fuzzy(pdb.fuzzy) AS
+-- OK: text[]
+PREPARE exec_term_text_array(text[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description === $1;
-EXECUTE term_fuzzy('keyboard'::pdb.fuzzy(1));
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_text_array(ARRAY['keyboard', 'plastic']::text[]);
   ids  
 -------
  {1,2}
 (1 row)
 
-PREPARE term_varchar(varchar) AS
+-- OK: varchar[]
+PREPARE exec_term_varchar_array(varchar[]) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description === $1;
-EXECUTE term_varchar('keyboard'::varchar);
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_varchar_array(ARRAY['keyboard']::varchar[]);
   ids  
 -------
  {1,2}
 (1 row)
 
--- Expected error: === only accepts unclassified pdb.query values.
-PREPARE term_parse_rejected(pdb.query) AS
+-- OK: pdb.query
+PREPARE exec_term_query(pdb.query) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description === $1;
-EXECUTE term_parse_rejected(pdb.parse('keyboard'));
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_query('keyboard'::pdb.query);
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.boost (via implicit cast to pdb.query)
+PREPARE exec_term_boost(pdb.boost) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_boost('keyboard'::pdb.boost(2));
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- OK: pdb.fuzzy (via implicit cast to pdb.query)
+PREPARE exec_term_fuzzy(pdb.fuzzy) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_fuzzy('keyboard'::pdb.fuzzy(1));
+  ids  
+-------
+ {1,2}
+(1 row)
+
+-- REJECT: pdb.slop (operator is not unique - no direct stub for pdb.slop)
+PREPARE exec_term_slop(pdb.slop) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1;
+ERROR:  operator is not unique: text === pdb.slop at character 111
+EXECUTE exec_term_slop('keyboard'::pdb.slop(2));
+ERROR:  prepared statement "exec_term_slop" does not exist
+-- REJECT: pdb.parse() - already classified query rejected by ===
+PREPARE exec_term_parse_reject(pdb.query) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description === $1;
+EXECUTE exec_term_parse_reject(pdb.parse('keyboard'));
 ERROR:  The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value.
-PREPARE parse_varchar(varchar) AS
+-- -----------------------------------------------------------------------------
+-- 2.5 @@@ Operator (Parse/Proximity) - exec_rewrite
+-- -----------------------------------------------------------------------------
+-- OK: text
+PREPARE exec_parse_text(text) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description @@@ $1;
-EXECUTE parse_varchar('running shoes'::varchar);
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_text('running shoes');
    ids   
 ---------
  {3,4,5}
 (1 row)
 
-PREPARE prox_clause(pdb.proximityclause) AS
+-- OK: varchar
+PREPARE exec_parse_varchar(varchar) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description @@@ $1;
-EXECUTE prox_clause(pdb.prox_clause('running', 1, 'shoes'));
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_varchar('running shoes'::varchar);
+   ids   
+---------
+ {3,4,5}
+(1 row)
+
+-- OK: pdb.query
+PREPARE exec_parse_query(pdb.query) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_query('running shoes'::pdb.query);
+   ids   
+---------
+ {3,4,5}
+(1 row)
+
+-- OK: pdb.boost (via implicit cast to pdb.query)
+PREPARE exec_parse_boost(pdb.boost) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_boost('running shoes'::pdb.boost(2));
+   ids   
+---------
+ {3,4,5}
+(1 row)
+
+-- OK: pdb.fuzzy (via implicit cast to pdb.query)
+PREPARE exec_parse_fuzzy(pdb.fuzzy) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_fuzzy('running'::pdb.fuzzy(1));
  ids 
 -----
  {3}
 (1 row)
 
--- Expected error: proximity clauses must be complete (left/right/distance).
-PREPARE prox_incomplete(pdb.proximityclause) AS
+-- OK: pdb.ProximityClause
+PREPARE exec_parse_prox(pdb.proximityclause) AS
 SELECT array_agg(id ORDER BY id) AS ids
-FROM mock_items
-WHERE description @@@ $1;
-EXECUTE prox_incomplete(pdb.prox_term('running'));
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_prox(pdb.prox_clause('running', 1, 'shoes'));
+ ids 
+-----
+ {3}
+(1 row)
+
+-- REJECT: text[] not supported by @@@
+PREPARE exec_parse_text_array(text[]) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_text_array(ARRAY['running', 'shoes']::text[]);
 ERROR:  prox must be a complete ProximityClause
-DEALLOCATE and_query;
-DEALLOCATE and_boost;
-DEALLOCATE and_fuzzy;
-DEALLOCATE and_varchar;
-DEALLOCATE or_query;
-DEALLOCATE or_boost;
-DEALLOCATE or_fuzzy;
-DEALLOCATE or_varchar;
-DEALLOCATE phrase_query;
-DEALLOCATE phrase_boost;
-DEALLOCATE phrase_slop;
-DEALLOCATE phrase_varchar;
-DEALLOCATE and_array_text;
-DEALLOCATE and_array_varchar;
-DEALLOCATE or_array_text;
-DEALLOCATE or_array_varchar;
-DEALLOCATE phrase_array_text;
-DEALLOCATE phrase_array_varchar;
-DEALLOCATE term_query;
-DEALLOCATE term_boost;
-DEALLOCATE term_fuzzy;
-DEALLOCATE term_varchar;
-DEALLOCATE term_parse_rejected;
-DEALLOCATE parse_varchar;
-DEALLOCATE prox_clause;
-DEALLOCATE prox_incomplete;
+-- REJECT: varchar[] not supported by @@@
+PREPARE exec_parse_varchar_array(varchar[]) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+ERROR:  operator does not exist: text @@@ character varying[] at character 122
+EXECUTE exec_parse_varchar_array(ARRAY['running', 'shoes']::varchar[]);
+ERROR:  prepared statement "exec_parse_varchar_array" does not exist
+-- REJECT: incomplete ProximityClause
+PREPARE exec_parse_prox_incomplete(pdb.proximityclause) AS
+SELECT array_agg(id ORDER BY id) AS ids
+FROM mock_items WHERE description @@@ $1;
+EXECUTE exec_parse_prox_incomplete(pdb.prox_term('running'));
+ERROR:  prox must be a complete ProximityClause
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+-- Deallocate all prepared statements
+DEALLOCATE exec_and_text;
+DEALLOCATE exec_and_varchar;
+DEALLOCATE exec_and_text_array;
+DEALLOCATE exec_and_varchar_array;
+DEALLOCATE exec_and_query;
+DEALLOCATE exec_and_boost;
+DEALLOCATE exec_and_fuzzy;
+DEALLOCATE exec_and_slop;
+ERROR:  prepared statement "exec_and_slop" does not exist
+DEALLOCATE exec_or_text;
+DEALLOCATE exec_or_varchar;
+DEALLOCATE exec_or_text_array;
+DEALLOCATE exec_or_varchar_array;
+DEALLOCATE exec_or_query;
+DEALLOCATE exec_or_boost;
+DEALLOCATE exec_or_fuzzy;
+DEALLOCATE exec_or_slop;
+ERROR:  prepared statement "exec_or_slop" does not exist
+DEALLOCATE exec_phrase_text;
+DEALLOCATE exec_phrase_varchar;
+DEALLOCATE exec_phrase_text_array;
+DEALLOCATE exec_phrase_varchar_array;
+DEALLOCATE exec_phrase_query;
+DEALLOCATE exec_phrase_boost;
+DEALLOCATE exec_phrase_slop;
+DEALLOCATE exec_phrase_fuzzy;
+ERROR:  prepared statement "exec_phrase_fuzzy" does not exist
+DEALLOCATE exec_term_text;
+DEALLOCATE exec_term_varchar;
+DEALLOCATE exec_term_text_array;
+DEALLOCATE exec_term_varchar_array;
+DEALLOCATE exec_term_query;
+DEALLOCATE exec_term_boost;
+DEALLOCATE exec_term_fuzzy;
+DEALLOCATE exec_term_slop;
+ERROR:  prepared statement "exec_term_slop" does not exist
+DEALLOCATE exec_term_parse_reject;
+DEALLOCATE exec_parse_text;
+DEALLOCATE exec_parse_varchar;
+DEALLOCATE exec_parse_query;
+DEALLOCATE exec_parse_boost;
+DEALLOCATE exec_parse_fuzzy;
+DEALLOCATE exec_parse_prox;
+DEALLOCATE exec_parse_text_array;
+DEALLOCATE exec_parse_varchar_array;
+ERROR:  prepared statement "exec_parse_varchar_array" does not exist
+DEALLOCATE exec_parse_prox_incomplete;
 RESET plan_cache_mode;
 DROP TABLE mock_items;
 \i common/common_cleanup.sql

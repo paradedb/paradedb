@@ -20,8 +20,10 @@ use crate::api::operator::{
     get_expr_result_type, pdb_proximityclause_typoid, pdb_query_typoid, request_simplify,
     searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
+use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use crate::query::proximity::ProximityClause;
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -48,6 +50,45 @@ pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -
 #[opname(pg_catalog.@@@)]
 pub fn search_with_proximity_clause(_element: AnyElement, query: ProximityClause) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, pdb.ProximityClause)` operator: `{query:?}`")
+}
+
+/// Converts a pdb::Query to SearchQueryInput for the @@@ operator.
+/// Handles UnclassifiedString by converting it to ParseWithField at runtime.
+#[pg_extern(immutable, parallel_safe, name = "parse_with_field_query")]
+fn parse_with_field_query(field: FieldName, query: pdb::Query) -> SearchQueryInput {
+    match query {
+        pdb::Query::UnclassifiedString {
+            string,
+            fuzzy_data,
+            slop_data,
+        } => {
+            let mut query = parse_with_field(string, None, None);
+            query.apply_fuzzy_data(fuzzy_data);
+            query.apply_slop_data(slop_data);
+            to_search_query_input(field, query)
+        }
+        pdb::Query::ScoreAdjusted { query, score } => {
+            let mut inner = *query;
+            if let pdb::Query::UnclassifiedString {
+                string,
+                fuzzy_data,
+                slop_data,
+            } = inner
+            {
+                inner = parse_with_field(string, None, None);
+                inner.apply_fuzzy_data(fuzzy_data);
+                inner.apply_slop_data(slop_data);
+            }
+            to_search_query_input(
+                field,
+                pdb::Query::ScoreAdjusted {
+                    query: Box::new(inner),
+                    score,
+                },
+            )
+        }
+        other => to_search_query_input(field, other),
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -109,9 +150,9 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 let funcid = if is_pdb_query {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.to_search_query_input(paradedb.fieldname, pdb.query)".into_datum()],
+                        &[c"paradedb.parse_with_field_query(paradedb.fieldname, pdb.query)".into_datum()],
                     )
-                    .expect("`paradedb.to_search_query_input(paradedb.fieldname, pdb.query)` should exist")
+                    .expect("`paradedb.parse_with_field_query(paradedb.fieldname, pdb.query)` should exist")
                 } else if is_prox {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,

@@ -153,6 +153,16 @@ extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_sort_by(value: *const std::os::raw::c_char) {
+    let sort_by_str = cstr_to_rust_str(value);
+    if sort_by_str.is_empty() {
+        return;
+    }
+    // Parse and validate the sort_by string (panics on invalid input)
+    let _ = parse_sort_by_string(&sort_by_str);
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
         // a NULL value means we're to use whatever our defaults are
@@ -191,7 +201,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 12;
+const NUM_REL_OPTS: usize = 13;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -279,6 +289,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "mutable_segment_rows".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: offset_of!(BM25IndexOptionsData, mutable_segment_rows) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "sort_by".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(BM25IndexOptionsData, sort_by_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -371,6 +388,14 @@ impl BM25IndexOptions {
         self.options_data()
             .key_field_name()
             .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    }
+
+    /// Returns the sort_by configuration.
+    /// - Not specified: defaults to ctid ASC
+    /// - "none": returns empty vec (no sorting)
+    /// - Otherwise: returns parsed sort fields
+    pub fn sort_by(&self) -> Vec<SortByField> {
+        self.options_data().sort_by()
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {
@@ -643,6 +668,7 @@ struct BM25IndexOptionsData {
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
     mutable_segment_rows: i32,
+    sort_by_offset: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -688,6 +714,25 @@ impl BM25IndexOptionsData {
             return None;
         }
         Some(key_field_name.into())
+    }
+
+    /// Returns the sort_by configuration.
+    /// - Empty string (not specified): defaults to ctid ASC
+    /// - "none": returns empty vec (no sorting)
+    /// - Otherwise: returns parsed sort fields
+    ///
+    /// Note: This is only called during index build, so the allocation for the
+    /// default case is acceptable and not worth optimizing with a static.
+    pub fn sort_by(&self) -> Vec<SortByField> {
+        let sort_by_str = self.get_str(self.sort_by_offset, "".to_string());
+        if sort_by_str.is_empty() {
+            // Default: ctid ASC
+            return vec![SortByField::new(
+                FieldName::from(SortByField::CTID_FIELD.to_string()),
+                SortByDirection::Asc,
+            )];
+        }
+        parse_sort_by_string(&sort_by_str)
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -856,6 +901,14 @@ pub unsafe fn init() {
         Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "sort_by".as_pg_cstr(),
+        "Comma-separated list of fields to sort segments by (e.g., 'field1 ASC, field2 DESC NULLS LAST')".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_sort_by),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
 }
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
@@ -885,6 +938,104 @@ fn deserialize_config_fields(
             )
         })
         .collect()
+}
+
+/// Represents a single field in the sort_by specification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortByField {
+    pub field_name: FieldName,
+    pub direction: SortByDirection,
+}
+
+/// Sort direction for sort_by fields
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortByDirection {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl SortByField {
+    /// The default sort field name (PostgreSQL ctid)
+    pub const CTID_FIELD: &'static str = "ctid";
+
+    pub fn new(field_name: FieldName, direction: SortByDirection) -> Self {
+        Self {
+            field_name,
+            direction,
+        }
+    }
+}
+
+/// Parse a sort_by string like "field1 ASC, field2 DESC"
+///
+/// Grammar:
+///   sort_by_value  ::= 'none' | sort_key { ',' sort_key }
+///   sort_key       ::= field_name [ 'ASC' | 'DESC' ]
+fn parse_sort_by_string(input: &str) -> Vec<SortByField> {
+    let input = input.trim();
+
+    // Handle 'none' case
+    if input.eq_ignore_ascii_case("none") {
+        return vec![];
+    }
+
+    let mut fields = Vec::new();
+
+    for part in input.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+
+        let field = parse_sort_key(part);
+        fields.push(field);
+    }
+
+    if fields.is_empty() {
+        panic!("invalid sort_by value: must specify at least one field or 'none'");
+    }
+
+    fields
+}
+
+/// Parse a single sort key like "field1 ASC"
+fn parse_sort_key(input: &str) -> SortByField {
+    let input = input.trim();
+    let tokens: Vec<&str> = input.split_whitespace().collect();
+
+    if tokens.is_empty() {
+        panic!("invalid sort_by value: empty sort key");
+    }
+
+    let field_name = FieldName::from(tokens[0].to_string());
+    let mut direction = SortByDirection::Asc; // Default: ASC
+
+    let mut i = 1;
+    while i < tokens.len() {
+        let token = tokens[i].to_uppercase();
+        match token.as_str() {
+            "ASC" => {
+                direction = SortByDirection::Asc;
+                i += 1;
+            }
+            "DESC" => {
+                direction = SortByDirection::Desc;
+                i += 1;
+            }
+            "NULLS" => {
+                panic!("invalid sort_by value: NULLS FIRST/LAST is not currently supported");
+            }
+            _ => {
+                panic!(
+                    "invalid sort_by value: unexpected token in sort key: {}",
+                    tokens[i]
+                );
+            }
+        }
+    }
+
+    SortByField::new(field_name, direction)
 }
 
 fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
@@ -936,5 +1087,132 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             indexed: true,
             fast: true,
         },
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::pg_test;
+
+    #[pg_test]
+    fn test_parse_sort_by_single_field_default() {
+        let result = parse_sort_by_string("created_at");
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].field_name,
+            FieldName::from("created_at".to_string())
+        );
+        assert_eq!(result[0].direction, SortByDirection::Asc);
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_single_field_asc() {
+        let result = parse_sort_by_string("created_at ASC");
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].field_name,
+            FieldName::from("created_at".to_string())
+        );
+        assert_eq!(result[0].direction, SortByDirection::Asc);
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_single_field_desc() {
+        let result = parse_sort_by_string("created_at DESC");
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].field_name,
+            FieldName::from("created_at".to_string())
+        );
+        assert_eq!(result[0].direction, SortByDirection::Desc);
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "NULLS FIRST/LAST is not currently supported")]
+    fn test_parse_sort_by_nulls_not_supported() {
+        parse_sort_by_string("created_at ASC NULLS FIRST");
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_multiple_fields() {
+        let result = parse_sort_by_string("category ASC, created_at DESC");
+        assert_eq!(result.len(), 2);
+
+        assert_eq!(
+            result[0].field_name,
+            FieldName::from("category".to_string())
+        );
+        assert_eq!(result[0].direction, SortByDirection::Asc);
+
+        assert_eq!(
+            result[1].field_name,
+            FieldName::from("created_at".to_string())
+        );
+        assert_eq!(result[1].direction, SortByDirection::Desc);
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_none() {
+        let result = parse_sort_by_string("none");
+        assert!(result.is_empty());
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_none_case_insensitive() {
+        let result = parse_sort_by_string("NONE");
+        assert!(result.is_empty());
+
+        let result = parse_sort_by_string("None");
+        assert!(result.is_empty());
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_case_insensitive_keywords() {
+        let result = parse_sort_by_string("field asc");
+        assert_eq!(result[0].direction, SortByDirection::Asc);
+
+        let result = parse_sort_by_string("field Desc");
+        assert_eq!(result[0].direction, SortByDirection::Desc);
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_whitespace_handling() {
+        let result = parse_sort_by_string("  field1  ASC  ,  field2  DESC  ");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].field_name, FieldName::from("field1".to_string()));
+        assert_eq!(result[1].field_name, FieldName::from("field2".to_string()));
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "must specify at least one field")]
+    fn test_parse_sort_by_empty_error() {
+        parse_sort_by_string("");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "must specify at least one field")]
+    fn test_parse_sort_by_only_whitespace_error() {
+        parse_sort_by_string("   ");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "unexpected token")]
+    fn test_parse_sort_by_unexpected_token() {
+        parse_sort_by_string("field ASC INVALID");
+    }
+
+    #[pg_test]
+    fn test_sort_by_field_new() {
+        let field = SortByField::new(FieldName::from("test".to_string()), SortByDirection::Desc);
+        assert_eq!(field.field_name, FieldName::from("test".to_string()));
+        assert_eq!(field.direction, SortByDirection::Desc);
+    }
+
+    #[pg_test]
+    fn test_sort_by_direction_default() {
+        let dir = SortByDirection::default();
+        assert_eq!(dir, SortByDirection::Asc);
     }
 }

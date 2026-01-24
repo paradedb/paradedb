@@ -323,7 +323,7 @@ ERROR:  operator is not unique: text === pdb.slop at character 131
 SELECT '=== pdb.parse (const) - expected error' AS test,
        array_agg(id ORDER BY id) AS ids
 FROM mock_items WHERE description === pdb.parse('keyboard');
-ERROR:  internal error: entered unreachable code: The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value.
+ERROR:  The right-hand side of the `===` operator must be text, text[], or an unclassified pdb.* value.
 -- -----------------------------------------------------------------------------
 -- 1.5 @@@ Operator (Parse/Proximity) - const_rewrite
 -- -----------------------------------------------------------------------------

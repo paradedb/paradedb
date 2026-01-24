@@ -18,8 +18,9 @@ use crate::api::builder_fns::{match_disjunction, match_disjunction_array, term_s
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    boost_typoid, fuzzy_typoid, get_expr_result_type, pdb_query_typoid, request_simplify,
-    searchqueryinput_typoid, validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
+    boost_typoid, coerce_to_pdb_query, fuzzy_typoid, get_expr_result_type, pdb_query_typoid,
+    request_simplify, searchqueryinput_typoid, validate_lhs_type_as_text_compatible, RHSValue,
+    ReturnedNodePointer,
 };
 use crate::api::FieldName;
 use crate::query::pdb_query::{pdb, to_search_query_input};
@@ -70,6 +71,8 @@ fn search_with_match_disjunction_fuzzy(_field: AnyElement, terms_to_tokenize: Fu
     )
 }
 
+/// Converts a pdb::Query to SearchQueryInput for the ||| operator.
+/// Handles UnclassifiedString and UnclassifiedArray by converting them to Match/MatchArray.
 #[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
 fn match_disjunction_query(field: FieldName, query: pdb::Query) -> SearchQueryInput {
     match query {
@@ -138,16 +141,6 @@ fn match_disjunction_query(field: FieldName, query: pdb::Query) -> SearchQueryIn
     }
 }
 
-#[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
-fn match_disjunction_boost(field: FieldName, query: BoostType) -> SearchQueryInput {
-    match_disjunction_query(field, query.into())
-}
-
-#[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
-fn match_disjunction_fuzzy(field: FieldName, query: FuzzyType) -> SearchQueryInput {
-    match_disjunction_query(field, query.into())
-}
-
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
@@ -180,43 +173,43 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
                 "The right-hand side of the `|||` operator must be text, text[], or a pdb.* value"
             );
 
+            // Cast pdb.boost/pdb.fuzzy to pdb.query before calling match_disjunction
+            let rhs = if is_boost {
+                coerce_to_pdb_query(rhs, c"paradedb.boost_to_query(pdb.boost)")
+            } else if is_fuzzy {
+                coerce_to_pdb_query(rhs, c"paradedb.fuzzy_to_query(pdb.fuzzy)")
+            } else {
+                rhs
+            };
+
             let mut args = PgList::<pg_sys::Node>::new();
             args.push(field.into_const().cast());
             args.push(rhs.cast());
 
+            let funcid = if is_array {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.match_disjunction(paradedb.fieldname, text[])".into_datum()],
+                )
+                .expect("`paradedb.match_disjunction(paradedb.fieldname, text[])` should exist")
+            } else if is_text {
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.match_disjunction(paradedb.fieldname, text)".into_datum()],
+                )
+                .expect("`paradedb.match_disjunction(paradedb.fieldname, text)` should exist")
+            } else {
+                // pdb.query, pdb.boost (cast to query), pdb.fuzzy (cast to query)
+                direct_function_call::<pg_sys::Oid>(
+                    pg_sys::regprocedurein,
+                    &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.query)".into_datum()],
+                )
+                .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.query)` should exist")
+            };
+
             pg_sys::FuncExpr {
                 xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
-                funcid: if is_array {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.match_disjunction(paradedb.fieldname, text[])".into_datum()],
-                    )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, text[])` should exist")
-                } else if is_text {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.match_disjunction(paradedb.fieldname, text)".into_datum()],
-                    )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, text)` should exist")
-                } else if is_pdb_query {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.query)".into_datum()],
-                    )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.query)` should exist")
-                } else if is_boost {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.boost)".into_datum()],
-                    )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.boost)` should exist")
-                } else {
-                    direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb.match_disjunction(paradedb.fieldname, pdb.fuzzy)".into_datum()],
-                    )
-                    .expect("`paradedb.match_disjunction(paradedb.fieldname, pdb.fuzzy)` should exist")
-                },
+                funcid,
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,
                 funcvariadic: false,

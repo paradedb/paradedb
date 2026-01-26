@@ -999,7 +999,12 @@ fn parse_sort_by_string(input: &str) -> Vec<SortByField> {
     fields
 }
 
-/// Parse a single sort key like "field1 ASC"
+/// Parse a single sort key like "field1 ASC NULLS FIRST" or "field1 DESC NULLS LAST"
+///
+/// NULLS ordering is REQUIRED to be explicit (to avoid confusion with PostgreSQL defaults).
+/// Tantivy's NULL ordering is fixed:
+/// - ASC: only NULLS FIRST is supported
+/// - DESC: only NULLS LAST is supported
 fn parse_sort_key(input: &str) -> SortByField {
     let input = input.trim();
     let mut tokens = input.split_whitespace();
@@ -1010,18 +1015,55 @@ fn parse_sort_key(input: &str) -> SortByField {
         .unwrap_or_else(|| panic!("invalid sort_by value: empty sort key"));
 
     let mut direction = SortByDirection::Asc; // Default: ASC
+    let mut nulls_first: Option<bool> = None;
 
-    for token in tokens {
+    while let Some(token) = tokens.next() {
         match token.to_uppercase().as_str() {
             "ASC" => direction = SortByDirection::Asc,
             "DESC" => direction = SortByDirection::Desc,
             "NULLS" => {
-                panic!("invalid sort_by value: NULLS FIRST/LAST is not currently supported")
+                let nulls_order = tokens.next().map(|s| s.to_uppercase()).unwrap_or_else(|| {
+                    panic!("invalid sort_by value: expected FIRST or LAST after NULLS")
+                });
+                match nulls_order.as_str() {
+                    "FIRST" => nulls_first = Some(true),
+                    "LAST" => nulls_first = Some(false),
+                    _ => panic!(
+                        "invalid sort_by value: expected FIRST or LAST after NULLS, got: {}",
+                        nulls_order
+                    ),
+                }
             }
             _ => panic!(
                 "invalid sort_by value: unexpected token in sort key: {}",
                 token
             ),
+        }
+    }
+
+    // NULLS ordering is required to be explicit
+    let Some(is_nulls_first) = nulls_first else {
+        panic!(
+            "invalid sort_by value: NULLS FIRST or NULLS LAST is required. \
+             Supported: 'field ASC NULLS FIRST' or 'field DESC NULLS LAST'"
+        )
+    };
+
+    // Validate NULLS ordering matches Tantivy's fixed behavior
+    match (direction, is_nulls_first) {
+        (SortByDirection::Asc, true) => {}   // ASC NULLS FIRST - OK
+        (SortByDirection::Desc, false) => {} // DESC NULLS LAST - OK
+        (SortByDirection::Asc, false) => {
+            panic!(
+                "invalid sort_by value: ASC only supports NULLS FIRST (Tantivy limitation). \
+                 Use 'field ASC NULLS FIRST'"
+            )
+        }
+        (SortByDirection::Desc, true) => {
+            panic!(
+                "invalid sort_by value: DESC only supports NULLS LAST (Tantivy limitation). \
+                 Use 'field DESC NULLS LAST'"
+            )
         }
     }
 
@@ -1087,8 +1129,16 @@ mod tests {
     use pgrx::pg_test;
 
     #[pg_test]
-    fn test_parse_sort_by_single_field_default() {
-        let result = parse_sort_by_string("created_at");
+    #[should_panic(expected = "NULLS FIRST or NULLS LAST is required")]
+    fn test_parse_sort_by_without_nulls_error() {
+        // NULLS is required - omitting it should fail
+        parse_sort_by_string("created_at ASC");
+    }
+
+    #[pg_test]
+    fn test_parse_sort_by_asc_nulls_first() {
+        // ASC NULLS FIRST is valid (matches Tantivy's behavior)
+        let result = parse_sort_by_string("created_at ASC NULLS FIRST");
         assert_eq!(result.len(), 1);
         assert_eq!(
             result[0].field_name,
@@ -1098,36 +1148,31 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_parse_sort_by_single_field_asc() {
-        let result = parse_sort_by_string("created_at ASC");
+    fn test_parse_sort_by_desc_nulls_last() {
+        // DESC NULLS LAST is valid (matches Tantivy's behavior)
+        let result = parse_sort_by_string("score DESC NULLS LAST");
         assert_eq!(result.len(), 1);
-        assert_eq!(
-            result[0].field_name,
-            FieldName::from("created_at".to_string())
-        );
-        assert_eq!(result[0].direction, SortByDirection::Asc);
-    }
-
-    #[pg_test]
-    fn test_parse_sort_by_single_field_desc() {
-        let result = parse_sort_by_string("created_at DESC");
-        assert_eq!(result.len(), 1);
-        assert_eq!(
-            result[0].field_name,
-            FieldName::from("created_at".to_string())
-        );
+        assert_eq!(result[0].field_name, FieldName::from("score".to_string()));
         assert_eq!(result[0].direction, SortByDirection::Desc);
     }
 
     #[pg_test]
-    #[should_panic(expected = "NULLS FIRST/LAST is not currently supported")]
-    fn test_parse_sort_by_nulls_not_supported() {
-        parse_sort_by_string("created_at ASC NULLS FIRST");
+    #[should_panic(expected = "ASC only supports NULLS FIRST")]
+    fn test_parse_sort_by_asc_nulls_last_error() {
+        // ASC NULLS LAST is invalid (opposite of Tantivy's behavior)
+        parse_sort_by_string("created_at ASC NULLS LAST");
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "DESC only supports NULLS LAST")]
+    fn test_parse_sort_by_desc_nulls_first_error() {
+        // DESC NULLS FIRST is invalid (opposite of Tantivy's behavior)
+        parse_sort_by_string("score DESC NULLS FIRST");
     }
 
     #[pg_test]
     fn test_parse_sort_by_multiple_fields() {
-        let result = parse_sort_by_string("category ASC, created_at DESC");
+        let result = parse_sort_by_string("category ASC NULLS FIRST, created_at DESC NULLS LAST");
         assert_eq!(result.len(), 2);
 
         assert_eq!(
@@ -1160,16 +1205,17 @@ mod tests {
 
     #[pg_test]
     fn test_parse_sort_by_case_insensitive_keywords() {
-        let result = parse_sort_by_string("field asc");
+        let result = parse_sort_by_string("field asc nulls first");
         assert_eq!(result[0].direction, SortByDirection::Asc);
 
-        let result = parse_sort_by_string("field Desc");
+        let result = parse_sort_by_string("field Desc Nulls Last");
         assert_eq!(result[0].direction, SortByDirection::Desc);
     }
 
     #[pg_test]
     fn test_parse_sort_by_whitespace_handling() {
-        let result = parse_sort_by_string("  field1  ASC  ,  field2  DESC  ");
+        let result =
+            parse_sort_by_string("  field1  ASC  NULLS  FIRST  ,  field2  DESC  NULLS  LAST  ");
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].field_name, FieldName::from("field1".to_string()));
         assert_eq!(result[1].field_name, FieldName::from("field2".to_string()));

@@ -25,7 +25,7 @@ INSERT INTO sort_by_test (name, score, created_at) VALUES
 \echo 'Test 1.1: sort_by with id ASC'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='id ASC');
+    WITH (key_field='id', sort_by='id ASC NULLS FIRST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
@@ -38,7 +38,7 @@ DROP INDEX sort_by_test_idx;
 \echo 'Test 1.2: sort_by with id DESC'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='id DESC');
+    WITH (key_field='id', sort_by='id DESC NULLS LAST');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
@@ -87,7 +87,7 @@ INSERT INTO sort_by_test (name, score) VALUES
 \echo 'Test 2.1: sort_by score DESC - single segment'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='score DESC');
+    WITH (key_field='id', sort_by='score DESC NULLS LAST');
 
 \echo 'Query without ORDER BY - should return in segment sorted order (DESC)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -135,7 +135,7 @@ DROP INDEX sort_by_test_idx;
 \echo 'Test 2.2: sort_by score ASC - single segment'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='score ASC');
+    WITH (key_field='id', sort_by='score ASC NULLS FIRST');
 
 \echo 'Query without ORDER BY - should return in ASC order'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -167,7 +167,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 -- Create index with sort_by score DESC
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, category, score)
-    WITH (key_field='id', sort_by='score DESC');
+    WITH (key_field='id', sort_by='score DESC NULLS LAST');
 
 \echo 'Segment count after first batch:'
 SELECT count(*) as segment_count FROM paradedb.index_info('sort_by_test_idx');
@@ -237,7 +237,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, category, score)
-    WITH (key_field='id', sort_by='score ASC');
+    WITH (key_field='id', sort_by='score ASC NULLS FIRST');
 
 INSERT INTO sort_by_test (category, score) VALUES
     ('A', 55), ('A', 65), ('A', 75), ('A', 85), ('A', 95);
@@ -331,13 +331,13 @@ CREATE TABLE sort_by_test (
 \echo 'Test 5.1: sort_by with nonexistent field (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='nonexistent ASC');
+    WITH (key_field='id', sort_by='nonexistent ASC NULLS FIRST');
 
 -- Test 5.2: Non-fast field
 \echo 'Test 5.2: sort_by with non-fast field (should error)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='name ASC');
+    WITH (key_field='id', sort_by='name ASC NULLS FIRST');
 
 -- Test 5.3: Invalid syntax
 \echo 'Test 5.3: sort_by with invalid syntax (should error)'
@@ -345,17 +345,23 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', sort_by='id ASCENDING');
 
--- Test 5.4: NULLS FIRST/LAST not supported
-\echo 'Test 5.4: sort_by with NULLS FIRST/LAST (should error - not supported)'
+-- Test 5.4: NULLS ordering must match Tantivy's fixed behavior
+-- ASC only allows NULLS FIRST, DESC only allows NULLS LAST
+\echo 'Test 5.4a: sort_by with ASC NULLS LAST (should error - Tantivy uses NULLS FIRST for ASC)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='id ASC NULLS FIRST');
+    WITH (key_field='id', sort_by='id ASC NULLS LAST');
+
+\echo 'Test 5.4b: sort_by with DESC NULLS FIRST (should error - Tantivy uses NULLS LAST for DESC)'
+CREATE INDEX sort_by_test_idx ON sort_by_test
+    USING bm25 (id, name, score)
+    WITH (key_field='id', sort_by='id DESC NULLS FIRST');
 
 -- Test 5.5: Multiple fields not supported
 \echo 'Test 5.5: sort_by with multiple fields (should error - not supported)'
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
-    WITH (key_field='id', sort_by='score DESC, id ASC');
+    WITH (key_field='id', sort_by='score DESC NULLS LAST, id ASC NULLS FIRST');
 
 DROP TABLE sort_by_test CASCADE;
 
@@ -376,11 +382,11 @@ CREATE TABLE mutable_sort_test (
     score INTEGER
 );
 
--- Create index FIRST with sort_by='score DESC'
+-- Create index FIRST with sort_by='score DESC NULLS LAST'
 \echo 'Creating index with sort_by=score DESC'
 CREATE INDEX mutable_sort_test_idx ON mutable_sort_test
     USING bm25 (id, category, score)
-    WITH (key_field='id', sort_by='score DESC');
+    WITH (key_field='id', sort_by='score DESC NULLS LAST');
 
 -- Now INSERT data - this goes into MUTABLE segment
 -- Insert in random score order: 50, 100, 30, 80, 60

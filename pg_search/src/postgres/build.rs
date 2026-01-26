@@ -126,7 +126,11 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         validate_field_config(field_name, &key_field_name, config, options, |t| {
             matches!(
                 t,
-                SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
+                SearchFieldType::I64(_)
+                    | SearchFieldType::U64(_)
+                    | SearchFieldType::F64(_)
+                    | SearchFieldType::Numeric64(_, _)
+                    | SearchFieldType::NumericBytes(_)
             )
         });
     }

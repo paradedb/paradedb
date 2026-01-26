@@ -715,9 +715,24 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
+
+    // Handle NUMERIC field types with special storage strategies
+    let value = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale value for I64 fixed-point storage
+            scale_numeric_value(value.clone(), scale)?
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert value to lexicographically sortable bytes
+            numeric_value_to_bytes(value.clone())?
+        }
+        _ => value.clone(),
+    };
+
     let term = value_to_term(
         search_field.field(),
-        value,
+        &value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -1473,6 +1488,52 @@ fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> anyhow::Result<Bound<Owne
         Bound::Excluded(value) => Bound::Excluded(to_bytes(value)?),
         Bound::Unbounded => Bound::Unbounded,
     })
+}
+
+/// Scale a numeric value for Numeric64 (I64 fixed-point) storage.
+fn scale_numeric_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal64NoScale;
+
+    let numeric_str = match &value {
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    };
+
+    let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to scale numeric value '{}' with scale {}: {:?}",
+            numeric_str,
+            scale,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::I64(decimal.value()))
+}
+
+/// Convert a numeric value to lexicographically sortable bytes for NumericBytes storage.
+fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    let numeric_str = match &value {
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot convert non-numeric value to bytes: {:?}", value),
+    };
+
+    let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to convert numeric value '{}' to bytes: {:?}",
+            numeric_str,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
 }
 
 fn tokenized_phrase(

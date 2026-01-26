@@ -361,7 +361,7 @@ FROM score_test
 WHERE content @@@ 'technology'
 ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -381,7 +381,7 @@ FROM score_test
 WHERE content @@@ 'technology'
 ORDER BY title, pdb.score(id), rating DESC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
   title   |    score    | rating 
 ----------+-------------+--------
  Post 1   | 0.019852143 |      2
@@ -403,7 +403,7 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -423,7 +423,7 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
            title           |    author     | rating | views |    score    
 ---------------------------+---------------+--------+-------+-------------
  Advanced Science Research | Author Expert |      5 |  8888 | 0.022842946
@@ -480,7 +480,7 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY title, author, relevance DESC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
                                                                                                                                              QUERY PLAN                                                                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -505,7 +505,7 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY title, author, relevance DESC
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb::literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
            title           |    author     | rating | relevance 
 ---------------------------+---------------+--------+-----------
  Advanced Science Research | Author Expert |      5 |  1.022843

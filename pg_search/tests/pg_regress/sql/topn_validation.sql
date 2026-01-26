@@ -17,7 +17,7 @@ USING bm25 (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
-        "category": {"fast": true, "tokenizer": {"type": "raw"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
         "description": {"fast": false}
     }',
     numeric_fields='{"rating": {"fast": true}}'

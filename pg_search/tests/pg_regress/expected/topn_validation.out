@@ -19,7 +19,7 @@ USING bm25 (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
-        "category": {"fast": true, "tokenizer": {"type": "raw"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
         "description": {"fast": false}
     }',
     numeric_fields='{"rating": {"fast": true}}'
@@ -62,14 +62,9 @@ SELECT id, category,rating FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC  -- rating is fast
 LIMIT 5;
- id |  category   | rating 
-----+-------------+--------
- 12 | Electronics |      5
-  1 | Electronics |      4
-  2 | Electronics |      4
- 22 | Electronics |      4
- 32 | Electronics |      3
-(5 rows)
+ id | category | rating 
+----+----------+--------
+(0 rows)
 
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;

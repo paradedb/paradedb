@@ -1056,6 +1056,10 @@ impl SearchQueryInput {
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
                         let is_datetime = search_field.is_datetime() || is_datetime;
+
+                        // Convert string numeric values to appropriate types for JSON fields
+                        let value = convert_for_field_type(&value, field_type);
+
                         value_to_term(
                             search_field.field(),
                             &value,
@@ -1158,6 +1162,51 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
+    }
+}
+
+/// Convert a string-encoded numeric value to the appropriate type based on field type.
+/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
+    // Only convert string values - other types pass through unchanged
+    let s = match value {
+        OwnedValue::Str(s) => s,
+        _ => return value.clone(),
+    };
+
+    match field_type {
+        FieldType::JsonObject(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            if let Ok(f) = s.parse::<f64>() {
+                // Use I64 for whole numbers to match JSON integer storage
+                if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+                    return OwnedValue::I64(f as i64);
+                }
+                return OwnedValue::F64(f);
+            }
+            value.clone()
+        }
+        FieldType::I64(_) => {
+            if let Ok(f) = s.parse::<f64>() {
+                return OwnedValue::I64(f as i64);
+            }
+            value.clone()
+        }
+        FieldType::U64(_) => {
+            if let Ok(f) = s.parse::<f64>() {
+                if f >= 0.0 {
+                    return OwnedValue::U64(f as u64);
+                }
+            }
+            value.clone()
+        }
+        FieldType::F64(_) => {
+            if let Ok(f) = s.parse::<f64>() {
+                return OwnedValue::F64(f);
+            }
+            value.clone()
+        }
+        _ => value.clone(),
     }
 }
 

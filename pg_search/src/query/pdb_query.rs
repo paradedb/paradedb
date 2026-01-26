@@ -690,17 +690,38 @@ fn term_set(
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
+    let search_field_type = search_field.field_type();
 
-    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
-        value_to_term(
-            tantivy_field,
-            &term,
-            field_type,
-            field.path().as_deref(),
-            is_date_time,
-        )
-        .expect("could not convert argument to search term")
-    }))))
+    // Convert terms based on field type (same logic as term())
+    let converted_terms: Vec<OwnedValue> = terms
+        .into_iter()
+        .map(|term| match search_field_type {
+            SearchFieldType::Numeric64(_, scale) => {
+                scale_numeric_value(term, scale).unwrap_or(OwnedValue::Null)
+            }
+            SearchFieldType::NumericBytes(_) => {
+                numeric_value_to_bytes(term).unwrap_or(OwnedValue::Null)
+            }
+            SearchFieldType::Json(_) => convert_string_to_json_numeric(term),
+            SearchFieldType::I64(_) => convert_string_to_i64(term),
+            SearchFieldType::U64(_) => convert_string_to_u64(term),
+            SearchFieldType::F64(_) => convert_string_to_f64(term),
+            _ => term,
+        })
+        .collect();
+
+    Ok(Box::new(TermSetQuery::new(
+        converted_terms.into_iter().map(|term| {
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                is_date_time,
+            )
+            .expect("could not convert argument to search term")
+        }),
+    )))
 }
 
 fn term(
@@ -718,6 +739,7 @@ fn term(
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
     let value = match search_field_type {
         SearchFieldType::Numeric64(_, scale) => {
             // Scale value for I64 fixed-point storage
@@ -726,6 +748,22 @@ fn term(
         SearchFieldType::NumericBytes(_) => {
             // Convert value to lexicographically sortable bytes
             numeric_value_to_bytes(value.clone())?
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            convert_string_to_json_numeric(value.clone())
+        }
+        SearchFieldType::I64(_) => {
+            // Convert string numeric values to I64
+            convert_string_to_i64(value.clone())
+        }
+        SearchFieldType::U64(_) => {
+            // Convert string numeric values to U64
+            convert_string_to_u64(value.clone())
+        }
+        SearchFieldType::F64(_) => {
+            // Convert string numeric values to F64
+            convert_string_to_f64(value.clone())
         }
         _ => value.clone(),
     };
@@ -1367,6 +1405,7 @@ fn range(
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
     let (lower_bound, upper_bound) = match search_field_type {
         SearchFieldType::Numeric64(_, scale) => {
             // Scale bounds for I64 fixed-point storage
@@ -1379,6 +1418,27 @@ fn range(
             let lower = numeric_bound_to_bytes(lower_bound)?;
             let upper = numeric_bound_to_bytes(upper_bound)?;
             (lower, upper)
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            let lower = convert_bound_to_json_numeric(lower_bound);
+            let upper = convert_bound_to_json_numeric(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::I64(_) => {
+            let lower = convert_bound_to_i64(lower_bound);
+            let upper = convert_bound_to_i64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::U64(_) => {
+            let lower = convert_bound_to_u64(lower_bound);
+            let upper = convert_bound_to_u64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::F64(_) => {
+            let lower = convert_bound_to_f64(lower_bound);
+            let upper = convert_bound_to_f64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
         }
         _ => {
             // Standard path for other field types
@@ -1538,6 +1598,91 @@ fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
     })?;
 
     Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+}
+
+/// Convert a string-encoded numeric value to the appropriate JSON type (I64 or F64).
+/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+fn convert_string_to_json_numeric(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        // Try to parse as a number
+        if let Ok(f) = s.parse::<f64>() {
+            // Use I64 for whole numbers to match JSON integer storage
+            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+                return OwnedValue::I64(f as i64);
+            }
+            return OwnedValue::F64(f);
+        }
+    }
+    // Return as-is if not a string or not parseable as a number
+    value
+}
+
+/// Convert a string-encoded numeric value to I64.
+fn convert_string_to_i64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            return OwnedValue::I64(f as i64);
+        }
+    }
+    value
+}
+
+/// Convert a string-encoded numeric value to U64.
+fn convert_string_to_u64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            if f >= 0.0 {
+                return OwnedValue::U64(f as u64);
+            }
+        }
+    }
+    value
+}
+
+/// Convert a string-encoded numeric value to F64.
+fn convert_string_to_f64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            return OwnedValue::F64(f);
+        }
+    }
+    value
+}
+
+/// Convert a bound with string-encoded numeric value to appropriate JSON type.
+fn convert_bound_to_json_numeric(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_json_numeric(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_json_numeric(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to I64.
+fn convert_bound_to_i64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_i64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_i64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to U64.
+fn convert_bound_to_u64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_u64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_u64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to F64.
+fn convert_bound_to_f64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_f64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_f64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
 }
 
 fn tokenized_phrase(

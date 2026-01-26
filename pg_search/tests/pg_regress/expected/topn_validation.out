@@ -19,7 +19,7 @@ USING bm25 (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "raw"}},
         "description": {"fast": false}
     }',
     numeric_fields='{"rating": {"fast": true}}'
@@ -62,9 +62,14 @@ SELECT id, category,rating FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC  -- rating is fast
 LIMIT 5;
- id | category | rating 
-----+----------+--------
-(0 rows)
+ id |  category   | rating 
+----+-------------+--------
+ 12 | Electronics |      5
+  1 | Electronics |      4
+  2 | Electronics |      4
+ 22 | Electronics |      4
+ 32 | Electronics |      3
+(5 rows)
 
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
@@ -72,7 +77,7 @@ CREATE INDEX products_multi_idx ON test_products
 USING bm25 (id, description, category, rating, created_at)
 WITH (
     key_field='id',
-    text_fields='{"category": {"fast": true}}',
+    text_fields='{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields='{"rating": {"fast": true}}',
     datetime_fields='{"created_at": {"fast": true}}'
 );
@@ -82,15 +87,10 @@ SELECT id FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC, created_at DESC, id DESC, category DESC  -- 4 columns, max is 3
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (3 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false
  id 
 ----
- 12
-  1
- 22
-  2
- 32
-(5 rows)
+(0 rows)
 
 -- Test 5: Query with lower() mismatch
 DROP INDEX products_multi_idx;

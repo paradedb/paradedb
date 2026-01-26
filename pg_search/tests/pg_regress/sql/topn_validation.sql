@@ -17,7 +17,7 @@ USING bm25 (id, description, category, rating)
 WITH (
     key_field='id',
     text_fields='{
-        "category": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "raw"}},
         "description": {"fast": false}
     }',
     numeric_fields='{"rating": {"fast": true}}'
@@ -52,7 +52,7 @@ CREATE INDEX products_multi_idx ON test_products
 USING bm25 (id, description, category, rating, created_at)
 WITH (
     key_field='id',
-    text_fields='{"category": {"fast": true}}',
+    text_fields='{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
     numeric_fields='{"rating": {"fast": true}}',
     datetime_fields='{"created_at": {"fast": true}}'
 );

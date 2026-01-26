@@ -167,7 +167,11 @@ fn populate_slot(
                     WhichFastField::Named(_, FastFieldType::String) => {
                         panic!("String fast field {which_fast_field:?} should already have been extracted.");
                     }
-                    WhichFastField::Named(_, FastFieldType::Numeric) => {
+                    WhichFastField::Named(_, FastFieldType::Int64)
+                    | WhichFastField::Named(_, FastFieldType::UInt64)
+                    | WhichFastField::Named(_, FastFieldType::Float64)
+                    | WhichFastField::Named(_, FastFieldType::Bool)
+                    | WhichFastField::Named(_, FastFieldType::Date) => {
                         panic!("Numeric fast field {which_fast_field:?} should already have been extracted.");
                     }
                     WhichFastField::Junk(_) => None,

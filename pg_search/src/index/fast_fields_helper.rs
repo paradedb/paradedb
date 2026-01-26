@@ -220,14 +220,28 @@ pub enum WhichFastField {
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
-    Numeric,
+    Int64,
+    UInt64,
+    Float64,
+    Bool,
+    Date,
 }
 
 impl From<SearchFieldType> for FastFieldType {
     fn from(value: SearchFieldType) -> Self {
         match value {
             SearchFieldType::Text(_) => FastFieldType::String,
-            _ => FastFieldType::Numeric,
+            SearchFieldType::Tokenized(..) => FastFieldType::String,
+            SearchFieldType::Uuid(_) => FastFieldType::String,
+            // TODO: Add proper support for Inet, Range, and Json fast fields
+            SearchFieldType::Inet(_) => FastFieldType::String,
+            SearchFieldType::I64(_) => FastFieldType::Int64,
+            SearchFieldType::F64(_) => FastFieldType::Float64,
+            SearchFieldType::U64(_) => FastFieldType::UInt64,
+            SearchFieldType::Bool(_) => FastFieldType::Bool,
+            SearchFieldType::Json(_) => FastFieldType::String,
+            SearchFieldType::Date(_) => FastFieldType::Date,
+            SearchFieldType::Range(_) => FastFieldType::String,
         }
     }
 }

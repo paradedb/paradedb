@@ -77,17 +77,14 @@ fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<F
     }
     match base_oid {
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => Some(FastFieldType::String),
-        pg_sys::BOOLOID
-        | pg_sys::DATEOID
-        | pg_sys::FLOAT4OID
-        | pg_sys::FLOAT8OID
-        | pg_sys::INT2OID
-        | pg_sys::INT4OID
-        | pg_sys::INT8OID
+        pg_sys::BOOLOID => Some(FastFieldType::Bool),
+        pg_sys::DATEOID
         | pg_sys::TIMEOID
         | pg_sys::TIMESTAMPOID
         | pg_sys::TIMESTAMPTZOID
-        | pg_sys::TIMETZOID => Some(FastFieldType::Numeric),
+        | pg_sys::TIMETZOID => Some(FastFieldType::Date),
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => Some(FastFieldType::Float64),
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => Some(FastFieldType::Int64),
         _ => {
             // This fast field type is supported for pushdown of queries, but not for
             // rendering via fast field execution.

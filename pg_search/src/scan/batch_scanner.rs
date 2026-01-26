@@ -145,7 +145,15 @@ impl Scanner {
                         crate::index::fast_fields_helper::FastFieldType::String => {
                             DataType::Utf8View
                         }
-                        crate::index::fast_fields_helper::FastFieldType::Numeric => DataType::Int64,
+                        crate::index::fast_fields_helper::FastFieldType::Int64 => DataType::Int64,
+                        crate::index::fast_fields_helper::FastFieldType::UInt64 => DataType::UInt64,
+                        crate::index::fast_fields_helper::FastFieldType::Float64 => {
+                            DataType::Float64
+                        }
+                        crate::index::fast_fields_helper::FastFieldType::Bool => DataType::Boolean,
+                        crate::index::fast_fields_helper::FastFieldType::Date => {
+                            DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+                        }
                     },
                     WhichFastField::Junk(_) => DataType::Null,
                 };
@@ -211,8 +219,8 @@ impl Scanner {
             let ctid = ctids[read_idx];
 
             if let Some(visible_ctid) = visibility.check(ctid) {
+                ctids[write_idx] = visible_ctid;
                 if read_idx != write_idx {
-                    ctids[write_idx] = visible_ctid;
                     ids[write_idx] = ids[read_idx];
                     scores[write_idx] = scores[read_idx];
                 }

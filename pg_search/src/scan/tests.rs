@@ -77,7 +77,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), FastFieldType::Numeric),
+            WhichFastField::Named("id".to_string(), FastFieldType::Int64),
         ];
 
         let ffhelper = FFHelper::with_fields(&reader, &fields);

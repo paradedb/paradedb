@@ -41,84 +41,217 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price = 100.50
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":100.5,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price = 100.50
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+(1 row)
+
 -- Test 1.2: Range on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price > 200.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":200},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price > 200.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |   price    | quantity |     rate      
+----+------------+----------+---------------
+  2 |     200.75 |       20 |      2.345678
+  3 |     300.00 |       30 |      3.456789
+  4 |     400.25 |       40 |      4.567890
+  5 |     500.99 |       50 |      5.678901
+  7 |    1000.00 |      100 |     10.000000
+  9 | 9999999.99 |      999 | 999999.999999
+(6 rows)
+
 -- Test 1.3: BETWEEN on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":100},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":500},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+  2 | 200.75 |       20 | 2.345678
+  3 | 300.00 |       30 | 3.456789
+  4 | 400.25 |       40 | 4.567890
+ 10 | 123.45 |       15 | 1.500000
+(5 rows)
+
 -- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND quantity = 30
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":30,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND quantity = 30
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  3 | 300.00 |       30 | 3.456789
+(1 row)
+
 -- Test 1.5: Range on NUMERIC(18,6) (high precision)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":2},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":5},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  2 | 200.75 |       20 | 2.345678
+  3 | 300.00 |       30 | 3.456789
+  4 | 400.25 |       40 | 4.567890
+(3 rows)
+
 -- Test 1.6: Less than on NUMERIC(10,2)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price < 150.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":150},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price < 150.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price  | quantity |   rate   
+----+--------+----------+----------
+  1 | 100.50 |       10 | 1.234567
+  6 |  99.99 |        5 | 0.123456
+  8 |   0.01 |        1 | 0.000001
+ 10 | 123.45 |       15 | 1.500000
+(4 rows)
+
 -- Test 1.7: Boundary value (smallest positive)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price = 0.01
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, price, quantity, rate
+   Sort Key: numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric64_test
+         Output: id, price, quantity, rate
+         Table: numeric64_test
+         Index: numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"price","value":0.01,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price = 0.01
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | price | quantity |   rate   
+----+-------+----------+----------
+  8 |  0.01 |        1 | 0.000001
+(1 row)
+
 DROP TABLE numeric64_test;
 -- ============================================================================
 -- PART 2: NumericBytes (lexicographic bytes) Tests
@@ -146,60 +279,150 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value = 1.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":1,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value = 1.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | big_value | huge_precision 
+----+-----------+----------------
+  4 |       1.0 |   1.0000000000
+(1 row)
+
 -- Test 2.2: Range on unlimited NUMERIC
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value > 100.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value > 100.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |         big_value          |         huge_precision          
+----+----------------------------+---------------------------------
+  1 | 12345678901234567890.12345 | 12345678901234567890.1234567890
+  2 | 99999999999999999999.99999 | 99999999999999999999.9999999999
+  5 |                      100.5 |                  100.5000000000
+(3 rows)
+
 -- Test 2.3: Equality on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision = 1.0000000000
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":1,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision = 1.0000000000
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | big_value | huge_precision 
+----+-----------+----------------
+  4 |       1.0 |   1.0000000000
+(1 row)
+
 -- Test 2.4: Range on high-precision NUMERIC(30,10)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":200},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |       big_value        | huge_precision 
+----+------------------------+----------------
+  3 | 0.00000000000000000001 |   0.0000000001
+  4 |                    1.0 |   1.0000000000
+  5 |                  100.5 | 100.5000000000
+(3 rows)
+
 -- Test 2.5: Negative values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value < 0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, big_value, huge_precision
+   Sort Key: numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_test
+         Output: id, big_value, huge_precision
+         Table: numeric_bytes_test
+         Index: numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":0},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value < 0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |          big_value          |          huge_precision          
+----+-----------------------------+----------------------------------
+  6 | -12345678901234567890.12345 | -12345678901234567890.1234567890
+  7 |                        -1.0 |                    -1.0000000000
+(2 rows)
+
 DROP TABLE numeric_bytes_test;
 -- ============================================================================
 -- PART 3: Mixed precision columns in same table
@@ -223,24 +446,58 @@ SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND small_numeric = 100.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":100,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND small_numeric = 100.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  1 |        100.00 | 12345678901234567890.12345 | 999999999999999999999.9999
+(1 row)
+
 -- Test 3.2: Query on large NUMERIC (NumericBytes)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"large_numeric","lower_bound":{"excluded":5e19},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
+(1 row)
+
 -- Test 3.3: Combined query on both column types
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_mixed_test
@@ -248,13 +505,30 @@ WHERE id @@@ paradedb.all()
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                                                                            QUERY PLAN                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, small_numeric, large_numeric, unlimited_numeric
+   Sort Key: numeric_mixed_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_mixed_test
+         Output: id, small_numeric, large_numeric, unlimited_numeric
+         Table: numeric_mixed_test
+         Index: numeric_mixed_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":50},"upper_bound":null,"is_datetime":false}},{"range":{"field":"large_numeric","lower_bound":{"excluded":5e19},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | small_numeric |       large_numeric        |     unlimited_numeric      
+----+---------------+----------------------------+----------------------------
+  2 |        200.50 | 98765432109876543210.54321 | 888888888888888888888.8888
+(1 row)
+
 DROP TABLE numeric_mixed_test;
 -- ============================================================================
 -- PART 4: Edge cases
@@ -278,46 +552,116 @@ SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = 0.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":0,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = 0.00
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id | val  
+----+------
+  1 | 0.00
+(1 row)
+
 -- Test 4.2: Maximum positive value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = 99999999.99
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":99999999.99,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = 99999999.99
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |     val     
+----+-------------
+  4 | 99999999.99
+(1 row)
+
 -- Test 4.3: Negative value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = -99999999.99
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":-99999999.99,"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = -99999999.99
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |     val      
+----+--------------
+  5 | -99999999.99
+(1 row)
+
 -- Test 4.4: Range across zero
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: numeric_edge_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_edge_test
+         Output: id, val
+         Table: numeric_edge_test
+         Index: numeric_edge_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":-0.01},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":0.01},"is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
-ERROR:  operator does not exist: =(numeric,int2)
+ id |  val  
+----+-------
+  1 |  0.00
+  2 |  0.01
+  3 | -0.01
+(3 rows)
+
 DROP TABLE numeric_edge_test;

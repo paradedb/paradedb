@@ -694,9 +694,18 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
-        )))
+        // Convert to f64 first to check if it's a whole number
+        let f64_val: f64 = val.try_into()?;
+
+        // If the value is a whole number that fits in i64, use I64 to match JSON integer storage
+        // This ensures that queries on JSON fields with integer values match correctly
+        if f64_val.fract() == 0.0 && f64_val >= i64::MIN as f64 && f64_val <= i64::MAX as f64 {
+            Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                f64_val as i64,
+            )))
+        } else {
+            Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+        }
     }
 }
 

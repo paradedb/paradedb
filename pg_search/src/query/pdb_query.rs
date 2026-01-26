@@ -715,9 +715,24 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
+
+    // Handle NUMERIC field types with special storage strategies
+    let value = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale value for I64 fixed-point storage
+            scale_numeric_value(value.clone(), scale)?
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert value to lexicographically sortable bytes
+            numeric_value_to_bytes(value.clone())?
+        }
+        _ => value.clone(),
+    };
+
     let term = value_to_term(
         search_field.field(),
-        value,
+        &value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -1475,6 +1490,52 @@ fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> anyhow::Result<Bound<Owne
     })
 }
 
+/// Scale a numeric value for Numeric64 (I64 fixed-point) storage.
+fn scale_numeric_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal64NoScale;
+
+    let numeric_str = match &value {
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    };
+
+    let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to scale numeric value '{}' with scale {}: {:?}",
+            numeric_str,
+            scale,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::I64(decimal.value()))
+}
+
+/// Convert a numeric value to lexicographically sortable bytes for NumericBytes storage.
+fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    let numeric_str = match &value {
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot convert non-numeric value to bytes: {:?}", value),
+    };
+
+    let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to convert numeric value '{}' to bytes: {:?}",
+            numeric_str,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+}
+
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -1681,19 +1742,64 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     conjunction_mode: Option<bool>,
     fuzzy_data: Option<FuzzyData>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field)
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Handle Numeric64 and NumericBytes fields specially since Tantivy's QueryParser
+    // can't parse decimal strings for I64 fields or arbitrary precision for Bytes fields
+    match search_field.field_type() {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Parse the query string as a decimal and scale it for I64 storage
+            if let Ok(value) = query_string.trim().parse::<f64>() {
+                let scaled_value = scale_numeric_value(OwnedValue::F64(value), scale)?;
+                let field_type = search_field.field_entry().field_type();
+                let term = value_to_term(
+                    search_field.field(),
+                    &scaled_value,
+                    field_type,
+                    field.path().as_deref(),
+                    false,
+                )?;
+                return Ok(Box::new(TermQuery::new(
+                    term,
+                    IndexRecordOption::WithFreqsAndPositions.into(),
+                )));
+            }
+            // Fall through to regular parsing if not a valid decimal
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Parse the query string as a decimal and convert to bytes
+            if let Ok(value) = query_string.trim().parse::<f64>() {
+                let bytes_value = numeric_value_to_bytes(OwnedValue::F64(value))?;
+                let field_type = search_field.field_entry().field_type();
+                let term = value_to_term(
+                    search_field.field(),
+                    &bytes_value,
+                    field_type,
+                    field.path().as_deref(),
+                    false,
+                )?;
+                return Ok(Box::new(TermQuery::new(
+                    term,
+                    IndexRecordOption::WithFreqsAndPositions.into(),
+                )));
+            }
+            // Fall through to regular parsing if not a valid decimal
+        }
+        _ => {}
+    }
+
     let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
-    let field = schema
-        .search_field(field)
-        .ok_or(QueryError::NonIndexedField(field.clone()))?
-        .field();
+    let tantivy_field = search_field.field();
 
     if let Some(fuzzy_data) = fuzzy_data {
         parser.set_field_fuzzy(
-            field,
+            tantivy_field,
             fuzzy_data.prefix,
             fuzzy_data.distance,
             fuzzy_data.transposition_cost_one,

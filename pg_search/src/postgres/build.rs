@@ -304,7 +304,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 ///
 /// Currently only single-field sorting is supported. Multi-field sorting
 /// may be added in the future when Tantivy supports it.
-fn build_sort_by_field(sort_by: &[SortByField], schema: &Schema) -> Option<IndexSortByField> {
+pub(crate) fn build_sort_by_field(
+    sort_by: &[SortByField],
+    schema: &Schema,
+) -> Option<IndexSortByField> {
     // Empty sort_by means no segment sorting
     if sort_by.is_empty() {
         return None;

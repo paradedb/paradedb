@@ -34,6 +34,7 @@ use tantivy::index::SegmentId;
 use tantivy::SegmentReader;
 
 mod build;
+pub(crate) use build::build_sort_by_field;
 mod cost;
 mod delete;
 pub mod deparse;

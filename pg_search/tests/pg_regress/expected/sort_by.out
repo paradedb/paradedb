@@ -30,7 +30,7 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     WITH (key_field='id', sort_by='id ASC');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
-                                                                             QUERY PLAN
+                                                                             QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
@@ -43,7 +43,7 @@ SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob
 (8 rows)
 
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
- id | name
+ id | name  
 ----+-------
   1 | Alice
   2 | Bob
@@ -58,7 +58,7 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     WITH (key_field='id', sort_by='id DESC');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
-                                                                             QUERY PLAN
+                                                                             QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
@@ -71,7 +71,7 @@ SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob
 (8 rows)
 
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice OR name:Bob' ORDER BY id;
- id | name
+ id | name  
 ----+-------
   1 | Alice
   2 | Bob
@@ -86,7 +86,7 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     WITH (key_field='id', sort_by='none');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice' ORDER BY id;
-                                                                       QUERY PLAN
+                                                                       QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
@@ -99,7 +99,7 @@ SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice' ORDER BY i
 (8 rows)
 
 SELECT id, name FROM sort_by_test WHERE sort_by_test @@@ 'name:Alice' ORDER BY id;
- id | name
+ id | name  
 ----+-------
   1 | Alice
 (1 row)
@@ -135,7 +135,7 @@ Query without ORDER BY - should return in segment sorted order (DESC)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve';
-                                                                                               QUERY PLAN
+                                                                                               QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -147,7 +147,7 @@ WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR 
 
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve';
- id |  name   | score
+ id |  name   | score 
 ----+---------+-------
   2 | Alice   |   100
   4 | Bob     |    80
@@ -162,7 +162,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score DESC;
-                                                                                                  QUERY PLAN
+                                                                                                  QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score DESC
@@ -177,7 +177,7 @@ ORDER BY score DESC;
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score DESC;
- id |  name   | score
+ id |  name   | score 
 ----+---------+-------
   2 | Alice   |   100
   4 | Bob     |    80
@@ -192,7 +192,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score ASC;
-                                                                                                  QUERY PLAN
+                                                                                                  QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score
@@ -207,7 +207,7 @@ ORDER BY score ASC;
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score ASC;
- id |  name   | score
+ id |  name   | score 
 ----+---------+-------
   3 | Eve     |    30
   1 | Charlie |    50
@@ -223,7 +223,7 @@ SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score DESC
 LIMIT 3;
-                                                                                                  QUERY PLAN
+                                                                                                  QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on sort_by_test
@@ -240,7 +240,7 @@ SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve'
 ORDER BY score DESC
 LIMIT 3;
- id | name  | score
+ id | name  | score 
 ----+-------+-------
   2 | Alice |   100
   4 | Bob   |    80
@@ -259,7 +259,7 @@ Query without ORDER BY - should return in ASC order
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve';
-                                                                                               QUERY PLAN
+                                                                                               QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -271,7 +271,7 @@ WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR 
 
 SELECT id, name, score FROM sort_by_test
 WHERE sort_by_test @@@ 'name:Alice OR name:Bob OR name:Charlie OR name:Diana OR name:Eve';
- id |  name   | score
+ id |  name   | score 
 ----+---------+-------
   3 | Eve     |    30
   1 | Charlie |    50
@@ -302,7 +302,7 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
 \echo 'Segment count after first batch:'
 Segment count after first batch:
 SELECT count(*) as segment_count FROM paradedb.index_info('sort_by_test_idx');
- segment_count
+ segment_count 
 ---------------
              1
 (1 row)
@@ -313,7 +313,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 \echo 'Segment count after second batch:'
 Segment count after second batch:
 SELECT count(*) as segment_count FROM paradedb.index_info('sort_by_test_idx');
- segment_count
+ segment_count 
 ---------------
              2
 (1 row)
@@ -331,7 +331,6 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql;
-CREATE FUNCTION
 -- Test 3.1: Sawtooth pattern with DESC
 \echo 'Test 3.1: Query without ORDER BY shows sawtooth pattern (DESC)'
 Test 3.1: Query without ORDER BY shows sawtooth pattern (DESC)
@@ -340,7 +339,7 @@ Expected: seg2 [95,85,75,65,55] then seg1 [100,90,80,70,60]
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
-                                                                    QUERY PLAN
+                                                                    QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -351,8 +350,7 @@ WHERE sort_by_test @@@ 'category:A';
 (6 rows)
 
 SELECT * FROM test_sort_by_order('Test 3.1', '') AS t(id INT, category TEXT, score INT);
-NOTICE:  Test 3.1
- id | category | score
+ id | category | score 
 ----+----------+-------
   6 | A        |    95
   7 | A        |    85
@@ -372,7 +370,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A'
 ORDER BY score DESC;
-                                                                       QUERY PLAN
+                                                                       QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score DESC
@@ -385,8 +383,7 @@ ORDER BY score DESC;
 (8 rows)
 
 SELECT * FROM test_sort_by_order('Test 3.2', 'ORDER BY score DESC') AS t(id INT, category TEXT, score INT);
-NOTICE:  Test 3.2
- id | category | score
+ id | category | score 
 ----+----------+-------
   1 | A        |   100
   6 | A        |    95
@@ -406,7 +403,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A'
 ORDER BY score ASC;
-                                                                       QUERY PLAN
+                                                                       QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score
@@ -419,8 +416,7 @@ ORDER BY score ASC;
 (8 rows)
 
 SELECT * FROM test_sort_by_order('Test 3.3', 'ORDER BY score ASC') AS t(id INT, category TEXT, score INT);
-NOTICE:  Test 3.3
- id | category | score
+ id | category | score 
 ----+----------+-------
  10 | A        |    55
   5 | A        |    60
@@ -435,7 +431,6 @@ NOTICE:  Test 3.3
 (10 rows)
 
 DROP FUNCTION test_sort_by_order;
-DROP FUNCTION
 DROP TABLE sort_by_test CASCADE;
 -- Test 3.4: Sawtooth pattern with ASC
 \echo 'Test 3.4: Sawtooth pattern with ASC'
@@ -456,7 +451,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
-                                                                    QUERY PLAN
+                                                                    QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -468,7 +463,7 @@ WHERE sort_by_test @@@ 'category:A';
 
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
- id | category | score
+ id | category | score 
 ----+----------+-------
   6 | A        |    55
   7 | A        |    65
@@ -507,7 +502,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
-                                                                    QUERY PLAN
+                                                                    QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -519,7 +514,7 @@ WHERE sort_by_test @@@ 'category:A';
 
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
- id | category | score
+ id | category | score 
 ----+----------+-------
   4 | A        |    95
   5 | A        |    85
@@ -549,7 +544,7 @@ INSERT INTO sort_by_test (category, score) VALUES
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
-                                                                    QUERY PLAN
+                                                                    QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on sort_by_test
    Table: sort_by_test
@@ -561,7 +556,7 @@ WHERE sort_by_test @@@ 'category:A';
 
 SELECT id, category, score FROM sort_by_test
 WHERE sort_by_test @@@ 'category:A';
- id | category | score
+ id | category | score 
 ----+----------+-------
   4 | A        |    95
   5 | A        |    85
@@ -619,3 +614,51 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     WITH (key_field='id', sort_by='score DESC, id ASC');
 ERROR:  sort_by specifies 2 fields, but only single-field sorting is currently supported
 DROP TABLE sort_by_test CASCADE;
+-- ============================================================================
+-- SECTION 6: Mutable segment sort_by behavior
+-- ============================================================================
+-- This section verifies that mutable segments respect sort_by settings.
+-- Data inserted AFTER index creation goes into mutable segments, which
+-- should use the same IndexSettings as persistent segments.
+-- ============================================================================
+\echo '=== SECTION 6: Mutable segment sort_by behavior ==='
+=== SECTION 6: Mutable segment sort_by behavior ===
+DROP TABLE IF EXISTS mutable_sort_test CASCADE;
+CREATE TABLE mutable_sort_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    score INTEGER
+);
+-- Create index FIRST with sort_by='score DESC'
+\echo 'Creating index with sort_by=score DESC'
+Creating index with sort_by=score DESC
+CREATE INDEX mutable_sort_test_idx ON mutable_sort_test
+    USING bm25 (id, category, score)
+    WITH (key_field='id', sort_by='score DESC');
+-- Now INSERT data - this goes into MUTABLE segment
+-- Insert in random score order: 50, 100, 30, 80, 60
+\echo 'Inserting data AFTER index creation (goes to mutable segment)'
+Inserting data AFTER index creation (goes to mutable segment)
+INSERT INTO mutable_sort_test (category, score) VALUES
+    ('A', 50),   -- id=1
+    ('A', 100),  -- id=2
+    ('A', 30),   -- id=3
+    ('A', 80),   -- id=4
+    ('A', 60);   -- id=5
+-- Query without ORDER BY - should return in score DESC order
+\echo 'Test 6.1: Query mutable segment without ORDER BY'
+Test 6.1: Query mutable segment without ORDER BY
+\echo 'Expected: score DESC order (100, 80, 60, 50, 30)'
+Expected: score DESC order (100, 80, 60, 50, 30)
+SELECT id, category, score FROM mutable_sort_test
+WHERE mutable_sort_test @@@ 'category:A';
+ id | category | score 
+----+----------+-------
+  2 | A        |   100
+  4 | A        |    80
+  5 | A        |    60
+  1 | A        |    50
+  3 | A        |    30
+(5 rows)
+
+DROP TABLE mutable_sort_test CASCADE;

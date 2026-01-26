@@ -30,6 +30,7 @@ use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
+use crate::postgres::build_sort_by_field;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
@@ -167,7 +168,14 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let mut index = Index::create(directory, schema.clone().into(), IndexSettings::default())?;
+        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
+        let options = index_relation.options();
+        let sort_by_field = build_sort_by_field(&options.sort_by(), &tantivy_schema);
+        let settings = IndexSettings {
+            sort_by_field,
+            ..IndexSettings::default()
+        };
+        let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.

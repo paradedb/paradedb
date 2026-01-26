@@ -358,3 +358,44 @@ CREATE INDEX sort_by_test_idx ON sort_by_test
     WITH (key_field='id', sort_by='score DESC, id ASC');
 
 DROP TABLE sort_by_test CASCADE;
+
+-- ============================================================================
+-- SECTION 6: Mutable segment sort_by behavior
+-- ============================================================================
+-- This section verifies that mutable segments respect sort_by settings.
+-- Data inserted AFTER index creation goes into mutable segments, which
+-- should use the same IndexSettings as persistent segments.
+-- ============================================================================
+\echo '=== SECTION 6: Mutable segment sort_by behavior ==='
+
+DROP TABLE IF EXISTS mutable_sort_test CASCADE;
+
+CREATE TABLE mutable_sort_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    score INTEGER
+);
+
+-- Create index FIRST with sort_by='score DESC'
+\echo 'Creating index with sort_by=score DESC'
+CREATE INDEX mutable_sort_test_idx ON mutable_sort_test
+    USING bm25 (id, category, score)
+    WITH (key_field='id', sort_by='score DESC');
+
+-- Now INSERT data - this goes into MUTABLE segment
+-- Insert in random score order: 50, 100, 30, 80, 60
+\echo 'Inserting data AFTER index creation (goes to mutable segment)'
+INSERT INTO mutable_sort_test (category, score) VALUES
+    ('A', 50),   -- id=1
+    ('A', 100),  -- id=2
+    ('A', 30),   -- id=3
+    ('A', 80),   -- id=4
+    ('A', 60);   -- id=5
+
+-- Query without ORDER BY - should return in score DESC order
+\echo 'Test 6.1: Query mutable segment without ORDER BY'
+\echo 'Expected: score DESC order (100, 80, 60, 50, 30)'
+SELECT id, category, score FROM mutable_sort_test
+WHERE mutable_sort_test @@@ 'category:A';
+
+DROP TABLE mutable_sort_test CASCADE;

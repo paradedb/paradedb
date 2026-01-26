@@ -23,7 +23,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
-use crate::schema::{IndexRecordOption, SearchIndexSchema};
+use crate::schema::{IndexRecordOption, SearchFieldType, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -1349,10 +1349,29 @@ fn range(
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
 
-    let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
-    let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    // Handle NUMERIC field types with special storage strategies
+    let (lower_bound, upper_bound) = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale bounds for I64 fixed-point storage
+            let lower = scale_numeric_bound(lower_bound, scale)?;
+            let upper = scale_numeric_bound(upper_bound, scale)?;
+            (lower, upper)
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert bounds to lexicographically sortable bytes
+            let lower = numeric_bound_to_bytes(lower_bound)?;
+            let upper = numeric_bound_to_bytes(upper_bound)?;
+            (lower, upper)
+        }
+        _ => {
+            // Standard path for other field types
+            let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
+            let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
+            check_range_bounds(typeoid, lower_bound, upper_bound)?
+        }
+    };
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1391,6 +1410,69 @@ fn range(
     };
 
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+}
+
+/// Scale a numeric bound value for Numeric64 (I64 fixed-point) storage.
+/// Converts the bound value to a scaled integer by multiplying by 10^scale.
+fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> anyhow::Result<Bound<OwnedValue>> {
+    use decimal_bytes::Decimal64NoScale;
+
+    fn scale_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+        let numeric_str = match &value {
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+        };
+
+        let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to scale numeric value '{}' with scale {}: {:?}",
+                numeric_str,
+                scale,
+                e
+            )
+        })?;
+
+        Ok(OwnedValue::I64(decimal.value()))
+    }
+
+    Ok(match bound {
+        Bound::Included(value) => Bound::Included(scale_value(value, scale)?),
+        Bound::Excluded(value) => Bound::Excluded(scale_value(value, scale)?),
+        Bound::Unbounded => Bound::Unbounded,
+    })
+}
+
+/// Convert a numeric bound value to lexicographically sortable bytes for NumericBytes storage.
+fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> anyhow::Result<Bound<OwnedValue>> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    fn to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
+        let numeric_str = match &value {
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => anyhow::bail!("Cannot convert non-numeric value to bytes: {:?}", value),
+        };
+
+        let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to convert numeric value '{}' to bytes: {:?}",
+                numeric_str,
+                e
+            )
+        })?;
+
+        Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+    }
+
+    Ok(match bound {
+        Bound::Included(value) => Bound::Included(to_bytes(value)?),
+        Bound::Excluded(value) => Bound::Excluded(to_bytes(value)?),
+        Bound::Unbounded => Bound::Unbounded,
+    })
 }
 
 fn tokenized_phrase(

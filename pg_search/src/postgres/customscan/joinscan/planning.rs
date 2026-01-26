@@ -280,26 +280,56 @@ pub(super) fn compute_execution_hints(_limit: Option<usize>) -> ExecutionHints {
     ExecutionHints::new().with_algorithm(JoinAlgorithmHint::Auto)
 }
 
+/// Check if a relation (or any of its underlying base relations) has a BM25 index.
+///
+/// This iterates over all base relations involved in the RelOptInfo (using relids)
+/// and checks if any of them have a BM25 index. This is useful for detecting
+/// if a join involves ParadeDB tables even if the structure (e.g. join tree)
+/// is not supported by JoinScan.
+pub(super) unsafe fn rel_contains_bm25_index(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+) -> bool {
+    if rel.is_null() || (*rel).relids.is_null() {
+        return false;
+    }
+
+    let rtable = (*(*root).parse).rtable;
+    let rti_iter = bms_iter((*rel).relids);
+
+    for rti in rti_iter {
+        // rt_fetch returns a pointer to RangeTblEntry
+        let rte = pg_sys::rt_fetch(rti, rtable);
+        if let Some(relid) = get_plain_relation_relid(rte) {
+            if rel_get_bm25_index(relid).is_some() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Check if all ORDER BY columns are fast fields.
 ///
 /// For JoinScan to be proposed, all columns used in ORDER BY must be fast fields
 /// in their respective BM25 indexes (or be paradedb.score() which is handled separately).
 ///
-/// Returns true if:
+/// Returns Ok(()) if:
 /// - No ORDER BY clause exists
 /// - All ORDER BY columns are fast fields or score functions
 ///
-/// Returns false if any ORDER BY column is not a fast field.
+/// Returns Err(reason) if any ORDER BY column is not a fast field.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
     outer_side: &JoinSideInfo,
     inner_side: &JoinSideInfo,
-) -> bool {
+) -> Result<(), String> {
     use super::predicate::is_column_fast_field;
 
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return true; // No ORDER BY, nothing to check
+        return Ok(()); // No ORDER BY, nothing to check
     }
 
     let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -341,27 +371,24 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                     inner_side
                 } else {
                     // Unknown relation - can't verify, reject
-                    pgrx::debug1!(
-                        "JoinScan: ORDER BY column (varno={}) not from join sides, rejecting",
+                    return Err(format!(
+                        "ORDER BY column (varno={}) not from join sides",
                         varno
-                    );
-                    return false;
+                    ));
                 };
 
                 // Check if the column is a fast field
                 if !is_column_fast_field(side, varattno) {
-                    pgrx::debug1!(
-                        "JoinScan: ORDER BY column (varno={}, attno={}) is not a fast field, rejecting",
-                        varno,
-                        varattno
-                    );
-                    return false;
+                    return Err(format!(
+                        "ORDER BY column (varno={}, attno={}) is not a fast field",
+                        varno, varattno
+                    ));
                 }
             }
         }
     }
 
-    true // All ORDER BY columns are fast fields
+    Ok(()) // All ORDER BY columns are fast fields
 }
 
 /// Extract ORDER BY score pathkey for the driving side.

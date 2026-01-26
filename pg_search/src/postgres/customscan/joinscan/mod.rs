@@ -128,7 +128,7 @@ use self::build::{JoinAlgorithmHint, JoinCSClause, JoinType};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::planning::{
     compute_execution_hints, extract_join_conditions, extract_join_side_info,
-    extract_score_pathkey, order_by_columns_are_fast_fields,
+    extract_score_pathkey, order_by_columns_are_fast_fields, rel_contains_bm25_index,
 };
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
@@ -173,6 +173,43 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
+            // Extract information from both sides of the join.
+            // We check this early to filter out non-ParadeDB joins efficiently.
+            let outer_side_opt = extract_join_side_info(root, outerrel);
+            let inner_side_opt = extract_join_side_info(root, innerrel);
+
+            // Check if at least one side has a BM25 index.
+            // If neither side has a BM25 index, this join is not relevant to ParadeDB.
+            // We check the extracted info if available, otherwise check the relids directly
+            // (in case extraction failed because it's a join tree).
+            let outer_has_index = outer_side_opt
+                .as_ref()
+                .map(|s| s.has_bm25_index())
+                .unwrap_or_else(|| rel_contains_bm25_index(root, outerrel));
+            let inner_has_index = inner_side_opt
+                .as_ref()
+                .map(|s| s.has_bm25_index())
+                .unwrap_or_else(|| rel_contains_bm25_index(root, innerrel));
+
+            if !outer_has_index && !inner_has_index {
+                return None;
+            }
+
+            // At this point, we have a candidate join involving at least one ParadeDB table.
+            // Any failure to propose a JoinScan from here on will emit a warning to help the user.
+
+            let (mut outer_side, mut inner_side) = match (outer_side_opt, inner_side_opt) {
+                (Some(o), Some(i)) if outer_has_index && inner_has_index => (o, i),
+                (Some(o), Some(i)) => {
+                    pgrx::warning!("JoinScan: both sides must have a bm25 index");
+                    return None;
+                }
+                _ => {
+                    pgrx::warning!("JoinScan: both sides must be base relations (subqueries/join trees not supported)");
+                    return None;
+                }
+            };
+
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
             // - LEFT JOIN: Return NULL for non-matching build rows; track matched driving rows
@@ -181,6 +218,7 @@ impl CustomScan for JoinScan {
             // - SEMI JOIN: Stop after first match per driving row (benefits EXISTS queries)
             // - ANTI JOIN: Return only driving rows with no matches (benefits NOT EXISTS)
             if jointype != pg_sys::JoinType::JOIN_INNER {
+                pgrx::warning!("JoinScan: only INNER JOIN is supported");
                 return None;
             }
 
@@ -195,12 +233,14 @@ impl CustomScan for JoinScan {
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
+                let has_distinct = !(*(*root).parse).distinctClause.is_null();
+                if has_distinct {
+                    pgrx::warning!("JoinScan: LIMIT clause required, but not detected during planning (likely due to DISTINCT)");
+                } else {
+                    pgrx::warning!("JoinScan: LIMIT clause required");
+                }
                 return None;
             };
-
-            // Extract information from both sides of the join
-            let mut outer_side = extract_join_side_info(root, outerrel)?;
-            let mut inner_side = extract_join_side_info(root, innerrel)?;
 
             // Extract join conditions from the restrict list
             let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -213,13 +253,14 @@ impl CustomScan for JoinScan {
             // handles cartesian products more efficiently.
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
             if !has_equi_join_keys {
-                pgrx::debug1!("JoinScan: no equi-join keys (cross join), rejecting");
+                pgrx::warning!("JoinScan: equi-join keys required");
                 return None;
             }
 
             // Check if all ORDER BY columns are fast fields
             // JoinScan requires fast field access for efficient sorting
-            if !order_by_columns_are_fast_fields(root, &outer_side, &inner_side) {
+            if let Err(reason) = order_by_columns_are_fast_fields(root, &outer_side, &inner_side) {
+                pgrx::warning!("JoinScan: {}", reason);
                 return None;
             }
 
@@ -274,16 +315,16 @@ impl CustomScan for JoinScan {
             for jk in join_conditions.equi_keys {
                 // Check if outer join key column is a fast field
                 if !is_column_fast_field(&outer_side, jk.outer_attno) {
-                    pgrx::debug1!(
-                        "JoinScan: outer equi-join key column (attno={}) is not a fast field, rejecting",
+                    pgrx::warning!(
+                        "JoinScan: outer equi-join key (attno={}) must be a fast field",
                         jk.outer_attno
                     );
                     return None;
                 }
                 // Check if inner join key column is a fast field
                 if !is_column_fast_field(&inner_side, jk.inner_attno) {
-                    pgrx::debug1!(
-                        "JoinScan: inner equi-join key column (attno={}) is not a fast field, rejecting",
+                    pgrx::warning!(
+                        "JoinScan: inner equi-join key (attno={}) must be a fast field",
                         jk.inner_attno
                     );
                     return None;
@@ -315,7 +356,10 @@ impl CustomScan for JoinScan {
                     Ok(result) => result,
                     Err(err) => {
                         // Log the error for debugging - JoinScan won't be proposed for this query
-                        pgrx::debug1!("JoinScan: failed to extract join-level conditions: {}", err);
+                        pgrx::warning!(
+                            "JoinScan: failed to extract join-level conditions: {}",
+                            err
+                        );
                         return None;
                     }
                 };
@@ -329,6 +373,7 @@ impl CustomScan for JoinScan {
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {
+                pgrx::warning!("JoinScan: @@@ search predicate required");
                 return None;
             }
 

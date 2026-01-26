@@ -266,6 +266,14 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::Json(_) => builder.add_json_field(name.as_ref(), config.clone()),
             SearchFieldType::Range(_) => builder.add_json_field(name.as_ref(), config.clone()),
             SearchFieldType::Date(_) => builder.add_date_field(name.as_ref(), config.clone()),
+            // NUMERIC with precision <= 18: stored as I64 with fixed-point scaling
+            SearchFieldType::Numeric64(_, _) => {
+                builder.add_i64_field(name.as_ref(), config.clone())
+            }
+            // NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes
+            SearchFieldType::NumericBytes(_) => {
+                builder.add_bytes_field(name.as_ref(), config.clone())
+            }
         };
     }
 

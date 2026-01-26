@@ -803,7 +803,6 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
 /// # Note
 /// For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
 /// PostgreSQL uses typmod = -1, indicating arbitrary precision.
-#[allow(dead_code)] // Used in subsequent commits for NUMERIC pushdown
 pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
     if typmod < 0 {
         return (0, None); // Unlimited precision

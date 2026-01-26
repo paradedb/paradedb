@@ -34,8 +34,10 @@ use std::rc::Rc;
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
 use anyhow::Result;
+use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
@@ -60,6 +62,11 @@ pub enum SearchFieldType {
     Json(pg_sys::Oid),
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
+    /// NUMERIC with precision <= 18: stored as I64 with fixed-point scaling.
+    /// The i16 is the scale (number of decimal places).
+    Numeric64(pg_sys::Oid, i16),
+    /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
+    NumericBytes(pg_sys::Oid),
 }
 
 impl SearchFieldType {
@@ -75,6 +82,8 @@ impl SearchFieldType {
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
+            SearchFieldType::Numeric64(_, scale) => SearchFieldConfig::default_numeric64(*scale),
+            SearchFieldType::NumericBytes(_) => SearchFieldConfig::default_numeric_bytes(),
             SearchFieldType::Bool(_) => SearchFieldConfig::default_boolean(),
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
@@ -95,6 +104,8 @@ impl SearchFieldType {
             SearchFieldType::Json(oid) => *oid,
             SearchFieldType::Date(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
+            SearchFieldType::Numeric64(oid, _) => *oid,
+            SearchFieldType::NumericBytes(oid) => *oid,
         }
         .into()
     }
@@ -104,6 +115,22 @@ impl SearchFieldType {
             SearchFieldType::Tokenized(_, typmod, ..) => *typmod,
             _ => -1,
         }
+    }
+
+    /// Returns the scale for Numeric64 fields, or None for other types.
+    pub fn numeric_scale(&self) -> Option<i16> {
+        match self {
+            SearchFieldType::Numeric64(_, scale) => Some(*scale),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this is a NUMERIC type (either Numeric64 or NumericBytes).
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self,
+            SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(_)
+        )
     }
 }
 
@@ -151,8 +178,20 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
                     Ok(SearchFieldType::U64((*builtin).into()))
                 }
-                PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
+                PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID => {
                     Ok(SearchFieldType::F64((*builtin).into()))
+                }
+                PgBuiltInOids::NUMERICOID => {
+                    // Route NUMERIC based on precision:
+                    // - precision <= 18 with defined scale -> Numeric64 (I64 fixed-point)
+                    // - precision > 18 or unlimited -> NumericBytes (lexicographic bytes)
+                    let (precision, scale) = extract_numeric_precision_scale(typmod);
+                    if let Some(scale) = scale {
+                        if precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {
+                            return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
+                        }
+                    }
+                    Ok(SearchFieldType::NumericBytes((*builtin).into()))
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool((*builtin).into())),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {

@@ -70,8 +70,8 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price > 200.00
 ORDER BY id;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -81,7 +81,7 @@ ORDER BY id;
          Index: numeric64_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":200},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"excluded":200.0},"upper_bound":null,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric64_test
@@ -104,8 +104,8 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price BETWEEN 100.00 AND 500.00
 ORDER BY id;
-                                                                                                                                    QUERY PLAN                                                                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -115,7 +115,7 @@ ORDER BY id;
          Index: numeric64_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":100},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":500},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":500.0},"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric64_test
@@ -137,8 +137,8 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND quantity = 30
 ORDER BY id;
-                                                                QUERY PLAN                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -148,7 +148,7 @@ ORDER BY id;
          Index: numeric64_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":30,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"quantity","value":30.0,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric64_test
@@ -166,8 +166,8 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND rate >= 2.0 AND rate <= 5.0
 ORDER BY id;
-                                                                                                                                 QUERY PLAN                                                                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                   QUERY PLAN                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -177,7 +177,7 @@ ORDER BY id;
          Index: numeric64_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":2},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":5},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"rate","lower_bound":{"included":2.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rate","lower_bound":null,"upper_bound":{"included":5.0},"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric64_test
@@ -197,8 +197,8 @@ SELECT * FROM numeric64_test
 WHERE id @@@ paradedb.all()
 AND price < 150.00
 ORDER BY id;
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, price, quantity, rate
    Sort Key: numeric64_test.id
@@ -208,7 +208,7 @@ ORDER BY id;
          Index: numeric64_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":150},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":150.0},"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric64_test
@@ -279,8 +279,8 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value = 1.0
 ORDER BY id;
-                                                                QUERY PLAN                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -290,7 +290,7 @@ ORDER BY id;
          Index: numeric_bytes_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":1,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"big_value","value":1.0,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_bytes_test
@@ -308,8 +308,8 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value > 100.0
 ORDER BY id;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -319,7 +319,7 @@ ORDER BY id;
          Index: numeric_bytes_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":{"excluded":100.0},"upper_bound":null,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_bytes_test
@@ -339,8 +339,8 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision = 1.0000000000
 ORDER BY id;
-                                                                   QUERY PLAN                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -350,7 +350,7 @@ ORDER BY id;
          Index: numeric_bytes_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":1,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"huge_precision","value":1.0,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_bytes_test
@@ -368,8 +368,8 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND huge_precision >= 0.0 AND huge_precision <= 200.0
 ORDER BY id;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -379,7 +379,7 @@ ORDER BY id;
          Index: numeric_bytes_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":200},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"huge_precision","lower_bound":{"included":0.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"huge_precision","lower_bound":null,"upper_bound":{"included":200.0},"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_bytes_test
@@ -399,8 +399,8 @@ SELECT * FROM numeric_bytes_test
 WHERE id @@@ paradedb.all()
 AND big_value < 0
 ORDER BY id;
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, big_value, huge_precision
    Sort Key: numeric_bytes_test.id
@@ -410,7 +410,7 @@ ORDER BY id;
          Index: numeric_bytes_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":0},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"big_value","lower_bound":null,"upper_bound":{"excluded":0.0},"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_bytes_test
@@ -446,8 +446,8 @@ SELECT * FROM numeric_mixed_test
 WHERE id @@@ paradedb.all()
 AND small_numeric = 100.00
 ORDER BY id;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
@@ -457,7 +457,7 @@ ORDER BY id;
          Index: numeric_mixed_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":100,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"small_numeric","value":100.0,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_mixed_test
@@ -505,8 +505,8 @@ WHERE id @@@ paradedb.all()
 AND small_numeric > 50.00
 AND large_numeric > 50000000000000000000.0
 ORDER BY id;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                             QUERY PLAN                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, small_numeric, large_numeric, unlimited_numeric
    Sort Key: numeric_mixed_test.id
@@ -516,7 +516,7 @@ ORDER BY id;
          Index: numeric_mixed_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":50},"upper_bound":null,"is_datetime":false}},{"range":{"field":"large_numeric","lower_bound":{"excluded":5e19},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"small_numeric","lower_bound":{"excluded":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"large_numeric","lower_bound":{"excluded":5e19},"upper_bound":null,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_mixed_test
@@ -552,8 +552,8 @@ SELECT * FROM numeric_edge_test
 WHERE id @@@ paradedb.all()
 AND val = 0.00
 ORDER BY id;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: id, val
    Sort Key: numeric_edge_test.id
@@ -563,7 +563,7 @@ ORDER BY id;
          Index: numeric_edge_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":0,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":0.0,"is_datetime":false}}]}}
 (10 rows)
 
 SELECT * FROM numeric_edge_test

@@ -694,18 +694,9 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        // Convert to f64 first to check if it's a whole number
-        let f64_val: f64 = val.try_into()?;
-
-        // If the value is a whole number that fits in i64, use I64 to match JSON integer storage
-        // This ensures that queries on JSON fields with integer values match correctly
-        if f64_val.fract() == 0.0 && f64_val >= i64::MIN as f64 && f64_val <= i64::MAX as f64 {
-            Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
-                f64_val as i64,
-            )))
-        } else {
-            Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
-        }
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+            val.try_into()?,
+        )))
     }
 }
 
@@ -763,6 +754,56 @@ impl TantivyValue {
         Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
             decimal.as_bytes().to_vec(),
         )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC value to a TantivyValue based on the target field type.
+    ///
+    /// This method chooses the appropriate OwnedValue type based on the field:
+    /// - For JSON fields: Use I64 for whole numbers (to match JSON integer storage), F64 otherwise
+    /// - For Numeric64 fields: Use I64 with scaling (delegated to try_from_numeric_i64)
+    /// - For NumericBytes fields: Use Bytes (delegated to try_from_numeric_bytes)
+    /// - For other fields (F64, etc.): Use F64
+    pub fn try_from_numeric_for_field(
+        val: pgrx::AnyNumeric,
+        field_type: &crate::schema::SearchFieldType,
+    ) -> Result<Self, TantivyValueError> {
+        use crate::schema::SearchFieldType;
+
+        match field_type {
+            SearchFieldType::Json(_) => {
+                // For JSON fields, use I64 for whole numbers to match JSON integer storage
+                let f64_val: f64 = val.try_into()?;
+                if f64_val.fract() == 0.0
+                    && f64_val >= i64::MIN as f64
+                    && f64_val <= i64::MAX as f64
+                {
+                    Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                        f64_val as i64,
+                    )))
+                } else {
+                    Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+                }
+            }
+            SearchFieldType::I64(_) => {
+                // For I64 fields, convert to I64
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                    f64_val as i64,
+                )))
+            }
+            SearchFieldType::U64(_) => {
+                // For U64 fields, convert to U64
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::U64(
+                    f64_val as u64,
+                )))
+            }
+            // For F64 and other fields, use F64
+            _ => {
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+            }
+        }
     }
 }
 

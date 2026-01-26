@@ -203,9 +203,9 @@ ORDER BY s.id
 LIMIT 5;
  id  |      name      | supplier_name 
 -----+----------------+---------------
+ 201 | Wireless Mouse | TechCorp
  203 | Keyboard       | TechCorp
  206 | Headphones     | TechCorp
- 201 | Wireless Mouse | TechCorp
 (3 rows)
 
 -- =============================================================================
@@ -525,8 +525,8 @@ WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 206 | Headphones     | TechCorp
  201 | Wireless Mouse | TechCorp
+ 206 | Headphones     | TechCorp
 (2 rows)
 
 -- =============================================================================
@@ -576,8 +576,8 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 206 | Headphones     | TechCorp
  201 | Wireless Mouse | TechCorp
+ 206 | Headphones     | TechCorp
 (2 rows)
 
 -- =============================================================================
@@ -2387,6 +2387,9 @@ WHERE hp.description @@@ 'wireless';
 -- Multi-table predicates like `p.price >= s.min_order_value` are supported
 -- when both `price` and `min_order_value` are indexed as fast fields.
 -- If any column is NOT a fast field, JoinScan will not be proposed.
+-- TODO: DECIMAL is not currently supported for pullup, so this will not get a the join scan.
+-- Some queries are disabled to avoid rendering unstable oids in their plans. Can remove
+-- after https://github.com/paradedb/paradedb/issues/2968 is implemented.
 -- Add min_order_value to suppliers for cross-relation comparison
 ALTER TABLE suppliers ADD COLUMN min_order_value DECIMAL(10,2) DEFAULT 0;
 UPDATE suppliers SET min_order_value = 50.00 WHERE id = 151;  -- TechCorp
@@ -2410,22 +2413,26 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Hash Join
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Join Type: Inner
-         Outer Relation: suppliers (s)
-         Inner Relation: products (p)
-         Join Cond: s.id = p.supplier_id
-         Heap Conditions: 1
-         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
-         Limit: 10
-         Algorithm Hint: Auto
-(13 rows)
+         Hash Cond: (s.id = p.supplier_id)
+         Join Filter: (p.price >= s.min_order_value)
+         ->  Seq Scan on public.suppliers s
+               Output: s.name, s.min_order_value, s.id
+         ->  Hash
+               Output: p.id, p.name, p.price, p.supplier_id
+               ->  Custom Scan (ParadeDB Scan) on public.products p
+                     Output: p.id, p.name, p.price, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
@@ -2443,47 +2450,23 @@ LIMIT 10;
 -- Test case: Search predicate OR multi-table predicate (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because all columns in the multi-table predicate are fast fields
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
-   OR p.price >= s.min_order_value
-LIMIT 10;
-                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Join Type: Inner
-         Outer Relation: suppliers (s)
-         Inner Relation: products (p)
-         Join Cond: s.id = p.supplier_id
-         Heap Conditions: 1
-         Join Predicate: (inner:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
-         Limit: 10
-         Algorithm Hint: Auto
-(12 rows)
-
--- Verify correct results
-SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'cable'
-   OR p.price >= s.min_order_value
-ORDER BY p.id
-LIMIT 10;
- id  |      name       | price  |   supplier   | min_order_value 
------+-----------------+--------+--------------+-----------------
- 202 | USB Cable       |   9.99 | GlobalSupply |           15.00
- 203 | Keyboard        |  89.99 | TechCorp     |           50.00
- 204 | Monitor Stand   |  49.99 | FastParts    |           30.00
- 206 | Headphones      | 199.99 | TechCorp     |           50.00
- 207 | Mouse Pad       |  29.99 | GlobalSupply |           15.00
- 208 | Cable Organizer |  14.99 | FastParts    |           30.00
-(6 rows)
-
+-- TODO: Disabled: see above.
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'cable'
+--    OR p.price >= s.min_order_value
+-- LIMIT 10;
+--
+-- -- Verify correct results
+-- SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'cable'
+--    OR p.price >= s.min_order_value
+-- ORDER BY p.id
+-- LIMIT 10;
 -- Test case: Multi-table predicate with NON-indexed column
 -- This should NOT use JoinScan because category_id is not in the BM25 index
 -- (demonstrating the rejection of non-fast-field multi-table predicates)

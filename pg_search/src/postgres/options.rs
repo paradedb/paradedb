@@ -1002,36 +1002,26 @@ fn parse_sort_by_string(input: &str) -> Vec<SortByField> {
 /// Parse a single sort key like "field1 ASC"
 fn parse_sort_key(input: &str) -> SortByField {
     let input = input.trim();
-    let tokens: Vec<&str> = input.split_whitespace().collect();
+    let mut tokens = input.split_whitespace();
 
-    if tokens.is_empty() {
-        panic!("invalid sort_by value: empty sort key");
-    }
+    let field_name = tokens
+        .next()
+        .map(|s| FieldName::from(s.to_string()))
+        .unwrap_or_else(|| panic!("invalid sort_by value: empty sort key"));
 
-    let field_name = FieldName::from(tokens[0].to_string());
     let mut direction = SortByDirection::Asc; // Default: ASC
 
-    let mut i = 1;
-    while i < tokens.len() {
-        let token = tokens[i].to_uppercase();
-        match token.as_str() {
-            "ASC" => {
-                direction = SortByDirection::Asc;
-                i += 1;
-            }
-            "DESC" => {
-                direction = SortByDirection::Desc;
-                i += 1;
-            }
+    for token in tokens {
+        match token.to_uppercase().as_str() {
+            "ASC" => direction = SortByDirection::Asc,
+            "DESC" => direction = SortByDirection::Desc,
             "NULLS" => {
-                panic!("invalid sort_by value: NULLS FIRST/LAST is not currently supported");
+                panic!("invalid sort_by value: NULLS FIRST/LAST is not currently supported")
             }
-            _ => {
-                panic!(
-                    "invalid sort_by value: unexpected token in sort key: {}",
-                    tokens[i]
-                );
-            }
+            _ => panic!(
+                "invalid sort_by value: unexpected token in sort key: {}",
+                token
+            ),
         }
     }
 

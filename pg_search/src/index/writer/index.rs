@@ -23,16 +23,16 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
-    Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
+    SegmentMeta, TantivyDocument,
 };
 use thiserror::Error;
 
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
-use crate::postgres::build_sort_by_field;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
 struct PendingSegment {
@@ -169,11 +169,11 @@ impl SerialIndexWriter {
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
-        let options = index_relation.options();
-        let sort_by_field = build_sort_by_field(&options.sort_by(), &tantivy_schema);
-        let settings = IndexSettings {
-            sort_by_field,
-            ..IndexSettings::default()
+
+        // Read IndexSettings from MetaPage (written at index creation).
+        let settings = unsafe {
+            let bytes = MetaPage::open(index_relation).settings_bytes().read_all();
+            serde_json::from_slice(&bytes).expect("valid index must have IndexSettings")
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;

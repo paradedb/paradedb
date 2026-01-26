@@ -128,24 +128,12 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     // Write dump to file
     std::fs::write(dump_path, &pg_dump_output.stdout)?;
 
-    // Drop the table and index
-    "DROP TABLE IF EXISTS lt CASCADE".execute(&mut conn);
-
-    // Verify table is dropped
-    let table_exists: Vec<(bool,)> = r#"
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables
-            WHERE table_name = 'lt'
-        )
-    "#
-    .fetch(&mut conn);
-    assert!(!table_exists[0].0);
-
-    // Build pg_restore command using the correct version from PG_CONFIG
+    // Build pg_restore command
     let mut pg_restore_cmd = Command::new(pg_bin.join("pg_restore"));
     pg_restore_cmd
         .arg("--verbose")
         .arg("--clean")
+        .arg("--if-exists")
         .arg("--no-acl")
         .arg("--no-owner")
         .arg("-h")

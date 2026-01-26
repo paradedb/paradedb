@@ -791,6 +791,29 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
     }
 }
 
+/// Extract precision and scale from PostgreSQL NUMERIC typmod.
+///
+/// PostgreSQL encodes NUMERIC precision and scale in the typmod as:
+/// `typmod = ((precision << 16) | scale) + VARHDRSZ`
+///
+/// # Returns
+/// - `(precision, Some(scale))` if typmod specifies precision/scale
+/// - `(0, None)` if typmod is -1 (unlimited/unspecified precision)
+///
+/// # Note
+/// For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
+/// PostgreSQL uses typmod = -1, indicating arbitrary precision.
+#[allow(dead_code)] // Used in subsequent commits for NUMERIC pushdown
+pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
+    if typmod < 0 {
+        return (0, None); // Unlimited precision
+    }
+    let typmod = (typmod - pg_sys::VARHDRSZ as i32) as u32;
+    let precision = ((typmod >> 16) & 0xFFFF) as u16;
+    let scale = (typmod & 0xFFFF) as i16;
+    (precision, Some(scale))
+}
+
 type IsArray = bool;
 /// Returns the base type of the given `oid`, and a boolean indicating if the
 /// type is an array.

@@ -1469,6 +1469,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06d2e3287df1c007e74221c49ca10a95d557349e54b3a75dc2fb14712c751f04"
 
 [[package]]
+name = "decimal-bytes"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79ea456fcb28cf6d2242f6dccd84fdda42932af2f0a5af0f88a2b13fd55295bb"
+dependencies = [
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4120,6 +4130,7 @@ dependencies = [
  "bitpacking",
  "bytemuck",
  "chrono",
+ "decimal-bytes",
  "derive_more",
  "env_logger 0.11.8",
  "half 2.7.1",

@@ -1,0 +1,323 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- ============================================================================
+-- NUMERIC PUSHDOWN TESTS
+-- ============================================================================
+-- Tests for NUMERIC column pushdown with two storage strategies:
+-- 1. Numeric64 (I64 fixed-point): NUMERIC(p,s) where p <= 18
+-- 2. NumericBytes (lexicographic bytes): NUMERIC with p > 18 or unlimited
+-- ============================================================================
+-- ============================================================================
+-- PART 1: Numeric64 (I64 fixed-point) Tests
+-- ============================================================================
+-- NUMERIC(10,2) has precision 10 and scale 2, stored as I64
+CREATE TABLE numeric64_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2),
+    quantity NUMERIC(5, 0),
+    rate NUMERIC(18, 6)
+);
+INSERT INTO numeric64_test (price, quantity, rate) VALUES
+    (100.50, 10, 1.234567),
+    (200.75, 20, 2.345678),
+    (300.00, 30, 3.456789),
+    (400.25, 40, 4.567890),
+    (500.99, 50, 5.678901),
+    (99.99, 5, 0.123456),
+    (1000.00, 100, 10.000000),
+    (0.01, 1, 0.000001),
+    (9999999.99, 999, 999999.999999),
+    (123.45, 15, 1.500000);
+CREATE INDEX numeric64_idx ON numeric64_test USING bm25 (
+    id, price, quantity, rate
+) WITH (key_field = 'id');
+-- Test 1.1: Equality on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.2: Range on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.3: BETWEEN on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.5: Range on NUMERIC(18,6) (high precision)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.6: Less than on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 1.7: Boundary value (smallest positive)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+DROP TABLE numeric64_test;
+-- ============================================================================
+-- PART 2: NumericBytes (lexicographic bytes) Tests
+-- ============================================================================
+-- NUMERIC without precision or with precision > 18 stored as bytes
+CREATE TABLE numeric_bytes_test (
+    id SERIAL PRIMARY KEY,
+    big_value NUMERIC,
+    huge_precision NUMERIC(30, 10)
+);
+INSERT INTO numeric_bytes_test (big_value, huge_precision) VALUES
+    (12345678901234567890.12345, 12345678901234567890.1234567890),
+    (99999999999999999999.99999, 99999999999999999999.9999999999),
+    (0.00000000000000000001, 0.0000000001),
+    (1.0, 1.0000000000),
+    (100.5, 100.5000000000),
+    (-12345678901234567890.12345, -12345678901234567890.1234567890),
+    (-1.0, -1.0000000000);
+CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING bm25 (
+    id, big_value, huge_precision
+) WITH (key_field = 'id');
+-- Test 2.1: Equality on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 2.2: Range on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 2.3: Equality on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 2.4: Range on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 2.5: Negative values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+DROP TABLE numeric_bytes_test;
+-- ============================================================================
+-- PART 3: Mixed precision columns in same table
+-- ============================================================================
+CREATE TABLE numeric_mixed_test (
+    id SERIAL PRIMARY KEY,
+    small_numeric NUMERIC(8, 2),
+    large_numeric NUMERIC(25, 5),
+    unlimited_numeric NUMERIC
+);
+INSERT INTO numeric_mixed_test (small_numeric, large_numeric, unlimited_numeric) VALUES
+    (100.00, 12345678901234567890.12345, 999999999999999999999.9999),
+    (200.50, 98765432109876543210.54321, 888888888888888888888.8888),
+    (50.25, 11111111111111111111.11111, 777777777777777777777.7777);
+CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING bm25 (
+    id, small_numeric, large_numeric, unlimited_numeric
+) WITH (key_field = 'id');
+-- Test 3.1: Query on small NUMERIC (Numeric64)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 3.2: Query on large NUMERIC (NumericBytes)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 3.3: Combined query on both column types
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+DROP TABLE numeric_mixed_test;
+-- ============================================================================
+-- PART 4: Edge cases
+-- ============================================================================
+CREATE TABLE numeric_edge_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10, 2)
+);
+INSERT INTO numeric_edge_test (val) VALUES
+    (0.00),
+    (0.01),
+    (-0.01),
+    (99999999.99),
+    (-99999999.99);
+CREATE INDEX numeric_edge_idx ON numeric_edge_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+-- Test 4.1: Zero value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 4.2: Maximum positive value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 4.3: Negative value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+-- Test 4.4: Range across zero
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+ERROR:  operator does not exist: =(numeric,int2)
+DROP TABLE numeric_edge_test;

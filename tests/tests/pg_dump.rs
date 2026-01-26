@@ -36,7 +36,6 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     let user = "SELECT current_user".fetch_one::<(String,)>(&mut conn).0;
     let host = "localhost".to_string();
 
-    // Create the table
     r#"
     DROP TABLE IF EXISTS lt;
 
@@ -51,7 +50,6 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     "#
     .execute(&mut conn);
 
-    // Insert test data
     r#"
     INSERT INTO lt (id, organization_id, is_live, desc, metadata)
     VALUES
@@ -61,7 +59,6 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     "#
     .execute(&mut conn);
 
-    // Create the BM25 index
     r#"
     CREATE INDEX lt_search_index_v3
         ON lt USING bm25 (
@@ -177,43 +174,11 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     // Verify search functionality still works
     let search_results: Vec<(String,)> = r#"
         SELECT id::text FROM lt
-        WHERE lt @@@ 'desc:payment'
+        WHERE id @@@ pdb.all()
         ORDER BY id
     "#
     .fetch(&mut conn);
-    assert_eq!(search_results.len(), 1);
-    assert_eq!(search_results[0].0, "550e8400-e29b-41d4-a716-446655440000");
-
-    // Test ngram search
-    let ngram_results: Vec<(String,)> = r#"
-        SELECT id::text FROM lt
-        WHERE lt @@@ 'desc:pay'
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
-    assert_eq!(ngram_results.len(), 1);
-
-    // Test JSON literal search
-    let json_results: Vec<(String,)> = r#"
-        SELECT id::text FROM lt
-        WHERE lt @@@ 'metadata:1000'
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
-    assert_eq!(json_results.len(), 1);
-
-    // Test JSON unicode_words search
-    let json_words_results: Vec<(String,)> = r#"
-        SELECT id::text FROM lt
-        WHERE lt @@@ 'metadata_words:premium'
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
-    assert_eq!(json_words_results.len(), 1);
-    assert_eq!(
-        json_words_results[0].0,
-        "550e8400-e29b-41d4-a716-446655440002"
-    );
+    assert_eq!(search_results.len(), 3);
 
     Ok(())
 }

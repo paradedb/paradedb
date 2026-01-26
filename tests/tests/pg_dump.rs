@@ -18,11 +18,23 @@
 mod fixtures;
 
 use anyhow::Result;
+use cmd_lib::run_fun;
 use fixtures::{conn, db::Query};
 use rstest::*;
 use sqlx::PgConnection;
+use std::path::PathBuf;
 use std::process::Command;
 use tempfile::NamedTempFile;
+
+/// Get the Postgres bin directory from PG_CONFIG
+fn pg_bin_path() -> PathBuf {
+    let pg_config_path =
+        std::env::var("PG_CONFIG").expect("PG_CONFIG must be set to find pg_dump/pg_restore");
+    match run_fun!($pg_config_path --bindir) {
+        Ok(path) => PathBuf::from(path.trim()),
+        Err(err) => panic!("could not run pg_config --bindir: {err}"),
+    }
+}
 
 #[rstest]
 fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
@@ -88,8 +100,9 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     let dump_file = NamedTempFile::new()?;
     let dump_path = dump_file.path().to_str().unwrap();
 
-    // Build pg_dump command
-    let mut pg_dump_cmd = Command::new("pg_dump");
+    // Build pg_dump command using the correct version from PG_CONFIG
+    let pg_bin = pg_bin_path();
+    let mut pg_dump_cmd = Command::new(pg_bin.join("pg_dump"));
     pg_dump_cmd
         .arg("-Fc") // Custom format
         .arg("--no-acl") // Skip ACLs
@@ -128,8 +141,8 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     .fetch(&mut conn);
     assert!(!table_exists[0].0);
 
-    // Build pg_restore command
-    let mut pg_restore_cmd = Command::new("pg_restore");
+    // Build pg_restore command using the correct version from PG_CONFIG
+    let mut pg_restore_cmd = Command::new(pg_bin.join("pg_restore"));
     pg_restore_cmd
         .arg("--verbose")
         .arg("--clean")

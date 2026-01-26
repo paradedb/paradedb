@@ -685,7 +685,17 @@ pub unsafe fn row_to_search_document<'a>(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(actual_datum, *base_oid).unwrap_or_else(|e| {
+            // Check for NUMERIC field types that need special handling
+            let tv = match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
+                }
+                SearchFieldType::NumericBytes(_) => {
+                    TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            }
+            .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));

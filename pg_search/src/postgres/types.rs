@@ -700,6 +700,63 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     }
 }
 
+impl TantivyValue {
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with I64 fixed-point storage.
+    /// Used for NUMERIC(p,s) where p <= 18.
+    ///
+    /// The value is scaled by 10^scale to convert to integer representation.
+    /// For example, NUMERIC(10,2) value 123.45 with scale=2 becomes I64(12345).
+    pub unsafe fn try_from_numeric_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Self, TantivyValueError> {
+        use decimal_bytes::Decimal64NoScale;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        // Convert AnyNumeric to string, then to Decimal64NoScale with the specified scale
+        let numeric_str = numeric.normalize().to_string();
+
+        let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to I64 with scale {}: {:?}",
+                numeric_str, scale, e
+            ))
+        })?;
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+            decimal.value(),
+        )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with Bytes storage.
+    /// Used for NUMERIC with precision > 18 or unlimited precision.
+    ///
+    /// The bytes are lexicographically sortable, supporting range queries.
+    pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        // Convert AnyNumeric to string, then to lexicographically sortable bytes
+        let numeric_str = numeric.normalize().to_string();
+
+        let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to bytes: {:?}",
+                numeric_str, e
+            ))
+        })?;
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+            decimal.as_bytes().to_vec(),
+        )))
+    }
+}
+
 impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
     type Error = TantivyValueError;
 
@@ -1131,6 +1188,9 @@ pub enum TantivyValueError {
 
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
+
+    #[error("NUMERIC conversion error: {0}")]
+    NumericConversion(String),
 
     #[error(transparent)]
     UuidError(#[from] uuid::Error),

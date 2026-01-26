@@ -37,21 +37,19 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
     let host = "localhost".to_string();
 
     r#"
-    DROP TABLE IF EXISTS lt;
-
     CREATE TABLE lt
     (
         id              uuid    not null,
         organization_id uuid    not null,
         is_live       boolean not null,
-        desc     text,
+        description     text,
         metadata   jsonb
     );
     "#
     .execute(&mut conn);
 
     r#"
-    INSERT INTO lt (id, organization_id, is_live, desc, metadata)
+    INSERT INTO lt (id, organization_id, is_live, description, metadata)
     VALUES
         ('550e8400-e29b-41d4-a716-446655440000'::uuid, '660e8400-e29b-41d4-a716-446655440001'::uuid, true, 'Payment for services', '{"amount": 1000, "currency": "USD"}'),
         ('550e8400-e29b-41d4-a716-446655440001'::uuid, '660e8400-e29b-41d4-a716-446655440001'::uuid, false, 'Refund processed', '{"amount": -500, "currency": "USD"}'),
@@ -65,7 +63,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
           id,
           organization_id,
           is_live,
-          (desc::pdb.ngram(3,5)),
+          (description::pdb.ngram(3,5)),
           (metadata::pdb.literal),
           (metadata::pdb.unicode_words('alias=metadata_words'))
         )
@@ -79,7 +77,7 @@ fn test_pg_dump_restore(mut conn: PgConnection) -> Result<()> {
 
     let search_results: Vec<(String,)> = r#"
         SELECT id::text FROM lt
-        WHERE lt @@@ 'desc:payment'
+        WHERE lt @@@ 'description:payment'
         ORDER BY id
     "#
     .fetch(&mut conn);

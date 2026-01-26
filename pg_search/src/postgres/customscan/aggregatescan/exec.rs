@@ -169,7 +169,7 @@ impl From<MetricResult> for AggregateResult {
 ///
 /// # Arguments
 /// * `agg_result` - The aggregate result to convert (Metric or Json)
-/// * `agg_type` - The aggregate type (for nullish fallback)
+/// * `agg_type` - The aggregate type (for nullish fallback and numeric_scale)
 /// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
 pub fn aggregate_result_to_datum(
     agg_result: Option<AggregateResult>,
@@ -204,6 +204,14 @@ pub fn aggregate_result_to_datum(
                 })
             } else {
                 metric.value.and_then(|value| unsafe {
+                    // Descale Numeric64 aggregate results.
+                    // For SUM/MIN/MAX on Numeric64 fields, Tantivy computed on scaled integers,
+                    // so we need to divide by 10^scale to get the actual value.
+                    let value = if let Some(scale) = agg_type.numeric_scale() {
+                        value / 10_f64.powi(scale as i32)
+                    } else {
+                        value
+                    };
                     TantivyValue(OwnedValue::F64(value))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()

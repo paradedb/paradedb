@@ -665,3 +665,241 @@ ORDER BY id;
 (3 rows)
 
 DROP TABLE numeric_edge_test;
+-- ============================================================================
+-- PART 5: Aggregation Tests for NUMERIC columns
+-- ============================================================================
+-- Enable aggregate pushdown for these tests
+SET paradedb.enable_aggregate_custom_scan = true;
+-- Test table for Numeric64 aggregations
+CREATE TABLE numeric_agg_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2),
+    quantity NUMERIC(5, 0)
+);
+INSERT INTO numeric_agg_test (price, quantity) VALUES
+    (100.50, 10),
+    (200.75, 20),
+    (300.00, 30),
+    (400.25, 40),
+    (500.99, 50);
+CREATE INDEX numeric_agg_idx ON numeric_agg_test USING bm25 (
+    id, price, quantity
+) WITH (key_field = 'id');
+-- Test 5.1: SUM on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('SUM'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: SUM(price)
+     Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT SUM(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+   sum   
+---------
+ 1502.49
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT SUM(price) FROM numeric_agg_test;
+   sum   
+---------
+ 1502.49
+(1 row)
+
+-- Test 5.2: AVG on Numeric64 column (scaling cancels out)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('AVG'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: AVG(price)
+     Aggregate Definition: {"0":{"avg":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT AVG(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+   avg   
+---------
+ 300.498
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT AVG(price) FROM numeric_agg_test;
+         avg          
+----------------------
+ 300.4980000000000000
+(1 row)
+
+-- Test 5.3: MIN on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT MIN(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('MIN'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: MIN(price)
+     Aggregate Definition: {"0":{"min":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT MIN(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+  min  
+-------
+ 100.5
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT MIN(price) FROM numeric_agg_test;
+  min   
+--------
+ 100.50
+(1 row)
+
+-- Test 5.4: MAX on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT MAX(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('MAX'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: MAX(price)
+     Aggregate Definition: {"0":{"max":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT MAX(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+  max   
+--------
+ 500.99
+(1 row)
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT MAX(price) FROM numeric_agg_test;
+  max   
+--------
+ 500.99
+(1 row)
+
+-- Test 5.5: COUNT on Numeric64 column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                    QUERY PLAN                                    
+----------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('COUNT'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(price)
+     Aggregate Definition: {"0":{"value_count":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT COUNT(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+ count 
+-------
+     5
+(1 row)
+
+-- Test 5.6: Multiple aggregates
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+     Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"price","missing":null}},"2":{"min":{"field":"price","missing":null}},"3":{"max":{"field":"price","missing":null}},"4":{"value_count":{"field":"price","missing":null}}}
+(6 rows)
+
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+   sum   |   avg   |  min  |  max   | count 
+---------+---------+-------+--------+-------
+ 1502.49 | 300.498 | 100.5 | 500.99 |     5
+(1 row)
+
+-- Test 5.7: Aggregate on NUMERIC(5,0) - integer-like
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(quantity), AVG(quantity), MIN(quantity), MAX(quantity)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.numeric_agg_test
+   Output: pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: numeric_agg_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: SUM(quantity), AVG(quantity), MIN(quantity), MAX(quantity)
+     Aggregate Definition: {"0":{"sum":{"field":"quantity","missing":null}},"1":{"avg":{"field":"quantity","missing":null}},"2":{"min":{"field":"quantity","missing":null}},"3":{"max":{"field":"quantity","missing":null}}}
+(6 rows)
+
+SELECT SUM(quantity), AVG(quantity), MIN(quantity), MAX(quantity)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+ sum | avg | min | max 
+-----+-----+-----+-----
+ 150 |  30 |  10 |  50
+(1 row)
+
+DROP TABLE numeric_agg_test;
+-- Test 5.8: NumericBytes aggregation (should NOT be pushed down)
+CREATE TABLE numeric_bytes_agg_test (
+    id SERIAL PRIMARY KEY,
+    big_value NUMERIC
+);
+INSERT INTO numeric_bytes_agg_test (big_value) VALUES
+    (12345678901234567890.12345),
+    (99999999999999999999.99999),
+    (1.0);
+CREATE INDEX numeric_bytes_agg_idx ON numeric_bytes_agg_test USING bm25 (
+    id, big_value
+) WITH (key_field = 'id');
+-- This should NOT use aggregate pushdown (Exec Method should be NormalScanExecState, not AggregateScanExecState)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(big_value) FROM numeric_bytes_agg_test
+WHERE id @@@ paradedb.all();
+                             QUERY PLAN                             
+--------------------------------------------------------------------
+ Aggregate
+   Output: sum(big_value)
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_bytes_agg_test
+         Output: big_value
+         Table: numeric_bytes_agg_test
+         Index: numeric_bytes_agg_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT SUM(big_value) FROM numeric_bytes_agg_test
+WHERE id @@@ paradedb.all();
+             sum             
+-----------------------------
+ 112345678901234567891.12344
+(1 row)
+
+DROP TABLE numeric_bytes_agg_test;

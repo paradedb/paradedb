@@ -337,3 +337,127 @@ AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
 
 DROP TABLE numeric_edge_test;
+
+-- ============================================================================
+-- PART 5: Aggregation Tests for NUMERIC columns
+-- ============================================================================
+
+-- Enable aggregate pushdown for these tests
+SET paradedb.enable_aggregate_custom_scan = true;
+
+-- Test table for Numeric64 aggregations
+CREATE TABLE numeric_agg_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2),
+    quantity NUMERIC(5, 0)
+);
+
+INSERT INTO numeric_agg_test (price, quantity) VALUES
+    (100.50, 10),
+    (200.75, 20),
+    (300.00, 30),
+    (400.25, 40),
+    (500.99, 50);
+
+CREATE INDEX numeric_agg_idx ON numeric_agg_test USING bm25 (
+    id, price, quantity
+) WITH (key_field = 'id');
+
+-- Test 5.1: SUM on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT SUM(price) FROM numeric_agg_test;
+
+-- Test 5.2: AVG on Numeric64 column (scaling cancels out)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT AVG(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT AVG(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT AVG(price) FROM numeric_agg_test;
+
+-- Test 5.3: MIN on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT MIN(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT MIN(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT MIN(price) FROM numeric_agg_test;
+
+-- Test 5.4: MAX on Numeric64 column (should be descaled)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT MAX(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT MAX(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT MAX(price) FROM numeric_agg_test;
+
+-- Test 5.5: COUNT on Numeric64 column
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT COUNT(price) FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Test 5.6: Multiple aggregates
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+-- Test 5.7: Aggregate on NUMERIC(5,0) - integer-like
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(quantity), AVG(quantity), MIN(quantity), MAX(quantity)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(quantity), AVG(quantity), MIN(quantity), MAX(quantity)
+FROM numeric_agg_test
+WHERE id @@@ paradedb.all();
+
+DROP TABLE numeric_agg_test;
+
+-- Test 5.8: NumericBytes aggregation (should NOT be pushed down)
+CREATE TABLE numeric_bytes_agg_test (
+    id SERIAL PRIMARY KEY,
+    big_value NUMERIC
+);
+
+INSERT INTO numeric_bytes_agg_test (big_value) VALUES
+    (12345678901234567890.12345),
+    (99999999999999999999.99999),
+    (1.0);
+
+CREATE INDEX numeric_bytes_agg_idx ON numeric_bytes_agg_test USING bm25 (
+    id, big_value
+) WITH (key_field = 'id');
+
+-- This should NOT use aggregate pushdown (Exec Method should be NormalScanExecState, not AggregateScanExecState)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(big_value) FROM numeric_bytes_agg_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(big_value) FROM numeric_bytes_agg_test
+WHERE id @@@ paradedb.all();
+
+DROP TABLE numeric_bytes_agg_test;

@@ -402,12 +402,19 @@ unsafe fn convert_window_func_to_aggregate_type(
     // Extract field name and missing value using the same logic as aggregatescan
     let (field, missing) = extract_field_name_from_aggregate_arg(parse, first_arg)?;
 
+    // TODO: Support NUMERIC field scale for window aggregates.
+    // Currently, we don't have access to the index schema here to determine
+    // if a field is Numeric64 and get its scale. This means window aggregates
+    // on Numeric64 columns won't be descaled properly.
+    let numeric_scale = None;
+
     let agg_type = create_aggregate_from_oid(
         aggfnoid,
         field.into_inner(),
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
+        numeric_scale,
     )?;
     Some(agg_type)
 }

@@ -27,7 +27,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -62,24 +62,36 @@ pub enum AggregateType {
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - result needs to be divided by 10^scale
+        #[serde(default)]
+        numeric_scale: Option<i16>,
     },
     Avg {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - result needs to be divided by 10^scale
+        #[serde(default)]
+        numeric_scale: Option<i16>,
     },
     Min {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - result needs to be divided by 10^scale
+        #[serde(default)]
+        numeric_scale: Option<i16>,
     },
     Max {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - result needs to be divided by 10^scale
+        #[serde(default)]
+        numeric_scale: Option<i16>,
     },
     Custom {
         agg_json: serde_json::Value,
@@ -198,8 +210,35 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
+
+        // Check field type for NUMERIC handling
+        let schema = bm25_index.schema().ok()?;
+        let numeric_scale = if let Some(search_field) = schema.search_field(&field) {
+            match search_field.field_type() {
+                SearchFieldType::NumericBytes(_) => {
+                    // NumericBytes fields cannot be aggregated in Tantivy
+                    // (bytes are not numeric). Fall back to PostgreSQL.
+                    pgrx::debug1!(
+                        "Aggregate pushdown disabled for NumericBytes field '{}'",
+                        field
+                    );
+                    return None;
+                }
+                SearchFieldType::Numeric64(_, scale) => Some(scale),
+                _ => None,
+            }
+        } else {
+            None
+        };
+
+        let agg_type = create_aggregate_from_oid(
+            aggfnoid,
+            field,
+            missing,
+            filter_query,
+            bm25_index.oid(),
+            numeric_scale,
+        )?;
 
         Some(agg_type)
     }
@@ -242,6 +281,18 @@ impl AggregateType {
             AggregateType::Min { missing, .. } => *missing,
             AggregateType::Max { missing, .. } => *missing,
             AggregateType::Custom { .. } => None,
+        }
+    }
+
+    /// Get the numeric scale for Numeric64 fields.
+    /// Result values need to be divided by 10^scale to get the actual value.
+    pub fn numeric_scale(&self) -> Option<i16> {
+        match self {
+            AggregateType::Sum { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Avg { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Min { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Max { numeric_scale, .. } => *numeric_scale,
+            _ => None,
         }
     }
 
@@ -489,12 +540,17 @@ pub unsafe fn parse_coalesce_expression(
 }
 
 /// Create appropriate AggregateType from function OID
+///
+/// # Arguments
+/// * `numeric_scale` - Scale for Numeric64 fields. SUM/MIN/MAX results will be divided by 10^scale.
+///   AVG doesn't need this because scaling cancels out.
 pub fn create_aggregate_from_oid(
     aggfnoid: u32,
     field: String,
     missing: Option<f64>,
     filter: Option<SearchQueryInput>,
     indexrelid: pg_sys::Oid,
+    numeric_scale: Option<i16>,
 ) -> Option<AggregateType> {
     match aggfnoid {
         F_COUNT_ANY => Some(AggregateType::Count {
@@ -509,6 +565,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
@@ -517,6 +574,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
@@ -526,6 +584,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
@@ -535,6 +594,7 @@ pub fn create_aggregate_from_oid(
             missing,
             filter,
             indexrelid,
+            numeric_scale,
         }),
         _ => {
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);

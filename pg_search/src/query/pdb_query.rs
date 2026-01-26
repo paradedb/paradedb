@@ -1434,6 +1434,7 @@ fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> anyhow::Result<B
 
     fn scale_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
         let numeric_str = match &value {
+            OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
             OwnedValue::F64(f) => f.to_string(),
             OwnedValue::I64(i) => i.to_string(),
             OwnedValue::U64(u) => u.to_string(),
@@ -1466,6 +1467,7 @@ fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> anyhow::Result<Bound<Owne
 
     fn to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
         let numeric_str = match &value {
+            OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
             OwnedValue::F64(f) => f.to_string(),
             OwnedValue::I64(i) => i.to_string(),
             OwnedValue::U64(u) => u.to_string(),
@@ -1495,6 +1497,7 @@ fn scale_numeric_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedVal
     use decimal_bytes::Decimal64NoScale;
 
     let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
         OwnedValue::F64(f) => f.to_string(),
         OwnedValue::I64(i) => i.to_string(),
         OwnedValue::U64(u) => u.to_string(),
@@ -1519,6 +1522,7 @@ fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
     use std::str::FromStr;
 
     let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
         OwnedValue::F64(f) => f.to_string(),
         OwnedValue::I64(i) => i.to_string(),
         OwnedValue::U64(u) => u.to_string(),

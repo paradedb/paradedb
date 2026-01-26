@@ -690,12 +690,19 @@ impl TryFrom<TantivyValue> for u64 {
     }
 }
 
+/// Convert NUMERIC to string representation to preserve precision.
+/// The string will be converted to the appropriate type (I64, Bytes, or F64)
+/// later when schema context is available.
+///
+/// For document indexing with known field types, use
+/// try_from_numeric_i64/try_from_numeric_bytes instead.
 impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
+        // Store as string to preserve full precision until we know the field type
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+            val.normalize().to_string(),
         )))
     }
 }

@@ -337,3 +337,97 @@ AND val >= -0.01 AND val <= 0.01
 ORDER BY id;
 
 DROP TABLE numeric_edge_test;
+
+-- ============================================================================
+-- PART 5: Precision Tests - Verify no precision loss in query constants
+-- ============================================================================
+-- These tests verify that NUMERIC query constants don't lose precision
+-- when converted for comparison with indexed values.
+
+-- Test 5.1: High-precision Numeric64 values
+-- NUMERIC(18,0) can store 18-digit integers exactly as I64
+-- But f64 can only represent ~15-17 significant digits exactly
+CREATE TABLE numeric_precision_test (
+    id SERIAL PRIMARY KEY,
+    big_int NUMERIC(18, 0)
+);
+
+-- Insert values that would lose precision if converted to f64
+-- 123456789012345678 has 18 digits - f64 cannot represent this exactly
+INSERT INTO numeric_precision_test (big_int) VALUES
+    (123456789012345678),
+    (123456789012345679),
+    (999999999999999999);
+
+CREATE INDEX numeric_precision_idx ON numeric_precision_test USING bm25 (
+    id, big_int
+) WITH (key_field = 'id');
+
+-- This should find exactly 1 row - the value 123456789012345678
+-- If f64 conversion loses precision, this might return wrong results
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown) - should return 1 row
+SELECT * FROM numeric_precision_test
+WHERE big_int = 123456789012345678;
+
+-- Test 5.2: Range query with high-precision bounds
+-- This should find exactly 2 rows (the first two values)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown) - should return 2 rows
+SELECT * FROM numeric_precision_test
+WHERE big_int >= 123456789012345678 AND big_int <= 123456789012345679;
+
+DROP TABLE numeric_precision_test;
+
+-- Test 5.3: NumericBytes precision with large decimals
+CREATE TABLE numeric_bytes_precision_test (
+    id SERIAL PRIMARY KEY,
+    precise_value NUMERIC
+);
+
+-- Insert values with high precision that require NumericBytes storage
+INSERT INTO numeric_bytes_precision_test (precise_value) VALUES
+    (12345678901234567890.123456789012345678901234567890),
+    (12345678901234567890.123456789012345678901234567891);
+
+CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING bm25 (
+    id, precise_value
+) WITH (key_field = 'id');
+
+-- This should find exactly 1 row
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT * FROM numeric_bytes_precision_test
+WHERE precise_value = 12345678901234567890.123456789012345678901234567890;
+
+DROP TABLE numeric_bytes_precision_test;

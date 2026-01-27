@@ -131,8 +131,9 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let (fast, fieldnorms, record) = if type_name == "literal" {
-        // non-tokenized fields get to be fast
+    let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
+    {
+        // fields guaranteed to emit a single token get to be fast
         (true, false, IndexRecordOption::Basic)
     } else {
         // all others do not

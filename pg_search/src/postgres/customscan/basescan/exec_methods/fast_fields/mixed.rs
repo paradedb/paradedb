@@ -15,73 +15,75 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::identity;
-use std::sync::Arc;
-
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::FFHelper;
-use crate::index::fast_fields_helper::{FFType, WhichFastField};
-use crate::index::reader::index::MultiSegmentSearchResults;
+use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::reader::index::SearchIndexScore;
 use crate::nodecast;
-use crate::postgres::customscan::basescan::exec_methods::fast_fields::{
-    non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
-};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
-use crate::postgres::types_arrow::{arrow_array_to_datum, date_time_to_ts_nanos};
+use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types_arrow::arrow_array_to_datum;
+use crate::scan::{Batch, Scanner};
 
-use arrow_array::builder::{
-    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
-};
-use arrow_array::ArrayRef;
-use pgrx::pg_sys;
-use pgrx::PgOid;
-use tantivy::DocAddress;
-use tantivy::SegmentOrdinal;
+use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
 
-/// The number of rows to batch materialize in memory while iterating over a result set.
-///
-/// Setting this value larger reduces the cost of our joins to the term dictionary by allowing more
-/// terms to be looked up at a time, but increases our memory usage by forcing more column values to
-/// be held in memory at a time.
-const JOIN_BATCH_SIZE: usize = 128_000;
+struct Inner {
+    heaprel: Option<PgSearchRelation>,
+    tupdesc: Option<PgTupleDesc<'static>>,
 
-/// A macro to fetch values for the given ids into an Arrow array.
-macro_rules! fetch_ff_column {
-    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
-        match $col {
-            $(
-                FFType::$ff_type(col) => {
-                    let mut column_results = Vec::with_capacity($ids.len());
-                    column_results.resize($ids.len(), None);
-                    col.first_vals(&$ids, &mut column_results);
-                    let mut builder = $builder::with_capacity($ids.len());
-                    for maybe_val in column_results {
-                        if let Some(val) = maybe_val {
-                            builder.append_value($conversion(val));
-                        } else {
-                            builder.append_null();
-                        }
-                    }
-                    Arc::new(builder.finish()) as ArrayRef
-                }
-            )*
-            x => panic!("Unhandled column type {x:?}"),
+    /// Execution time WhichFastFields.
+    pub which_fast_fields: Vec<WhichFastField>,
+    pub ffhelper: FFHelper,
+
+    pub slot: *mut pg_sys::TupleTableSlot,
+
+    did_query: bool,
+}
+
+impl Inner {
+    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
+        Self {
+            heaprel: None,
+            tupdesc: None,
+            which_fast_fields,
+            ffhelper: Default::default(),
+            slot: std::ptr::null_mut(),
+            did_query: false,
         }
-    };
+    }
+
+    pub fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+        unsafe {
+            self.heaprel = Some(Clone::clone(state.heaprel()));
+            self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+            ));
+            self.slot = pg_sys::MakeTupleTableSlot(
+                (*cstate).ss.ps.ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            // Initialize the fast field helper
+            self.ffhelper = FFHelper::with_fields(
+                state.search_reader.as_ref().unwrap(),
+                &self.which_fast_fields,
+            );
+        }
+    }
+
+    pub fn reset(&mut self, _state: &mut BaseScanState) {
+        self.did_query = false;
+    }
 }
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
 ///
-/// This execution state is designed to handle two scenarios that previous implementations
-/// couldn't handle efficiently:
+/// This execution state is designed to handle two scenarios:
 /// 1. Multiple string fast fields in a single query
 /// 2. A mix of string and numeric fast fields in a single query
 ///
-/// Rather than reimplementing all functionality, this struct uses composition to build on
-/// the existing FastFieldExecState while adding optimized processing paths for mixed field types.
+/// This struct uses composition to build on the shared `Inner` state while adding
+/// optimized processing paths for mixed field types.
 ///
 /// # Usage Context
 /// This execution method is selected when a query uses multiple fast fields with at least one
@@ -96,22 +98,106 @@ macro_rules! fetch_ff_column {
 /// ```
 pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
-    inner: FastFieldExecState,
+    inner: Inner,
 
-    /// The batch size to use for this execution.
-    batch_size: usize,
+    /// The batch size hint to use for this execution.
+    batch_size_hint: Option<usize>,
 
-    /// The segment(s) that we have queried.
-    search_results: Option<MultiSegmentSearchResults>,
+    /// The scanner that iterates over the results.
+    scanner: Option<Scanner>,
 
     /// The current batch of fast field values
-    batch: Batch,
+    current_batch: Option<Batch>,
+    current_batch_offset: usize,
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
 
     /// Const values extracted from the target list to be projected into the slot
     const_values: HashMap<usize, (pg_sys::Datum, bool)>,
+}
+
+/// Populates the target slot with values for each attribute in the tuple descriptor.
+///
+/// Values are primarily retrieved from the pre-materialized Arrow columns in the `Batch`.
+/// Special fields (like `ctid`, `tableoid`, and `score`) or constant expressions are
+/// handled as fallbacks when a column is not present in the batch.
+#[allow(clippy::too_many_arguments)]
+fn populate_slot(
+    const_values: &HashMap<usize, (pg_sys::Datum, bool)>,
+    batch: &Batch,
+    row_idx: usize,
+    scored: SearchIndexScore,
+    which_fast_fields: &[WhichFastField],
+    tupdesc: &pgrx::PgTupleDesc,
+    slot: &mut pg_sys::TupleTableSlot,
+    datums: &mut [pg_sys::Datum],
+    isnull: &mut [bool],
+) {
+    let fields = &batch.fields;
+    for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
+        match &fields[i] {
+            Some(column) => {
+                // We extracted this field: convert it into a datum.
+                match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
+                    Ok(Some(datum)) => {
+                        datums[i] = datum;
+                        isnull[i] = false;
+                        continue;
+                    }
+                    Ok(None) => {
+                        // Null datum.
+                        continue;
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to convert to attribute type for \
+                                {:?} and {which_fast_field:?}: {e}",
+                            att.atttypid
+                        );
+                    }
+                }
+            }
+            None => {
+                // Fall back to manual extraction for special fields, or constant expressions.
+                let datum_opt = match which_fast_field {
+                    WhichFastField::Ctid => slot.tts_tid.into_datum(),
+                    WhichFastField::TableOid => slot.tts_tableOid.into_datum(),
+                    WhichFastField::Score => scored.bm25.into_datum(),
+                    WhichFastField::Named(_, FastFieldType::String) => {
+                        panic!("String fast field {which_fast_field:?} should already have been extracted.");
+                    }
+                    WhichFastField::Named(_, FastFieldType::Int64)
+                    | WhichFastField::Named(_, FastFieldType::UInt64)
+                    | WhichFastField::Named(_, FastFieldType::Float64)
+                    | WhichFastField::Named(_, FastFieldType::Bool)
+                    | WhichFastField::Named(_, FastFieldType::Date) => {
+                        panic!("Numeric fast field {which_fast_field:?} should already have been extracted.");
+                    }
+                    WhichFastField::Junk(_) => None,
+                };
+
+                if let Some(datum) = datum_opt {
+                    datums[i] = datum;
+                    isnull[i] = false;
+                } else {
+                    // if the tlist entry is not null but the datum retrieved is null,
+                    // it could mean there was a constant value in the tlist that we can
+                    // project into the slot
+                    if let Some((val, is_null)) = const_values.get(&i) {
+                        datums[i] = *val;
+                        isnull[i] = *is_null;
+                        continue;
+                    } else {
+                        pgrx::error!(
+                            "Expression in target list is not yet supported. \
+                                Please file an issue at https://github.com/paradedb/paradedb/issues."
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl MixedFastFieldExecState {
@@ -128,146 +214,18 @@ impl MixedFastFieldExecState {
     ///
     /// A new MixedFastFieldExecState instance
     pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>) -> Self {
-        // If there is a limit, then we use a batch size which is a small multiple of the limit, in
-        // case of dead tuples.
-        let batch_size = limit
-            .map(|limit| std::cmp::min(limit * 2, JOIN_BATCH_SIZE))
-            .unwrap_or(JOIN_BATCH_SIZE);
+        // If there is a limit, then we use a batch size hint which is a small multiple of the
+        // limit, in case of dead tuples.
+        let batch_size_hint = limit.map(|limit| limit * 2);
         Self {
-            inner: FastFieldExecState::new(which_fast_fields),
-            batch_size,
-            search_results: None,
-            batch: Batch::default(),
+            inner: Inner::new(which_fast_fields),
+            batch_size_hint,
+            scanner: None,
+            current_batch: None,
+            current_batch_offset: 0,
             num_visible: 0,
             const_values: HashMap::default(),
         }
-    }
-
-    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
-        let search_results = self.search_results.as_mut()?;
-
-        // Collect a batch of ids for a single segment.
-        loop {
-            let scorer_iter = search_results.current_segment()?;
-            let segment_ord = scorer_iter.segment_ord();
-
-            // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(self.batch_size);
-            let mut ids = Vec::with_capacity(self.batch_size);
-            while ids.len() < self.batch_size {
-                let Some((score, id)) = scorer_iter.next() else {
-                    // No more results for the current segment: remove it.
-                    search_results.current_segment_pop();
-                    break;
-                };
-
-                // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
-                debug_assert_eq!(id.segment_ord, segment_ord);
-                scores.push(score);
-                ids.push(id.doc_id);
-            }
-
-            if ids.is_empty() {
-                // This segment was completely empty: move to the next.
-                continue;
-            }
-
-            return Some((segment_ord, scores, ids));
-        }
-    }
-
-    /// If our SearchResults iterator contains entries, take one batch, and construct a new
-    /// `joined_results` value which will lazily join them.
-    fn try_join_batch(&mut self, state: &mut BaseScanState) -> bool {
-        let Some((segment_ord, mut scores, mut ids)) = self.try_get_batch_ids() else {
-            return false;
-        };
-
-        // Batch lookup the ctids.
-        let mut ctids: Vec<u64> = {
-            let mut ctids = Vec::with_capacity(ids.len());
-            ctids.resize(ids.len(), None);
-            self.inner
-                .ffhelper
-                .ctid(segment_ord)
-                .as_u64s(&ids, &mut ctids);
-            ctids
-                .into_iter()
-                .map(|ctid| ctid.expect("All docs must have ctids"))
-                .collect()
-        };
-
-        // Filter out invisible rows.
-        let heaprel = self
-            .inner
-            .heaprel
-            .as_ref()
-            .expect("MixedFastFieldsExecState: heaprel should be initialized");
-        let mut write_idx = 0;
-
-        for read_idx in 0..ctids.len() {
-            let ctid = ctids[read_idx];
-            if let Some(visible_ctid) = state.visibility_checker().check(ctid) {
-                ctids[write_idx] = visible_ctid;
-                if read_idx != write_idx {
-                    ids[write_idx] = ids[read_idx];
-                    scores[write_idx] = scores[read_idx];
-                }
-                write_idx += 1;
-            }
-        }
-
-        ctids.truncate(write_idx);
-        ids.truncate(write_idx);
-        scores.truncate(write_idx);
-
-        // Execute batch lookups of the fast-field values, and construct the batch.
-        self.batch.fields = self
-            .inner
-            .which_fast_fields
-            .iter()
-            .enumerate()
-            .map(
-                |(ff_index, _)| match self.inner.ffhelper.column(segment_ord, ff_index) {
-                    FFType::Text(str_column) => {
-                        // Get the term ordinals.
-                        let mut term_ords = Vec::with_capacity(ids.len());
-                        term_ords.resize(ids.len(), None);
-                        str_column.ords().first_vals(&ids, &mut term_ords);
-                        Some(ords_to_string_array(
-                            str_column.clone(),
-                            term_ords
-                                .into_iter()
-                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
-                        ))
-                    }
-                    FFType::Junk => None,
-                    numeric_column => Some(fetch_ff_column!(numeric_column, ids,
-                        I64  => identity => Int64Builder,
-                        F64  => identity => Float64Builder,
-                        U64  => identity => UInt64Builder,
-                        Bool => identity => BooleanBuilder,
-                        Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
-                    )),
-                },
-            )
-            .collect();
-
-        self.batch.offset = 0;
-        self.batch.ids.clear();
-        self.batch.ids.extend(
-            ids.into_iter()
-                .zip(scores)
-                .zip(ctids)
-                .map(|((id, score), ctid)| {
-                    (
-                        SearchIndexScore::new(ctid, score),
-                        DocAddress::new(segment_ord, id),
-                    )
-                }),
-        );
-
-        true
     }
 }
 
@@ -300,8 +258,9 @@ impl ExecMethod for MixedFastFieldExecState {
         }
 
         // Reset mixed field specific state
-        self.search_results = None;
-        self.batch.reset();
+        self.scanner = None;
+        self.current_batch = None;
+        self.current_batch_offset = 0;
         self.num_visible = 0;
     }
 
@@ -319,34 +278,58 @@ impl ExecMethod for MixedFastFieldExecState {
     ///
     /// `true` if there are results to process, `false` otherwise
     fn query(&mut self, state: &mut BaseScanState) -> bool {
-        if self.try_join_batch(state) {
-            // We collected another batch of ids from the SearchResult: construct a
-            return true;
-        }
-
-        // Handle parallel query execution
-        if let Some(parallel_state) = state.parallel_state {
-            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = Some(
-                    state
-                        .search_reader
-                        .as_ref()
-                        .unwrap()
-                        .search_segments([segment_id].into_iter()),
-                );
-                return true;
+        loop {
+            // If we have a scanner, try to get the next batch.
+            if let Some(scanner) = &mut self.scanner {
+                if let Some(batch) =
+                    scanner.next(&mut self.inner.ffhelper, state.visibility_checker())
+                {
+                    self.current_batch = Some(batch);
+                    self.current_batch_offset = 0;
+                    return true;
+                }
+                // No more batches from this scanner.
+                self.scanner = None;
             }
 
-            // No more segments to query in parallel mode
-            false
-        } else if self.inner.did_query {
-            // Not parallel and already queried
-            false
-        } else {
-            // First time query in non-parallel mode
-            self.search_results = Some(state.search_reader.as_ref().unwrap().search());
-            self.inner.did_query = true;
-            true
+            // We need a new scanner.
+            let search_results = if let Some(parallel_state) = state.parallel_state {
+                // Parallel: try to check out a segment.
+                if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
+                    Some(
+                        state
+                            .search_reader
+                            .as_ref()
+                            .unwrap()
+                            .search_segments([segment_id].into_iter()),
+                    )
+                } else {
+                    None
+                }
+            } else if self.inner.did_query {
+                // Not parallel and already queried.
+                None
+            } else {
+                // First time query in non-parallel mode.
+                self.inner.did_query = true;
+                Some(state.search_reader.as_ref().unwrap().search())
+            };
+
+            if let Some(results) = search_results {
+                let heaprel = self
+                    .inner
+                    .heaprel
+                    .as_ref()
+                    .expect("MixedFastFieldsExecState: heaprel should be initialized");
+                self.scanner = Some(Scanner::new(
+                    results,
+                    self.batch_size_hint,
+                    self.inner.which_fast_fields.clone(),
+                    heaprel.oid().into(),
+                ));
+            } else {
+                return false;
+            }
         }
     }
 
@@ -364,59 +347,62 @@ impl ExecMethod for MixedFastFieldExecState {
     /// The next execution state containing the result or EOF
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         unsafe {
-            // Process the next result from our optimized path
-            match self.batch.next() {
-                None => {
-                    // No more in the current batch: trampoline out to ExecMethod::next to
-                    // construct the next batch, if any.
-                    ExecState::Eof
+            let batch = match self.current_batch.as_ref() {
+                Some(batch) => batch,
+                None => return ExecState::Eof,
+            };
+
+            if let Some((scored, _)) = batch.ids.get(self.current_batch_offset) {
+                let row_idx = self.current_batch_offset;
+                self.current_batch_offset += 1;
+
+                let heaprel = self
+                    .inner
+                    .heaprel
+                    .as_ref()
+                    .expect("MixedFastFieldsExecState: heaprel should be initialized");
+                let slot = self.inner.slot;
+                let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+
+                // Set ctid and table OID
+                crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
+                (*slot).tts_tableOid = heaprel.oid();
+
+                // Setup slot for returning data
+                (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+                (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+                (*slot).tts_nvalid = natts as _;
+
+                let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+                let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+                // Initialize all values to NULL
+                for i in 0..natts {
+                    datums[i] = pg_sys::Datum::null();
+                    isnull[i] = true;
                 }
-                Some((row_idx, scored, doc_address)) => {
-                    let heaprel = self
-                        .inner
-                        .heaprel
-                        .as_ref()
-                        .expect("MixedFastFieldsExecState: heaprel should be initialized");
-                    let slot = self.inner.slot;
-                    let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
-                    // Set ctid and table OID
-                    crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
-                    (*slot).tts_tableOid = heaprel.oid();
+                let which_fast_fields = &self.inner.which_fast_fields;
+                let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+                debug_assert!(natts == which_fast_fields.len());
 
-                    // Setup slot for returning data
-                    (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                    (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                    (*slot).tts_nvalid = natts as _;
+                populate_slot(
+                    &self.const_values,
+                    batch,
+                    row_idx,
+                    *scored,
+                    which_fast_fields,
+                    tupdesc,
+                    &mut *slot,
+                    datums,
+                    isnull,
+                );
 
-                    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-                    // Initialize all values to NULL
-                    for i in 0..natts {
-                        datums[i] = pg_sys::Datum::null();
-                        isnull[i] = true;
-                    }
-
-                    let which_fast_fields = &self.inner.which_fast_fields;
-                    let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                    debug_assert!(natts == which_fast_fields.len());
-
-                    self.batch.populate(
-                        &self.const_values,
-                        row_idx,
-                        scored,
-                        doc_address,
-                        which_fast_fields,
-                        &mut self.inner.ffhelper,
-                        tupdesc,
-                        &mut *slot,
-                        datums,
-                        isnull,
-                    );
-
-                    ExecState::Virtual { slot }
-                }
+                ExecState::Virtual { slot }
+            } else {
+                // This batch is exhausted.
+                self.current_batch = None;
+                ExecState::Eof
             }
         }
     }
@@ -431,8 +417,9 @@ impl ExecMethod for MixedFastFieldExecState {
         self.inner.reset(state);
 
         // Reset mixed results state
-        self.search_results = None;
-        self.batch.reset();
+        self.scanner = None;
+        self.current_batch = None;
+        self.current_batch_offset = 0;
 
         // Reset statistics
         self.num_visible = 0;
@@ -443,116 +430,5 @@ impl ExecMethod for MixedFastFieldExecState {
     /// Called when a row passes visibility checks.
     fn increment_visible(&mut self) {
         self.num_visible += 1;
-    }
-}
-
-/// A batch of tuples.
-///
-/// In order to be able to copy directly from the fetched columns into a tuple slot and to reuse
-/// buffers, this structure acts like an inverted Iterator:
-/// * Call `next()` to get the next ctid.
-/// * If the ctid is interesting, call `populate()` for the row_idx.
-#[derive(Default)]
-struct Batch {
-    /// The current offset in the ids.
-    offset: usize,
-
-    /// An iterator of ids which have been consumed from the underlying `SearchResults`
-    /// iterator as a batch.
-    ids: Vec<(SearchIndexScore, DocAddress)>,
-
-    /// The current batch of fast field values, indexed by FFIndex, then by row.
-    /// This uses Arrow arrays for efficient columnar storage.
-    fields: Vec<Option<ArrayRef>>,
-}
-
-impl Batch {
-    fn next(&mut self) -> Option<(usize, SearchIndexScore, DocAddress)> {
-        let res = self
-            .ids
-            .get(self.offset)
-            .map(|(s, d)| (self.offset, *s, *d));
-        self.offset += 1;
-        res
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn populate(
-        &mut self,
-        const_values: &HashMap<usize, (pg_sys::Datum, bool)>,
-        row_idx: usize,
-        scored: SearchIndexScore,
-        doc_address: DocAddress,
-        which_fast_fields: &[WhichFastField],
-        ff_helper: &mut FFHelper,
-        tupdesc: &pgrx::PgTupleDesc,
-        slot: &mut pg_sys::TupleTableSlot,
-        datums: &mut [pg_sys::Datum],
-        isnull: &mut [bool],
-    ) {
-        for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
-            match &mut self.fields[i] {
-                Some(column) => {
-                    // We extracted this field: convert it into a datum.
-                    match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid))
-                    {
-                        Ok(Some(datum)) => {
-                            datums[i] = datum;
-                            isnull[i] = false;
-                            continue;
-                        }
-                        Ok(None) => {
-                            // Null datum.
-                            continue;
-                        }
-                        Err(e) => {
-                            panic!(
-                                "Failed to convert to attribute type for \
-                                {:?} and {which_fast_field:?}: {e}",
-                                att.atttypid
-                            );
-                        }
-                    }
-                }
-                None => {
-                    // Fall back to non_string_ff_to_datum for things like the score, ctid,
-                    // etc.
-                    let datum_opt = unsafe {
-                        non_string_ff_to_datum(
-                            (&which_fast_fields[i], i),
-                            att.atttypid,
-                            scored.bm25,
-                            doc_address,
-                            ff_helper,
-                            slot,
-                        )
-                    };
-                    if let Some(datum) = datum_opt {
-                        datums[i] = datum;
-                        isnull[i] = false;
-                    } else {
-                        // if the tlist entry is not null but the datum retrieved is null,
-                        // it could mean there was a constant value in the tlist that we can
-                        // project into the slot
-                        if let Some((val, is_null)) = const_values.get(&i) {
-                            datums[i] = *val;
-                            isnull[i] = *is_null;
-                            continue;
-                        } else {
-                            pgrx::error!(
-                                "Expression in target list is not yet supported. \
-                                Please file an issue at https://github.com/paradedb/paradedb/issues."
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn reset(&mut self) {
-        self.offset = 0;
-        self.ids.clear();
-        self.fields.clear();
     }
 }

@@ -18,6 +18,7 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::delete::VacuumSignal;
 use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
@@ -262,6 +263,7 @@ pub unsafe fn do_merge(
             merge_lock,
             cleanup_lock,
             false,
+            false,
             current_xid.expect("foreground merging requires a current transaction id"),
             next_xid.expect("foreground merging requires a next transaction id"),
         );
@@ -359,6 +361,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
                 merge_lock,
                 cleanup_lock,
                 true,
+                true,
                 current_xid,
                 next_xid,
             )
@@ -368,11 +371,13 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
+    is_background: bool,
     gc_after_merge: bool,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
@@ -414,6 +419,11 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
+            if is_background && VacuumSignal::new(indexrel.oid()).wants_cancel() {
+                pgrx::debug1!("VACUUM waiting, exiting merge early");
+                break;
+            }
+
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
@@ -504,6 +514,7 @@ pub fn free_entries(
 // random key, ensures that this advisory slot key doesn't conflict
 // with other Postgres advisory locks
 const MERGE_SLOT_KEY_BASE: u32 = 0x5047534D;
+
 // We at most allow 2 concurrent background merges
 // The first background merge is for "small" merges, the second is for "large" merges
 // This makes it so that a long-running large merge doesn't block smaller merges from happening
@@ -562,7 +573,7 @@ impl MergeSlot {
     // See: https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS
     fn is_available(&self) -> bool {
         let key = self.key();
-        if let Some(lock) = AdvisoryLock::new_session(key) {
+        if let Some(lock) = AdvisoryLock::conditional_lock_session(key) {
             drop(lock); // explicitly unlock immediately
             true
         } else {

@@ -18,6 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
+use crate::scan;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgList;
@@ -51,6 +52,7 @@ pub struct VisibilityChecker {
     pub invisible_tuple_count: usize,
 }
 
+// TODO: Use of clone results in new metrics in the clone. Should put them in `Rc<RefCell<usize>>`.
 impl Clone for VisibilityChecker {
     fn clone(&self) -> Self {
         Self::with_rel_and_snap(&self.heaprel, self.snapshot)
@@ -240,6 +242,12 @@ impl VisibilityChecker {
                 }
             }
         }
+    }
+}
+
+impl scan::VisibilityChecker for VisibilityChecker {
+    fn check(&mut self, ctid: u64) -> Option<u64> {
+        VisibilityChecker::check(self, ctid)
     }
 }
 

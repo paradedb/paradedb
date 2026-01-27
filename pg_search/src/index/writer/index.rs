@@ -16,15 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{HashMap, HashSet};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    directory::RamDirectory, Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment,
-    SegmentMeta, TantivyDocument,
+    directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
+    Segment, SegmentMeta, TantivyDocument,
 };
 use thiserror::Error;
 
@@ -173,7 +173,12 @@ impl SerialIndexWriter {
         // Read IndexSettings from MetaPage (written at index creation).
         let settings = unsafe {
             let bytes = MetaPage::open(index_relation).settings_bytes().read_all();
-            serde_json::from_slice(&bytes).expect("valid index must have IndexSettings")
+            if bytes.is_empty() {
+                IndexSettings::default()
+            } else {
+                serde_json::from_slice(&bytes)
+                    .map_err(|e| anyhow!("invalid IndexSettings in metapage: {e}"))?
+            }
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;

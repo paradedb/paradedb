@@ -981,6 +981,14 @@ fn range_term(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Convert string-encoded numeric values to appropriate types based on range field type.
+    // Range fields are indexed as JSON with specific element types:
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+    // - NUMRANGEOID: indexed as f64 (see RangeToTantivyValue impl) → convert to F64
+    // - Date/time ranges: handled by is_datetime flag
+    let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
+
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
@@ -1002,7 +1010,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_lower_bound(value, Comparison::GreaterThanOrEqual)?,
+                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -1017,7 +1025,7 @@ fn range_term(
                         (
                             Occur::Must,
                             Box::new(
-                                range_field.compare_lower_bound(value, Comparison::GreaterThan)?,
+                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
                             ),
                         ),
                     ])),
@@ -1045,7 +1053,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_upper_bound(value, Comparison::LessThanOrEqual)?,
+                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -1059,7 +1067,9 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(value, Comparison::LessThan)?),
+                            Box::new(
+                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
+                            ),
                         ),
                     ])),
                 ),
@@ -1682,6 +1692,60 @@ fn convert_bound_to_f64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
         Bound::Included(v) => Bound::Included(convert_string_to_f64(v)),
         Bound::Excluded(v) => Bound::Excluded(convert_string_to_f64(v)),
         Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a value for range field queries based on the range element type.
+/// Range fields are indexed with specific element types (see RangeToTantivyValue impls):
+/// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+/// - NUMRANGEOID: indexed as f64 → convert to F64
+/// - Date/time ranges: use datetime conversion
+fn convert_value_for_range_field(value: OwnedValue, field_type: &SearchFieldType) -> OwnedValue {
+    use decimal_bytes::Decimal;
+    use pgrx::pg_sys::BuiltinOid;
+    use std::str::FromStr;
+
+    // Only convert string values - other types pass through unchanged
+    let s = match &value {
+        OwnedValue::Str(s) => s,
+        _ => return value,
+    };
+
+    // Get the OID to determine the range element type
+    let oid = match field_type {
+        SearchFieldType::Range(oid) => *oid,
+        _ => return value, // Not a range field, pass through
+    };
+
+    // Convert based on the range's element type
+    match oid.try_into() {
+        Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
+            // Integer ranges: parse directly to i64 to preserve precision
+            if let Ok(i) = s.parse::<i64>() {
+                return OwnedValue::I64(i);
+            }
+            // Fallback: try parsing as decimal for values with decimal points
+            if let Ok(f) = s.parse::<f64>() {
+                return OwnedValue::I64(f as i64);
+            }
+            value
+        }
+        Ok(BuiltinOid::NUMRANGEOID) => {
+            // Numeric ranges are indexed as hex-encoded sortable bytes (see SortableDecimal in range.rs).
+            // Convert the query value to the same format for correct comparison.
+            if let Ok(dec) = Decimal::from_str(s) {
+                // Convert to hex-encoded sortable bytes - same format as indexing
+                let hex: String = dec
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+                return OwnedValue::Str(hex);
+            }
+            value
+        }
+        // Date/time ranges are handled by the is_datetime flag
+        _ => value,
     }
 }
 

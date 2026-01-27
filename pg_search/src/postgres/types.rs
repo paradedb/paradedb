@@ -812,6 +812,72 @@ impl TantivyValue {
             }
         }
     }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with I64 fixed-point storage.
+    /// Used for NUMERIC arrays with precision <= 18.
+    pub unsafe fn try_from_numeric_array_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use decimal_bytes::Decimal64NoScale;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' with scale {}: {:?}",
+                        numeric_str, scale, e
+                    ))
+                })?;
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                    decimal.value(),
+                )))
+            })
+            .collect()
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with Bytes storage.
+    /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
+    pub unsafe fn try_from_numeric_array_bytes(
+        datum: Datum,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' to bytes: {:?}",
+                        numeric_str, e
+                    ))
+                })?;
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+                    decimal.as_bytes().to_vec(),
+                )))
+            })
+            .collect()
+    }
 }
 
 impl TryFrom<TantivyValue> for pgrx::AnyNumeric {

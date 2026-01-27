@@ -982,10 +982,10 @@ fn range_term(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
-    // Convert string-encoded numeric values to appropriate types based on range field type.
+    // Convert numeric values to appropriate types based on range field type.
     // Range fields are indexed as JSON with specific element types:
     // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
-    // - NUMRANGEOID: indexed as f64 (see RangeToTantivyValue impl) → convert to F64
+    // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
     // - Date/time ranges: handled by is_datetime flag
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
@@ -1698,18 +1698,12 @@ fn convert_bound_to_f64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
 /// Convert a value for range field queries based on the range element type.
 /// Range fields are indexed with specific element types (see RangeToTantivyValue impls):
 /// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
-/// - NUMRANGEOID: indexed as f64 → convert to F64
+/// - NUMRANGEOID: indexed as hex-encoded sortable bytes → convert to hex string
 /// - Date/time ranges: use datetime conversion
 fn convert_value_for_range_field(value: OwnedValue, field_type: &SearchFieldType) -> OwnedValue {
     use decimal_bytes::Decimal;
     use pgrx::pg_sys::BuiltinOid;
     use std::str::FromStr;
-
-    // Only convert string values - other types pass through unchanged
-    let s = match &value {
-        OwnedValue::Str(s) => s,
-        _ => return value,
-    };
 
     // Get the OID to determine the range element type
     let oid = match field_type {
@@ -1717,15 +1711,24 @@ fn convert_value_for_range_field(value: OwnedValue, field_type: &SearchFieldType
         _ => return value, // Not a range field, pass through
     };
 
+    // Convert the value to a string representation for consistent parsing
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(),
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => return value, // Non-numeric types pass through unchanged
+    };
+
     // Convert based on the range's element type
     match oid.try_into() {
         Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
             // Integer ranges: parse directly to i64 to preserve precision
-            if let Ok(i) = s.parse::<i64>() {
+            if let Ok(i) = numeric_str.parse::<i64>() {
                 return OwnedValue::I64(i);
             }
             // Fallback: try parsing as decimal for values with decimal points
-            if let Ok(f) = s.parse::<f64>() {
+            if let Ok(f) = numeric_str.parse::<f64>() {
                 return OwnedValue::I64(f as i64);
             }
             value
@@ -1733,7 +1736,7 @@ fn convert_value_for_range_field(value: OwnedValue, field_type: &SearchFieldType
         Ok(BuiltinOid::NUMRANGEOID) => {
             // Numeric ranges are indexed as hex-encoded sortable bytes (see SortableDecimal in range.rs).
             // Convert the query value to the same format for correct comparison.
-            if let Ok(dec) = Decimal::from_str(s) {
+            if let Ok(dec) = Decimal::from_str(&numeric_str) {
                 // Convert to hex-encoded sortable bytes - same format as indexing
                 let hex: String = dec
                     .as_bytes()

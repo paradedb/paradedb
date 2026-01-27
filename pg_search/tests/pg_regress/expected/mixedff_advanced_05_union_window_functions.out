@@ -467,7 +467,7 @@ ORDER BY title, author, author_rank;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, price, title, rating
+                     Fast Fields: author, price, rating, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
 (13 rows)

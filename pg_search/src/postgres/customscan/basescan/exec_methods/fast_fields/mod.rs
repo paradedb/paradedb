@@ -17,16 +17,14 @@
 
 pub mod mixed;
 
-use std::sync::Arc;
-
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
-use crate::postgres::customscan::basescan::{scan_state::BaseScanState, BaseScan};
+use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::score_funcoids;
@@ -36,80 +34,7 @@ use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use crate::schema::{FieldSource, SearchIndexSchema};
 
-use arrow_array::builder::StringViewBuilder;
-use arrow_array::ArrayRef;
-use pgrx::pg_sys::CustomScanState;
-use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
-use tantivy::columnar::StrColumn;
-use tantivy::termdict::TermOrdinal;
-use tantivy::DocAddress;
-
-const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
-
-pub struct FastFieldExecState {
-    heaprel: Option<PgSearchRelation>,
-    tupdesc: Option<PgTupleDesc<'static>>,
-
-    /// Execution time WhichFastFields.
-    which_fast_fields: Vec<WhichFastField>,
-    ffhelper: FFHelper,
-
-    slot: *mut pg_sys::TupleTableSlot,
-    vmbuff: pg_sys::Buffer,
-
-    // tracks our previous block visibility so we can elide checking again
-    blockvis: (pg_sys::BlockNumber, bool),
-
-    did_query: bool,
-}
-
-crate::impl_safe_drop!(FastFieldExecState, |self| {
-    unsafe {
-        if crate::postgres::utils::IsTransactionState()
-            && self.vmbuff != pg_sys::InvalidBuffer as pg_sys::Buffer
-        {
-            pg_sys::ReleaseBuffer(self.vmbuff);
-        }
-    }
-});
-
-impl FastFieldExecState {
-    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
-        Self {
-            heaprel: None,
-            tupdesc: None,
-            which_fast_fields,
-            ffhelper: Default::default(),
-            slot: std::ptr::null_mut(),
-            vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            blockvis: (pg_sys::InvalidBlockNumber, false),
-            did_query: false,
-        }
-    }
-
-    fn init(&mut self, state: &mut BaseScanState, cstate: *mut CustomScanState) {
-        unsafe {
-            self.heaprel = Some(Clone::clone(state.heaprel()));
-            self.tupdesc = Some(PgTupleDesc::from_pg_unchecked(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-            ));
-            self.slot = pg_sys::MakeTupleTableSlot(
-                (*cstate).ss.ps.ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
-            // Initialize the fast field helper
-            self.ffhelper = FFHelper::with_fields(
-                state.search_reader.as_ref().unwrap(),
-                &self.which_fast_fields,
-            );
-        }
-    }
-
-    pub fn reset(&mut self, state: &mut BaseScanState) {
-        self.did_query = false;
-        self.blockvis = (pg_sys::InvalidBlockNumber, false);
-    }
-}
+use pgrx::{pg_sys, PgList, PgTupleDesc};
 
 /// Returns true if all variables in the expression belong to the current relation.
 ///
@@ -120,47 +45,6 @@ unsafe fn can_scan_evaluate_expr(rti: pg_sys::Index, expr: *mut pg_sys::Expr) ->
     // It is evaluatable by the scan if ALL vars belong to this scan (rti).
     // Note: Constants (no vars) are also considered evaluatable by the scan (locally).
     vars.iter().all(|var| (**var).varno as pg_sys::Index == rti)
-}
-
-/// Extracts a non-String fast field value to a Datum.
-///
-/// String fast fields are fetched separately using a batch dictionary-based lookup.
-#[inline(always)]
-pub unsafe fn non_string_ff_to_datum(
-    which_fast_field: (&WhichFastField, usize),
-    typid: pg_sys::Oid,
-    score: f32,
-    doc_address: DocAddress,
-    ff_helper: &mut FFHelper,
-    slot: *const pg_sys::TupleTableSlot,
-) -> Option<pg_sys::Datum> {
-    let field_index = which_fast_field.1;
-    let which_fast_field = which_fast_field.0;
-
-    if typid == pg_sys::INT2OID || typid == pg_sys::INT4OID || typid == pg_sys::INT8OID {
-        match ff_helper.i64(field_index, doc_address) {
-            None => None,
-            Some(v) => v.into_datum(),
-        }
-    } else if matches!(which_fast_field, WhichFastField::Ctid) {
-        (*slot).tts_tid.into_datum()
-    } else if matches!(which_fast_field, WhichFastField::TableOid) {
-        (*slot).tts_tableOid.into_datum()
-    } else if matches!(which_fast_field, WhichFastField::Score) {
-        score.into_datum()
-    } else if matches!(
-        which_fast_field,
-        WhichFastField::Named(_, FastFieldType::String)
-    ) {
-        panic!("String fast field {which_fast_field:?} should already have been extracted.");
-    } else {
-        match ff_helper.value(field_index, doc_address) {
-            None => None,
-            Some(value) => value
-                .try_into_datum(PgOid::from_untagged(typid))
-                .expect("value should be convertible to Datum"),
-        }
-    }
 }
 
 /// Find all the fields that can be used as "fast fields", categorize them as [`WhichFastField`]s,
@@ -193,17 +77,14 @@ fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<F
     }
     match base_oid {
         pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => Some(FastFieldType::String),
-        pg_sys::BOOLOID
-        | pg_sys::DATEOID
-        | pg_sys::FLOAT4OID
-        | pg_sys::FLOAT8OID
-        | pg_sys::INT2OID
-        | pg_sys::INT4OID
-        | pg_sys::INT8OID
+        pg_sys::BOOLOID => Some(FastFieldType::Bool),
+        pg_sys::DATEOID
         | pg_sys::TIMEOID
         | pg_sys::TIMESTAMPOID
         | pg_sys::TIMESTAMPTZOID
-        | pg_sys::TIMETZOID => Some(FastFieldType::Numeric),
+        | pg_sys::TIMETZOID => Some(FastFieldType::Date),
+        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => Some(FastFieldType::Float64),
+        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => Some(FastFieldType::Int64),
         _ => {
             // This fast field type is supported for pushdown of queries, but not for
             // rendering via fast field execution.
@@ -651,118 +532,4 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
 
         explainer.add_text("Fast Fields", fields.join(", "));
     }
-}
-
-/// Given an unordered collection of TermOrdinals for the given StrColumn, return a
-/// `StringViewArray` with one row per input term ordinal (in the input order).
-///
-/// A `StringViewArray` contains a series of buffers containing arbitrarily concatenated bytes data,
-/// and then a series of (buffer, offset, len) entries representing views into those buffers. This
-/// method creates a single buffer containing the concatenated data for the given term ordinals in
-/// term sorted order, and then a view per input row in input order. A caller can ignore those
-/// details and just consume the array as if it were an array of strings.
-///
-/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-pub fn ords_to_string_array(
-    str_ff: StrColumn,
-    term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> ArrayRef {
-    // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
-    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
-    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
-
-    // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
-    // term to a StringViewBuilder's data buffer, and record a view to be appended later in sorted
-    // order.
-    let mut builder = StringViewBuilder::with_capacity(term_ords.len());
-    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
-    views.resize(term_ords.len(), None);
-
-    let mut buffer = Vec::new();
-    let mut bytes = Vec::new();
-    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
-    let mut current_sstable_delta_reader = str_ff
-        .dictionary()
-        .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
-    let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
-    for (row_idx, ord) in term_ords {
-        if ord == NULL_TERM_ORDINAL {
-            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
-            // be appended to the builder as null.
-            break;
-        }
-
-        // only advance forward if the new ord is different than the one we just processed
-        //
-        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
-        // it's still sorted
-        match &previous_term {
-            Some((previous_ord, previous_view)) if *previous_ord == ord => {
-                // This is the same term ordinal: reuse the previous view.
-                views[row_idx] = Some(*previous_view);
-                continue;
-            }
-            // Fall through.
-            _ => {}
-        }
-
-        // This is a new term ordinal: decode it and append it to the builder.
-        assert!(ord >= current_ordinal);
-        // check if block changed for new term_ord
-        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
-        if new_block_addr != current_block_addr {
-            current_block_addr = new_block_addr;
-            current_ordinal = current_block_addr.first_ordinal;
-            current_sstable_delta_reader = str_ff
-                .dictionary()
-                .sstable_delta_reader_block(current_block_addr.clone())
-                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
-            bytes.clear();
-        }
-
-        // Move to ord inside that block
-        for _ in current_ordinal..=ord {
-            match current_sstable_delta_reader.advance() {
-                Ok(true) => {}
-                Ok(false) => {
-                    panic!("Term ordinal {ord} did not exist in the dictionary.");
-                }
-                Err(e) => {
-                    panic!("Failed to decode dictionary block: {e}")
-                }
-            }
-            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
-            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
-        }
-        current_ordinal = ord + 1;
-
-        // Set the view for this row_idx.
-        let offset: u32 = buffer
-            .len()
-            .try_into()
-            .expect("Too many terms requested in `ords_to_string_array`");
-        let len: u32 = bytes
-            .len()
-            .try_into()
-            .expect("Single term is too long in `ords_to_string_array`");
-        buffer.extend_from_slice(&bytes);
-        previous_term = Some((ord, (offset, len)));
-        views[row_idx] = Some((offset, len));
-    }
-
-    // Append all the rows' views to the builder.
-    let block_no = builder.append_block(arrow_buffer::Buffer::from(buffer));
-    for view in views {
-        // Each view is an offset and len in our single block, or None for a null.
-        match view {
-            Some((offset, len)) => unsafe {
-                builder.append_view_unchecked(block_no, offset, len);
-            },
-            None => builder.append_null(),
-        }
-    }
-
-    Arc::new(builder.finish())
 }

@@ -118,6 +118,35 @@ extern "C-unwind" fn validate_json_fields(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_jsonb_values_paths(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+    if json_str.is_empty() {
+        return;
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&json_str)
+        .unwrap_or_else(|err| panic!("failed to deserialize jsonb_values_paths: {err:?}"));
+    let map = value
+        .as_object()
+        .unwrap_or_else(|| panic!("jsonb_values_paths must be a JSON object"));
+
+    for (field_name, paths_value) in map {
+        let paths = paths_value.as_array().unwrap_or_else(|| {
+            panic!("jsonb_values_paths.{field_name} must be a JSON array of strings")
+        });
+
+        for path_value in paths {
+            let path = path_value.as_str().unwrap_or_else(|| {
+                panic!("jsonb_values_paths.{field_name} entries must be strings")
+            });
+            if path.trim().is_empty() || path.split('.').any(|seg| seg.is_empty()) {
+                panic!("jsonb_values_paths.{field_name} contains empty or invalid path: {path:?}");
+            }
+        }
+    }
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_range_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
     if json_str.is_empty() {
@@ -191,7 +220,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 12;
+const NUM_REL_OPTS: usize = 13;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -230,6 +259,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, json_fields_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "jsonb_values_paths".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(BM25IndexOptionsData, jsonb_values_paths_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -427,6 +463,10 @@ impl BM25IndexOptions {
             *self.lazy.json.borrow_mut() = Some(self.options_data().json_configs());
         }
         self.lazy.json.borrow()
+    }
+
+    pub fn jsonb_values_paths(&self) -> HashMap<FieldName, Vec<String>> {
+        self.options_data().jsonb_values_paths()
     }
 
     pub fn range_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
@@ -635,6 +675,7 @@ struct BM25IndexOptionsData {
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
+    jsonb_values_paths_offset: i32,
     range_fields_offset: i32,
     datetime_fields_offset: i32,
     key_field_offset: i32,
@@ -714,6 +755,21 @@ impl BM25IndexOptionsData {
 
     pub fn json_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
         self.deserialize_configs(self.json_fields_offset, &SearchFieldConfig::json_from_json)
+    }
+
+    pub fn jsonb_values_paths(&self) -> HashMap<FieldName, Vec<String>> {
+        let mut paths = HashMap::default();
+        let config = self.get_str(self.jsonb_values_paths_offset, "".to_string());
+        if config.is_empty() {
+            return paths;
+        }
+
+        let map: HashMap<String, Vec<String>> = serde_json::from_str(&config)
+            .unwrap_or_else(|err| panic!("failed to deserialize jsonb_values_paths: {err:?}"));
+        for (field_name, field_paths) in map {
+            paths.insert(field_name.into(), field_paths);
+        }
+        paths
     }
 
     pub fn range_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -796,6 +852,14 @@ pub unsafe fn init() {
         "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_json_fields),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "jsonb_values_paths".as_pg_cstr(),
+        "JSON string mapping JSON fields to paths for jsonb_values queries".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_jsonb_values_paths),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
     pg_sys::add_string_reloption(

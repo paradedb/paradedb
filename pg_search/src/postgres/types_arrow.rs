@@ -27,6 +27,11 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
 /// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
+///
+/// The input Arrow arrays have types corresponding to "widened" storage types (see
+/// [`WhichFastField`](crate::index::fast_fields_helper::WhichFastField)). This function is
+/// responsible for converting those widened types (e.g. `Utf8View`) back into specific
+/// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
 pub fn arrow_array_to_datum(
     array: &dyn Array,
     index: usize,
@@ -36,6 +41,9 @@ pub fn arrow_array_to_datum(
         return Ok(None);
     }
 
+    // This switch statement primarily needs to support types which are produced by
+    // `WhichFastField`/`FFType` (including Score/TableOid which are f32/u32). We widen any
+    // narrower user types into those types. See the method docs about widening.
     let datum = match array.data_type() {
         DataType::Utf8View => {
             let arr = array.as_string_view();

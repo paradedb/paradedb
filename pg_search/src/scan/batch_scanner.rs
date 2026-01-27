@@ -101,6 +101,9 @@ impl Batch {
 }
 
 /// A scanner that iterates over search results in batches, fetching fast fields.
+///
+/// This scanner consumes [`WhichFastField`] column selectors, which represent "widened" Postgres types
+/// (e.g. storage types), and produces Arrow arrays corresponding to those widened types.
 pub struct Scanner {
     search_results: MultiSegmentSearchResults,
     batch_size: usize,
@@ -200,6 +203,7 @@ impl Scanner {
         ffhelper: &mut FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
     ) -> Option<Batch> {
+        pgrx::check_for_interrupts!();
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
         // Batch lookup the ctids.

@@ -99,7 +99,10 @@ impl FFHelper {
     }
 }
 
-/// Helper for working with different "fast field" types as if they're all one type
+/// Helper for working with different "fast field" types as if they're all one type.
+///
+/// This enum is used *after* a column is open to provide a typed wrapper around the underlying
+/// Tantivy column readers.
 #[derive(Debug)]
 pub enum FFType {
     Junk,
@@ -208,6 +211,21 @@ impl FFType {
     }
 }
 
+/// A request for a specific fast field, used *before* the column is open.
+///
+/// This enum allows consumers to specify which columns to retrieve and their expected types.
+///
+/// # Type Widening
+///
+/// Currently, we "widen" various Postgres types into larger underlying storage types (e.g.
+/// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
+/// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
+/// these widened types back into their original Postgres OIDs.
+///
+/// TODO: This enum should eventually include all types which we can store accurately in Arrow with
+/// representations that have equivalent behavior to Postgres's types (perhaps by having one case which
+/// is a wrapper for an Arrow type). The current behavior means that if we had expressions for anything
+/// other than equality or comparison between equivalent types, we would do the wrong thing.
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),

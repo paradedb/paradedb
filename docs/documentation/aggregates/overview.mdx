@@ -72,10 +72,6 @@ WHERE id @@@ pdb.all();
 ```
 
 <Note>
-If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
-</Note>
-
-<Note>
-As of `0.21.5`, fields using the [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer can also be passed to
-`pdb.agg`. Indexes created prior to `0.21.5` must be reindexed to use this feature.
+If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/literal) or
+[literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer.
 </Note>

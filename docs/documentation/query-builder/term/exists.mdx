@@ -10,8 +10,9 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/exists
 
 <Note>
   Text fields must use the
-  [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer in
-  order for `pdb.exists` to work.
+  [literal](/documentation/tokenizers/available-tokenizers/literal) or [literal
+  normalized](/documentation/tokenizers/available-tokenizers/literal-normalized)
+  tokenizer in order for `pdb.exists` to work.
 </Note>
 
 Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.

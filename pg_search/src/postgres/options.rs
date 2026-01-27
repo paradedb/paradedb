@@ -391,7 +391,7 @@ impl BM25IndexOptions {
     }
 
     /// Returns the sort_by configuration.
-    /// - Not specified: defaults to ctid ASC
+    /// - Not specified: defaults to none (no segment sorting)
     /// - "none": returns empty vec (no sorting)
     /// - Otherwise: returns parsed sort fields
     pub fn sort_by(&self) -> Vec<SortByField> {
@@ -717,7 +717,7 @@ impl BM25IndexOptionsData {
     }
 
     /// Returns the sort_by configuration.
-    /// - Empty string (not specified): defaults to ctid ASC
+    /// - Empty string (not specified): defaults to none (no segment sorting)
     /// - "none": returns empty vec (no sorting)
     /// - Otherwise: returns parsed sort fields
     ///
@@ -726,11 +726,8 @@ impl BM25IndexOptionsData {
     pub fn sort_by(&self) -> Vec<SortByField> {
         let sort_by_str = self.get_str(self.sort_by_offset, "".to_string());
         if sort_by_str.is_empty() {
-            // Default: ctid ASC
-            return vec![SortByField::new(
-                FieldName::from(SortByField::CTID_FIELD.to_string()),
-                SortByDirection::Asc,
-            )];
+            // Default: no segment sorting
+            return vec![];
         }
         parse_sort_by_string(&sort_by_str)
     }
@@ -956,9 +953,6 @@ pub enum SortByDirection {
 }
 
 impl SortByField {
-    /// The default sort field name (PostgreSQL ctid)
-    pub const CTID_FIELD: &'static str = "ctid";
-
     pub fn new(field_name: FieldName, direction: SortByDirection) -> Self {
         Self {
             field_name,
@@ -1187,17 +1181,9 @@ mod tests {
 
     #[pg_test]
     fn test_parse_sort_by_none() {
-        let result = parse_sort_by_string("none");
-        assert!(result.is_empty());
-    }
-
-    #[pg_test]
-    fn test_parse_sort_by_none_case_insensitive() {
-        let result = parse_sort_by_string("NONE");
-        assert!(result.is_empty());
-
-        let result = parse_sort_by_string("None");
-        assert!(result.is_empty());
+        assert!(parse_sort_by_string("none").is_empty());
+        assert!(parse_sort_by_string("NONE").is_empty());
+        assert!(parse_sort_by_string("None").is_empty());
     }
 
     #[pg_test]

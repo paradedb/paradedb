@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{HashMap, HashSet};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
@@ -32,7 +32,6 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
-use crate::postgres::storage::metadata::MetaPage;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
 struct PendingSegment {
@@ -170,15 +169,13 @@ impl SerialIndexWriter {
         let schema = index_relation.schema()?;
         let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
 
-        // Read IndexSettings from MetaPage (written at index creation).
-        let settings = unsafe {
-            let bytes = MetaPage::open(index_relation).settings_bytes().read_all();
-            if bytes.is_empty() {
-                IndexSettings::default()
-            } else {
-                serde_json::from_slice(&bytes)
-                    .map_err(|e| anyhow!("invalid IndexSettings in metapage: {e}"))?
-            }
+        // Build IndexSettings from rd_options (same source as build.rs:create_index)
+        let options = index_relation.options();
+        let sort_by_field =
+            SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
+        let settings = IndexSettings {
+            sort_by_field,
+            ..IndexSettings::default()
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;

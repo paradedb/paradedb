@@ -381,12 +381,12 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_build_sort_by_field_ctid_default() {
+    fn test_build_sort_by_field_ctid_explicit() {
         let mut builder = Schema::builder();
         builder.add_u64_field("ctid", FAST);
         let schema = builder.build();
 
-        // Default sort_by is ctid ASC
+        // Explicit ctid sort_by
         let sort_by = vec![SortByField::new(
             FieldName::from("ctid".to_string()),
             SortByDirection::Asc,

@@ -553,6 +553,12 @@ fn check_range_bounds(
     upper_bound: Bound<OwnedValue>,
 ) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
+
+    // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
+    // to match the indexed format (see SortableDecimal in range.rs)
+    let lower_bound = convert_numrange_bound(typeoid, lower_bound);
+    let upper_bound = convert_numrange_bound(typeoid, upper_bound);
+
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
         (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
@@ -643,6 +649,56 @@ fn check_range_bounds(
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))
+}
+
+/// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
+/// This matches the format used for indexing (see SortableDecimal in range.rs).
+fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    // Only process NUMRANGEOID bounds
+    if !matches!(typeoid, PgOid::BuiltIn(PgBuiltInOids::NUMRANGEOID)) {
+        return bound;
+    }
+
+    // Helper to convert a numeric value to hex-encoded bytes
+    let convert_to_hex = |value: &OwnedValue| -> Option<OwnedValue> {
+        let numeric_str = match value {
+            OwnedValue::Str(s) => s.clone(),
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => return None,
+        };
+
+        Decimal::from_str(&numeric_str).ok().map(|dec| {
+            let hex: String = dec
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect();
+            OwnedValue::Str(hex)
+        })
+    };
+
+    match bound {
+        Bound::Included(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Included(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Excluded(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Excluded(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Unbounded => Bound::Unbounded,
+    }
 }
 
 fn coerce_bound_to_field_type(

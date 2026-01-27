@@ -22,14 +22,12 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::schema::Schema;
-use tantivy::{Index, IndexSettings, IndexSortByField, Order};
+use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
-
-use crate::postgres::options::{SortByDirection, SortByField};
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -289,7 +287,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
 
     // Configure sort_by for segment sorting
-    let sort_by_field = build_sort_by_field(&options.sort_by(), &schema);
+    let sort_by_field = SearchIndexSchema::build_sort_by_field(&options.sort_by(), &schema);
 
     let settings = IndexSettings {
         sort_by_field,
@@ -300,71 +298,20 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     Ok(())
 }
 
-/// Convert sort_by configuration to Tantivy's IndexSortByField.
-///
-/// Currently only single-field sorting is supported. Multi-field sorting
-/// may be added in the future when Tantivy supports it.
-pub(crate) fn build_sort_by_field(
-    sort_by: &[SortByField],
-    schema: &Schema,
-) -> Option<IndexSortByField> {
-    // Empty sort_by means no segment sorting
-    if sort_by.is_empty() {
-        return None;
-    }
-
-    // TODO: Support multi-field sorting when Tantivy adds support
-    if sort_by.len() > 1 {
-        panic!(
-            "sort_by specifies {} fields, but only single-field sorting is currently supported",
-            sort_by.len()
-        );
-    }
-
-    let sort_field = &sort_by[0];
-    let field_name = sort_field.field_name.as_ref();
-
-    // Validate field exists in schema
-    let field = schema.get_field(field_name).unwrap_or_else(|_| {
-        panic!(
-            "sort_by field '{}' does not exist in the index schema",
-            field_name
-        )
-    });
-
-    // Validate field is a fast field
-    let field_entry = schema.get_field_entry(field);
-    if !field_entry.is_fast() {
-        panic!(
-            "sort_by field '{}' must be a fast field. Add it to the index with 'fast: true'",
-            field_name
-        );
-    }
-
-    // Convert direction
-    let order = match sort_field.direction {
-        SortByDirection::Asc => Order::Asc,
-        SortByDirection::Desc => Order::Desc,
-    };
-
-    Some(IndexSortByField {
-        field: field_name.to_string(),
-        order,
-    })
-}
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
     use crate::api::FieldName;
+    use crate::postgres::options::{SortByDirection, SortByField};
     use pgrx::pg_test;
+    use tantivy::index::Order;
     use tantivy::schema::{NumericOptions, Schema, FAST};
 
     #[pg_test]
     fn test_build_sort_by_field_empty() {
         let schema = Schema::builder().build();
-        let result = build_sort_by_field(&[], &schema);
+        let result = SearchIndexSchema::build_sort_by_field(&[], &schema);
         assert!(result.is_none());
     }
 
@@ -379,7 +326,7 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        let result = build_sort_by_field(&sort_by, &schema);
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
         assert!(result.is_some());
         let sort_field = result.unwrap();
         assert_eq!(sort_field.field, "score");
@@ -397,7 +344,7 @@ mod tests {
             SortByDirection::Desc,
         )];
 
-        let result = build_sort_by_field(&sort_by, &schema);
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
         assert!(result.is_some());
         let sort_field = result.unwrap();
         assert_eq!(sort_field.field, "score");
@@ -414,7 +361,7 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        build_sort_by_field(&sort_by, &schema);
+        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
     }
 
     #[pg_test]
@@ -430,7 +377,7 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        build_sort_by_field(&sort_by, &schema);
+        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
     }
 
     #[pg_test]
@@ -445,33 +392,19 @@ mod tests {
             SortByDirection::Asc,
         )];
 
-        let result = build_sort_by_field(&sort_by, &schema);
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
         assert!(result.is_some());
         let sort_field = result.unwrap();
         assert_eq!(sort_field.field, "ctid");
         assert_eq!(sort_field.order, Order::Asc);
     }
 
-    #[pg_test]
-    #[should_panic(expected = "only single-field sorting is currently supported")]
-    fn test_build_sort_by_field_multi_field_error() {
-        let mut builder = Schema::builder();
-        builder.add_i64_field("score", FAST);
-        builder.add_i64_field("id", FAST);
-        let schema = builder.build();
-
-        // Multi-field sort_by should error
-        let sort_by = vec![
-            SortByField::new(FieldName::from("score".to_string()), SortByDirection::Desc),
-            SortByField::new(FieldName::from("id".to_string()), SortByDirection::Asc),
-        ];
-
-        build_sort_by_field(&sort_by, &schema);
-    }
+    // Note: Multi-field validation test moved to options.rs (parse_sort_by_string)
 
     #[pg_test]
     fn test_tantivy_index_receives_sort_settings() {
         use tantivy::directory::RamDirectory;
+        use tantivy::index::IndexSortByField;
 
         // Build schema with fast field
         let mut builder = Schema::builder();

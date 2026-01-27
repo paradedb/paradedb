@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 pub use crate::postgres::utils::FieldSource;
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
@@ -30,6 +30,7 @@ pub use config::*;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
@@ -236,6 +237,55 @@ impl SearchIndexSchema {
 
     pub fn key_field_type(&self) -> SearchFieldType {
         self.bm25_options.key_field_type()
+    }
+
+    /// Convert sort_by configuration to Tantivy's IndexSortByField.
+    ///
+    /// Validates that the sort field exists in the schema and is a fast field.
+    /// Returns None if sort_by is empty (no segment sorting).
+    ///
+    /// This is an associated function (not a method) because it's also used during
+    /// index creation when only the Tantivy Schema is available.
+    pub fn build_sort_by_field(
+        sort_by: &[SortByField],
+        schema: &Schema,
+    ) -> Option<IndexSortByField> {
+        // Empty sort_by means no segment sorting
+        if sort_by.is_empty() {
+            return None;
+        }
+
+        // Multi-field validation is done in options.rs during parsing
+        let sort_field = &sort_by[0];
+        let field_name = sort_field.field_name.as_ref();
+
+        // Validate field exists in schema
+        let field = schema.get_field(field_name).unwrap_or_else(|_| {
+            panic!(
+                "sort_by field '{}' does not exist in the index schema",
+                field_name
+            )
+        });
+
+        // Validate field is a fast field
+        let field_entry = schema.get_field_entry(field);
+        if !field_entry.is_fast() {
+            panic!(
+                "sort_by field '{}' must be a fast field. Add it to the index with 'fast: true'",
+                field_name
+            );
+        }
+
+        // Convert direction
+        let order = match sort_field.direction {
+            SortByDirection::Asc => Order::Asc,
+            SortByDirection::Desc => Order::Desc,
+        };
+
+        Some(IndexSortByField {
+            field: field_name.to_string(),
+            order,
+        })
     }
 
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {

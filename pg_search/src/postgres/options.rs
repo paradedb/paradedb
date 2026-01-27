@@ -996,6 +996,14 @@ fn parse_sort_by_string(input: &str) -> Vec<SortByField> {
         panic!("invalid sort_by value: must specify at least one field or 'none'");
     }
 
+    // Multi-field sorting is not yet supported
+    if fields.len() > 1 {
+        panic!(
+            "sort_by specifies {} fields, but only single-field sorting is currently supported",
+            fields.len()
+        );
+    }
+
     fields
 }
 
@@ -1171,21 +1179,10 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_parse_sort_by_multiple_fields() {
-        let result = parse_sort_by_string("category ASC NULLS FIRST, created_at DESC NULLS LAST");
-        assert_eq!(result.len(), 2);
-
-        assert_eq!(
-            result[0].field_name,
-            FieldName::from("category".to_string())
-        );
-        assert_eq!(result[0].direction, SortByDirection::Asc);
-
-        assert_eq!(
-            result[1].field_name,
-            FieldName::from("created_at".to_string())
-        );
-        assert_eq!(result[1].direction, SortByDirection::Desc);
+    #[should_panic(expected = "only single-field sorting is currently supported")]
+    fn test_parse_sort_by_multiple_fields_error() {
+        // Multi-field sorting is not yet supported
+        parse_sort_by_string("category ASC NULLS FIRST, created_at DESC NULLS LAST");
     }
 
     #[pg_test]
@@ -1214,11 +1211,11 @@ mod tests {
 
     #[pg_test]
     fn test_parse_sort_by_whitespace_handling() {
-        let result =
-            parse_sort_by_string("  field1  ASC  NULLS  FIRST  ,  field2  DESC  NULLS  LAST  ");
-        assert_eq!(result.len(), 2);
+        // Test that extra whitespace is handled correctly
+        let result = parse_sort_by_string("  field1  ASC  NULLS  FIRST  ");
+        assert_eq!(result.len(), 1);
         assert_eq!(result[0].field_name, FieldName::from("field1".to_string()));
-        assert_eq!(result[1].field_name, FieldName::from("field2".to_string()));
+        assert_eq!(result[0].direction, SortByDirection::Asc);
     }
 
     #[pg_test]

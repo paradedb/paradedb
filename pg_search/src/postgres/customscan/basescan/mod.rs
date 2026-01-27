@@ -1496,7 +1496,7 @@ fn validate_topn_expectation(
         PathKeyInfo::Unusable(UnusableReason::NotSortable) => (
             "ORDER BY columns cannot be pushed down to the index".to_string(),
             "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
-                 For string columns, use pdb::literal tokenizer"
+                 For string columns, use pdb.literal tokenizer"
                 .to_string(),
         ),
         PathKeyInfo::UsablePrefix(matched) => (

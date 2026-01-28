@@ -1,9 +1,9 @@
 name: Cherry Pick
 
 on:
-  # Trigger on pull request closed events targeting main branch, which enables cherry-picks for PRs coming from forks as well
-  pull_request_target:
-    branches: [main]
+  pull_request_target: # pull_request_target enables cherry-picks from forked repos
+    branches:
+      - main
     types: [closed]
 
 permissions:
@@ -13,7 +13,6 @@ permissions:
 jobs:
   backport:
     name: Backport (Cherry Pick)
-    # Only run when merged AND at least one label contains "cherry-pick/"
     if: >
       github.event.pull_request.merged == true &&
       contains(join(github.event.pull_request.labels.*.name, ','), 'cherry-pick/')
@@ -29,11 +28,11 @@ jobs:
         uses: korthout/backport-action@v4
         with:
           github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          # Make the action look for our labels instead of "backport <branch>"
-          label_pattern: "^cherry-pick/([^ ]+)$"
-          # Label the created PR(s)
+          git_committer_name: paradedb[bot]
+          git_committer_email: developers@paradedb.com
+          add_author_as_assignee: true
           add_labels: automated-cherry-pick
-          # Create a draft PR even when cherry-pick conflicts
+          label_pattern: "^cherry-pick/([^ ]+)$"
           experimental: |
             {
               "conflict_resolution": "draft_commit_conflicts"

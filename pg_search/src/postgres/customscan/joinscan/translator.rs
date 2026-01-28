@@ -303,8 +303,13 @@ impl<'a> PredicateTranslator<'a> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // Check if the var belongs to one of the relations we are handling
-        if varno != self.outer_rti && varno != self.inner_rti {
+        // Check if the var belongs to one of the relations we are handling.
+        // INDEX_VAR is allowed because it represents a reference to the custom scan's output,
+        // which contains the columns from both sides of the join.
+        if varno != self.outer_rti
+            && varno != self.inner_rti
+            && varno != pg_sys::INDEX_VAR as pg_sys::Index
+        {
             // Reference to a relation outside the join?
             return None;
         }

@@ -383,7 +383,7 @@ unsafe fn all_vars_are_fast_fields(
     outer_side: &JoinSideInfo,
     inner_side: &JoinSideInfo,
 ) -> bool {
-    let vars = expr_collect_vars(node);
+    let vars = expr_collect_vars(node, false);
 
     for var_ref in vars {
         // Determine which side this var belongs to

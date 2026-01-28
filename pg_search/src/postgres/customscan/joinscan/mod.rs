@@ -765,7 +765,10 @@ impl CustomScan for JoinScan {
                     state.custom_state_mut().build_heaprel = Some(heaprel);
                 }
 
-                let private_data = PrivateData::new(join_clause.clone());
+                let mut private_data = PrivateData::new(join_clause.clone());
+                // output_columns is needed to map INDEX_VARs (from multi-table predicates)
+                // back to their original columns during plan building.
+                private_data.output_columns = state.custom_state().output_columns.clone();
 
                 let plan = JoinScanPlanBuilder::build(
                     &join_clause,

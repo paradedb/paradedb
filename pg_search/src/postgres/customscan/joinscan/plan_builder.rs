@@ -33,7 +33,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::joinscan::build::{
     JoinCSClause, JoinLevelSearchPredicate, JoinSideInfo,
 };
-use crate::postgres::customscan::joinscan::privdat::PrivateData;
+use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, PrivateData};
 use crate::postgres::customscan::joinscan::translator::{ColumnMapper, PredicateTranslator};
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -79,14 +79,53 @@ impl SideSchema {
 
 /// Helper to map PostgreSQL variables to DataFusion column indices across both sides
 /// of the join. Used during predicate translation.
-struct CombinedMapper {
+///
+/// `output_columns` is used to resolve `INDEX_VAR` references. These variables
+/// point to the output columns of the custom scan itself, and must be mapped
+/// back to the original source relation (outer or inner) and its attribute
+/// to find the correct column in the DataFusion plan.
+struct CombinedMapper<'a> {
     outer: SideSchema,
     inner: SideSchema,
     outer_len: usize,
+    output_columns: &'a [OutputColumnInfo],
 }
 
-impl ColumnMapper for CombinedMapper {
+impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<usize> {
+        // Handle INDEX_VAR references which point to the custom scan output columns
+        if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            let idx = (varattno - 1) as usize;
+            if idx >= self.output_columns.len() {
+                return None;
+            }
+            let info = &self.output_columns[idx];
+
+            if info.is_outer {
+                if info.is_score {
+                    // Find score field in outer schema
+                    return self
+                        .outer
+                        .fields
+                        .iter()
+                        .position(|f| matches!(f, WhichFastField::Score));
+                } else {
+                    return self.outer.attno_to_index.get(&info.original_attno).copied();
+                }
+            } else {
+                // Inner side
+                let inner_idx = if info.is_score {
+                    self.inner
+                        .fields
+                        .iter()
+                        .position(|f| matches!(f, WhichFastField::Score))
+                } else {
+                    self.inner.attno_to_index.get(&info.original_attno).copied()
+                };
+                return inner_idx.map(|i| i + self.outer_len);
+            }
+        }
+
         if varno == self.outer.rti {
             self.outer.attno_to_index.get(&varattno).copied()
         } else if varno == self.inner.rti {
@@ -109,7 +148,7 @@ impl JoinScanPlanBuilder {
     /// - Inner side columns, starting with `ctid` (u64)
     pub unsafe fn build(
         join_clause: &JoinCSClause,
-        _private_data: &PrivateData,
+        private_data: &PrivateData,
         custom_exprs: *mut pg_sys::List,
         snapshot: pg_sys::Snapshot,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -128,9 +167,23 @@ impl JoinScanPlanBuilder {
         // 2. Collect fields for filters
         let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
         for expr_node in expr_list.iter_ptr() {
-            let vars = expr_collect_vars(expr_node);
+            let vars = expr_collect_vars(expr_node, true);
             for var in vars {
-                if var.rti == outer_rti {
+                if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
+                    // Resolve INDEX_VAR to original table column
+                    let idx = (var.attno - 1) as usize;
+                    if let Some(info) = private_data.output_columns.get(idx) {
+                        if info.original_attno > 0 {
+                            if info.is_outer {
+                                outer_schema
+                                    .add_field(info.original_attno, &join_clause.outer_side);
+                            } else {
+                                inner_schema
+                                    .add_field(info.original_attno, &join_clause.inner_side);
+                            }
+                        }
+                    }
+                } else if var.rti == outer_rti {
                     outer_schema.add_field(var.attno, &join_clause.outer_side);
                 } else if var.rti == inner_rti {
                     inner_schema.add_field(var.attno, &join_clause.inner_side);
@@ -190,6 +243,7 @@ impl JoinScanPlanBuilder {
                 outer: outer_schema,
                 inner: inner_schema,
                 outer_len,
+                output_columns: &private_data.output_columns,
             };
 
             let translator = PredicateTranslator::new(

@@ -1,0 +1,109 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CREATE TABLE test_table (
+    id SERIAL PRIMARY KEY,
+    text TEXT
+);
+INSERT INTO test_table (text) VALUES
+    ('Hello, world!'),
+    ('Hello, world!');
+CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.unicode_words('ascii_folding=true'))) WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Limit
+   ->  GroupAggregate
+         Group Key: text
+         ->  Sort
+               Sort Key: text
+               ->  Custom Scan (ParadeDB Scan) on test_table
+                     Table: test_table
+                     Index: idx_test_table
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: text
+         ->  Custom Scan (ParadeDB Scan) on test_table
+               Table: test_table
+               Index: idx_test_table
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+DROP INDEX idx_test_table;
+CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.literal_normalized('ascii_folding=true'))) WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on test_table
+         Index: idx_test_table
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
+           Group By: text
+           Limit: 5
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"text","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on test_table
+         Table: test_table
+         Index: idx_test_table
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: text asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+DROP INDEX idx_test_table;
+CREATE INDEX idx_test_table ON test_table USING bm25 (id, (text::pdb.literal)) WITH (key_field='id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE id @@@ pdb.all() GROUP BY text ORDER BY text LIMIT 5;
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on test_table
+         Index: idx_test_table
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: CUSTOM_AGG({"value_count":{"field":"id"}})
+           Group By: text
+           Limit: 5
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"value_count":{"field":"id","missing":null}}},"terms":{"field":"text","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on test_table
+         Table: test_table
+         Index: idx_test_table
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: text asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+DROP TABLE test_table;

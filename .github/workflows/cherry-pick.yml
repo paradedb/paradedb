@@ -1,37 +1,22 @@
 name: Cherry Pick
 
 on:
-  pull_request:
+  pull_request_target: # pull_request_target enables cherry-picks from forked repos
     branches:
       - main
     types: [closed]
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  get-branches:
-    name: Get Cherry Pick Branches
-    if: github.event.pull_request.merged == true
+  backport:
+    name: Backport (Cherry Pick)
+    if: >
+      github.event.pull_request.merged == true &&
+      contains(join(github.event.pull_request.labels.*.name, ','), 'cherry-pick/')
     runs-on: ubuntu-latest
-    outputs:
-      branches: ${{ steps.set-branches.outputs.branches }}
-
-    steps:
-      - name: Set cherry-pick branches
-        id: set-branches
-        run: |
-          labels='${{ toJSON(github.event.pull_request.labels.*.name) }}'
-          branches=$(echo "$labels" | jq -c '[.[] | select(startswith("cherry-pick/")) | sub("cherry-pick/"; "")]')
-          echo "branches=${branches}" >> $GITHUB_OUTPUT
-
-  cherry-pick:
-    name: Cherry Pick
-    needs: [get-branches]
-    if: needs.get-branches.outputs.branches != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        branch: ${{ fromJSON(needs.get-branches.outputs.branches) }}
-
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
@@ -39,10 +24,16 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
-      - name: Cherry Pick to ${{ matrix.branch }}
-        uses: carloscastrojumo/github-cherry-pick-action@v1
+      - name: Backport based on cherry-pick/<branch> labels
+        uses: korthout/backport-action@v4
         with:
-          branch: ${{ matrix.branch }}
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          inherit_labels: false
-          labels: automated-cherry-pick
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          git_committer_name: paradedb[bot]
+          git_committer_email: developers@paradedb.com
+          add_author_as_assignee: true
+          add_labels: automated-cherry-pick
+          label_pattern: "^cherry-pick/([^ ]+)$"
+          experimental: |
+            {
+              "conflict_resolution": "draft_commit_conflicts"
+            }

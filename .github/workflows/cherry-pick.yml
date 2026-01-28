@@ -32,6 +32,7 @@ jobs:
           git_committer_email: developers@paradedb.com
           add_author_as_assignee: true
           add_labels: automated-cherry-pick
+          pull_title: "${pull_title}"
           label_pattern: "^cherry-pick/([^ ]+)$"
           experimental: |
             {

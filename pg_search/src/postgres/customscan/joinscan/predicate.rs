@@ -27,6 +27,7 @@
 
 use super::build::{JoinCSClause, JoinLevelExpr, JoinSide, JoinSideInfo};
 use super::explain::format_expr_for_explain;
+use super::translator::PredicateTranslator;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
@@ -121,6 +122,16 @@ pub(super) unsafe fn extract_join_level_conditions(
                     format_expr_for_explain(clause.cast())
                 ));
             }
+
+            // Check if the predicate can be translated to DataFusion
+            let translator = PredicateTranslator::new(outer_side, inner_side, outer_rti, inner_rti);
+            if translator.translate(clause.cast()).is_none() {
+                return Err(format!(
+                    "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
+                    format_expr_for_explain(clause.cast())
+                ));
+            }
+
             // Create a MultiTablePredicate leaf node
             let description = format_expr_for_explain(clause.cast());
             let predicate_idx = join_clause
@@ -201,6 +212,16 @@ pub(super) unsafe fn transform_to_search_expr(
         if !all_vars_are_fast_fields(node, outer_rti, inner_rti, outer_side, inner_side) {
             pgrx::debug1!(
                 "JoinScan: multi-table predicate '{}' references non-fast-field columns, rejecting",
+                format_expr_for_explain(node)
+            );
+            return None;
+        }
+
+        // Check if the predicate can be translated to DataFusion
+        let translator = PredicateTranslator::new(outer_side, inner_side, outer_rti, inner_rti);
+        if translator.translate(node).is_none() {
+            pgrx::debug1!(
+                "JoinScan: multi-table predicate '{}' cannot be executed by DataFusion, rejecting",
                 format_expr_for_explain(node)
             );
             return None;
@@ -362,7 +383,7 @@ unsafe fn all_vars_are_fast_fields(
     outer_side: &JoinSideInfo,
     inner_side: &JoinSideInfo,
 ) -> bool {
-    let vars = expr_collect_vars(node);
+    let vars = expr_collect_vars(node, false);
 
     for var_ref in vars {
         // Determine which side this var belongs to

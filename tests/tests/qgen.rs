@@ -530,9 +530,14 @@ async fn generated_joinscan(database: Db) {
     // Text columns for BM25 WHERE clauses
     let text_columns = columns_named(vec!["name"]);
     // Numeric columns for join keys and cross-relation predicates
-    let join_key_columns = vec!["id", "age"];
-    // Unused until HeapCondition is re-enabled
-    let _numeric_columns = ["age", "price"];
+    let join_key_columns = vec!["id", "age", "uuid"];
+    // Columns for cross relation expressions.
+    let numeric_columns = [
+        "age",
+        // TODO: We cannot pull up `NUMERIC` columns as fast fields until
+        // https://github.com/paradedb/paradedb/issues/2968 is resolved.
+        // "price"
+    ];
 
     proptest!(|(
         // Test 2-table joins only (JoinScan doesn't support 3+ table joins yet)
@@ -544,7 +549,7 @@ async fn generated_joinscan(database: Db) {
         inner_bm25 in arb_wheres(vec![all_tables[1]], &text_columns),
         // HeapCondition (cross-relation predicate)
         include_heap_condition in proptest::bool::ANY,
-        heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], _numeric_columns.to_vec()),
+        heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
         // Result limit
         limit in 1..=50usize,
     )| {

@@ -356,7 +356,25 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    match inner_compare(pg_query, bm25_query, gucs, conn, run_query) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        inner_compare(pg_query, bm25_query, gucs, conn, run_query)
+    }));
+
+    let inner_result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                format!("Panic: {}", s)
+            } else if let Some(s) = e.downcast_ref::<String>() {
+                format!("Panic: {}", s)
+            } else {
+                "Panic occurred".to_string()
+            };
+            Err(TestCaseError::fail(msg))
+        }
+    };
+
+    match inner_result {
         Ok(()) => Ok(()),
         Err(e) => Err(handle_compare_error(
             e, pg_query, bm25_query, gucs, setup_sql,
@@ -421,6 +439,7 @@ pub fn handle_compare_error(
     let failure_type = if error_msg.contains("error returned from database")
         || error_msg.contains("SQL execution error")
         || error_msg.contains("syntax error")
+        || error_msg.contains("Panic")
     {
         "QUERY EXECUTION FAILURE"
     } else {

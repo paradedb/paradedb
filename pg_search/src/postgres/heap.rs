@@ -292,43 +292,6 @@ crate::impl_safe_drop!(HeapFetchState, |self| {
     }
 });
 
-/// A [`VisibilityChecker`] that owns its slot.
-///
-/// This is useful when you need to check visibility of ctids and extract current heap locations,
-/// but don't have an existing slot to use. The slot is automatically cleaned up on drop.
-pub struct OwnedVisibilityChecker {
-    checker: VisibilityChecker,
-    slot: *mut pg_sys::TupleTableSlot,
-}
-
-impl OwnedVisibilityChecker {
-    /// Create a new `OwnedVisibilityChecker` for the given heap relation and snapshot.
-    pub fn new(heaprel: &PgSearchRelation, snapshot: pg_sys::Snapshot) -> Self {
-        unsafe {
-            let checker = VisibilityChecker::with_rel_and_snap(heaprel, snapshot);
-            let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-            Self { checker, slot }
-        }
-    }
-
-    /// Check if a ctid from an index is visible, and return its current heap location.
-    ///
-    /// Returns `Some(current_ctid)` if the tuple is visible, `None` if deleted/not visible.
-    /// The returned ctid may differ from the input ctid if the tuple moved after UPDATE.
-    pub fn get_current_ctid(&mut self, index_ctid: u64) -> Option<u64> {
-        self.checker.get_current_ctid(index_ctid, self.slot)
-    }
-}
-
-crate::impl_safe_drop!(OwnedVisibilityChecker, |self| {
-    unsafe {
-        if !crate::postgres::utils::IsTransactionState() {
-            return;
-        }
-        pg_sys::ExecDropSingleTupleTableSlot(self.slot);
-    }
-});
-
 /// A wrapper for expression evaluation state.
 #[derive(Debug)]
 pub struct ExpressionState {

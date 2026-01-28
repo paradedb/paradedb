@@ -1057,13 +1057,13 @@ fn parse_sort_key(input: &str) -> SortByField {
         (SortByDirection::Desc, false) => {} // DESC NULLS LAST - OK
         (SortByDirection::Asc, false) => {
             panic!(
-                "invalid sort_by value: ASC only supports NULLS FIRST (Tantivy limitation). \
+                "invalid sort_by value: ASC only supports NULLS FIRST currently. \
                  Use 'field ASC NULLS FIRST'"
             )
         }
         (SortByDirection::Desc, true) => {
             panic!(
-                "invalid sort_by value: DESC only supports NULLS LAST (Tantivy limitation). \
+                "invalid sort_by value: DESC only supports NULLS LAST currently. \
                  Use 'field DESC NULLS LAST'"
             )
         }

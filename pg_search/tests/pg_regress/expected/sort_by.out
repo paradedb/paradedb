@@ -575,13 +575,13 @@ Test 5.4a: sort_by with ASC NULLS LAST (should error - Tantivy uses NULLS FIRST 
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', sort_by='id ASC NULLS LAST');
-ERROR:  invalid sort_by value: ASC only supports NULLS FIRST (Tantivy limitation). Use 'field ASC NULLS FIRST'
+ERROR:  invalid sort_by value: ASC only supports NULLS FIRST currently. Use 'field ASC NULLS FIRST'
 \echo 'Test 5.4b: sort_by with DESC NULLS FIRST (should error - Tantivy uses NULLS LAST for DESC)'
 Test 5.4b: sort_by with DESC NULLS FIRST (should error - Tantivy uses NULLS LAST for DESC)
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', sort_by='id DESC NULLS FIRST');
-ERROR:  invalid sort_by value: DESC only supports NULLS LAST (Tantivy limitation). Use 'field DESC NULLS LAST'
+ERROR:  invalid sort_by value: DESC only supports NULLS LAST currently. Use 'field DESC NULLS LAST'
 \echo 'Test 5.5: sort_by with multiple fields (should error - not supported)'
 Test 5.5: sort_by with multiple fields (should error - not supported)
 CREATE INDEX sort_by_test_idx ON sort_by_test

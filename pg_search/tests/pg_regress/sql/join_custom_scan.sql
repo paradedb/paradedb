@@ -120,6 +120,7 @@ ORDER BY p.id
 LIMIT 5;
 
 -- Query with LIMIT, predicate only on suppliers
+-- NOTE: The ORDER-BY column is not in the target list here.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -685,11 +686,11 @@ WHERE i.type_id = 0
 ORDER BY i.id;
 
 -- =============================================================================
--- TEST 18: Memory fallback to nested loop (small work_mem)
+-- TEST 18: Memory Limit Enforcement (Expect OOM)
 -- =============================================================================
 
--- Save current work_mem and set very small value to trigger fallback
--- Note: This test may still use hash join if the data is small enough
+-- Save current work_mem and set very small value to trigger OOM
+-- Note: This verifies that we enforce memory limits and error out because spilling is not implemented
 SET work_mem = '64kB';
 
 -- Create larger dataset to potentially trigger memory limit
@@ -1055,11 +1056,11 @@ ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 -- =============================================================================
--- TEST 19: Memory overflow - nested loop fallback
+-- TEST 19: Memory Limit Enforcement (Expect OOM)
 -- =============================================================================
--- Verify JoinScan gracefully handles memory overflow by falling back to nested loop
--- Note: This is a functional test, not a stress test. We just verify the query
--- completes correctly even with constrained work_mem.
+-- Verify JoinScan handles memory overflow by erroring out (OOM)
+-- Note: This is a functional test to ensure we don't crash when memory is exceeded.
+-- Since spilling is not implemented, we expect an OOM error.
 
 DROP TABLE IF EXISTS mem_test_products CASCADE;
 DROP TABLE IF EXISTS mem_test_suppliers CASCADE;
@@ -1213,6 +1214,7 @@ CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING bm25 (account_n
 WITH (key_field = 'account_num');
 
 -- JoinScan with NUMERIC join keys
+-- TODO: Not yet pushed down: see https://github.com/paradedb/paradedb/issues/2968
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
@@ -1689,6 +1691,42 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 25: Mixed-case column names (regression test for quoting issues)
+-- =============================================================================
+-- Verify JoinScan handles mixed-case column names correctly in join keys and sort
+DROP TABLE IF EXISTS "MixedCaseTable" CASCADE;
+
+CREATE TABLE "MixedCaseTable" (
+    "ID" INTEGER PRIMARY KEY,
+    "Content" TEXT,
+    "JoinKey" INTEGER
+);
+
+-- Note: Suppliers table exists from setup (IDs 151-154)
+INSERT INTO "MixedCaseTable" ("ID", "Content", "JoinKey") VALUES (1, 'wireless', 151);
+
+-- Note: "JoinKey" must be a fast field
+CREATE INDEX mixed_case_bm25_idx ON "MixedCaseTable" USING bm25 ("ID", "Content", "JoinKey")
+WITH (key_field = 'ID', numeric_fields = '{"JoinKey": {"fast": true}}');
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT m."Content", s.name
+FROM "MixedCaseTable" m
+JOIN suppliers s ON m."JoinKey" = s.id
+WHERE m."Content" @@@ 'wireless'
+ORDER BY m."ID"
+LIMIT 5;
+
+SELECT m."Content", s.name
+FROM "MixedCaseTable" m
+JOIN suppliers s ON m."JoinKey" = s.id
+WHERE m."Content" @@@ 'wireless'
+ORDER BY m."ID"
+LIMIT 5;
+
+DROP TABLE "MixedCaseTable";
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -1727,6 +1765,7 @@ DROP TABLE IF EXISTS tiny_products CASCADE;
 DROP TABLE IF EXISTS tiny_refs CASCADE;
 DROP TABLE IF EXISTS hint_test_products CASCADE;
 DROP TABLE IF EXISTS hint_test_categories CASCADE;
+
 
 RESET max_parallel_workers_per_gather;
 RESET enable_indexscan;

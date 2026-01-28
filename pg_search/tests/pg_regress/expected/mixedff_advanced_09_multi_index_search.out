@@ -457,7 +457,7 @@ LIMIT 10;
                            Table: products
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, price, id
+                           Fast Fields: price, name, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -923,7 +923,7 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Table: products
                                  Index: products_idx
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, price, id
+                                 Fast Fields: price, name, id
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
 (24 rows)

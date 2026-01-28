@@ -22,6 +22,7 @@ mod bootstrap;
 mod index;
 mod postgres;
 mod query;
+pub(crate) mod scan;
 mod schema;
 
 pub mod gucs;

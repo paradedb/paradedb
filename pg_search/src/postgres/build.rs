@@ -22,7 +22,7 @@ use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
-use crate::schema::{SearchFieldConfig, SearchFieldType};
+use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::schema::Schema;
@@ -285,10 +285,154 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 
     let schema = builder.build();
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
+
+    // Configure sort_by for segment sorting
+    let sort_by_field = SearchIndexSchema::build_sort_by_field(&options.sort_by(), &schema);
+
     let settings = IndexSettings {
+        sort_by_field,
         docstore_compress_dedicated_thread: false,
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;
     Ok(())
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::api::FieldName;
+    use crate::postgres::options::{SortByDirection, SortByField};
+    use pgrx::pg_test;
+    use tantivy::index::Order;
+    use tantivy::schema::{NumericOptions, Schema, FAST};
+
+    #[pg_test]
+    fn test_build_sort_by_field_empty() {
+        let schema = Schema::builder().build();
+        let result = SearchIndexSchema::build_sort_by_field(&[], &schema);
+        assert!(result.is_none());
+    }
+
+    #[pg_test]
+    fn test_build_sort_by_field_asc() {
+        let mut builder = Schema::builder();
+        builder.add_i64_field("score", FAST);
+        let schema = builder.build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from("score".to_string()),
+            SortByDirection::Asc,
+        )];
+
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+        assert!(result.is_some());
+        let sort_field = result.unwrap();
+        assert_eq!(sort_field.field, "score");
+        assert_eq!(sort_field.order, Order::Asc);
+    }
+
+    #[pg_test]
+    fn test_build_sort_by_field_desc() {
+        let mut builder = Schema::builder();
+        builder.add_i64_field("score", FAST);
+        let schema = builder.build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from("score".to_string()),
+            SortByDirection::Desc,
+        )];
+
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+        assert!(result.is_some());
+        let sort_field = result.unwrap();
+        assert_eq!(sort_field.field, "score");
+        assert_eq!(sort_field.order, Order::Desc);
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "does not exist")]
+    fn test_build_sort_by_field_nonexistent() {
+        let schema = Schema::builder().build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from("nonexistent".to_string()),
+            SortByDirection::Asc,
+        )];
+
+        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "fast field")]
+    fn test_build_sort_by_field_not_fast() {
+        let mut builder = Schema::builder();
+        // Add field without FAST flag
+        builder.add_i64_field("score", NumericOptions::default());
+        let schema = builder.build();
+
+        let sort_by = vec![SortByField::new(
+            FieldName::from("score".to_string()),
+            SortByDirection::Asc,
+        )];
+
+        SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+    }
+
+    #[pg_test]
+    fn test_build_sort_by_field_ctid_explicit() {
+        let mut builder = Schema::builder();
+        builder.add_u64_field("ctid", FAST);
+        let schema = builder.build();
+
+        // Explicit ctid sort_by
+        let sort_by = vec![SortByField::new(
+            FieldName::from("ctid".to_string()),
+            SortByDirection::Asc,
+        )];
+
+        let result = SearchIndexSchema::build_sort_by_field(&sort_by, &schema);
+        assert!(result.is_some());
+        let sort_field = result.unwrap();
+        assert_eq!(sort_field.field, "ctid");
+        assert_eq!(sort_field.order, Order::Asc);
+    }
+
+    // Note: Multi-field validation test moved to options.rs (parse_sort_by_string)
+
+    #[pg_test]
+    fn test_tantivy_index_receives_sort_settings() {
+        use tantivy::directory::RamDirectory;
+        use tantivy::index::IndexSortByField;
+
+        // Build schema with fast field
+        let mut builder = Schema::builder();
+        builder.add_i64_field("score", FAST);
+        builder.add_text_field("name", tantivy::schema::TEXT);
+        let schema = builder.build();
+
+        // Create sort_by configuration
+        let sort_by_field = Some(IndexSortByField {
+            field: "score".to_string(),
+            order: Order::Desc,
+        });
+
+        // Create index with sort settings
+        let settings = IndexSettings {
+            sort_by_field,
+            docstore_compress_dedicated_thread: false,
+            ..IndexSettings::default()
+        };
+
+        let directory = RamDirectory::create();
+        let index = Index::create(directory, schema, settings).unwrap();
+
+        // Verify settings were stored
+        let stored_settings = index.settings();
+        assert!(stored_settings.sort_by_field.is_some());
+        let sort_field = stored_settings.sort_by_field.as_ref().unwrap();
+        assert_eq!(sort_field.field, "score");
+        assert_eq!(sort_field.order, Order::Desc);
+    }
 }

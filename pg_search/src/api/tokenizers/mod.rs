@@ -128,7 +128,8 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let (fast, fieldnorms, record) = if type_name == "literal" {
+    let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
+    {
         // non-tokenized fields get to be fast
         (true, false, IndexRecordOption::Basic)
     } else {

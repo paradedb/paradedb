@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Derive Short Commit
         id: commit_info

@@ -54,6 +54,9 @@ pub struct Column {
     pub is_indexed: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
+    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
+    /// When set, this is used instead of bm25_options JSON config.
+    pub index_expression: Option<&'static str>,
 }
 
 impl Column {
@@ -72,6 +75,7 @@ impl Column {
             is_indexed: true,
             bm25_options: None,
             random_generator_sql: "NULL",
+            index_expression: None,
         }
     }
 
@@ -116,6 +120,13 @@ impl Column {
         self.random_generator_sql = random_generator_sql;
         self
     }
+
+    /// V2 syntax: set index expression, e.g. "(column::pdb.literal_normalized)"
+    /// When set, this is used instead of bm25_options JSON config.
+    pub const fn bm25_v2_expression(mut self, expression: &'static str) -> Self {
+        self.index_expression = Some(expression);
+        self
+    }
 }
 
 pub fn generated_queries_setup(
@@ -145,10 +156,17 @@ pub fn generated_queries_setup(
         .join(", \n");
 
     // For bm25 index
+    // Columns with index_expression use v2 syntax, others use just the name
     let bm25_columns = columns_def
         .iter()
         .filter(|c| c.is_indexed)
-        .map(|c| c.name)
+        .map(|c| {
+            if let Some(expr) = c.index_expression {
+                expr.to_string()
+            } else {
+                c.name.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let key_field = columns_def
@@ -157,18 +175,20 @@ pub fn generated_queries_setup(
         .map(|c| c.name)
         .expect("At least one column must be a primary key");
 
+    // Only include columns without index_expression in text_fields (v1 syntax)
     let text_fields = columns_def
         .iter()
-        .filter(|c| c.is_indexed)
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
         .filter_map(|c| c.bm25_options.as_ref())
         .filter(|o| o.field_type == "text_fields")
         .map(|o| o.config_json)
         .collect::<Vec<_>>()
         .join(",\n");
 
+    // Only include columns without index_expression in numeric_fields (v1 syntax)
     let numeric_fields = columns_def
         .iter()
-        .filter(|c| c.is_indexed)
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
         .filter_map(|c| c.bm25_options.as_ref())
         .filter(|o| o.field_type == "numeric_fields")
         .map(|o| o.config_json)

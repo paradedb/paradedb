@@ -95,6 +95,17 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
+    Column::new("literal_normalized", "TEXT", "'Hello World'")
+        .whereable({
+            // literal_normalized lowercases text, so BM25 @@@ would match case-insensitively
+            // while PostgreSQL = does exact matching. This causes test failures when comparing
+            // results, so we exclude it from WHERE clause testing.
+            false
+        })
+        .bm25_v2_expression("(literal_normalized::pdb.literal_normalized)")
+        .random_generator_sql(
+            "(ARRAY ['Hello World', 'HELLO WORLD', 'hello world', 'HeLLo WoRLD', 'GOODBYE WORLD', 'goodbye world']::text[])[(floor(random() * 6) + 1)::int]"
+        ),
 ];
 
 fn columns_named(names: Vec<&'static str>) -> Vec<Column> {

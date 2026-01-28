@@ -494,12 +494,6 @@ impl SearchField {
             #[allow(deprecated)]
             FieldType::Str(options) => {
                 options.is_fast()
-                    // todo: support ordering by a literal_normalized field
-                    // since those now default to fast
-                    && matches!(
-                        self.field_config().tokenizer(),
-                        Some(SearchTokenizer::Keyword) | Some(SearchTokenizer::KeywordDeprecated) | Some(SearchTokenizer::Raw(..))
-                    )
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
             }
             FieldType::I64(options) => options.is_fast(),

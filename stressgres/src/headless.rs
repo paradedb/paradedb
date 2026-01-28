@@ -1,4 +1,4 @@
-use crate::runner::SuiteRunner;
+use crate::runner::{SuiteRunner, HARDCODED_IGNORE_ERRORS};
 use crate::MetricsLine;
 use postgres::Row;
 use rust_decimal::prelude::ToPrimitive;
@@ -150,11 +150,13 @@ pub fn run(
             let mut reported_errors = 0;
             for error in errors {
                 let errstr = error.to_string();
-                if errstr.contains("failed to merge: User requested cancel")
-                    || errstr.contains("Merge cancelled")
-                    || errstr.contains("canceling statement due to conflict with recovery")
+                if HARDCODED_IGNORE_ERRORS.iter().any(|p| errstr.contains(p))
+                    || suite_runner
+                        .suite()
+                        .ignore_errors()
+                        .iter()
+                        .any(|pattern| errstr.contains(pattern))
                 {
-                    // hack to detect this error message -- it's harmless and shouldn't cause an unsuccessful exit
                     eprintln!("IGNORING TERMINATION ERROR: {errstr}");
                     continue;
                 }

@@ -251,28 +251,31 @@ mod pdb {
     pub fn range_numeric(range: Range<AnyNumeric>) -> pdb::Query {
         match range.into_inner() {
             None => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::F64(0.0)),
-                upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
+                // Empty range - use empty string as placeholder
+                lower_bound: Bound::Included(OwnedValue::Str("0".to_string())),
+                upper_bound: Bound::Excluded(OwnedValue::Str("0".to_string())),
                 is_datetime: false,
             },
             Some((lower, upper)) => pdb::Query::Range {
+                // Store as string to preserve full NUMERIC precision until the query processor
+                // can determine the target field type (Numeric64, NumericBytes, F64, etc.)
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                        n.try_into().expect("numeric should be a valid f64"),
-                    )),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                        n.try_into().expect("numeric should be a valid f64"),
-                    )),
+                    RangeBound::Inclusive(n) => {
+                        Bound::Included(OwnedValue::Str(n.normalize().to_string()))
+                    }
+                    RangeBound::Exclusive(n) => {
+                        Bound::Excluded(OwnedValue::Str(n.normalize().to_string()))
+                    }
                 },
                 upper_bound: match upper {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                        n.try_into().expect("numeric should be a valid f64"),
-                    )),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                        n.try_into().expect("numeric should be a valid f64"),
-                    )),
+                    RangeBound::Inclusive(n) => {
+                        Bound::Included(OwnedValue::Str(n.normalize().to_string()))
+                    }
+                    RangeBound::Exclusive(n) => {
+                        Bound::Excluded(OwnedValue::Str(n.normalize().to_string()))
+                    }
                 },
                 is_datetime: false,
             },

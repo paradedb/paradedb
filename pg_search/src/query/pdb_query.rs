@@ -23,7 +23,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
-use crate::schema::{IndexRecordOption, SearchIndexSchema};
+use crate::schema::{IndexRecordOption, SearchFieldType, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -690,17 +690,38 @@ fn term_set(
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
+    let search_field_type = search_field.field_type();
 
-    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
-        value_to_term(
-            tantivy_field,
-            &term,
-            field_type,
-            field.path().as_deref(),
-            is_date_time,
-        )
-        .expect("could not convert argument to search term")
-    }))))
+    // Convert terms based on field type (same logic as term())
+    let converted_terms: Vec<OwnedValue> = terms
+        .into_iter()
+        .map(|term| match search_field_type {
+            SearchFieldType::Numeric64(_, scale) => {
+                scale_numeric_value(term, scale).unwrap_or(OwnedValue::Null)
+            }
+            SearchFieldType::NumericBytes(_) => {
+                numeric_value_to_bytes(term).unwrap_or(OwnedValue::Null)
+            }
+            SearchFieldType::Json(_) => convert_string_to_json_numeric(term),
+            SearchFieldType::I64(_) => convert_string_to_i64(term),
+            SearchFieldType::U64(_) => convert_string_to_u64(term),
+            SearchFieldType::F64(_) => convert_string_to_f64(term),
+            _ => term,
+        })
+        .collect();
+
+    Ok(Box::new(TermSetQuery::new(
+        converted_terms.into_iter().map(|term| {
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                is_date_time,
+            )
+            .expect("could not convert argument to search term")
+        }),
+    )))
 }
 
 fn term(
@@ -715,9 +736,41 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
+
+    // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
+    let value = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale value for I64 fixed-point storage
+            scale_numeric_value(value.clone(), scale)?
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert value to lexicographically sortable bytes
+            numeric_value_to_bytes(value.clone())?
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            convert_string_to_json_numeric(value.clone())
+        }
+        SearchFieldType::I64(_) => {
+            // Convert string numeric values to I64
+            convert_string_to_i64(value.clone())
+        }
+        SearchFieldType::U64(_) => {
+            // Convert string numeric values to U64
+            convert_string_to_u64(value.clone())
+        }
+        SearchFieldType::F64(_) => {
+            // Convert string numeric values to F64
+            convert_string_to_f64(value.clone())
+        }
+        _ => value.clone(),
+    };
+
     let term = value_to_term(
         search_field.field(),
-        value,
+        &value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -928,6 +981,14 @@ fn range_term(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Convert numeric values to appropriate types based on range field type.
+    // Range fields are indexed as JSON with specific element types:
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+    // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
+    // - Date/time ranges: handled by is_datetime flag
+    let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
+
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
@@ -949,7 +1010,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_lower_bound(value, Comparison::GreaterThanOrEqual)?,
+                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -964,7 +1025,7 @@ fn range_term(
                         (
                             Occur::Must,
                             Box::new(
-                                range_field.compare_lower_bound(value, Comparison::GreaterThan)?,
+                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
                             ),
                         ),
                     ])),
@@ -992,7 +1053,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_upper_bound(value, Comparison::LessThanOrEqual)?,
+                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -1006,7 +1067,9 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(value, Comparison::LessThan)?),
+                            Box::new(
+                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
+                            ),
                         ),
                     ])),
                 ),
@@ -1349,10 +1412,51 @@ fn range(
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
 
-    let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
-    let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
+    let (lower_bound, upper_bound) = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale bounds for I64 fixed-point storage
+            let lower = scale_numeric_bound(lower_bound, scale)?;
+            let upper = scale_numeric_bound(upper_bound, scale)?;
+            (lower, upper)
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert bounds to lexicographically sortable bytes
+            let lower = numeric_bound_to_bytes(lower_bound)?;
+            let upper = numeric_bound_to_bytes(upper_bound)?;
+            (lower, upper)
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            let lower = convert_bound_to_json_numeric(lower_bound);
+            let upper = convert_bound_to_json_numeric(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::I64(_) => {
+            let lower = convert_bound_to_i64(lower_bound);
+            let upper = convert_bound_to_i64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::U64(_) => {
+            let lower = convert_bound_to_u64(lower_bound);
+            let upper = convert_bound_to_u64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::F64(_) => {
+            let lower = convert_bound_to_f64(lower_bound);
+            let upper = convert_bound_to_f64(upper_bound);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        _ => {
+            // Standard path for other field types
+            let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
+            let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
+            check_range_bounds(typeoid, lower_bound, upper_bound)?
+        }
+    };
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1391,6 +1495,261 @@ fn range(
     };
 
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+}
+
+/// Scale a numeric bound value for Numeric64 (I64 fixed-point) storage.
+/// Converts the bound value to a scaled integer by multiplying by 10^scale.
+fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> anyhow::Result<Bound<OwnedValue>> {
+    use decimal_bytes::Decimal64NoScale;
+
+    fn scale_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+        let numeric_str = match &value {
+            OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+        };
+
+        let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to scale numeric value '{}' with scale {}: {:?}",
+                numeric_str,
+                scale,
+                e
+            )
+        })?;
+
+        Ok(OwnedValue::I64(decimal.value()))
+    }
+
+    Ok(match bound {
+        Bound::Included(value) => Bound::Included(scale_value(value, scale)?),
+        Bound::Excluded(value) => Bound::Excluded(scale_value(value, scale)?),
+        Bound::Unbounded => Bound::Unbounded,
+    })
+}
+
+/// Convert a numeric bound value to lexicographically sortable bytes for NumericBytes storage.
+fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> anyhow::Result<Bound<OwnedValue>> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    fn to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
+        let numeric_str = match &value {
+            OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => anyhow::bail!("Cannot convert non-numeric value to bytes: {:?}", value),
+        };
+
+        let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to convert numeric value '{}' to bytes: {:?}",
+                numeric_str,
+                e
+            )
+        })?;
+
+        Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+    }
+
+    Ok(match bound {
+        Bound::Included(value) => Bound::Included(to_bytes(value)?),
+        Bound::Excluded(value) => Bound::Excluded(to_bytes(value)?),
+        Bound::Unbounded => Bound::Unbounded,
+    })
+}
+
+/// Scale a numeric value for Numeric64 (I64 fixed-point) storage.
+fn scale_numeric_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal64NoScale;
+
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    };
+
+    let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to scale numeric value '{}' with scale {}: {:?}",
+            numeric_str,
+            scale,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::I64(decimal.value()))
+}
+
+/// Convert a numeric value to lexicographically sortable bytes for NumericBytes storage.
+fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(), // Preserve precision from string representation
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot convert non-numeric value to bytes: {:?}", value),
+    };
+
+    let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to convert numeric value '{}' to bytes: {:?}",
+            numeric_str,
+            e
+        )
+    })?;
+
+    Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+}
+
+/// Convert a string-encoded numeric value to the appropriate JSON type (I64 or F64).
+/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+fn convert_string_to_json_numeric(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        // Try to parse as a number
+        if let Ok(f) = s.parse::<f64>() {
+            // Use I64 for whole numbers to match JSON integer storage
+            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+                return OwnedValue::I64(f as i64);
+            }
+            return OwnedValue::F64(f);
+        }
+    }
+    // Return as-is if not a string or not parseable as a number
+    value
+}
+
+/// Convert a string-encoded numeric value to I64.
+fn convert_string_to_i64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            return OwnedValue::I64(f as i64);
+        }
+    }
+    value
+}
+
+/// Convert a string-encoded numeric value to U64.
+fn convert_string_to_u64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            if f >= 0.0 {
+                return OwnedValue::U64(f as u64);
+            }
+        }
+    }
+    value
+}
+
+/// Convert a string-encoded numeric value to F64.
+fn convert_string_to_f64(value: OwnedValue) -> OwnedValue {
+    if let OwnedValue::Str(s) = &value {
+        if let Ok(f) = s.parse::<f64>() {
+            return OwnedValue::F64(f);
+        }
+    }
+    value
+}
+
+/// Convert a bound with string-encoded numeric value to appropriate JSON type.
+fn convert_bound_to_json_numeric(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_json_numeric(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_json_numeric(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to I64.
+fn convert_bound_to_i64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_i64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_i64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to U64.
+fn convert_bound_to_u64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_u64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_u64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a bound with string-encoded numeric value to F64.
+fn convert_bound_to_f64(bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    match bound {
+        Bound::Included(v) => Bound::Included(convert_string_to_f64(v)),
+        Bound::Excluded(v) => Bound::Excluded(convert_string_to_f64(v)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+/// Convert a value for range field queries based on the range element type.
+/// Range fields are indexed with specific element types (see RangeToTantivyValue impls):
+/// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+/// - NUMRANGEOID: indexed as hex-encoded sortable bytes → convert to hex string
+/// - Date/time ranges: use datetime conversion
+fn convert_value_for_range_field(value: OwnedValue, field_type: &SearchFieldType) -> OwnedValue {
+    use decimal_bytes::Decimal;
+    use pgrx::pg_sys::BuiltinOid;
+    use std::str::FromStr;
+
+    // Get the OID to determine the range element type
+    let oid = match field_type {
+        SearchFieldType::Range(oid) => *oid,
+        _ => return value, // Not a range field, pass through
+    };
+
+    // Convert the value to a string representation for consistent parsing
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(),
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => return value, // Non-numeric types pass through unchanged
+    };
+
+    // Convert based on the range's element type
+    match oid.try_into() {
+        Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
+            // Integer ranges: parse directly to i64 to preserve precision
+            if let Ok(i) = numeric_str.parse::<i64>() {
+                return OwnedValue::I64(i);
+            }
+            // Fallback: try parsing as decimal for values with decimal points
+            if let Ok(f) = numeric_str.parse::<f64>() {
+                return OwnedValue::I64(f as i64);
+            }
+            value
+        }
+        Ok(BuiltinOid::NUMRANGEOID) => {
+            // Numeric ranges are indexed as hex-encoded sortable bytes (see SortableDecimal in range.rs).
+            // Convert the query value to the same format for correct comparison.
+            if let Ok(dec) = Decimal::from_str(&numeric_str) {
+                // Convert to hex-encoded sortable bytes - same format as indexing
+                let hex: String = dec
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+                return OwnedValue::Str(hex);
+            }
+            value
+        }
+        // Date/time ranges are handled by the is_datetime flag
+        _ => value,
+    }
 }
 
 fn tokenized_phrase(
@@ -1599,19 +1958,64 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     conjunction_mode: Option<bool>,
     fuzzy_data: Option<FuzzyData>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field)
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Handle Numeric64 and NumericBytes fields specially since Tantivy's QueryParser
+    // can't parse decimal strings for I64 fields or arbitrary precision for Bytes fields
+    match search_field.field_type() {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Parse the query string as a decimal and scale it for I64 storage
+            if let Ok(value) = query_string.trim().parse::<f64>() {
+                let scaled_value = scale_numeric_value(OwnedValue::F64(value), scale)?;
+                let field_type = search_field.field_entry().field_type();
+                let term = value_to_term(
+                    search_field.field(),
+                    &scaled_value,
+                    field_type,
+                    field.path().as_deref(),
+                    false,
+                )?;
+                return Ok(Box::new(TermQuery::new(
+                    term,
+                    IndexRecordOption::WithFreqsAndPositions.into(),
+                )));
+            }
+            // Fall through to regular parsing if not a valid decimal
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Parse the query string as a decimal and convert to bytes
+            if let Ok(value) = query_string.trim().parse::<f64>() {
+                let bytes_value = numeric_value_to_bytes(OwnedValue::F64(value))?;
+                let field_type = search_field.field_entry().field_type();
+                let term = value_to_term(
+                    search_field.field(),
+                    &bytes_value,
+                    field_type,
+                    field.path().as_deref(),
+                    false,
+                )?;
+                return Ok(Box::new(TermQuery::new(
+                    term,
+                    IndexRecordOption::WithFreqsAndPositions.into(),
+                )));
+            }
+            // Fall through to regular parsing if not a valid decimal
+        }
+        _ => {}
+    }
+
     let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
-    let field = schema
-        .search_field(field)
-        .ok_or(QueryError::NonIndexedField(field.clone()))?
-        .field();
+    let tantivy_field = search_field.field();
 
     if let Some(fuzzy_data) = fuzzy_data {
         parser.set_field_fuzzy(
-            field,
+            tantivy_field,
             fuzzy_data.prefix,
             fuzzy_data.distance,
             fuzzy_data.transposition_cost_one,

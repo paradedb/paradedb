@@ -669,12 +669,35 @@ pub unsafe fn row_to_search_document<'a>(
         };
 
         if *is_array {
-            for value in
-                TantivyValue::try_from_datum_array(actual_datum, *base_oid).unwrap_or_else(|e| {
-                    panic!("could not parse field `{}`: {e}", search_field.field_name())
-                })
-            {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+            // Check for NUMERIC array field types that need special handling
+            match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    for value in TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                SearchFieldType::NumericBytes(_) => {
+                    for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                _ => {
+                    for value in TantivyValue::try_from_datum_array(actual_datum, *base_oid)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
             }
         } else if *is_json {
             for value in
@@ -685,7 +708,17 @@ pub unsafe fn row_to_search_document<'a>(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(actual_datum, *base_oid).unwrap_or_else(|e| {
+            // Check for NUMERIC field types that need special handling
+            let tv = match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
+                }
+                SearchFieldType::NumericBytes(_) => {
+                    TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            }
+            .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
@@ -789,6 +822,28 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }
+}
+
+/// Extract precision and scale from PostgreSQL NUMERIC typmod.
+///
+/// PostgreSQL encodes NUMERIC precision and scale in the typmod as:
+/// `typmod = ((precision << 16) | scale) + VARHDRSZ`
+///
+/// # Returns
+/// - `(precision, Some(scale))` if typmod specifies precision/scale
+/// - `(0, None)` if typmod is -1 (unlimited/unspecified precision)
+///
+/// # Note
+/// For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
+/// PostgreSQL uses typmod = -1, indicating arbitrary precision.
+pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
+    if typmod < 0 {
+        return (0, None); // Unlimited precision
+    }
+    let typmod = (typmod - pg_sys::VARHDRSZ as i32) as u32;
+    let precision = ((typmod >> 16) & 0xFFFF) as u16;
+    let scale = (typmod & 0xFFFF) as i16;
+    (precision, Some(scale))
 }
 
 type IsArray = bool;

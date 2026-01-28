@@ -1,0 +1,781 @@
+\i common/common_setup.sql
+
+-- ============================================================================
+-- NUMERIC PUSHDOWN TESTS
+-- ============================================================================
+-- Tests for NUMERIC column pushdown with two storage strategies:
+-- 1. Numeric64 (I64 fixed-point): NUMERIC(p,s) where p <= 18
+-- 2. NumericBytes (lexicographic bytes): NUMERIC with p > 18 or unlimited
+-- ============================================================================
+
+-- ============================================================================
+-- PART 1: Numeric64 (I64 fixed-point) Tests
+-- ============================================================================
+-- NUMERIC(10,2) has precision 10 and scale 2, stored as I64
+
+CREATE TABLE numeric64_test (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10, 2),
+    quantity NUMERIC(5, 0),
+    rate NUMERIC(18, 6)
+);
+
+INSERT INTO numeric64_test (price, quantity, rate) VALUES
+    (100.50, 10, 1.234567),
+    (200.75, 20, 2.345678),
+    (300.00, 30, 3.456789),
+    (400.25, 40, 4.567890),
+    (500.99, 50, 5.678901),
+    (99.99, 5, 0.123456),
+    (1000.00, 100, 10.000000),
+    (0.01, 1, 0.000001),
+    (9999999.99, 999, 999999.999999),
+    (123.45, 15, 1.500000);
+
+CREATE INDEX numeric64_idx ON numeric64_test USING bm25 (
+    id, price, quantity, rate
+) WITH (key_field = 'id');
+
+-- Test 1.1: Equality on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 100.50
+ORDER BY id;
+
+-- Test 1.2: Range on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price > 200.00
+ORDER BY id;
+
+-- Test 1.3: BETWEEN on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price BETWEEN 100.00 AND 500.00
+ORDER BY id;
+
+-- Test 1.4: Equality on NUMERIC(5,0) (integer-like)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND quantity = 30
+ORDER BY id;
+
+-- Test 1.5: Range on NUMERIC(18,6) (high precision)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND rate >= 2.0 AND rate <= 5.0
+ORDER BY id;
+
+-- Test 1.6: Less than on NUMERIC(10,2)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price < 150.00
+ORDER BY id;
+
+-- Test 1.7: Boundary value (smallest positive)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+
+SELECT * FROM numeric64_test
+WHERE id @@@ paradedb.all()
+AND price = 0.01
+ORDER BY id;
+
+DROP TABLE numeric64_test;
+
+-- ============================================================================
+-- PART 2: NumericBytes (lexicographic bytes) Tests
+-- ============================================================================
+-- NUMERIC without precision or with precision > 18 stored as bytes
+
+CREATE TABLE numeric_bytes_test (
+    id SERIAL PRIMARY KEY,
+    big_value NUMERIC,
+    huge_precision NUMERIC(30, 10)
+);
+
+INSERT INTO numeric_bytes_test (big_value, huge_precision) VALUES
+    (12345678901234567890.12345, 12345678901234567890.1234567890),
+    (99999999999999999999.99999, 99999999999999999999.9999999999),
+    (0.00000000000000000001, 0.0000000001),
+    (1.0, 1.0000000000),
+    (100.5, 100.5000000000),
+    (-12345678901234567890.12345, -12345678901234567890.1234567890),
+    (-1.0, -1.0000000000);
+
+CREATE INDEX numeric_bytes_idx ON numeric_bytes_test USING bm25 (
+    id, big_value, huge_precision
+) WITH (key_field = 'id');
+
+-- Test 2.1: Equality on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value = 1.0
+ORDER BY id;
+
+-- Test 2.2: Range on unlimited NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value > 100.0
+ORDER BY id;
+
+-- Test 2.3: Equality on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision = 1.0000000000
+ORDER BY id;
+
+-- Test 2.4: Range on high-precision NUMERIC(30,10)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND huge_precision >= 0.0 AND huge_precision <= 200.0
+ORDER BY id;
+
+-- Test 2.5: Negative values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND big_value < 0
+ORDER BY id;
+
+DROP TABLE numeric_bytes_test;
+
+-- ============================================================================
+-- PART 3: Mixed precision columns in same table
+-- ============================================================================
+
+CREATE TABLE numeric_mixed_test (
+    id SERIAL PRIMARY KEY,
+    small_numeric NUMERIC(8, 2),
+    large_numeric NUMERIC(25, 5),
+    unlimited_numeric NUMERIC
+);
+
+INSERT INTO numeric_mixed_test (small_numeric, large_numeric, unlimited_numeric) VALUES
+    (100.00, 12345678901234567890.12345, 999999999999999999999.9999),
+    (200.50, 98765432109876543210.54321, 888888888888888888888.8888),
+    (50.25, 11111111111111111111.11111, 777777777777777777777.7777);
+
+CREATE INDEX numeric_mixed_idx ON numeric_mixed_test USING bm25 (
+    id, small_numeric, large_numeric, unlimited_numeric
+) WITH (key_field = 'id');
+
+-- Test 3.1: Query on small NUMERIC (Numeric64)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric = 100.00
+ORDER BY id;
+
+-- Test 3.2: Query on large NUMERIC (NumericBytes)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+
+-- Test 3.3: Combined query on both column types
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+
+SELECT * FROM numeric_mixed_test
+WHERE id @@@ paradedb.all()
+AND small_numeric > 50.00
+AND large_numeric > 50000000000000000000.0
+ORDER BY id;
+
+DROP TABLE numeric_mixed_test;
+
+-- ============================================================================
+-- PART 4: Edge cases
+-- ============================================================================
+
+CREATE TABLE numeric_edge_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10, 2)
+);
+
+INSERT INTO numeric_edge_test (val) VALUES
+    (0.00),
+    (0.01),
+    (-0.01),
+    (99999999.99),
+    (-99999999.99);
+
+CREATE INDEX numeric_edge_idx ON numeric_edge_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Test 4.1: Zero value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 0.00
+ORDER BY id;
+
+-- Test 4.2: Maximum positive value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = 99999999.99
+ORDER BY id;
+
+-- Test 4.3: Negative value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val = -99999999.99
+ORDER BY id;
+
+-- Test 4.4: Range across zero
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+
+SELECT * FROM numeric_edge_test
+WHERE id @@@ paradedb.all()
+AND val >= -0.01 AND val <= 0.01
+ORDER BY id;
+
+DROP TABLE numeric_edge_test;
+
+-- ============================================================================
+-- PART 5: Precision Tests - Verify no precision loss in query constants
+-- ============================================================================
+-- These tests verify that NUMERIC query constants don't lose precision
+-- when converted for comparison with indexed values.
+
+-- Test 5.1: High-precision Numeric64 values
+-- NUMERIC(18,0) can store 18-digit integers exactly as I64
+-- But f64 can only represent ~15-17 significant digits exactly
+CREATE TABLE numeric_precision_test (
+    id SERIAL PRIMARY KEY,
+    big_int NUMERIC(18, 0)
+);
+
+-- Insert values that would lose precision if converted to f64
+-- 123456789012345678 has 18 digits - f64 cannot represent this exactly
+INSERT INTO numeric_precision_test (big_int) VALUES
+    (123456789012345678),
+    (123456789012345679),
+    (999999999999999999);
+
+CREATE INDEX numeric_precision_idx ON numeric_precision_test USING bm25 (
+    id, big_int
+) WITH (key_field = 'id');
+
+-- This should find exactly 1 row - the value 123456789012345678
+-- If f64 conversion loses precision, this might return wrong results
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int = 123456789012345678
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown) - should return 1 row
+SELECT * FROM numeric_precision_test
+WHERE big_int = 123456789012345678;
+
+-- Test 5.2: Range query with high-precision bounds
+-- This should find exactly 2 rows (the first two values)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+
+SELECT * FROM numeric_precision_test
+WHERE id @@@ paradedb.all()
+AND big_int >= 123456789012345678 AND big_int <= 123456789012345679
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown) - should return 2 rows
+SELECT * FROM numeric_precision_test
+WHERE big_int >= 123456789012345678 AND big_int <= 123456789012345679;
+
+DROP TABLE numeric_precision_test;
+
+-- Test 5.3: NumericBytes precision with large decimals
+CREATE TABLE numeric_bytes_precision_test (
+    id SERIAL PRIMARY KEY,
+    precise_value NUMERIC
+);
+
+-- Insert values with high precision that require NumericBytes storage
+INSERT INTO numeric_bytes_precision_test (precise_value) VALUES
+    (12345678901234567890.123456789012345678901234567890),
+    (12345678901234567890.123456789012345678901234567891);
+
+CREATE INDEX numeric_bytes_precision_idx ON numeric_bytes_precision_test USING bm25 (
+    id, precise_value
+) WITH (key_field = 'id');
+
+-- This should find exactly 1 row
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+
+SELECT * FROM numeric_bytes_precision_test
+WHERE id @@@ paradedb.all()
+AND precise_value = 12345678901234567890.123456789012345678901234567890
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT * FROM numeric_bytes_precision_test
+WHERE precise_value = 12345678901234567890.123456789012345678901234567890;
+
+DROP TABLE numeric_bytes_precision_test;
+
+-- ============================================================================
+-- PART 6: Range Field Precision Tests
+-- ============================================================================
+-- These tests verify precision behavior for range_term queries on different range types.
+
+-- Test 6.1: int8range - Large integers should preserve precision
+-- int8range is stored as i64, so values up to i64::MAX should work correctly
+CREATE TABLE int8range_precision_test (
+    id SERIAL PRIMARY KEY,
+    val int8range
+);
+
+-- Insert ranges with large i64 values that exceed f64 precision (~15-17 digits)
+-- 9007199254740993 = 2^53 + 1, the first integer not exactly representable as f64
+INSERT INTO int8range_precision_test (val) VALUES
+    ('[9007199254740992, 9007199254740994)'::int8range),  -- id=1: contains 9007199254740992, 9007199254740993
+    ('[9007199254740994, 9007199254740996)'::int8range),  -- id=2: contains 9007199254740994, 9007199254740995
+    ('[9007199254740996, 9007199254740998)'::int8range);  -- id=3: contains 9007199254740996, 9007199254740997
+
+CREATE INDEX int8range_precision_idx ON int8range_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for 9007199254740993 - should find only row 1
+-- If we used f64 conversion, this would fail because 9007199254740993 rounds to 9007199254740992 in f64
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM int8range_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+ORDER BY id;
+
+SELECT * FROM int8range_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740993::int8)
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown)
+SELECT * FROM int8range_precision_test
+WHERE val @> 9007199254740993::int8
+ORDER BY id;
+
+DROP TABLE int8range_precision_test;
+
+-- Test 6.2: numrange - Precision preservation with hex-encoded sortable bytes
+-- numrange values are stored using hex-encoded lexicographically sortable bytes,
+-- which preserves full NUMERIC precision. This test verifies precision is preserved
+-- for large integers beyond f64's precision (2^53 ≈ 9007199254740992).
+CREATE TABLE numrange_precision_test (
+    id SERIAL PRIMARY KEY,
+    val numrange
+);
+
+-- Insert ranges using large integers that exceed f64 precision
+-- 9007199254740993, 9007199254740994, 9007199254740995 are consecutive integers
+-- but f64 rounds them all to approximately 9007199254740992 or 9007199254740994
+INSERT INTO numrange_precision_test (val) VALUES
+    ('[9007199254740992, 9007199254740994)'::numrange),  -- id=1: should contain 9007199254740992, 9007199254740993
+    ('[9007199254740994, 9007199254740996)'::numrange),  -- id=2: should contain 9007199254740994, 9007199254740995
+    ('[9007199254740996, 9007199254740998)'::numrange);  -- id=3: should contain 9007199254740996, 9007199254740997
+
+CREATE INDEX numrange_precision_idx ON numrange_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for 9007199254740995 - should find row 2
+-- With hex-encoded sortable bytes, BM25 preserves full precision and matches PostgreSQL.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numrange_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+ORDER BY id;
+
+SELECT * FROM numrange_precision_test
+WHERE id @@@ paradedb.range_term('val', 9007199254740995::numeric)
+ORDER BY id;
+
+-- Verify with PostgreSQL (no pushdown) - should return row 2
+SELECT * FROM numrange_precision_test
+WHERE val @> 9007199254740995::numeric
+ORDER BY id;
+
+-- Both BM25 and PostgreSQL return row 2, confirming precision is preserved.
+-- This works because numrange uses hex-encoded lexicographically sortable bytes,
+-- which correctly represent arbitrary precision NUMERIC values.
+
+DROP TABLE numrange_precision_test;
+
+--------------------------------------------------------------------------------
+-- PART 7: Numeric Array Tests
+--------------------------------------------------------------------------------
+
+-- Test 7.1: Basic numeric array indexing and querying
+CREATE TABLE numeric_array_test (
+    id SERIAL PRIMARY KEY,
+    vals numeric[]
+);
+
+INSERT INTO numeric_array_test (vals) VALUES
+    ('{1.5, 2.5, 3.5}'::numeric[]),
+    ('{10, 20, 30}'::numeric[]),
+    ('{100.123, 200.456, 300.789}'::numeric[]);
+
+CREATE INDEX numeric_array_idx ON numeric_array_test USING bm25 (
+    id, vals
+) WITH (key_field = 'id');
+
+-- Query for array containing value 2.5
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+ORDER BY id;
+
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 2.5::numeric)
+ORDER BY id;
+
+-- Query for array containing integer value 20
+SELECT * FROM numeric_array_test
+WHERE id @@@ paradedb.term('vals', 20::numeric)
+ORDER BY id;
+
+DROP TABLE numeric_array_test;
+
+-- Test 7.2: High-precision numeric array (tests Numeric64 vs NumericBytes handling)
+CREATE TABLE numeric_array_precision_test (
+    id SERIAL PRIMARY KEY,
+    small_precision numeric(10,2)[],  -- Should use Numeric64
+    large_precision numeric[]          -- Unlimited precision, uses NumericBytes
+);
+
+INSERT INTO numeric_array_precision_test (small_precision, large_precision) VALUES
+    ('{1.23, 4.56}'::numeric(10,2)[], '{12345678901234567890.123456789}'::numeric[]),
+    ('{7.89, 10.11}'::numeric(10,2)[], '{98765432109876543210.987654321}'::numeric[]);
+
+CREATE INDEX numeric_array_precision_idx ON numeric_array_precision_test USING bm25 (
+    id, small_precision, large_precision
+) WITH (key_field = 'id');
+
+-- Query small_precision array
+SELECT * FROM numeric_array_precision_test
+WHERE id @@@ paradedb.term('small_precision', 4.56::numeric)
+ORDER BY id;
+
+DROP TABLE numeric_array_precision_test;
+
+--------------------------------------------------------------------------------
+-- PART 8: Large Decimal Precision Tests
+--------------------------------------------------------------------------------
+
+-- Test 8.1: NumericBytes with large decimal values (many decimal places)
+CREATE TABLE large_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val numeric  -- Unlimited precision, uses NumericBytes
+);
+
+-- Insert values with many significant decimal digits
+-- These values differ only in the last decimal places
+INSERT INTO large_decimal_test (val) VALUES
+    (1.123456789012345678901234567890123456789),   -- id=1
+    (1.123456789012345678901234567890123456788),   -- id=2 (differs in last digit)
+    (1.123456789012345678901234567890123456790),   -- id=3 (differs in last digit)
+    (12345678901234567890.12345678901234567890),   -- id=4 (large integer + decimal)
+    (0.000000000000000000000000000000000000001);   -- id=5 (very small)
+
+CREATE INDEX large_decimal_idx ON large_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for exact match - should find only row 1
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+ORDER BY id;
+
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 1.123456789012345678901234567890123456789::numeric)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM large_decimal_test
+WHERE val = 1.123456789012345678901234567890123456789::numeric
+ORDER BY id;
+
+-- Query for the large integer+decimal value
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 12345678901234567890.12345678901234567890::numeric)
+ORDER BY id;
+
+-- Query for very small value
+SELECT * FROM large_decimal_test
+WHERE id @@@ paradedb.term('val', 0.000000000000000000000000000000000000001::numeric)
+ORDER BY id;
+
+DROP TABLE large_decimal_test;
+
+-- Test 8.2: Range query with large decimals on NumericBytes field
+CREATE TABLE large_decimal_range_test (
+    id SERIAL PRIMARY KEY,
+    val numeric
+);
+
+INSERT INTO large_decimal_range_test (val) VALUES
+    (1.000000000000000000000000000000000000001),   -- id=1
+    (1.000000000000000000000000000000000000002),   -- id=2
+    (1.000000000000000000000000000000000000003),   -- id=3
+    (1.000000000000000000000000000000000000004),   -- id=4
+    (1.000000000000000000000000000000000000005);   -- id=5
+
+CREATE INDEX large_decimal_range_idx ON large_decimal_range_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Range query should find rows 2, 3, 4 (exclusive bounds)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM large_decimal_range_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
+)
+ORDER BY id;
+
+SELECT * FROM large_decimal_range_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[1.000000000000000000000000000000000000002, 1.000000000000000000000000000000000000005)'::numrange
+)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM large_decimal_range_test
+WHERE val >= 1.000000000000000000000000000000000000002::numeric
+  AND val < 1.000000000000000000000000000000000000005::numeric
+ORDER BY id;
+
+DROP TABLE large_decimal_range_test;
+
+-- Test 8.3: numrange with large decimal bounds
+CREATE TABLE numrange_large_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val numrange
+);
+
+INSERT INTO numrange_large_decimal_test (val) VALUES
+    ('[1.111111111111111111111111111111, 1.111111111111111111111111111112)'::numrange),  -- id=1
+    ('[1.111111111111111111111111111112, 1.111111111111111111111111111113)'::numrange),  -- id=2
+    ('[1.111111111111111111111111111113, 1.111111111111111111111111111114)'::numrange);  -- id=3
+
+CREATE INDEX numrange_large_decimal_idx ON numrange_large_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for value in row 2's range
+SELECT * FROM numrange_large_decimal_test
+WHERE id @@@ paradedb.range_term('val', 1.1111111111111111111111111111125::numeric)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numrange_large_decimal_test
+WHERE val @> 1.1111111111111111111111111111125::numeric
+ORDER BY id;
+
+DROP TABLE numrange_large_decimal_test;
+
+-- Test 8.4: Numeric64 with maximum precision (18 digits)
+CREATE TABLE numeric64_max_precision_test (
+    id SERIAL PRIMARY KEY,
+    val numeric(18, 9)  -- 18 total digits, 9 decimal places (uses Numeric64)
+);
+
+INSERT INTO numeric64_max_precision_test (val) VALUES
+    (123456789.123456789),   -- id=1: max precision for Numeric64
+    (123456789.123456788),   -- id=2: differs in last digit
+    (123456789.123456790),   -- id=3: differs in last digit
+    (999999999.999999999);   -- id=4: max value
+
+CREATE INDEX numeric64_max_idx ON numeric64_max_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for exact match
+SELECT * FROM numeric64_max_precision_test
+WHERE id @@@ paradedb.term('val', 123456789.123456789::numeric)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_max_precision_test
+WHERE val = 123456789.123456789::numeric
+ORDER BY id;
+
+-- Range query on Numeric64 field
+SELECT * FROM numeric64_max_precision_test
+WHERE id @@@ paradedb.range(
+    'val',
+    '[123456789.123456788, 123456789.123456790]'::numrange
+)
+ORDER BY id;
+
+DROP TABLE numeric64_max_precision_test;
+
+-- Test 8.5: Numeric64 decimal comparison edge cases
+-- Verifies that decimal scaling works correctly for comparisons
+CREATE TABLE numeric64_decimal_compare_test (
+    id SERIAL PRIMARY KEY,
+    val numeric(5, 2)  -- 5 total digits, 2 decimal places
+);
+
+-- Insert values that differ only in decimal places
+INSERT INTO numeric64_decimal_compare_test (val) VALUES
+    (12.34),   -- id=1: stored as 1234 (scaled by 100)
+    (12.35),   -- id=2: stored as 1235
+    (12.36),   -- id=3: stored as 1236
+    (123.40),  -- id=4: stored as 12340
+    (1.23);    -- id=5: stored as 123
+
+CREATE INDEX numeric64_decimal_compare_idx ON numeric64_decimal_compare_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Exact decimal match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 12.35::numeric)
+ORDER BY id;
+
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 12.35::numeric)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_decimal_compare_test
+WHERE val = 12.35::numeric
+ORDER BY id;
+
+-- Range with decimal bounds
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.range('val', '[12.34, 12.36]'::numrange)
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric64_decimal_compare_test
+WHERE val >= 12.34 AND val <= 12.36
+ORDER BY id;
+
+-- Test that 12.3 does NOT match 12.30 vs 1.23
+-- 12.30 scaled = 1230, 1.23 scaled = 123 (different!)
+SELECT * FROM numeric64_decimal_compare_test
+WHERE id @@@ paradedb.term('val', 1.23::numeric)
+ORDER BY id;
+
+DROP TABLE numeric64_decimal_compare_test;

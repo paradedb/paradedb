@@ -260,6 +260,8 @@ impl From<SearchFieldType> for FastFieldType {
             SearchFieldType::Json(_) => FastFieldType::String,
             SearchFieldType::Date(_) => FastFieldType::Date,
             SearchFieldType::Range(_) => FastFieldType::String,
+            SearchFieldType::Numeric64(_, _) => FastFieldType::Int64,
+            SearchFieldType::NumericBytes(_) => FastFieldType::String,
         }
     }
 }

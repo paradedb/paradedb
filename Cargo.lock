@@ -1900,6 +1900,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "decimal-bytes"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79ea456fcb28cf6d2242f6dccd84fdda42932af2f0a5af0f88a2b13fd55295bb"
+dependencies = [
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4666,6 +4676,7 @@ dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
  "datafusion-physical-plan",
+ "decimal-bytes",
  "derive_more",
  "env_logger 0.11.8",
  "futures",

@@ -690,13 +690,193 @@ impl TryFrom<TantivyValue> for u64 {
     }
 }
 
+/// Convert NUMERIC to string representation to preserve precision.
+/// The string will be converted to the appropriate type (I64, Bytes, or F64)
+/// later when schema context is available.
+///
+/// For document indexing with known field types, use
+/// try_from_numeric_i64/try_from_numeric_bytes instead.
 impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
-            val.try_into()?,
+        // Store as string to preserve full precision until we know the field type
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+            val.normalize().to_string(),
         )))
+    }
+}
+
+impl TantivyValue {
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with I64 fixed-point storage.
+    /// Used for NUMERIC(p,s) where p <= 18.
+    ///
+    /// The value is scaled by 10^scale to convert to integer representation.
+    /// For example, NUMERIC(10,2) value 123.45 with scale=2 becomes I64(12345).
+    pub unsafe fn try_from_numeric_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Self, TantivyValueError> {
+        use decimal_bytes::Decimal64NoScale;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        // Convert AnyNumeric to string, then to Decimal64NoScale with the specified scale
+        let numeric_str = numeric.normalize().to_string();
+
+        let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to I64 with scale {}: {:?}",
+                numeric_str, scale, e
+            ))
+        })?;
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+            decimal.value(),
+        )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with Bytes storage.
+    /// Used for NUMERIC with precision > 18 or unlimited precision.
+    ///
+    /// The bytes are lexicographically sortable, supporting range queries.
+    pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        // Convert AnyNumeric to string, then to lexicographically sortable bytes
+        let numeric_str = numeric.normalize().to_string();
+
+        let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+            TantivyValueError::NumericConversion(format!(
+                "Failed to convert NUMERIC '{}' to bytes: {:?}",
+                numeric_str, e
+            ))
+        })?;
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+            decimal.as_bytes().to_vec(),
+        )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC value to a TantivyValue based on the target field type.
+    ///
+    /// This method chooses the appropriate OwnedValue type based on the field:
+    /// - For JSON fields: Use I64 for whole numbers (to match JSON integer storage), F64 otherwise
+    /// - For Numeric64 fields: Use I64 with scaling (delegated to try_from_numeric_i64)
+    /// - For NumericBytes fields: Use Bytes (delegated to try_from_numeric_bytes)
+    /// - For other fields (F64, etc.): Use F64
+    pub fn try_from_numeric_for_field(
+        val: pgrx::AnyNumeric,
+        field_type: &crate::schema::SearchFieldType,
+    ) -> Result<Self, TantivyValueError> {
+        use crate::schema::SearchFieldType;
+
+        match field_type {
+            SearchFieldType::Json(_) => {
+                // For JSON fields, use I64 for whole numbers to match JSON integer storage
+                let f64_val: f64 = val.try_into()?;
+                if f64_val.fract() == 0.0
+                    && f64_val >= i64::MIN as f64
+                    && f64_val <= i64::MAX as f64
+                {
+                    Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                        f64_val as i64,
+                    )))
+                } else {
+                    Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+                }
+            }
+            SearchFieldType::I64(_) => {
+                // For I64 fields, convert to I64
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                    f64_val as i64,
+                )))
+            }
+            SearchFieldType::U64(_) => {
+                // For U64 fields, convert to U64
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::U64(
+                    f64_val as u64,
+                )))
+            }
+            // For F64 and other fields, use F64
+            _ => {
+                let f64_val: f64 = val.try_into()?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+            }
+        }
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with I64 fixed-point storage.
+    /// Used for NUMERIC arrays with precision <= 18.
+    pub unsafe fn try_from_numeric_array_i64(
+        datum: Datum,
+        scale: i16,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use decimal_bytes::Decimal64NoScale;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' with scale {}: {:?}",
+                        numeric_str, scale, e
+                    ))
+                })?;
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(
+                    decimal.value(),
+                )))
+            })
+            .collect()
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with Bytes storage.
+    /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
+    pub unsafe fn try_from_numeric_array_bytes(
+        datum: Datum,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        use decimal_bytes::Decimal;
+        use std::str::FromStr;
+
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+
+                let numeric_str = numeric.normalize().to_string();
+                let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
+                    TantivyValueError::NumericConversion(format!(
+                        "Failed to convert NUMERIC array element '{}' to bytes: {:?}",
+                        numeric_str, e
+                    ))
+                })?;
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+                    decimal.as_bytes().to_vec(),
+                )))
+            })
+            .collect()
     }
 }
 
@@ -1131,6 +1311,9 @@ pub enum TantivyValueError {
 
     #[error(transparent)]
     PgrxNumericError(#[from] pgrx::datum::numeric_support::error::Error),
+
+    #[error("NUMERIC conversion error: {0}")]
+    NumericConversion(String),
 
     #[error(transparent)]
     UuidError(#[from] uuid::Error),

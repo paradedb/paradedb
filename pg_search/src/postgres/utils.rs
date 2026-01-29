@@ -408,6 +408,19 @@ pub unsafe fn strip_tokenizer_cast(node: *mut pg_sys::Node) -> *mut pg_sys::Node
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
+    #[inline]
+    unsafe fn is_text_lower(expression: *mut pg_sys::Node) -> bool {
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
+            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg) {
+                if (*func_expr).funcid == text_lower_funcoid() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
@@ -503,21 +516,19 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expression) {
-                            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*coerce).arg)
-                            {
-                                if (*func_expr).funcid == text_lower_funcoid() {
-                                    normalizer = Some(SearchNormalizer::Lowercase);
-                                }
-                            }
+                        if is_text_lower(var as *mut pg_sys::Node) {
+                            normalizer = Some(SearchNormalizer::Lowercase);
                         } else if let Some(relabel) =
                             nodecast!(RelabelType, T_RelabelType, expression)
                         {
                             if is_a((*relabel).arg.cast(), pg_sys::NodeTag::T_CoerceViaIO) {
                                 inner_typoid = pg_sys::exprType((*relabel).arg.cast());
                             }
-                        }
 
+                            if is_text_lower((*relabel).arg.cast()) {
+                                normalizer = Some(SearchNormalizer::Lowercase);
+                            }
+                        }
                         if attname.is_none() {
                             let heap_attname = heap_relation
                                 .tuple_desc()

@@ -108,10 +108,10 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
     let reader = SearchIndexReader::open_with_context(
         &index,
         query.clone(),
-        false,
         MvccSatisfies::Snapshot,
         NonNull::new(context.as_ptr()),
         None,
+        None, // No scoring needed for filter queries
     )?;
 
     let tantivy_query = query.into_tantivy_query(

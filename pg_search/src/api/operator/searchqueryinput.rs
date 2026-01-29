@@ -180,7 +180,7 @@ pub fn search_with_query_input(
         let search_reader = SearchIndexReader::open(
             &index_relation,
             search_query_input,
-            false,
+            None,
             MvccSatisfies::Snapshot,
         )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");

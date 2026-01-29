@@ -43,8 +43,10 @@ use tantivy::collector::sort_key::{
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{Bm25StatisticsProvider, EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::schema::Field;
 use tantivy::snippet::SnippetGenerator;
+use tantivy::Term;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -264,7 +266,9 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
-    need_scores: bool,
+    /// BM25 parameters for scoring. `None` means scoring is disabled.
+    /// `Some(params)` means scoring is enabled with the given parameters.
+    bm25_params: Option<Bm25Params>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -282,7 +286,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
-            need_scores: self.need_scores,
+            bm25_params: self.bm25_params,
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -292,34 +296,36 @@ impl SearchIndexReader {
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        Self::open(index_relation, SearchQueryInput::Empty, false, mvcc_style)
+        Self::open(index_relation, SearchQueryInput::Empty, None, mvcc_style)
     }
 
     /// Open a tantivy index that, when searched, will return the results of the specified [`SearchQueryInput`].
+    /// - `bm25_params`: `None` means scoring is disabled, `Some(params)` means scoring is enabled
     pub fn open(
         index_relation: &PgSearchRelation,
         search_query_input: SearchQueryInput,
-        need_scores: bool,
+        bm25_params: Option<Bm25Params>,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
         Self::open_with_context(
             index_relation,
             search_query_input,
-            need_scores,
             mvcc_style,
             None,
             None,
+            bm25_params,
         )
     }
 
-    /// Open a tantivy index with optional expression context for proper postgres expression evaluation
+    /// Open a tantivy index with optional expression context for proper postgres expression evaluation.
+    /// - `bm25_params`: `None` means scoring is disabled, `Some(params)` means scoring is enabled
     pub fn open_with_context(
         index_relation: &PgSearchRelation,
         search_query_input: SearchQueryInput,
-        need_scores: bool,
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        bm25_params: Option<Bm25Params>,
     ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
@@ -344,7 +350,13 @@ impl SearchIndexReader {
             .try_into()?;
         let searcher = reader.searcher();
 
-        let need_scores = need_scores || search_query_input.need_scores();
+        // If query needs scores but none were requested, enable with defaults
+        let bm25_params = if bm25_params.is_none() && search_query_input.need_scores() {
+            Some(Bm25Params::default())
+        } else {
+            bm25_params
+        };
+
         let query = {
             search_query_input
                 .into_tantivy_query(
@@ -371,7 +383,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
-            need_scores,
+            bm25_params,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -385,7 +397,11 @@ impl SearchIndexReader {
     }
 
     pub fn need_scores(&self) -> bool {
-        self.need_scores
+        self.bm25_params.is_some()
+    }
+
+    pub fn bm25_params(&self) -> Option<Bm25Params> {
+        self.bm25_params
     }
 
     pub fn query(&self) -> &dyn Query {
@@ -394,17 +410,7 @@ impl SearchIndexReader {
 
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
-            .weight(if self.need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: &self.searcher,
-                    statistics_provider: &self.searcher,
-                }
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: self.schema.tantivy_schema(),
-                    searcher_opt: Some(&self.searcher),
-                }
-            })
+            .weight(enable_scoring(&self.searcher, self.bm25_params))
             .expect("weight should be constructable")
     }
 
@@ -521,9 +527,9 @@ impl SearchIndexReader {
                 ScorerIter::new(
                     DeferredScorer::new(
                         self.query().box_clone(),
-                        self.need_scores,
                         segment_reader.clone(),
                         self.searcher.clone(),
+                        self.bm25_params,
                     ),
                     segment_ord,
                     segment_reader.clone(),
@@ -1017,7 +1023,7 @@ impl SearchIndexReader {
                 &self.query,
                 &collector,
                 &Executor::SingleThread,
-                enable_scoring(self.need_scores, &self.searcher),
+                enable_scoring(&self.searcher, self.bm25_params),
             )
             .expect("search should not fail")
     }
@@ -1032,7 +1038,7 @@ impl SearchIndexReader {
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
         let query = self.query();
         let weight = query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
+            .weight(enable_scoring(&self.searcher, self.bm25_params))
             .expect("creating a Weight from a Query should not fail");
 
         let Some(aux_collector) = aux_collector else {
@@ -1101,7 +1107,7 @@ impl SearchIndexReader {
 
         // if we need scores, but there's no score feature in the order by list,
         // we push an erased score feature to the end of the list for the purpose of holding scores
-        if self.need_scores
+        if self.need_scores()
             && erased_features.score_index().is_none()
             && !first_orderby_info.is_score()
         {
@@ -1149,11 +1155,89 @@ impl SearchIndexReader {
     }
 }
 
-pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
-    if need_scores {
-        EnableScoring::enabled_from_searcher(searcher)
-    } else {
-        EnableScoring::disabled_from_searcher(searcher)
+/// Default BM25 b parameter (length normalization).
+pub const DEFAULT_BM25_B: f32 = 0.75;
+/// Default BM25 k1 parameter (term saturation).
+pub const DEFAULT_BM25_K1: f32 = 1.2;
+
+/// BM25 parameters for scoring.
+/// Contains `b` (length normalization) and `k1` (term saturation) parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct Bm25Params {
+    pub b: f32,
+    pub k1: f32,
+}
+
+impl Default for Bm25Params {
+    fn default() -> Self {
+        Self {
+            b: DEFAULT_BM25_B,
+            k1: DEFAULT_BM25_K1,
+        }
+    }
+}
+
+impl Bm25Params {
+    pub fn new(b: f32, k1: f32) -> Self {
+        Self { b, k1 }
+    }
+}
+
+/// A custom BM25 statistics provider that wraps a Searcher with configurable b and k1 parameters.
+pub struct CustomBm25StatisticsProvider<'a> {
+    searcher: &'a Searcher,
+    params: Bm25Params,
+}
+
+impl<'a> CustomBm25StatisticsProvider<'a> {
+    pub fn new(searcher: &'a Searcher, params: Bm25Params) -> Self {
+        Self { searcher, params }
+    }
+}
+
+impl Bm25StatisticsProvider for CustomBm25StatisticsProvider<'_> {
+    fn total_num_tokens(&self, field: Field) -> tantivy::Result<u64> {
+        self.searcher.total_num_tokens(field)
+    }
+
+    fn total_num_docs(&self) -> tantivy::Result<u64> {
+        self.searcher.total_num_docs()
+    }
+
+    fn doc_freq(&self, term: &Term) -> tantivy::Result<u64> {
+        self.searcher.doc_freq(term)
+    }
+
+    fn k1(&self) -> Score {
+        self.params.k1
+    }
+
+    fn b(&self) -> Score {
+        self.params.b
+    }
+}
+
+/// Create an EnableScoring based on whether scores are needed.
+/// - `None`: Scoring is disabled
+/// - `Some(params)`: Scoring is enabled with the given BM25 parameters
+pub(super) fn enable_scoring<'a>(
+    searcher: &'a Searcher,
+    bm25_params: Option<Bm25Params>,
+) -> EnableScoring<'a> {
+    match bm25_params {
+        Some(params) => {
+            // Note: We need to leak the provider because EnableScoring requires &'a dyn Bm25StatisticsProvider
+            // and we can't return a reference to a local value. This is safe because the provider
+            // is only used for the duration of the query and is small.
+            let provider = Box::leak(Box::new(CustomBm25StatisticsProvider::new(
+                searcher, params,
+            )));
+            EnableScoring::Enabled {
+                searcher,
+                statistics_provider: provider,
+            }
+        }
+        None => EnableScoring::disabled_from_searcher(searcher),
     }
 }
 

@@ -15,31 +15,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::index::enable_scoring;
+use crate::index::reader::index::{enable_scoring, Bm25Params};
 use std::sync::OnceLock;
 use tantivy::query::{Query, Scorer};
 use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
 
 pub struct DeferredScorer {
     query: Box<dyn Query>,
-    need_scores: bool,
     segment_reader: SegmentReader,
     searcher: Searcher,
+    /// BM25 parameters for scoring. `None` means scoring is disabled.
+    bm25_params: Option<Bm25Params>,
     scorer: OnceLock<Box<dyn Scorer>>,
 }
 
 impl DeferredScorer {
     pub fn new(
         query: Box<dyn Query>,
-        need_scores: bool,
         segment_reader: SegmentReader,
         searcher: Searcher,
+        bm25_params: Option<Bm25Params>,
     ) -> Self {
         Self {
             query,
-            need_scores,
             segment_reader,
             searcher,
+            bm25_params,
             scorer: Default::default(),
         }
     }
@@ -59,7 +60,7 @@ impl DeferredScorer {
         self.scorer.get_or_init(|| {
             let weight = self
                 .query
-                .weight(enable_scoring(self.need_scores, &self.searcher))
+                .weight(enable_scoring(&self.searcher, self.bm25_params))
                 .expect("weight should be constructable");
 
             weight

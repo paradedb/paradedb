@@ -29,7 +29,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Params, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::{
     JoinCSClause, JoinLevelSearchPredicate, JoinSideInfo,
 };
@@ -308,10 +308,10 @@ unsafe fn compute_predicate_matches(
     let reader = SearchIndexReader::open_with_context(
         &index_rel,
         pred.query.clone(),
-        false,
         MvccSatisfies::Snapshot,
         None,
         None,
+        None, // No scoring needed
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
@@ -361,10 +361,15 @@ unsafe fn build_side_plan(
     let reader = SearchIndexReader::open_with_context(
         &index_rel,
         query,
-        side.score_needed,
         MvccSatisfies::Snapshot,
         None,
         None,
+        // Use default BM25 params if scoring needed, None otherwise
+        if side.score_needed {
+            Some(Bm25Params::default())
+        } else {
+            None
+        },
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

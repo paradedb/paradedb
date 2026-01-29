@@ -31,8 +31,7 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::extract_agg_name_to_field;
 pub use aggregate_type::AggregateType;
-pub use descale::build_numeric_field_scales;
-pub use descale::descale_numeric_values_in_json;
+pub use descale::descale_aggregate_result;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 

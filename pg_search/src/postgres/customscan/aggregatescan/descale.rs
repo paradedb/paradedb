@@ -172,6 +172,37 @@ pub fn build_numeric_field_scales(
 // JSON Descaling for Custom Aggregates
 // ============================================================================
 
+/// Descale aggregate JSON results for Numeric64 fields.
+///
+/// This is the high-level API that handles the entire descaling workflow:
+/// 1. Extracts aggregate name to field mappings from the aggregate definition
+/// 2. Looks up Numeric64 scales from the schema
+/// 3. Applies descaling to the result JSON
+///
+/// # Arguments
+///
+/// * `agg_definition` - The original aggregate JSON definition (used to extract field mappings)
+/// * `schema` - The search schema containing field type information
+/// * `result` - The aggregate result JSON to descale
+///
+/// # Returns
+///
+/// The descaled JSON result. If no Numeric64 fields are found, returns the original result unchanged.
+pub fn descale_aggregate_result(
+    agg_definition: &serde_json::Value,
+    schema: &SearchIndexSchema,
+    result: serde_json::Value,
+) -> serde_json::Value {
+    let agg_name_to_field = super::extract_agg_name_to_field(agg_definition);
+    let numeric_field_scales = build_numeric_field_scales(schema, &agg_name_to_field);
+
+    if numeric_field_scales.is_empty() {
+        result
+    } else {
+        descale_numeric_values_in_json(result, &numeric_field_scales)
+    }
+}
+
 /// Descale numeric values in custom aggregate JSON results.
 ///
 /// This function traverses the JSON and divides "value" fields by 10^scale

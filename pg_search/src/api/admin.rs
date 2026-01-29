@@ -378,7 +378,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     let search_index = SearchIndexReader::open(
         &index,
         query,
-        Bm25Settings::default(),
+        Bm25Settings::disabled(),
         MvccSatisfies::Snapshot,
     )?;
     let results = search_index.search();

@@ -297,7 +297,7 @@ impl SearchIndexReader {
         Self::open(
             index_relation,
             SearchQueryInput::Empty,
-            Bm25Settings::default(),
+            Bm25Settings::disabled(),
             mvcc_style,
         )
     }
@@ -354,7 +354,7 @@ impl SearchIndexReader {
         // if the query doesn't contain `pdb.score` but the search query requires scores
         // (i.e. more like this), enable scoring with default parameters
         let bm25_settings = if !bm25_settings.enabled && search_query_input.need_scores() {
-            Bm25Settings::default().with_scoring()
+            Bm25Settings::disabled().with_scoring()
         } else {
             bm25_settings
         };
@@ -1181,15 +1181,19 @@ pub struct Bm25Settings {
 
 impl Default for Bm25Settings {
     fn default() -> Self {
+        Self::disabled()
+    }
+}
+
+impl Bm25Settings {
+    pub fn disabled() -> Self {
         Self {
             enabled: false,
             b: tantivy::query::DEFAULT_BM25_B,
             k1: tantivy::query::DEFAULT_BM25_K1,
         }
     }
-}
 
-impl Bm25Settings {
     pub fn with_scoring(self) -> Self {
         Self {
             enabled: true,
@@ -1235,8 +1239,8 @@ impl Bm25Settings {
                     );
 
                     if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                        if (*var).varno as i32 == (*data).rti as i32 {
-                            (*data).params = Bm25Settings::default().with_scoring();
+                        if (*var).varno == (*data).rti as i32 {
+                            (*data).params = Bm25Settings::disabled().with_scoring();
 
                             if args.len() == 3 {
                                 if let Some(b_const) =
@@ -1277,7 +1281,7 @@ impl Bm25Settings {
         let mut data = Data {
             score_funcoids,
             rti,
-            params: Bm25Settings::default(),
+            params: Bm25Settings::disabled(),
         };
 
         walker(node, addr_of_mut!(data).cast());

@@ -111,7 +111,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
         MvccSatisfies::Snapshot,
         NonNull::new(context.as_ptr()),
         None,
-        Bm25Settings::default(),
+        Bm25Settings::disabled(),
     )?;
 
     let tantivy_query = query.into_tantivy_query(

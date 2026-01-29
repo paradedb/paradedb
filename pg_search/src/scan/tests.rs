@@ -63,11 +63,11 @@ mod tests {
         let heap_rel = PgSearchRelation::open(heap_oid);
         let index_rel = PgSearchRelation::open(index_oid);
 
-        // Open search reader (default = no scoring needed)
+        // Open search reader
         let reader = SearchIndexReader::open(
             &index_rel,
-            SearchQueryInput::All,   // Scan all docs
-            Bm25Settings::default(), // no scoring
+            SearchQueryInput::All, // Scan all docs
+            Bm25Settings::disabled(),
             MvccSatisfies::Snapshot,
         )
         .unwrap();

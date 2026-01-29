@@ -182,7 +182,7 @@ pub extern "C-unwind" fn amrescan(
             SearchIndexReader::open(
                 &indexrel,
                 search_query_input,
-                Bm25Settings::default(),
+                Bm25Settings::disabled(),
                 MvccSatisfies::ParallelWorker(segment_ids),
             )
             .expect("amrescan: worker should be able to open a SearchIndexReader")
@@ -192,7 +192,7 @@ pub extern "C-unwind" fn amrescan(
             let reader = SearchIndexReader::open(
                 &indexrel,
                 search_query_input,
-                Bm25Settings::default(),
+                Bm25Settings::disabled(),
                 MvccSatisfies::Snapshot,
             )
             .expect("amrescan: should be able to open a SearchIndexReader");

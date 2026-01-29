@@ -311,7 +311,7 @@ unsafe fn compute_predicate_matches(
         MvccSatisfies::Snapshot,
         None,
         None,
-        Bm25Settings::default(),
+        Bm25Settings::disabled(),
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

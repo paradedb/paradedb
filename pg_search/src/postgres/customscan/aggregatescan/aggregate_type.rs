@@ -62,30 +62,41 @@ pub enum AggregateType {
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - used to descale results
+        numeric_scale: Option<i16>,
     },
     Avg {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - used to descale results
+        numeric_scale: Option<i16>,
     },
     Min {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - used to descale results
+        numeric_scale: Option<i16>,
     },
     Max {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
+        /// Scale for Numeric64 fields - used to descale results
+        numeric_scale: Option<i16>,
     },
     Custom {
         agg_json: serde_json::Value,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
         mvcc_visibility: MvccVisibility,
+        /// Map of field names to their numeric scales for Numeric64 fields.
+        /// Used to descale aggregate results in custom aggregates.
+        numeric_field_scales: std::collections::HashMap<String, i16>,
     },
 }
 
@@ -177,11 +188,30 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
+            // Extract aggregate name to field mappings and get scales for Numeric64 fields.
+            // This allows us to descale only the aggregate results that reference Numeric64 fields.
+            let agg_name_to_field = extract_agg_name_to_field(&json_value);
+
+            let mut numeric_field_scales = std::collections::HashMap::new();
+            if let Ok(schema) = bm25_index.schema() {
+                for (agg_name, field_name) in agg_name_to_field {
+                    if let Some(search_field) = schema.search_field(&field_name) {
+                        if let crate::schema::SearchFieldType::Numeric64(_, scale) =
+                            search_field.field_type()
+                        {
+                            // Store the aggregate name -> scale mapping
+                            numeric_field_scales.insert(agg_name, scale);
+                        }
+                    }
+                }
+            }
+
             return Some(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
                 mvcc_visibility,
+                numeric_field_scales,
             });
         }
 
@@ -198,8 +228,38 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
-        let agg_type =
-            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
+
+        // Check if the field is a NumericBytes type - if so, disable aggregate pushdown.
+        // Tantivy cannot aggregate on bytes columns, so we must let PostgreSQL handle these.
+        // For Numeric64 fields, get the scale for descaling aggregate results.
+        // See NUMERIC_SUPPORT_DESIGN.md for details.
+        let mut numeric_scale: Option<i16> = None;
+        if let Ok(schema) = bm25_index.schema() {
+            if let Some(search_field) = schema.search_field(&field) {
+                match search_field.field_type() {
+                    crate::schema::SearchFieldType::NumericBytes(_) => {
+                        pgrx::debug1!(
+                            "Disabling aggregate pushdown for field '{}': NumericBytes type cannot be aggregated by Tantivy",
+                            field
+                        );
+                        return None;
+                    }
+                    crate::schema::SearchFieldType::Numeric64(_, scale) => {
+                        numeric_scale = Some(scale);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let agg_type = create_aggregate_from_oid(
+            aggfnoid,
+            field,
+            missing,
+            filter_query,
+            bm25_index.oid(),
+            numeric_scale,
+        )?;
 
         Some(agg_type)
     }
@@ -230,6 +290,28 @@ impl AggregateType {
             AggregateType::Min { indexrelid, .. } => *indexrelid,
             AggregateType::Max { indexrelid, .. } => *indexrelid,
             AggregateType::Custom { indexrelid, .. } => *indexrelid,
+        }
+    }
+
+    /// Get the numeric scale for Numeric64 fields (used for descaling aggregate results)
+    pub fn numeric_scale(&self) -> Option<i16> {
+        match self {
+            AggregateType::Sum { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Avg { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Min { numeric_scale, .. } => *numeric_scale,
+            AggregateType::Max { numeric_scale, .. } => *numeric_scale,
+            _ => None,
+        }
+    }
+
+    /// Get the numeric field scales for Custom aggregates (used for descaling results)
+    pub fn numeric_field_scales(&self) -> Option<&std::collections::HashMap<String, i16>> {
+        match self {
+            AggregateType::Custom {
+                numeric_field_scales,
+                ..
+            } => Some(numeric_field_scales),
+            _ => None,
         }
     }
 
@@ -364,13 +446,114 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
             }
 
             // Recurse into all values
-            for (key, value) in map {
+            for (_key, value) in map {
                 extract_fields_from_agg_json(value, fields);
             }
         }
         serde_json::Value::Array(arr) => {
             for item in arr {
                 extract_fields_from_agg_json(item, fields);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract a mapping from aggregate names to the field they aggregate.
+/// For example, {"aggs": {"avg_price": {"avg": {"field": "price"}}}} -> {"avg_price": "price"}
+/// This also handles nested aggregations and top-level metric aggregates.
+pub fn extract_agg_name_to_field(
+    json: &serde_json::Value,
+) -> std::collections::HashMap<String, String> {
+    let mut result = std::collections::HashMap::new();
+    extract_agg_name_to_field_recursive(json, &mut result, None);
+    result
+}
+
+fn extract_agg_name_to_field_recursive(
+    json: &serde_json::Value,
+    result: &mut std::collections::HashMap<String, String>,
+    current_agg_name: Option<&str>,
+) {
+    const METRIC_TYPES: &[&str] = &[
+        "avg",
+        "sum",
+        "min",
+        "max",
+        "count",
+        "stats",
+        "percentiles",
+        "value_count",
+    ];
+
+    match json {
+        serde_json::Value::Object(map) => {
+            // Check for a "field" key at this level - this is where the field name is
+            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
+                // If we have a current aggregate name, record the mapping
+                if let Some(agg_name) = current_agg_name {
+                    let field = FieldName::from(field_name);
+                    result.insert(agg_name.to_string(), field.root());
+                }
+            }
+
+            // Check if this is an "aggs" or "aggregations" block
+            if let Some(serde_json::Value::Object(aggs_map)) =
+                map.get("aggs").or_else(|| map.get("aggregations"))
+            {
+                for (agg_name, agg_def) in aggs_map {
+                    // Recurse with the aggregate name
+                    extract_agg_name_to_field_recursive(agg_def, result, Some(agg_name));
+                }
+            }
+
+            // Check for top-level metric aggregates (avg, sum, min, max, count, etc.)
+            for metric_type in METRIC_TYPES {
+                if let Some(metric_value) = map.get(*metric_type) {
+                    if let Some(agg_name) = current_agg_name {
+                        // Recurse into the metric definition to find the field
+                        extract_agg_name_to_field_recursive(metric_value, result, Some(agg_name));
+                    } else {
+                        // Top-level metric aggregate without a name - use a special marker
+                        // "__top_level__" to indicate the value should be descaled at the top level
+                        extract_agg_name_to_field_recursive(
+                            metric_value,
+                            result,
+                            Some("__top_level__"),
+                        );
+                    }
+                }
+            }
+
+            // Recurse into other values (like nested bucket aggregations or named aggregates)
+            // For the legacy paradedb.aggregate() format like {"sum_price": {"sum": {"field": "price"}}},
+            // the key (e.g., "sum_price") is the aggregate name
+            for (key, value) in map {
+                if key != "aggs"
+                    && key != "aggregations"
+                    && key != "field"
+                    && !METRIC_TYPES.contains(&key.as_str())
+                {
+                    // Check if this is a named aggregate (contains a metric type directly)
+                    // e.g., {"sum_price": {"sum": {"field": "price"}}}
+                    let is_named_aggregate = if let serde_json::Value::Object(inner_map) = value {
+                        METRIC_TYPES.iter().any(|mt| inner_map.contains_key(*mt))
+                    } else {
+                        false
+                    };
+
+                    if is_named_aggregate && current_agg_name.is_none() {
+                        // Use the key as the aggregate name
+                        extract_agg_name_to_field_recursive(value, result, Some(key));
+                    } else {
+                        extract_agg_name_to_field_recursive(value, result, current_agg_name);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                extract_agg_name_to_field_recursive(item, result, current_agg_name);
             }
         }
         _ => {}
@@ -482,6 +665,8 @@ pub unsafe fn parse_coalesce_expression(
         Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
         Ok(TantivyValue(OwnedValue::Null)) => None,
+        // Handle string values from NUMERIC - parse to f64 for missing value
+        Ok(TantivyValue(OwnedValue::Str(s))) => s.parse::<f64>().ok(),
         _ => return None,
     };
 
@@ -495,6 +680,7 @@ pub fn create_aggregate_from_oid(
     missing: Option<f64>,
     filter: Option<SearchQueryInput>,
     indexrelid: pg_sys::Oid,
+    numeric_scale: Option<i16>,
 ) -> Option<AggregateType> {
     match aggfnoid {
         F_COUNT_ANY => Some(AggregateType::Count {
@@ -509,6 +695,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
@@ -517,6 +704,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
@@ -526,6 +714,7 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
+                numeric_scale,
             })
         }
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
@@ -535,6 +724,7 @@ pub fn create_aggregate_from_oid(
             missing,
             filter,
             indexrelid,
+            numeric_scale,
         }),
         _ => {
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);

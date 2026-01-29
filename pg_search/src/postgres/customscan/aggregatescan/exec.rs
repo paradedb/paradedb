@@ -169,7 +169,7 @@ impl From<MetricResult> for AggregateResult {
 ///
 /// # Arguments
 /// * `agg_result` - The aggregate result to convert (Metric or Json)
-/// * `agg_type` - The aggregate type (for nullish fallback)
+/// * `agg_type` - The aggregate type (for nullish fallback and numeric_scale)
 /// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
 pub fn aggregate_result_to_datum(
     agg_result: Option<AggregateResult>,
@@ -179,15 +179,44 @@ pub fn aggregate_result_to_datum(
     match agg_result {
         Some(AggregateResult::Json(json_value)) => {
             // Custom aggregate - return as JSONB
-            JsonB(json_value).into_datum()
+            // If there are Numeric64 fields, descale their values in the JSON
+            let descaled_json = if let Some(scales) = agg_type.numeric_field_scales() {
+                if scales.is_empty() {
+                    json_value
+                } else {
+                    descale_numeric_values_in_json(json_value, scales)
+                }
+            } else {
+                json_value
+            };
+            JsonB(descaled_json).into_datum()
         }
         Some(AggregateResult::Metric(metric)) => {
             // Standard metric - convert f64 to appropriate type
             // If expected type is JSONB (for pdb.agg() custom aggregates),
             // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
-                // Serialize the SingleMetricResult to JSON
-                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
+                // Serialize the metric result to JSON, descaling if needed
+                let descaled_metric = if let Some(scales) = agg_type.numeric_field_scales() {
+                    // For custom aggregates on Numeric64 fields, descale the value
+                    if let Some(scale) = scales.get("__top_level__") {
+                        let divisor = 10f64.powi(*scale as i32);
+                        TantivySingleMetricResult {
+                            value: metric.value.map(|v| v / divisor),
+                        }
+                    } else {
+                        metric
+                    }
+                } else if let Some(scale) = agg_type.numeric_scale() {
+                    // For standard aggregates (SUM, AVG, etc.) on Numeric64 fields
+                    let divisor = 10f64.powi(scale as i32);
+                    TantivySingleMetricResult {
+                        value: metric.value.map(|v| v / divisor),
+                    }
+                } else {
+                    metric
+                };
+                let json_value = serde_json::to_value(&descaled_metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
                 JsonB(json_value).into_datum()
@@ -204,7 +233,14 @@ pub fn aggregate_result_to_datum(
                 })
             } else {
                 metric.value.and_then(|value| unsafe {
-                    TantivyValue(OwnedValue::F64(value))
+                    // For Numeric64 fields, descale the result by dividing by 10^scale.
+                    // Tantivy stores these as scaled integers, but aggregates return f64.
+                    let descaled_value = if let Some(scale) = agg_type.numeric_scale() {
+                        value / 10f64.powi(scale as i32)
+                    } else {
+                        value
+                    };
+                    TantivyValue(OwnedValue::F64(descaled_value))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })
@@ -223,6 +259,88 @@ pub fn aggregate_result_to_datum(
                 })
             }
         }
+    }
+}
+
+/// Descale numeric values in custom aggregate JSON results.
+/// This function traverses the JSON and divides "value" fields by 10^scale
+/// only for aggregates that reference Numeric64 fields.
+///
+/// The scales map contains aggregate names (e.g., "avg_price") -> scale mappings.
+/// Only values under those aggregate names will be descaled.
+/// Special key "__top_level__" indicates a simple metric aggregate where the
+/// top-level "value" field should be descaled.
+pub fn descale_numeric_values_in_json(
+    json: serde_json::Value,
+    scales: &std::collections::HashMap<String, i16>,
+) -> serde_json::Value {
+    if scales.is_empty() {
+        return json;
+    }
+
+    // Check for top-level metric aggregate (special marker)
+    let top_level_scale = scales.get("__top_level__").copied();
+    descale_json_values_by_agg_name(json, scales, top_level_scale)
+}
+
+/// Recursively descale numeric "value" fields in JSON based on aggregate name.
+/// Only descales values that are nested under an aggregate name that has a scale.
+/// Also handles stats aggregate fields (avg, max, min, sum) which need descaling.
+fn descale_json_values_by_agg_name(
+    json: serde_json::Value,
+    scales: &std::collections::HashMap<String, i16>,
+    current_scale: Option<i16>,
+) -> serde_json::Value {
+    // Stats aggregate field names that contain values needing descaling
+    const STATS_FIELDS: &[&str] = &["avg", "max", "min", "sum", "value"];
+
+    match json {
+        serde_json::Value::Object(map) => {
+            let mut new_map = serde_json::Map::new();
+            for (key, value) in map {
+                // Check if this key is an aggregate name that needs descaling
+                let scale_for_key = scales.get(&key).copied().or(current_scale);
+
+                // Check if this is a stats field or value field that needs descaling
+                if STATS_FIELDS.contains(&key.as_str()) {
+                    // Descale the value if we have a scale for the current aggregate
+                    if let Some(scale) = current_scale {
+                        if let serde_json::Value::Number(ref n) = value {
+                            if let Some(f) = n.as_f64() {
+                                let divisor = 10f64.powi(scale as i32);
+                                let descaled = f / divisor;
+                                new_map.insert(
+                                    key,
+                                    serde_json::Value::Number(
+                                        serde_json::Number::from_f64(descaled)
+                                            .unwrap_or_else(|| serde_json::Number::from(0)),
+                                    ),
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    // No descaling needed or not a number
+                    new_map.insert(
+                        key,
+                        descale_json_values_by_agg_name(value, scales, current_scale),
+                    );
+                } else {
+                    // Recurse with the scale for this aggregate name (if any)
+                    new_map.insert(
+                        key,
+                        descale_json_values_by_agg_name(value, scales, scale_for_key),
+                    );
+                }
+            }
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.into_iter()
+                .map(|v| descale_json_values_by_agg_name(v, scales, current_scale))
+                .collect(),
+        ),
+        other => other,
     }
 }
 

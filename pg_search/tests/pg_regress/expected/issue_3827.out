@@ -32,12 +32,12 @@ WHERE id @@@ pdb.all()
 GROUP BY n
 ORDER BY n
 LIMIT 1;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: n, (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: n, (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Result
-         Output: n, pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: n, pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"n","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          ->  Custom Scan (ParadeDB Aggregate Scan) on public.issue_3827_t
                Output: n
                Index: issue_3827_t_idx

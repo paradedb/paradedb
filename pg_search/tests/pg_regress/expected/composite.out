@@ -16,14 +16,14 @@ SET search_path TO composite_test, public;
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 -- Create table with composite type in index
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 -- Create index using composite type expression
 CREATE INDEX idx_products
@@ -352,12 +352,12 @@ DROP TYPE dup_field_comp;
 ------------------------------------------------------------
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
     id, (ROW(name, description, price)::nullable_comp)
@@ -389,12 +389,12 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 ------------------------------------------------------------
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
     id, (ROW(name, description, price)::reindex_comp)
@@ -1059,13 +1059,13 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price NUMERIC(18,2)
 );
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price NUMERIC(18,2)
 );
 CREATE INDEX idx_products_schema
 ON products_schema
@@ -1346,7 +1346,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price NUMERIC(18,2),
     in_stock BOOLEAN
 );
 -- Insert test data
@@ -1782,11 +1782,11 @@ FROM smoke_test
 WHERE id @@@ pdb.all()
 ORDER BY id
 LIMIT 3;
- id |       name        | price |                                          price_stats                                          
-----+-------------------+-------+-----------------------------------------------------------------------------------------------
-  1 | Running Shoes     | 89.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
-  2 | Wireless Keyboard | 79.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
-  3 | Gaming Mouse      | 59.99 | {"avg": 78.74000000000001, "max": 149.99, "min": 29.99, "sum": 629.9200000000001, "count": 8}
+ id |       name        | price |                              price_stats                               
+----+-------------------+-------+------------------------------------------------------------------------
+  1 | Running Shoes     | 89.99 | {"avg": 78.74, "max": 149.99, "min": 29.99, "sum": 629.92, "count": 8}
+  2 | Wireless Keyboard | 79.99 | {"avg": 78.74, "max": 149.99, "min": 29.99, "sum": 629.92, "count": 8}
+  3 | Gaming Mouse      | 59.99 | {"avg": 78.74, "max": 149.99, "min": 29.99, "sum": 629.92, "count": 8}
 (3 rows)
 
 ------------------------------------------------------------
@@ -1808,7 +1808,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, price FROM smoke_test
@@ -1995,8 +1995,8 @@ SELECT id, name, price
 FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
 ORDER BY price, id;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Scan) on smoke_test
@@ -2004,7 +2004,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price >= '50'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price <= '150'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":"150"},"is_datetime":false}}]}}
 (8 rows)
 
 SELECT id, name, price
@@ -2323,7 +2323,7 @@ SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0,
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":{"included":5.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -2750,12 +2750,12 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 -- TEST: Non-text expressions in composite fields
 ------------------------------------------------------------
 CREATE TYPE numeric_expr_composite AS (
-    original_price NUMERIC,
-    discounted_price NUMERIC
+    original_price NUMERIC(18,2),
+    discounted_price NUMERIC(18,2)
 );
 CREATE TABLE numeric_expr_test (
     id SERIAL PRIMARY KEY,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (
     id,
@@ -2766,9 +2766,9 @@ SELECT * FROM paradedb.schema('idx_numeric_expr') ORDER BY name;
        name       | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ------------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  ctid             | U64        | f      | t       | t    | f          |             |           |        | 
- discounted_price | F64        | f      | t       | t    | f          |             |           |        | 
+ discounted_price | I64        | f      | t       | t    | f          |             |           |        | 
  id               | I64        | f      | t       | t    | f          |             |           |        | 
- original_price   | F64        | f      | t       | t    | f          |             |           |        | 
+ original_price   | I64        | f      | t       | t    | f          |             |           |        | 
 (4 rows)
 
 INSERT INTO numeric_expr_test (price) VALUES (100.00), (200.00), (50.00);
@@ -2782,7 +2782,7 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
    Index: idx_numeric_expr
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":75.0},"upper_bound":{"included":150.0},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
 (6 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
@@ -2801,7 +2801,7 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
    Index: idx_numeric_expr
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":80.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (6 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));

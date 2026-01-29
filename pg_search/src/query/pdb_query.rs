@@ -1610,16 +1610,32 @@ fn numeric_value_to_bytes(value: OwnedValue) -> anyhow::Result<OwnedValue> {
     Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
 }
 
-/// Convert a string-encoded numeric value to the appropriate JSON type (I64 or F64).
+/// Convert a string-encoded numeric value to the appropriate JSON type (I64, U64, or F64).
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+/// Convert a string-encoded numeric value to the appropriate JSON type.
+/// JSON distinguishes between integers (I64/U64) and floats (F64).
+/// We detect based on whether the value contains a decimal point or scientific notation.
 fn convert_string_to_json_numeric(value: OwnedValue) -> OwnedValue {
     if let OwnedValue::Str(s) = &value {
-        // Try to parse as a number
-        if let Ok(f) = s.parse::<f64>() {
-            // Use I64 for whole numbers to match JSON integer storage
-            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
-                return OwnedValue::I64(f as i64);
+        let trimmed = s.trim();
+
+        // Check if it looks like a plain integer (no decimal point, no scientific notation)
+        let is_plain_integer =
+            !trimmed.contains('.') && !trimmed.contains('e') && !trimmed.contains('E');
+
+        if is_plain_integer {
+            // Try i64 first (handles negative and small positive integers)
+            if let Ok(i) = trimmed.parse::<i64>() {
+                return OwnedValue::I64(i);
             }
+            // Try u64 for large positive integers beyond i64::MAX
+            if let Ok(u) = trimmed.parse::<u64>() {
+                return OwnedValue::U64(u);
+            }
+        }
+
+        // For decimal values, scientific notation, or fallback, use F64
+        if let Ok(f) = trimmed.parse::<f64>() {
             return OwnedValue::F64(f);
         }
     }
@@ -1628,9 +1644,15 @@ fn convert_string_to_json_numeric(value: OwnedValue) -> OwnedValue {
 }
 
 /// Convert a string-encoded numeric value to I64.
+/// Parses directly as i64 to preserve precision (f64 loses precision for large integers).
 fn convert_string_to_i64(value: OwnedValue) -> OwnedValue {
     if let OwnedValue::Str(s) = &value {
-        if let Ok(f) = s.parse::<f64>() {
+        // Try to parse directly as i64 first to preserve precision
+        if let Ok(i) = s.trim().parse::<i64>() {
+            return OwnedValue::I64(i);
+        }
+        // Fall back to f64 parsing for decimal values, then truncate
+        if let Ok(f) = s.trim().parse::<f64>() {
             return OwnedValue::I64(f as i64);
         }
     }
@@ -1638,9 +1660,15 @@ fn convert_string_to_i64(value: OwnedValue) -> OwnedValue {
 }
 
 /// Convert a string-encoded numeric value to U64.
+/// Parses directly as u64 to preserve precision (f64 loses precision for large integers).
 fn convert_string_to_u64(value: OwnedValue) -> OwnedValue {
     if let OwnedValue::Str(s) = &value {
-        if let Ok(f) = s.parse::<f64>() {
+        // Try to parse directly as u64 first to preserve precision
+        if let Ok(u) = s.trim().parse::<u64>() {
+            return OwnedValue::U64(u);
+        }
+        // Fall back to f64 parsing for decimal values, then truncate
+        if let Ok(f) = s.trim().parse::<f64>() {
             if f >= 0.0 {
                 return OwnedValue::U64(f as u64);
             }

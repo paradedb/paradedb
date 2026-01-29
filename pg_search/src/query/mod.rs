@@ -1230,26 +1230,48 @@ fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedVa
         _ => return value.clone(),
     };
 
+    let trimmed = s.trim();
+
     match field_type {
         FieldType::JsonObject(_) => {
-            // For JSON fields, convert string numeric values to appropriate JSON types
-            if let Ok(f) = s.parse::<f64>() {
-                // Use I64 for whole numbers to match JSON integer storage
-                if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
-                    return OwnedValue::I64(f as i64);
+            // JSON distinguishes between integers (I64/U64) and floats (F64).
+            // We detect based on whether the value contains a decimal point or scientific notation.
+            let is_plain_integer =
+                !trimmed.contains('.') && !trimmed.contains('e') && !trimmed.contains('E');
+
+            if is_plain_integer {
+                // Integer value - try i64 first, then u64
+                if let Ok(i) = trimmed.parse::<i64>() {
+                    return OwnedValue::I64(i);
                 }
+                if let Ok(u) = trimmed.parse::<u64>() {
+                    return OwnedValue::U64(u);
+                }
+            }
+            // Decimal values and scientific notation use F64
+            if let Ok(f) = trimmed.parse::<f64>() {
                 return OwnedValue::F64(f);
             }
             value.clone()
         }
         FieldType::I64(_) => {
-            if let Ok(f) = s.parse::<f64>() {
+            // Try i64 first to preserve precision
+            if let Ok(i) = trimmed.parse::<i64>() {
+                return OwnedValue::I64(i);
+            }
+            // Fall back to f64 for decimals, then truncate
+            if let Ok(f) = trimmed.parse::<f64>() {
                 return OwnedValue::I64(f as i64);
             }
             value.clone()
         }
         FieldType::U64(_) => {
-            if let Ok(f) = s.parse::<f64>() {
+            // Try u64 first to preserve precision
+            if let Ok(u) = trimmed.parse::<u64>() {
+                return OwnedValue::U64(u);
+            }
+            // Fall back to f64 for decimals, then truncate
+            if let Ok(f) = trimmed.parse::<f64>() {
                 if f >= 0.0 {
                     return OwnedValue::U64(f as u64);
                 }
@@ -1257,7 +1279,7 @@ fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedVa
             value.clone()
         }
         FieldType::F64(_) => {
-            if let Ok(f) = s.parse::<f64>() {
+            if let Ok(f) = trimmed.parse::<f64>() {
                 return OwnedValue::F64(f);
             }
             value.clone()

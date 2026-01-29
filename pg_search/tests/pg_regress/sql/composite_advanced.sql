@@ -198,8 +198,8 @@ CREATE TYPE fast_comp_50 AS (
     t26 pdb.literal, t27 pdb.literal, t28 pdb.literal, t29 pdb.literal, t30 pdb.literal,
     t31 pdb.literal, t32 pdb.literal, t33 pdb.literal, t34 pdb.literal, t35 pdb.literal,
     t36 pdb.literal, t37 pdb.literal, t38 pdb.literal, t39 pdb.literal, t40 pdb.literal,
-    n01 NUMERIC, n02 NUMERIC, n03 NUMERIC, n04 NUMERIC, n05 NUMERIC,
-    n06 NUMERIC, n07 NUMERIC, n08 NUMERIC, n09 NUMERIC, n10 NUMERIC
+    n01 NUMERIC(18,2), n02 NUMERIC(18,2), n03 NUMERIC(18,2), n04 NUMERIC(18,2), n05 NUMERIC(18,2),
+    n06 NUMERIC(18,2), n07 NUMERIC(18,2), n08 NUMERIC(18,2), n09 NUMERIC(18,2), n10 NUMERIC(18,2)
 );
 
 CREATE TABLE fast_test_50 (
@@ -208,8 +208,8 @@ CREATE TABLE fast_test_50 (
     t11 TEXT, t12 TEXT, t13 TEXT, t14 TEXT, t15 TEXT, t16 TEXT, t17 TEXT, t18 TEXT, t19 TEXT, t20 TEXT,
     t21 TEXT, t22 TEXT, t23 TEXT, t24 TEXT, t25 TEXT, t26 TEXT, t27 TEXT, t28 TEXT, t29 TEXT, t30 TEXT,
     t31 TEXT, t32 TEXT, t33 TEXT, t34 TEXT, t35 TEXT, t36 TEXT, t37 TEXT, t38 TEXT, t39 TEXT, t40 TEXT,
-    n01 NUMERIC, n02 NUMERIC, n03 NUMERIC, n04 NUMERIC, n05 NUMERIC,
-    n06 NUMERIC, n07 NUMERIC, n08 NUMERIC, n09 NUMERIC, n10 NUMERIC
+    n01 NUMERIC(18,2), n02 NUMERIC(18,2), n03 NUMERIC(18,2), n04 NUMERIC(18,2), n05 NUMERIC(18,2),
+    n06 NUMERIC(18,2), n07 NUMERIC(18,2), n08 NUMERIC(18,2), n09 NUMERIC(18,2), n10 NUMERIC(18,2)
 );
 
 -- Create index with fast fields via v2 API (pdb.literal in composite type)

@@ -11,7 +11,7 @@
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 
 -- Create table with composite type in index
@@ -19,7 +19,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 
 -- Create index using composite type expression
@@ -274,13 +274,13 @@ DROP TYPE dup_field_comp;
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
 
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
 
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
@@ -301,13 +301,13 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
 
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
 
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
@@ -631,14 +631,14 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price NUMERIC(18,2)
 );
 
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price NUMERIC(18,2)
 );
 
 CREATE INDEX idx_products_schema
@@ -790,7 +790,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price NUMERIC(18,2),
     in_stock BOOLEAN
 );
 
@@ -1365,13 +1365,13 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 ------------------------------------------------------------
 
 CREATE TYPE numeric_expr_composite AS (
-    original_price NUMERIC,
-    discounted_price NUMERIC
+    original_price NUMERIC(18,2),
+    discounted_price NUMERIC(18,2)
 );
 
 CREATE TABLE numeric_expr_test (
     id SERIAL PRIMARY KEY,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (

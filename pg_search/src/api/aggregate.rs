@@ -56,9 +56,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::gucs;
+use crate::postgres::customscan::aggregatescan::{
+    descale_numeric_values_in_json, extract_agg_name_to_field,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
+use crate::schema::SearchFieldType;
 
 fn aggregate_impl(
     index: PgRelation,
@@ -81,6 +85,21 @@ fn aggregate_impl(
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
     let standalone_context = ExprContextGuard::new();
 
+    // Extract aggregate name to field mappings for descaling Numeric64 fields
+    let agg_name_to_field = extract_agg_name_to_field(&agg.0);
+
+    // Build a mapping of aggregate names to their numeric scales
+    let mut numeric_field_scales = std::collections::HashMap::new();
+    if let Ok(schema) = relation.schema() {
+        for (agg_name, field_name) in &agg_name_to_field {
+            if let Some(search_field) = schema.search_field(field_name) {
+                if let SearchFieldType::Numeric64(_, scale) = search_field.field_type() {
+                    numeric_field_scales.insert(agg_name.clone(), scale);
+                }
+            }
+        }
+    }
+
     let aggregate = execute_aggregate(
         &relation,
         query,
@@ -95,7 +114,14 @@ fn aggregate_impl(
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
     } else {
-        Ok(JsonB(serde_json::to_value(aggregate)?))
+        // Convert to JSON and descale Numeric64 fields
+        let json_value = serde_json::to_value(aggregate)?;
+        let descaled_json = if numeric_field_scales.is_empty() {
+            json_value
+        } else {
+            descale_numeric_values_in_json(json_value, &numeric_field_scales)
+        };
+        Ok(JsonB(descaled_json))
     }
 }
 

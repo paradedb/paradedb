@@ -86,12 +86,12 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -232,12 +232,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -274,12 +274,12 @@ SELECT *, pdb.agg('{"avg": {"field": "response_time"}}'::jsonb) OVER ()
 FROM logs
 WHERE status_code >= 500
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -795,12 +795,12 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"max":{"field":"status_code"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -835,12 +835,12 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -874,12 +874,12 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY response_time DESC LIMIT 5;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"response_time"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -1335,12 +1335,12 @@ SELECT *,
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, severity, category, response_time, status_code, "timestamp", (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.logs
-         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, severity, category, response_time, status_code, "timestamp", pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"response_time","ranges":[{"to":100,"key":"fast"},{"to":1000,"key":"medium","from":100},{"key":"slow","from":1000}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: logs
          Index: logs_idx
          Exec Method: TopNScanExecState
@@ -1535,7 +1535,7 @@ CREATE TABLE products (
     category TEXT,
     brand TEXT,
     rating INTEGER,
-    price NUMERIC
+    price NUMERIC(18,2)
 );
 INSERT INTO products (description, category, brand, rating, price) VALUES
     ('Laptop with fast processor', 'Electronics', 'Apple', 5, 1299.99),
@@ -1985,12 +1985,12 @@ SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb) OVER () AS avg_value
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState
@@ -2018,12 +2018,12 @@ SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, true) OVER () AS avg_val
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState
@@ -2051,12 +2051,12 @@ SELECT *, pdb.agg('{"avg": {"field": "value"}}'::jsonb, false) OVER () AS avg_va
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState
@@ -2083,12 +2083,12 @@ SELECT *, pdb.agg('{"terms": {"field": "category"}}'::jsonb, false) OVER () AS c
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                     QUERY PLAN                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState
@@ -2118,12 +2118,12 @@ SELECT *,
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"value"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"category"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState
@@ -2228,12 +2228,12 @@ SELECT *, pdb.agg('{"range": {"field": "value", "ranges": [{"to": 200}, {"from":
 FROM mvcc_test
 WHERE description @@@ 'test'
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, category, value, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mvcc_test
-         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, category, value, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"range":{"field":"value","ranges":[{"to":200},{"to":400,"from":200},{"from":400}]}},"filter":null,"indexrelid":0,"mvcc_visibility":"Disabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mvcc_test
          Index: mvcc_test_idx
          Exec Method: TopNScanExecState

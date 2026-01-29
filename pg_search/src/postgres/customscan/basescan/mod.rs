@@ -45,7 +45,7 @@ use crate::postgres::customscan::basescan::projections::snippet::{
 };
 use crate::postgres::customscan::basescan::projections::window_agg::{
     deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
-    WindowAggregateInfo,
+    resolve_window_aggregate_numeric_scales, WindowAggregateInfo,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
@@ -801,6 +801,12 @@ impl CustomScan for BaseScan {
                             &bm25_index,
                             root,
                             rti,
+                        );
+
+                        // Resolve numeric field scales for Numeric64 fields in window aggregates
+                        resolve_window_aggregate_numeric_scales(
+                            &mut window_aggregates,
+                            &bm25_index,
                         );
 
                         // Validate that all fields in window aggregates exist in the index schema

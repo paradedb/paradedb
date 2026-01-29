@@ -381,6 +381,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             filter,
             indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
             mvcc_visibility,
+            numeric_field_scales: std::collections::HashMap::new(), // Will be filled in during planning
         });
     }
 
@@ -408,6 +409,7 @@ unsafe fn convert_window_func_to_aggregate_type(
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
+        None,               // numeric_scale: window aggregates don't support Numeric64 yet
     )?;
     Some(agg_type)
 }
@@ -558,6 +560,80 @@ unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_s
 
     let order_list = PgList::<pg_sys::Node>::from_pg(order_clause);
     !order_list.is_empty()
+}
+
+/// Resolve numeric field scales for window aggregates at custom plan creation time
+///
+/// For Custom aggregates (pdb.agg), extracts field names from the aggregate JSON and
+/// looks up their scales in the schema. This is necessary for descaling Numeric64 fields
+/// in aggregate results.
+///
+/// This is called at plan_custom_path time when we have access to the schema.
+pub fn resolve_window_aggregate_numeric_scales(
+    window_aggregates: &mut [WindowAggregateInfo],
+    bm25_index: &PgSearchRelation,
+) {
+    use crate::postgres::customscan::aggregatescan::aggregate_type::extract_agg_name_to_field;
+
+    let schema = match bm25_index.schema() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    for window_agg in window_aggregates.iter_mut() {
+        for agg_type in window_agg.targetlist.aggregates_mut() {
+            match agg_type {
+                AggregateType::Custom {
+                    agg_json,
+                    numeric_field_scales,
+                    ..
+                } => {
+                    // Extract aggregate name to field mappings and get scales for Numeric64 fields
+                    let agg_name_to_field = extract_agg_name_to_field(agg_json);
+
+                    for (agg_name, field_name) in agg_name_to_field {
+                        if let Some(search_field) = schema.search_field(&field_name) {
+                            if let crate::schema::SearchFieldType::Numeric64(_, scale) =
+                                search_field.field_type()
+                            {
+                                numeric_field_scales.insert(agg_name, scale);
+                            }
+                        }
+                    }
+                }
+                AggregateType::Sum {
+                    field,
+                    numeric_scale,
+                    ..
+                }
+                | AggregateType::Avg {
+                    field,
+                    numeric_scale,
+                    ..
+                }
+                | AggregateType::Min {
+                    field,
+                    numeric_scale,
+                    ..
+                }
+                | AggregateType::Max {
+                    field,
+                    numeric_scale,
+                    ..
+                } => {
+                    // For standard aggregates, check if the field is Numeric64 and set scale
+                    if let Some(search_field) = schema.search_field(field) {
+                        if let crate::schema::SearchFieldType::Numeric64(_, scale) =
+                            search_field.field_type()
+                        {
+                            *numeric_scale = Some(scale);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Resolve window aggregate FILTER clauses at custom plan creation time

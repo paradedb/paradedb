@@ -14,7 +14,7 @@ CREATE TABLE products (
     description TEXT,
     rating INTEGER,
     category TEXT,
-    price NUMERIC,
+    price NUMERIC(18,2),
     in_stock BOOLEAN
 );
 INSERT INTO products (description, rating, category, price, in_stock) VALUES
@@ -609,7 +609,7 @@ FROM products
 WHERE id @@@ paradedb.all();
  count |  avg   | min | max 
 -------+--------+-----+-----
-     9 | 367.88 |   1 |   5
+     9 | 367.77 |   1 |   5
 (1 row)
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))

@@ -9,8 +9,8 @@ CREATE TABLE products (
     description TEXT,
     category TEXT,
     brand TEXT,
-    price NUMERIC,
-    rating NUMERIC,
+    price NUMERIC(18,2),
+    rating NUMERIC(18,2),
     in_stock BOOLEAN,
     sales INTEGER
 );
@@ -81,9 +81,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  5 | ASUS ROG    |    4.7 |           4
-  3 | ThinkPad X1 |    4.5 |           4
+  1 | MacBook Pro |   4.80 |           4
+  5 | ASUS ROG    |   4.70 |           4
+  3 | ThinkPad X1 |   4.50 |           4
 (3 rows)
 
 -- Test 1b: Window aggregate with &&& operator (match conjunction)
@@ -162,9 +162,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  5 | ASUS ROG    |    4.7 |           4
-  3 | ThinkPad X1 |    4.5 |           4
+  1 | MacBook Pro |   4.80 |           4
+  5 | ASUS ROG    |   4.70 |           4
+  3 | ThinkPad X1 |   4.50 |           4
 (3 rows)
 
 -- Test 1d: Window aggregate with ### operator (phrase search)
@@ -204,7 +204,7 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           1
+  1 | MacBook Pro |   4.80 |           1
 (1 row)
 
 -- Test 1e: Window aggregate with proximity operator (## - any order)
@@ -283,7 +283,7 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           1
+  1 | MacBook Pro |   4.80 |           1
 (1 row)
 
 -- =============================================================================
@@ -326,9 +326,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating 
 ----+-------------+----------+--------
-  1 | MacBook Pro | Laptops  |    4.8
-  5 | ASUS ROG    | Laptops  |    4.7
-  3 | ThinkPad X1 | Laptops  |    4.5
+  1 | MacBook Pro | Laptops  |   4.80
+  5 | ASUS ROG    | Laptops  |   4.70
+  3 | ThinkPad X1 | Laptops  |   4.50
 (3 rows)
 
 -- Test 2: TopN with COUNT(*) OVER () - Basic window aggregate
@@ -368,9 +368,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  5 | ASUS ROG    |    4.7 |           4
-  3 | ThinkPad X1 |    4.5 |           4
+  1 | MacBook Pro |   4.80 |           4
+  5 | ASUS ROG    |   4.70 |           4
+  3 | ThinkPad X1 |   4.50 |           4
 (3 rows)
 
 -- Test 3: Multiple window aggregates (COUNT, SUM, AVG)
@@ -387,12 +387,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -414,11 +414,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | total_count | total_price | avg_rating 
-----+-------------+--------+-------+-------------+-------------+------------
-  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 |        4.6
-  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 |        4.6
-  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 |        4.6
+ id |    name     | rating |  price  | total_count | total_price | avg_rating 
+----+-------------+--------+---------+-------------+-------------+------------
+  1 | MacBook Pro |   4.80 | 2499.00 |           4 |        7396 |        4.6
+  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |        7396 |        4.6
+  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |        7396 |        4.6
 (3 rows)
 
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
@@ -467,9 +467,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating | category_count 
 ----+-------------+----------+--------+----------------
-  1 | MacBook Pro | Laptops  |    4.8 |              4
-  5 | ASUS ROG    | Laptops  |    4.7 |              4
-  3 | ThinkPad X1 | Laptops  |    4.5 |              4
+  1 | MacBook Pro | Laptops  |   4.80 |              4
+  5 | ASUS ROG    | Laptops  |   4.70 |              4
+  3 | ThinkPad X1 | Laptops  |   4.50 |              4
 (3 rows)
 
 -- Test 5: Window aggregate with ORDER BY in OVER clause
@@ -513,11 +513,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | running_total 
-----+-------------+--------+-------+---------------
-  1 | MacBook Pro |    4.8 |  2499 |          2499
-  5 | ASUS ROG    |    4.7 |  1899 |          4398
-  3 | ThinkPad X1 |    4.5 |  1599 |          5997
+ id |    name     | rating |  price  | running_total 
+----+-------------+--------+---------+---------------
+  1 | MacBook Pro |   4.80 | 2499.00 |       2499.00
+  5 | ASUS ROG    |   4.70 | 1899.00 |       4398.00
+  3 | ThinkPad X1 |   4.50 | 1599.00 |       5997.00
 (3 rows)
 
 -- Test 6: Window aggregate with ROWS frame
@@ -561,9 +561,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating |     moving_avg     
 ----+-------------+--------+--------------------
-  1 | MacBook Pro |    4.8 | 4.7500000000000000
-  5 | ASUS ROG    |    4.7 | 4.6666666666666667
-  3 | ThinkPad X1 |    4.5 | 4.5333333333333333
+  1 | MacBook Pro |   4.80 | 4.7500000000000000
+  5 | ASUS ROG    |   4.70 | 4.6666666666666667
+  3 | ThinkPad X1 |   4.50 | 4.5333333333333333
 (3 rows)
 
 -- Test 7: MIN and MAX window aggregates
@@ -579,12 +579,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -605,11 +605,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | min_price | max_price 
-----+-------------+--------+-------+-----------+-----------
-  1 | MacBook Pro |    4.8 |  2499 |      1399 |      2499
-  5 | ASUS ROG    |    4.7 |  1899 |      1399 |      2499
-  3 | ThinkPad X1 |    4.5 |  1599 |      1399 |      2499
+ id |    name     | rating |  price  | min_price | max_price 
+----+-------------+--------+---------+-----------+-----------
+  1 | MacBook Pro |   4.80 | 2499.00 |      1399 |      2499
+  5 | ASUS ROG    |   4.70 | 1899.00 |      1399 |      2499
+  3 | ThinkPad X1 |   4.50 | 1599.00 |      1399 |      2499
 (3 rows)
 
 -- Test 8: Window aggregate with FILTER clause
@@ -655,9 +655,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | in_stock | in_stock_count 
 ----+-------------+--------+----------+----------------
-  1 | MacBook Pro |    4.8 | t        |              4
-  5 | ASUS ROG    |    4.7 | t        |              4
-  3 | ThinkPad X1 |    4.5 | t        |              4
+  1 | MacBook Pro |   4.80 | t        |              4
+  5 | ASUS ROG    |   4.70 | t        |              4
+  3 | ThinkPad X1 |   4.50 | t        |              4
 (3 rows)
 
 -- Test 9: COUNT with specific column (not *)
@@ -697,9 +697,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | brand_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  5 | ASUS ROG    |    4.7 |           4
-  3 | ThinkPad X1 |    4.5 |           4
+  1 | MacBook Pro |   4.80 |           4
+  5 | ASUS ROG    |   4.70 |           4
+  3 | ThinkPad X1 |   4.50 |           4
 (3 rows)
 
 -- Test 10: Complex PARTITION BY and ORDER BY combination
@@ -750,9 +750,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | brand  | rating | category_rank_count 
 ----+-------------+----------+--------+--------+---------------------
-  1 | MacBook Pro | Laptops  | Apple  |    4.8 |                   1
-  5 | ASUS ROG    | Laptops  | ASUS   |    4.7 |                   2
-  3 | ThinkPad X1 | Laptops  | Lenovo |    4.5 |                   3
+  1 | MacBook Pro | Laptops  | Apple  |   4.80 |                   1
+  5 | ASUS ROG    | Laptops  | ASUS   |   4.70 |                   2
+  3 | ThinkPad X1 | Laptops  | Lenovo |   4.50 |                   3
 (3 rows)
 
 -- Test 11: Window aggregate without ORDER BY on base query
@@ -787,10 +787,10 @@ FROM products
 WHERE description @@@ 'laptop';
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  3 | ThinkPad X1 |    4.5 |           4
-  4 | HP Spectre  |    4.4 |           4
-  5 | ASUS ROG    |    4.7 |           4
+  1 | MacBook Pro |   4.80 |           4
+  3 | ThinkPad X1 |   4.50 |           4
+  4 | HP Spectre  |   4.40 |           4
+  5 | ASUS ROG    |   4.70 |           4
 (4 rows)
 
 -- Test 12: Window aggregate with RANGE frame
@@ -837,11 +837,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | range_sum 
-----+-------------+--------+-------+-----------
-  1 | MacBook Pro |    4.8 |  2499 |      7396
-  5 | ASUS ROG    |    4.7 |  1899 |      7396
-  3 | ThinkPad X1 |    4.5 |  1599 |      7396
+ id |    name     | rating |  price  | range_sum 
+----+-------------+--------+---------+-----------
+  1 | MacBook Pro |   4.80 | 2499.00 |   7396.00
+  5 | ASUS ROG    |   4.70 | 1899.00 |   7396.00
+  3 | ThinkPad X1 |   4.50 | 1599.00 |   7396.00
 (3 rows)
 
 -- Test 13: Multiple different PARTITION BY clauses
@@ -905,9 +905,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | brand  | rating | by_category | by_brand | total 
 ----+-------------+----------+--------+--------+-------------+----------+-------
-  1 | MacBook Pro | Laptops  | Apple  |    4.8 |           4 |        1 |     4
-  5 | ASUS ROG    | Laptops  | ASUS   |    4.7 |           4 |        1 |     4
-  3 | ThinkPad X1 | Laptops  | Lenovo |    4.5 |           4 |        1 |     4
+  1 | MacBook Pro | Laptops  | Apple  |   4.80 |           4 |        1 |     4
+  5 | ASUS ROG    | Laptops  | ASUS   |   4.70 |           4 |        1 |     4
+  3 | ThinkPad X1 | Laptops  | Lenovo |   4.50 |           4 |        1 |     4
 (3 rows)
 
 -- Test 14: Window aggregate with GROUPS frame (PG17+)
@@ -954,9 +954,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | group_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           2
-  5 | ASUS ROG    |    4.7 |           2
-  3 | ThinkPad X1 |    4.5 |           2
+  1 | MacBook Pro |   4.80 |           2
+  5 | ASUS ROG    |   4.70 |           2
+  3 | ThinkPad X1 |   4.50 |           2
 (3 rows)
 
 -- Test 15: TopN with no @@@ operator (should not trigger window function handling)
@@ -996,9 +996,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           3
-  5 | ASUS ROG    |    4.7 |           3
-  2 | Dell XPS 13 |    4.6 |           3
+  1 | MacBook Pro |   4.80 |           3
+  5 | ASUS ROG    |   4.70 |           3
+  2 | Dell XPS 13 |   4.60 |           3
 (3 rows)
 
 -- Test 16: Window aggregate with multiple base table columns
@@ -1017,12 +1017,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
-                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, category, brand, price, rating, sales, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, name, category, brand, price, rating, sales, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, category, brand, price, rating, sales, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, name, category, brand, price, rating, sales, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1046,10 +1046,10 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 2;
- id |    name     | category | brand | price | rating | sales | total_count | total_sales 
-----+-------------+----------+-------+-------+--------+-------+-------------+-------------
-  1 | MacBook Pro | Laptops  | Apple |  2499 |    4.8 |   150 |           4 |         540
-  5 | ASUS ROG    | Laptops  | ASUS  |  1899 |    4.7 |    90 |           4 |         540
+ id |    name     | category | brand |  price  | rating | sales | total_count | total_sales 
+----+-------------+----------+-------+---------+--------+-------+-------------+-------------
+  1 | MacBook Pro | Laptops  | Apple | 2499.00 |   4.80 |   150 |           4 |         540
+  5 | ASUS ROG    | Laptops  | ASUS  | 1899.00 |   4.70 |    90 |           4 |         540
 (2 rows)
 
 -- Test 17: Window aggregate in a subquery (TopN in outer query)
@@ -1102,10 +1102,10 @@ SELECT * FROM (
 ) sub
 ORDER BY price DESC
 LIMIT 2;
- id |    name     | rating | price | total_count 
-----+-------------+--------+-------+-------------
-  1 | MacBook Pro |    4.8 |  2499 |           4
-  5 | ASUS ROG    |    4.7 |  1899 |           4
+ id |    name     | rating |  price  | total_count 
+----+-------------+--------+---------+-------------
+  1 | MacBook Pro |   4.80 | 2499.00 |           4
+  5 | ASUS ROG    |   4.70 | 1899.00 |           4
 (2 rows)
 
 -- Test 18: Value Facet - Category distribution (like Elasticsearch value facets)
@@ -1159,9 +1159,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | category | rating | total_results | category_count 
 ----+-------------+----------+--------+---------------+----------------
-  1 | MacBook Pro | Laptops  |    4.8 |             4 |              4
-  5 | ASUS ROG    | Laptops  |    4.7 |             4 |              4
-  3 | ThinkPad X1 | Laptops  |    4.5 |             4 |              4
+  1 | MacBook Pro | Laptops  |   4.80 |             4 |              4
+  5 | ASUS ROG    | Laptops  |   4.70 |             4 |              4
+  3 | ThinkPad X1 | Laptops  |   4.50 |             4 |              4
 (3 rows)
 
 -- Test 19: Range Facet - Price buckets (like Elasticsearch range facets)
@@ -1229,12 +1229,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
- id |    name     | price | price_bucket | total_results | bucket_count 
-----+-------------+-------+--------------+---------------+--------------
-  1 | MacBook Pro |  2499 | Premium      |             4 |            3
-  5 | ASUS ROG    |  1899 | Premium      |             4 |            3
-  3 | ThinkPad X1 |  1599 | Premium      |             4 |            3
-  4 | HP Spectre  |  1399 | Mid-range    |             4 |            1
+ id |    name     |  price  | price_bucket | total_results | bucket_count 
+----+-------------+---------+--------------+---------------+--------------
+  1 | MacBook Pro | 2499.00 | Premium      |             4 |            3
+  5 | ASUS ROG    | 1899.00 | Premium      |             4 |            3
+  3 | ThinkPad X1 | 1599.00 | Premium      |             4 |            3
+  4 | HP Spectre  | 1399.00 | Mid-range    |             4 |            1
 (4 rows)
 
 -- Test 20: Multi-facet - Brand + Price range (combining multiple facets)
@@ -1288,11 +1288,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | total_results | brand_count |    avg_brand_price    
-----+-------------+--------+-------+---------------+-------------+-----------------------
-  1 | MacBook Pro | Apple  |  2499 |             4 |           1 | 2499.0000000000000000
-  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 | 1899.0000000000000000
-  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 | 1599.0000000000000000
+ id |    name     | brand  |  price  | total_results | brand_count |    avg_brand_price    
+----+-------------+--------+---------+---------------+-------------+-----------------------
+  1 | MacBook Pro | Apple  | 2499.00 |             4 |           1 | 2499.0000000000000000
+  5 | ASUS ROG    | ASUS   | 1899.00 |             4 |           1 | 1899.0000000000000000
+  3 | ThinkPad X1 | Lenovo | 1599.00 |             4 |           1 | 1599.0000000000000000
 (3 rows)
 
 -- Test 21: Facet with aggregates - MIN/MAX price per category
@@ -1346,11 +1346,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | category | price | total_results | category_min_price | category_max_price 
-----+-------------+----------+-------+---------------+--------------------+--------------------
-  1 | MacBook Pro | Laptops  |  2499 |             4 |               1399 |               2499
-  5 | ASUS ROG    | Laptops  |  1899 |             4 |               1399 |               2499
-  3 | ThinkPad X1 | Laptops  |  1599 |             4 |               1399 |               2499
+ id |    name     | category |  price  | total_results | category_min_price | category_max_price 
+----+-------------+----------+---------+---------------+--------------------+--------------------
+  1 | MacBook Pro | Laptops  | 2499.00 |             4 |            1399.00 |            2499.00
+  5 | ASUS ROG    | Laptops  | 1899.00 |             4 |            1399.00 |            2499.00
+  3 | ThinkPad X1 | Laptops  | 1599.00 |             4 |            1399.00 |            2499.00
 (3 rows)
 
 -- Test 22: Boolean facet - In-stock availability
@@ -1424,12 +1424,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, sales, (CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END), (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, sales, CASE WHEN (sales < 100) THEN 'Low'::text WHEN (sales < 150) THEN 'Medium'::text ELSE 'High'::text END, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"sales","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -1532,10 +1532,10 @@ ORDER BY rating DESC
 LIMIT 5;
  id |    name     | rating |     rating_tier     | total_results | tier_count 
 ----+-------------+--------+---------------------+---------------+------------
-  1 | MacBook Pro |    4.8 | Excellent (4.7+)    |             4 |          2
-  5 | ASUS ROG    |    4.7 | Excellent (4.7+)    |             4 |          2
-  3 | ThinkPad X1 |    4.5 | Very Good (4.5-4.7) |             4 |          1
-  4 | HP Spectre  |    4.4 | Good (4.0-4.5)      |             4 |          1
+  1 | MacBook Pro |   4.80 | Excellent (4.7+)    |             4 |          2
+  5 | ASUS ROG    |   4.70 | Excellent (4.7+)    |             4 |          2
+  3 | ThinkPad X1 |   4.50 | Very Good (4.5-4.7) |             4 |          1
+  4 | HP Spectre  |   4.40 | Good (4.0-4.5)      |             4 |          1
 (4 rows)
 
 -- Test 25: Complete faceting scenario - Combining all facet types
@@ -1625,11 +1625,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | rating | in_stock | total_results |       avg_price       |     avg_rating     | brand_count | price_range_count | stock_count 
-----+-------------+--------+-------+--------+----------+---------------+-----------------------+--------------------+-------------+-------------------+-------------
-  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+ id |    name     | brand  |  price  | rating | in_stock | total_results |       avg_price       |     avg_rating     | brand_count | price_range_count | stock_count 
+----+-------------+--------+---------+--------+----------+---------------+-----------------------+--------------------+-------------+-------------------+-------------
+  1 | MacBook Pro | Apple  | 2499.00 |   4.80 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+  5 | ASUS ROG    | ASUS   | 1899.00 |   4.70 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+  3 | ThinkPad X1 | Lenovo | 1599.00 |   4.50 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
 (3 rows)
 
 -- =============================================================================
@@ -1750,9 +1750,9 @@ ORDER BY p.rating DESC
 LIMIT 3;
  id |    name     | rating |       category_desc        | total_count 
 ----+-------------+--------+----------------------------+-------------
-  1 | MacBook Pro |    4.8 | Portable computing devices |           4
-  5 | ASUS ROG    |    4.7 | Portable computing devices |           4
-  3 | ThinkPad X1 |    4.5 | Portable computing devices |           4
+  1 | MacBook Pro |   4.80 | Portable computing devices |           4
+  5 | ASUS ROG    |   4.70 | Portable computing devices |           4
+  3 | ThinkPad X1 |   4.50 | Portable computing devices |           4
 (3 rows)
 
 -- Test 28: Window function in subquery
@@ -1812,11 +1812,11 @@ FROM (
 WHERE total_count > 0
 ORDER BY price DESC
 LIMIT 3;
- id |    name     | rating | price | total_count 
-----+-------------+--------+-------+-------------
-  1 | MacBook Pro |    4.8 |  2499 |           4
-  5 | ASUS ROG    |    4.7 |  1899 |           4
-  3 | ThinkPad X1 |    4.5 |  1599 |           4
+ id |    name     | rating |  price  | total_count 
+----+-------------+--------+---------+-------------
+  1 | MacBook Pro |   4.80 | 2499.00 |           4
+  5 | ASUS ROG    |   4.70 | 1899.00 |           4
+  3 | ThinkPad X1 |   4.50 | 1599.00 |           4
 (3 rows)
 
 -- Test 29: Nested subqueries with window functions
@@ -1887,8 +1887,8 @@ FROM (
 WHERE rank <= 2;
  id |    name     | rating | total_count | rank 
 ----+-------------+--------+-------------+------
-  1 | MacBook Pro |    4.8 |           4 |    1
-  5 | ASUS ROG    |    4.7 |           4 |    2
+  1 | MacBook Pro |   4.80 |           4 |    1
+  5 | ASUS ROG    |   4.70 |           4 |    2
 (2 rows)
 
 -- Test 30: Window function with HAVING + JOIN
@@ -1997,9 +1997,9 @@ ORDER BY rating DESC
 LIMIT 3;
  id |    name     | rating | in_stock | high_rating_count 
 ----+-------------+--------+----------+-------------------
-  1 | MacBook Pro |    4.8 | t        |                 2
-  5 | ASUS ROG    |    4.7 | t        |                 2
-  3 | ThinkPad X1 |    4.5 | t        |                 2
+  1 | MacBook Pro |   4.80 | t        |                 2
+  5 | ASUS ROG    |   4.70 | t        |                 2
+  3 | ThinkPad X1 |   4.50 | t        |                 2
 (3 rows)
 
 -- With HAVING
@@ -2040,12 +2040,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2067,11 +2067,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | total_count | total_price | brand_count 
-----+-------------+--------+-------+-------------+-------------+-------------
-  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 |           4
-  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 |           4
-  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 |           4
+ id |    name     | rating |  price  | total_count | total_price | brand_count 
+----+-------------+--------+---------+-------------+-------------+-------------
+  1 | MacBook Pro |   4.80 | 2499.00 |           4 |        7396 |           4
+  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |        7396 |           4
+  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |        7396 |           4
 (3 rows)
 
 -- Test 33: Only supported window functions (should use custom scan)
@@ -2113,11 +2113,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | total_count1 | total_count2 
-----+-------------+--------+-------+--------------+--------------
-  1 | MacBook Pro |    4.8 |  2499 |            4 |            4
-  5 | ASUS ROG    |    4.7 |  1899 |            4 |            4
-  3 | ThinkPad X1 |    4.5 |  1599 |            4 |            4
+ id |    name     | rating |  price  | total_count1 | total_count2 
+----+-------------+--------+---------+--------------+--------------
+  1 | MacBook Pro |   4.80 | 2499.00 |            4 |            4
+  5 | ASUS ROG    |   4.70 | 1899.00 |            4 |            4
+  3 | ThinkPad X1 |   4.50 | 1599.00 |            4 |            4
 (3 rows)
 
 -- Test 34: Query without ORDER BY and LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
@@ -2152,10 +2152,10 @@ FROM products
 WHERE description @@@ 'laptop';
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  3 | ThinkPad X1 |    4.5 |           4
-  4 | HP Spectre  |    4.4 |           4
-  5 | ASUS ROG    |    4.7 |           4
+  1 | MacBook Pro |   4.80 |           4
+  3 | ThinkPad X1 |   4.50 |           4
+  4 | HP Spectre  |   4.40 |           4
+  5 | ASUS ROG    |   4.70 |           4
 (4 rows)
 
 -- Test 35: Query with ORDER BY but no LIMIT (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
@@ -2195,10 +2195,10 @@ WHERE description @@@ 'laptop'
 ORDER BY rating DESC;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  5 | ASUS ROG    |    4.7 |           4
-  3 | ThinkPad X1 |    4.5 |           4
-  4 | HP Spectre  |    4.4 |           4
+  1 | MacBook Pro |   4.80 |           4
+  5 | ASUS ROG    |   4.70 |           4
+  3 | ThinkPad X1 |   4.50 |           4
+  4 | HP Spectre  |   4.40 |           4
 (4 rows)
 
 -- Test 36: Query with LIMIT but no ORDER BY (should NOT use custom scan - ONLY_ALLOW_TOP_N=true)
@@ -2237,9 +2237,9 @@ WHERE description @@@ 'laptop'
 LIMIT 3;
  id |    name     | rating | total_count 
 ----+-------------+--------+-------------
-  1 | MacBook Pro |    4.8 |           4
-  3 | ThinkPad X1 |    4.5 |           4
-  4 | HP Spectre  |    4.4 |           4
+  1 | MacBook Pro |   4.80 |           4
+  3 | ThinkPad X1 |   4.50 |           4
+  4 | HP Spectre  |   4.40 |           4
 (3 rows)
 
 -- Test 37: Window function with COALESCE
@@ -2256,12 +2256,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2283,11 +2283,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating | price | total_count | total_price_with_default | avg_rating_with_default 
-----+-------------+--------+-------+-------------+--------------------------+-------------------------
-  1 | MacBook Pro |    4.8 |  2499 |           4 |                     7396 |                     4.6
-  5 | ASUS ROG    |    4.7 |  1899 |           4 |                     7396 |                     4.6
-  3 | ThinkPad X1 |    4.5 |  1599 |           4 |                     7396 |                     4.6
+ id |    name     | rating |  price  | total_count | total_price_with_default | avg_rating_with_default 
+----+-------------+--------+---------+-------------+--------------------------+-------------------------
+  1 | MacBook Pro |   4.80 | 2499.00 |           4 |                     7396 |                     4.6
+  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |                     7396 |                     4.6
+  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |                     7396 |                     4.6
 (3 rows)
 
 -- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
@@ -2334,12 +2334,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2370,12 +2370,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                                         QUERY PLAN                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState
@@ -2407,12 +2407,12 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                                       QUERY PLAN                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
    ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
          Table: products
          Index: products_idx
          Exec Method: TopNScanExecState

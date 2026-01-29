@@ -28,7 +28,9 @@ pub mod searchquery;
 pub mod targetlist;
 
 // Re-export commonly used types for easier access
+pub use aggregate_type::extract_agg_name_to_field;
 pub use aggregate_type::AggregateType;
+pub use exec::descale_numeric_values_in_json;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
@@ -266,7 +268,30 @@ impl CustomScan for AggregateScan {
                         if is_null_sentinel {
                             None
                         } else {
-                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
+                            // For Numeric64 fields, descale the group key value
+                            let grouping_columns =
+                                state.custom_state().aggregate_clause.grouping_columns();
+                            let descaled_key =
+                                if let Some(scale) = grouping_columns[*gc_idx].numeric_scale {
+                                    // Descale by dividing by 10^scale
+                                    let divisor = 10f64.powi(scale as i32);
+                                    match &key.0 {
+                                        OwnedValue::I64(v) => {
+                                            TantivyValue(OwnedValue::F64(*v as f64 / divisor))
+                                        }
+                                        OwnedValue::U64(v) => {
+                                            TantivyValue(OwnedValue::F64(*v as f64 / divisor))
+                                        }
+                                        OwnedValue::F64(v) => {
+                                            TantivyValue(OwnedValue::F64(*v / divisor))
+                                        }
+                                        _ => key,
+                                    }
+                                } else {
+                                    key
+                                };
+                            descaled_key
+                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         }
                     }

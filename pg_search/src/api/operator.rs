@@ -354,6 +354,368 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
     alias.is_none()
 }
 
+/// Check if an OpExpr matches a FuncExpr.
+/// PostgreSQL can represent operators like `*` either as OpExpr or FuncExpr.
+/// They match if:
+/// 1. The FuncExpr's function IS the operator's implementation function, OR
+/// 2. The FuncExpr is a TYPE CAST that wraps an equivalent OpExpr
+///
+/// IMPORTANT: This does NOT match when the FuncExpr is a DIFFERENT FUNCTION that
+/// merely contains the OpExpr as an argument (e.g., `abs(i - j)` should NOT match `i - j`).
+/// Issue #3760: This restriction is critical to prevent incorrect index matches.
+unsafe fn opexpr_matches_funcexpr(
+    opexpr: *const pg_sys::OpExpr,
+    funcexpr: *const pg_sys::FuncExpr,
+) -> bool {
+    // Get the function OID for the operator
+    let op_funcid = if (*opexpr).opfuncid == pg_sys::Oid::INVALID {
+        pg_sys::get_opcode((*opexpr).opno)
+    } else {
+        (*opexpr).opfuncid
+    };
+    let func_funcid = (*funcexpr).funcid;
+
+    pgrx::debug1!(
+        "opexpr_matches_funcexpr: comparing opfuncid {} vs funcid {}",
+        op_funcid.to_u32(),
+        func_funcid.to_u32()
+    );
+
+    // Check if FuncExpr is a type cast function
+    // Type casts typically have funcid matching a type constructor OID
+    // We can identify them by checking if the function returns its own result type
+    // and the function name matches a type name
+    let is_type_cast = is_type_cast_function(func_funcid, (*funcexpr).funcresulttype);
+
+    if is_type_cast {
+        // For type casts, look inside the first argument for the actual expression
+        // Note: Some type casts like numeric() have 2 args: (expression, typmod)
+        let func_args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+        pgrx::debug1!(
+            "opexpr_matches_funcexpr: type cast has {} args",
+            func_args.len()
+        );
+        if !func_args.is_empty() {
+            if let Some(inner_arg) = func_args.get_ptr(0) {
+                // Check if the inner argument matches our OpExpr
+                pgrx::debug1!(
+                    "opexpr_matches_funcexpr: checking inside type cast, inner type = {:?}",
+                    (*inner_arg).type_
+                );
+                return expr_equal_ignoring_context(opexpr as *mut pg_sys::Node, inner_arg);
+            }
+        }
+        return false;
+    }
+
+    // For non-type-cast functions, the FuncExpr must be calling the SAME function
+    // as the operator or a semantically equivalent function
+    let funcs_match =
+        op_funcid == func_funcid || ops_are_equivalent_by_funcid(op_funcid, func_funcid);
+
+    if !funcs_match {
+        pgrx::debug1!("opexpr_matches_funcexpr: function mismatch, returning false");
+        return false;
+    }
+
+    // Functions match - now compare the arguments
+    let func_args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+    let op_args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+    pgrx::debug1!(
+        "opexpr_matches_funcexpr: funcexpr has {} args, opexpr has {} args",
+        func_args.len(),
+        op_args.len()
+    );
+
+    if func_args.len() != op_args.len() {
+        pgrx::debug1!("opexpr_matches_funcexpr: argument count mismatch");
+        return false;
+    }
+
+    // Compare all arguments
+    for i in 0..func_args.len() {
+        let func_arg = func_args.get_ptr(i);
+        let op_arg = op_args.get_ptr(i);
+        match (func_arg, op_arg) {
+            (Some(a), Some(b)) => {
+                if !expr_equal_ignoring_context(a, b) {
+                    pgrx::debug1!("opexpr_matches_funcexpr: arg {} mismatch", i);
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    pgrx::debug1!("opexpr_matches_funcexpr: all args match!");
+    true
+}
+
+/// Check if a function is a type cast function (as opposed to a regular function like abs())
+/// Type cast functions typically have names matching PostgreSQL type names
+unsafe fn is_type_cast_function(funcid: pg_sys::Oid, result_type: pg_sys::Oid) -> bool {
+    if funcid == pg_sys::Oid::INVALID {
+        return false;
+    }
+
+    // Get the function name
+    let func_name = pg_sys::get_func_name(funcid);
+    if func_name.is_null() {
+        return false;
+    }
+
+    let name_str = std::ffi::CStr::from_ptr(func_name).to_string_lossy();
+
+    // Common type cast function names in PostgreSQL
+    // These are type constructors/casts, not mathematical functions
+    let type_cast_names = [
+        "numeric",
+        "int2",
+        "int4",
+        "int8",
+        "float4",
+        "float8",
+        "text",
+        "varchar",
+        "bpchar",
+        "bool",
+        "date",
+        "time",
+        "timestamp",
+        "timestamptz",
+        "interval",
+        "uuid",
+        "json",
+        "jsonb",
+        "xml",
+        "money",
+        "bytea",
+        "point",
+        "line",
+        "box",
+        "path",
+        "polygon",
+        "circle",
+    ];
+
+    let is_cast = type_cast_names.contains(&name_str.as_ref());
+
+    pgrx::debug1!(
+        "is_type_cast_function: {} ({}) -> result_type {} = {}",
+        name_str,
+        funcid.to_u32(),
+        result_type.to_u32(),
+        is_cast
+    );
+
+    is_cast
+}
+
+/// Check if two function OIDs represent semantically equivalent operations.
+/// This handles cases where PostgreSQL might use different implementations
+/// for the same operation on different numeric types.
+unsafe fn ops_are_equivalent_by_funcid(funcid1: pg_sys::Oid, funcid2: pg_sys::Oid) -> bool {
+    if funcid1 == funcid2 {
+        return true;
+    }
+    if funcid1 == pg_sys::Oid::INVALID || funcid2 == pg_sys::Oid::INVALID {
+        return false;
+    }
+
+    // Get function names using pg_proc lookup
+    let name1 = pg_sys::get_func_name(funcid1);
+    let name2 = pg_sys::get_func_name(funcid2);
+
+    if name1.is_null() || name2.is_null() {
+        return false;
+    }
+
+    let name1_str = std::ffi::CStr::from_ptr(name1).to_string_lossy();
+    let name2_str = std::ffi::CStr::from_ptr(name2).to_string_lossy();
+
+    pgrx::debug1!(
+        "ops_are_equivalent_by_funcid: comparing '{}' ({}) vs '{}' ({})",
+        name1_str,
+        funcid1.to_u32(),
+        name2_str,
+        funcid2.to_u32()
+    );
+
+    // Check if both functions implement the same operation
+    // For arithmetic: int4mul, int8mul, float8mul, numeric_mul are all "multiply"
+    let normalized1 = normalize_func_name(&name1_str);
+    let normalized2 = normalize_func_name(&name2_str);
+
+    normalized1 == normalized2
+}
+
+/// Normalize function names to identify semantically equivalent operations
+fn normalize_func_name(name: &str) -> &str {
+    // Map type-specific function names to their base operation
+    match name {
+        // Multiply operations
+        "int2mul" | "int4mul" | "int8mul" | "float4mul" | "float8mul" | "numeric_mul" => "mul",
+        // Divide operations
+        "int2div" | "int4div" | "int8div" | "float4div" | "float8div" | "numeric_div" => "div",
+        // Add operations
+        "int2pl" | "int4pl" | "int8pl" | "float4pl" | "float8pl" | "numeric_add" => "add",
+        // Subtract operations
+        "int2mi" | "int4mi" | "int8mi" | "float4mi" | "float8mi" | "numeric_sub" => "sub",
+        // Keep original name for other functions
+        _ => name,
+    }
+}
+
+/// Compare two expressions for semantic equality, ignoring context-dependent fields
+/// like varno, varlevelsup, and location that may differ between index definition
+/// and query contexts.
+///
+/// This is necessary because `pg_sys::equal` compares ALL fields, but for expression
+/// matching in composite types, we need to compare the semantic meaning rather than
+/// exact structural equality.
+unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::Node) -> bool {
+    // Handle null cases
+    if a.is_null() && b.is_null() {
+        pgrx::debug1!("expr_equal_ignoring_context: both null, returning true");
+        return true;
+    }
+    if a.is_null() || b.is_null() {
+        pgrx::debug1!("expr_equal_ignoring_context: one null, returning false");
+        return false;
+    }
+
+    pgrx::debug1!(
+        "expr_equal_ignoring_context: comparing types {:?} vs {:?}",
+        (*a).type_,
+        (*b).type_
+    );
+
+    // Check if both nodes have the same type, OR if one is OpExpr and the other is FuncExpr
+    // PostgreSQL can represent operators either as OpExpr or FuncExpr
+    let type_compatible = (*a).type_ == (*b).type_
+        || ((*a).type_ == pg_sys::NodeTag::T_OpExpr && (*b).type_ == pg_sys::NodeTag::T_FuncExpr)
+        || ((*a).type_ == pg_sys::NodeTag::T_FuncExpr && (*b).type_ == pg_sys::NodeTag::T_OpExpr);
+
+    if !type_compatible {
+        pgrx::debug1!("expr_equal_ignoring_context: type mismatch, returning false");
+        return false;
+    }
+
+    // Handle OpExpr vs FuncExpr comparison
+    if (*a).type_ == pg_sys::NodeTag::T_OpExpr && (*b).type_ == pg_sys::NodeTag::T_FuncExpr {
+        return opexpr_matches_funcexpr(a as *const pg_sys::OpExpr, b as *const pg_sys::FuncExpr);
+    }
+    if (*a).type_ == pg_sys::NodeTag::T_FuncExpr && (*b).type_ == pg_sys::NodeTag::T_OpExpr {
+        return opexpr_matches_funcexpr(b as *const pg_sys::OpExpr, a as *const pg_sys::FuncExpr);
+    }
+
+    // Handle specific node types that need special comparison
+    match (*a).type_ {
+        // For Var nodes, use our custom comparison that ignores varno
+        pg_sys::NodeTag::T_Var => {
+            let var_a = a as *const pg_sys::Var;
+            let var_b = b as *const pg_sys::Var;
+            vars_equal_ignoring_varno(var_a, var_b)
+        }
+
+        // For Const nodes, compare the actual value and type
+        // We use pg_sys::equal for Const since it handles datum comparison correctly
+        // and Const nodes don't have context-dependent fields like varno
+        pg_sys::NodeTag::T_Const => pg_sys::equal(a.cast(), b.cast()),
+
+        // For OpExpr (binary operators like +, -, *, /)
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_a = a as *const pg_sys::OpExpr;
+            let op_b = b as *const pg_sys::OpExpr;
+            if (*op_a).opno != (*op_b).opno
+                || (*op_a).opresulttype != (*op_b).opresulttype
+                || (*op_a).opcollid != (*op_b).opcollid
+                || (*op_a).inputcollid != (*op_b).inputcollid
+            {
+                return false;
+            }
+            // Compare arguments recursively
+            let args_a = PgList::<pg_sys::Node>::from_pg((*op_a).args);
+            let args_b = PgList::<pg_sys::Node>::from_pg((*op_b).args);
+            if args_a.len() != args_b.len() {
+                return false;
+            }
+            for i in 0..args_a.len() {
+                let arg_a = args_a.get_ptr(i);
+                let arg_b = args_b.get_ptr(i);
+                match (arg_a, arg_b) {
+                    (Some(a), Some(b)) => {
+                        if !expr_equal_ignoring_context(a, b) {
+                            return false;
+                        }
+                    }
+                    (None, None) => continue,
+                    _ => return false,
+                }
+            }
+            true
+        }
+
+        // For FuncExpr (function calls)
+        pg_sys::NodeTag::T_FuncExpr => {
+            let func_a = a as *const pg_sys::FuncExpr;
+            let func_b = b as *const pg_sys::FuncExpr;
+            if (*func_a).funcid != (*func_b).funcid
+                || (*func_a).funcresulttype != (*func_b).funcresulttype
+                || (*func_a).funcretset != (*func_b).funcretset
+                || (*func_a).funccollid != (*func_b).funccollid
+                || (*func_a).inputcollid != (*func_b).inputcollid
+            {
+                return false;
+            }
+            // Compare arguments recursively
+            let args_a = PgList::<pg_sys::Node>::from_pg((*func_a).args);
+            let args_b = PgList::<pg_sys::Node>::from_pg((*func_b).args);
+            if args_a.len() != args_b.len() {
+                return false;
+            }
+            for i in 0..args_a.len() {
+                let arg_a = args_a.get_ptr(i);
+                let arg_b = args_b.get_ptr(i);
+                match (arg_a, arg_b) {
+                    (Some(a), Some(b)) => {
+                        if !expr_equal_ignoring_context(a, b) {
+                            return false;
+                        }
+                    }
+                    (None, None) => continue,
+                    _ => return false,
+                }
+            }
+            true
+        }
+
+        // For RelabelType (type casts that don't change representation)
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel_a = a as *const pg_sys::RelabelType;
+            let relabel_b = b as *const pg_sys::RelabelType;
+            (*relabel_a).resulttype == (*relabel_b).resulttype
+                && (*relabel_a).resulttypmod == (*relabel_b).resulttypmod
+                && (*relabel_a).resultcollid == (*relabel_b).resultcollid
+                && expr_equal_ignoring_context((*relabel_a).arg.cast(), (*relabel_b).arg.cast())
+        }
+
+        // For CoerceViaIO (type coercions via I/O functions)
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let coerce_a = a as *const pg_sys::CoerceViaIO;
+            let coerce_b = b as *const pg_sys::CoerceViaIO;
+            (*coerce_a).resulttype == (*coerce_b).resulttype
+                && (*coerce_a).resultcollid == (*coerce_b).resultcollid
+                && expr_equal_ignoring_context((*coerce_a).arg.cast(), (*coerce_b).arg.cast())
+        }
+
+        // For other node types, fall back to pg_sys::equal
+        // This handles less common expression types
+        _ => pg_sys::equal(a.cast(), b.cast()),
+    }
+}
+
 unsafe fn expr_matches_node(node: *mut pg_sys::Node, indexed_expr: *mut pg_sys::Expr) -> bool {
     let mut reduced_expression = indexed_expr;
     loop {
@@ -364,7 +726,8 @@ unsafe fn expr_matches_node(node: *mut pg_sys::Node, indexed_expr: *mut pg_sys::
                 reduced_expression
             };
 
-        if pg_sys::equal(node.cast(), inner_expression.cast()) {
+        // Use our custom comparison that ignores context-dependent fields
+        if expr_equal_ignoring_context(node, inner_expression.cast()) {
             return true;
         }
 
@@ -491,6 +854,10 @@ pub unsafe fn field_name_from_node(
     //
     // we're looking for a more complex expression
     //
+    pgrx::debug1!(
+        "field_name_from_node: looking for complex expression, node type: {:?}",
+        (*node).type_
+    );
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
     let mut expressions_iter = expressions.iter_ptr();
@@ -507,6 +874,7 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
+                pgrx::debug1!("field_name_from_node: found composite type expression");
                 if let Some(row_expr) = row_expr_from_indexed_expr(indexed_expression) {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
@@ -514,13 +882,26 @@ pub unsafe fn field_name_from_node(
                     };
 
                     let row_args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
+                    pgrx::debug1!(
+                        "field_name_from_node: checking {} row args against {} fields",
+                        row_args.len(),
+                        fields.len()
+                    );
 
                     for (position, arg) in row_args.iter_ptr().enumerate() {
                         if position >= fields.len() || fields[position].is_dropped {
                             continue;
                         }
 
-                        if expr_matches_node(node, arg.cast()) {
+                        pgrx::debug1!(
+                            "field_name_from_node: checking arg {} (type {:?}) against field {}",
+                            position,
+                            unsafe { (*arg).type_ },
+                            fields[position].field_name
+                        );
+                        let matches = expr_matches_node(node, arg.cast());
+                        pgrx::debug1!("field_name_from_node: match result: {}", matches);
+                        if matches {
                             return Some(FieldName::from(fields[position].field_name.clone()));
                         }
                     }

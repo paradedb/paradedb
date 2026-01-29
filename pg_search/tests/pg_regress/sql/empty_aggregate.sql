@@ -19,7 +19,7 @@ CREATE TABLE empty_test (
     id SERIAL PRIMARY KEY,
     value INTEGER,
     category TEXT,
-    price NUMERIC,
+    price NUMERIC(18,2),
     created_at TIMESTAMP
 );
 

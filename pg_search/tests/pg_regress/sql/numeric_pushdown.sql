@@ -1705,3 +1705,41 @@ FROM numeric_explicit_scale_zero
 WHERE id @@@ paradedb.all();
 
 DROP TABLE numeric_explicit_scale_zero;
+
+-- ----------------------------------------------------------------------------
+-- TEST: Empty ranges should match nothing
+-- ----------------------------------------------------------------------------
+-- PostgreSQL supports an 'empty' range that contains no values.
+-- Our implementation should correctly return no rows for empty range queries.
+
+CREATE TABLE empty_range_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10, 2)
+);
+
+INSERT INTO empty_range_test (val) VALUES
+    (0.00),
+    (100.50),
+    (200.00),
+    (-50.25);
+
+CREATE INDEX empty_range_idx ON empty_range_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Empty numrange should match nothing (not even rows with value 0)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+ORDER BY id;
+
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', 'empty'::numrange)
+ORDER BY id;
+
+-- Verify that a real range containing 0 DOES match rows with 0
+SELECT * FROM empty_range_test
+WHERE id @@@ paradedb.range('val', '[-1, 1]'::numrange)
+ORDER BY id;
+
+DROP TABLE empty_range_test;

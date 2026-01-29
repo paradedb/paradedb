@@ -199,12 +199,8 @@ mod pdb {
     #[pg_extern(immutable, parallel_safe, name = "range")]
     pub fn range_i32(range: Range<i32>) -> pdb::Query {
         match range.into_inner() {
-            None => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::I64(0)),
-                upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-                is_datetime: false,
-            },
-
+            // PostgreSQL empty range (e.g., 'empty'::int4range) matches nothing
+            None => pdb::Query::Empty,
             Some((lower, upper)) => pdb::Query::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
@@ -225,11 +221,8 @@ mod pdb {
     #[pg_extern(immutable, parallel_safe, name = "range")]
     pub fn range_i64(range: Range<i64>) -> pdb::Query {
         match range.into_inner() {
-            None => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::I64(0)),
-                upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-                is_datetime: false,
-            },
+            // PostgreSQL empty range (e.g., 'empty'::int8range) matches nothing
+            None => pdb::Query::Empty,
             Some((lower, upper)) => pdb::Query::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
@@ -250,12 +243,8 @@ mod pdb {
     #[pg_extern(immutable, parallel_safe, name = "range")]
     pub fn range_numeric(range: Range<AnyNumeric>) -> pdb::Query {
         match range.into_inner() {
-            None => pdb::Query::Range {
-                // Empty range - use empty string as placeholder
-                lower_bound: Bound::Included(OwnedValue::Str("0".to_string())),
-                upper_bound: Bound::Excluded(OwnedValue::Str("0".to_string())),
-                is_datetime: false,
-            },
+            // PostgreSQL empty range (e.g., 'empty'::numrange) matches nothing
+            None => pdb::Query::Empty,
             Some((lower, upper)) => pdb::Query::Range {
                 // Store as string to preserve full NUMERIC precision until the query processor
                 // can determine the target field type (Numeric64, NumericBytes, F64, etc.)
@@ -288,15 +277,8 @@ mod pdb {
             #[pg_extern(immutable, parallel_safe, name = "range")]
             pub fn $func_name(range: Range<$value_type>) -> pdb::Query {
                 match range.into_inner() {
-                    None => pdb::Query::Range {
-                        lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                            tantivy::DateTime::from_timestamp_micros(0),
-                        )),
-                        upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                            tantivy::DateTime::from_timestamp_micros(0),
-                        )),
-                        is_datetime: true,
-                    },
+                    // PostgreSQL empty range (e.g., 'empty'::tsrange) matches nothing
+                    None => pdb::Query::Empty,
                     Some((lower, upper)) => pdb::Query::Range {
                         lower_bound: match lower {
                             RangeBound::Infinite => Bound::Unbounded,

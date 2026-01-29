@@ -274,20 +274,7 @@ impl CustomScan for AggregateScan {
                                 state.custom_state().aggregate_clause.grouping_columns();
                             let descaled_key =
                                 if let Some(scale) = grouping_columns[*gc_idx].numeric_scale {
-                                    // Descale by dividing by 10^scale
-                                    let divisor = 10f64.powi(scale as i32);
-                                    match &key.0 {
-                                        OwnedValue::I64(v) => {
-                                            TantivyValue(OwnedValue::F64(*v as f64 / divisor))
-                                        }
-                                        OwnedValue::U64(v) => {
-                                            TantivyValue(OwnedValue::F64(*v as f64 / divisor))
-                                        }
-                                        OwnedValue::F64(v) => {
-                                            TantivyValue(OwnedValue::F64(*v / divisor))
-                                        }
-                                        _ => key,
-                                    }
+                                    TantivyValue(descale::descale_owned_value(&key.0, scale))
                                 } else {
                                     key
                                 };

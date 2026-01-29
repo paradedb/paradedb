@@ -1,44 +1,102 @@
-//! Descaling utilities for NUMERIC aggregate results.
+//! Numeric scaling utilities for NUMERIC column pushdown.
 //!
-//! This module provides utilities for descaling numeric values that were stored
-//! as scaled integers (Numeric64 format). When PostgreSQL NUMERIC values are indexed
-//! using Numeric64 storage, they are multiplied by 10^scale to preserve precision
-//! as integers. After aggregation, the results need to be divided by 10^scale to
-//! restore the original decimal representation.
+//! This module provides a unified abstraction for scaling and descaling numeric values
+//! in the Numeric64 (I64 fixed-point) storage format. The core idea is simple:
 //!
-//! ## Descaling Patterns
+//! - **Scaling** (at index/query time): Multiply by 10^scale to convert decimals to integers
+//! - **Descaling** (at result time): Divide by 10^scale to restore original decimals
 //!
-//! 1. **Simple aggregates (SUM, AVG, MIN, MAX)**: The `numeric_scale` field in
-//!    `AggregateType` stores the scale, and results are descaled in `aggregate_result_to_datum`.
+//! ## Storage Format
 //!
-//! 2. **Custom aggregates (pdb.agg)**: The `numeric_field_scales` map stores scales
-//!    for each aggregate name, allowing selective descaling within JSON results.
+//! NUMERIC(p, s) values with precision p <= 18 are stored as I64 using fixed-point:
+//! - Original value: 123.45 with scale=2
+//! - Stored value: 12345 (123.45 * 10^2)
 //!
-//! 3. **GROUP BY values**: When grouping by a Numeric64 column, the group key values
-//!    are also scaled and need descaling for display.
+//! ## Usage Patterns
+//!
+//! 1. **Indexing**: `scale_i64()` converts NUMERIC to scaled I64 for storage
+//! 2. **Queries**: `scale_i64()` converts query constants to match indexed format
+//! 3. **Aggregates**: `descale_f64()` converts aggregate results back to decimals
+//! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use std::collections::HashMap;
+use tantivy::schema::OwnedValue;
 
-/// Compute the divisor for a given scale: 10^scale
+// ============================================================================
+// Core Scaling/Descaling Operations
+// ============================================================================
+
+/// Compute the scale factor: 10^scale
 #[inline]
-pub fn scale_divisor(scale: i16) -> f64 {
+pub fn scale_factor(scale: i16) -> f64 {
     10f64.powi(scale as i32)
 }
 
-/// Descale a f64 value by dividing by 10^scale.
+/// Scale a numeric string to I64 fixed-point representation.
 ///
-/// This is the core operation for converting scaled integer results back
-/// to their original decimal representation.
+/// Multiplies the value by 10^scale to convert to integer.
+/// Uses `decimal_bytes::Decimal64NoScale` for precise conversion.
+///
+/// # Example
+/// ```ignore
+/// scale_i64("123.45", 2) // Returns Ok(12345)
+/// ```
+pub fn scale_i64(numeric_str: &str, scale: i16) -> anyhow::Result<i64> {
+    use decimal_bytes::Decimal64NoScale;
+
+    let decimal = Decimal64NoScale::new(numeric_str, scale as i32).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to scale '{}' with scale {}: {:?}",
+            numeric_str,
+            scale,
+            e
+        )
+    })?;
+
+    Ok(decimal.value())
+}
+
+/// Descale an I64 value back to f64.
+///
+/// Divides by 10^scale to restore the original decimal representation.
+#[inline]
+pub fn descale_i64(value: i64, scale: i16) -> f64 {
+    value as f64 / scale_factor(scale)
+}
+
+/// Descale a U64 value back to f64.
+#[inline]
+pub fn descale_u64(value: u64, scale: i16) -> f64 {
+    value as f64 / scale_factor(scale)
+}
+
+/// Descale an f64 value by dividing by 10^scale.
 #[inline]
 pub fn descale_f64(value: f64, scale: i16) -> f64 {
-    value / scale_divisor(scale)
+    value / scale_factor(scale)
 }
+
+/// Descale an OwnedValue based on its type.
+///
+/// Handles I64, U64, and F64 values, returning the descaled result as F64.
+/// Used for GROUP BY key descaling where the value type may vary.
+pub fn descale_owned_value(value: &OwnedValue, scale: i16) -> OwnedValue {
+    match value {
+        OwnedValue::I64(v) => OwnedValue::F64(descale_i64(*v, scale)),
+        OwnedValue::U64(v) => OwnedValue::F64(descale_u64(*v, scale)),
+        OwnedValue::F64(v) => OwnedValue::F64(descale_f64(*v, scale)),
+        _ => value.clone(),
+    }
+}
+
+// ============================================================================
+// Schema Helpers
+// ============================================================================
 
 /// Extract numeric scales from a schema for a list of field names.
 ///
 /// Returns a map of field name -> scale for all fields that use Numeric64 storage.
-/// Fields that don't exist or don't use Numeric64 are excluded from the result.
 #[allow(dead_code)]
 pub fn extract_numeric_scales_from_schema(
     schema: &SearchIndexSchema,
@@ -68,9 +126,6 @@ pub fn get_numeric_scale_for_field(schema: &SearchIndexSchema, field_name: &str)
 }
 
 /// Check if a field uses NumericBytes storage (unlimited precision).
-///
-/// Fields with NumericBytes storage cannot be aggregated by Tantivy,
-/// so aggregate pushdown must be disabled for them.
 #[allow(dead_code)]
 pub fn field_uses_numeric_bytes(schema: &SearchIndexSchema, field_name: &str) -> bool {
     schema
@@ -78,6 +133,10 @@ pub fn field_uses_numeric_bytes(schema: &SearchIndexSchema, field_name: &str) ->
         .map(|search_field| matches!(search_field.field_type(), SearchFieldType::NumericBytes(_)))
         .unwrap_or(false)
 }
+
+// ============================================================================
+// JSON Descaling for Custom Aggregates
+// ============================================================================
 
 /// Descale numeric values in custom aggregate JSON results.
 ///
@@ -110,9 +169,6 @@ pub fn descale_numeric_values_in_json(
 const STATS_FIELDS: &[&str] = &["avg", "max", "min", "sum", "value"];
 
 /// Recursively descale numeric "value" fields in JSON based on aggregate name.
-///
-/// Only descales values that are nested under an aggregate name that has a scale.
-/// Also handles stats aggregate fields (avg, max, min, sum) which need descaling.
 fn descale_json_values_by_agg_name(
     json: serde_json::Value,
     scales: &HashMap<String, i16>,
@@ -173,11 +229,25 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_scale_divisor() {
-        assert_eq!(scale_divisor(0), 1.0);
-        assert_eq!(scale_divisor(1), 10.0);
-        assert_eq!(scale_divisor(2), 100.0);
-        assert_eq!(scale_divisor(3), 1000.0);
+    fn test_scale_factor() {
+        assert_eq!(scale_factor(0), 1.0);
+        assert_eq!(scale_factor(1), 10.0);
+        assert_eq!(scale_factor(2), 100.0);
+        assert_eq!(scale_factor(3), 1000.0);
+    }
+
+    #[test]
+    fn test_scale_i64() {
+        assert_eq!(scale_i64("123.45", 2).unwrap(), 12345);
+        assert_eq!(scale_i64("0.999", 3).unwrap(), 999);
+        assert_eq!(scale_i64("-50.5", 1).unwrap(), -505);
+    }
+
+    #[test]
+    fn test_descale_i64() {
+        assert_eq!(descale_i64(12345, 2), 123.45);
+        assert_eq!(descale_i64(999, 3), 0.999);
+        assert_eq!(descale_i64(-505, 1), -50.5);
     }
 
     #[test]
@@ -185,6 +255,27 @@ mod tests {
         assert_eq!(descale_f64(12345.0, 2), 123.45);
         assert_eq!(descale_f64(999.0, 3), 0.999);
         assert_eq!(descale_f64(42.0, 0), 42.0);
+    }
+
+    #[test]
+    fn test_descale_owned_value() {
+        assert_eq!(
+            descale_owned_value(&OwnedValue::I64(12345), 2),
+            OwnedValue::F64(123.45)
+        );
+        assert_eq!(
+            descale_owned_value(&OwnedValue::U64(999), 3),
+            OwnedValue::F64(0.999)
+        );
+        assert_eq!(
+            descale_owned_value(&OwnedValue::F64(100.0), 1),
+            OwnedValue::F64(10.0)
+        );
+        // Non-numeric values pass through unchanged
+        assert_eq!(
+            descale_owned_value(&OwnedValue::Str("test".to_string()), 2),
+            OwnedValue::Str("test".to_string())
+        );
     }
 
     #[test]

@@ -14,7 +14,7 @@ use std::ops::Bound;
 use std::str::FromStr;
 
 use anyhow::Result;
-use decimal_bytes::{Decimal, Decimal64NoScale};
+use decimal_bytes::Decimal;
 use tantivy::schema::OwnedValue;
 
 use crate::schema::SearchFieldType;
@@ -45,20 +45,16 @@ pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
 ///
 /// Converts the value to a scaled integer by multiplying by 10^scale.
 /// For example, with scale=2: 123.45 becomes 12345.
+///
+/// Delegates to the centralized `scale_i64` in the descale module.
 pub fn scale_numeric_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
+    use crate::postgres::customscan::aggregatescan::descale::scale_i64;
+
     let numeric_str = extract_numeric_string(&value)
         .ok_or_else(|| anyhow::anyhow!("Cannot scale non-numeric value: {:?}", value))?;
 
-    let decimal = Decimal64NoScale::new(&numeric_str, scale as i32).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to scale numeric value '{}' with scale {}: {:?}",
-            numeric_str,
-            scale,
-            e
-        )
-    })?;
-
-    Ok(OwnedValue::I64(decimal.value()))
+    let scaled = scale_i64(&numeric_str, scale)?;
+    Ok(OwnedValue::I64(scaled))
 }
 
 // ============================================================================

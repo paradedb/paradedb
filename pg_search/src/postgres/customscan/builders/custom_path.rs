@@ -19,6 +19,7 @@ use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, S
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::options::SortByField;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +112,8 @@ pub enum ExecMethodType {
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
         limit: Option<usize>,
+        sorted: bool,
+        sort_order: Option<SortByField>,
     },
 }
 

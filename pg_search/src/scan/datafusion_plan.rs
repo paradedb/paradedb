@@ -21,28 +21,53 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::SchemaRef;
+use arrow_schema::{SchemaRef, SortOptions};
 use datafusion_common::{DataFusionError, Result};
 use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion_physical_expr::EquivalenceProperties;
+use datafusion_physical_expr::expressions::Column;
+use datafusion_physical_expr::LexOrdering;
+use datafusion_physical_expr::{EquivalenceProperties, PhysicalSortExpr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion_physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion_physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::options::{SortByDirection, SortByField};
 use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
-#[allow(dead_code)]
-struct UnsafeSendSync<T>(T);
+pub struct UnsafeSendSync<T>(pub T);
 
 unsafe impl<T> Send for UnsafeSendSync<T> {}
 unsafe impl<T> Sync for UnsafeSendSync<T> {}
 
-type ScanState = (Scanner, FFHelper, Box<dyn VisibilityChecker>);
+/// State for a scan partition.
+/// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
+pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
+
+/// Factory function that creates a ScanState for a given partition on demand.
+/// This enables lazy segment checkout - segments are only checked out when execute() is called.
+///
+/// Wrapped in UnsafeSendSync because the factory may capture Postgres state that is not
+/// Send/Sync (like VisibilityChecker), but pg_search operates in a single-threaded context.
+pub type CheckoutFactory = UnsafeSendSync<Arc<dyn Fn(usize) -> ScanState>>;
+
+/// Creates a CheckoutFactory from a closure.
+///
+/// # Safety
+/// The factory closure may capture non-Send/Sync types. This is safe because pg_search
+/// operates in a single-threaded Tokio executor within Postgres, and these objects
+/// will never cross thread boundaries.
+pub fn make_checkout_factory<F>(factory: F) -> CheckoutFactory
+where
+    F: Fn(usize) -> ScanState + 'static,
+{
+    UnsafeSendSync(Arc::new(factory))
+}
 
 /// A DataFusion `ExecutionPlan` for scanning a `pg_search` index.
 #[allow(dead_code)]
@@ -77,10 +102,110 @@ impl ScanPlan {
             Boundedness::Bounded,
         );
         Self {
+            state: Mutex::new(Some(UnsafeSendSync((
+                scanner,
+                Arc::new(ffhelper),
+                visibility,
+            )))),
+            properties,
+        }
+    }
+
+    /// Creates a new ScanPlan with declared sort ordering.
+    ///
+    /// When `sort_order` is provided, the plan's `EquivalenceProperties` will declare
+    /// that the output is sorted by the specified field. This allows DataFusion's
+    /// optimizer to leverage the sort order for downstream operations like merge joins.
+    #[allow(dead_code)]
+    pub fn new_sorted(
+        scanner: Scanner,
+        ffhelper: FFHelper,
+        visibility: Box<dyn VisibilityChecker>,
+        sort_order: Option<&SortByField>,
+    ) -> Self {
+        Self::new_sorted_with_shared_ffhelper(scanner, Arc::new(ffhelper), visibility, sort_order)
+    }
+
+    /// Creates a new ScanPlan with a shared FFHelper.
+    ///
+    /// This variant accepts an `Arc<FFHelper>` allowing the FFHelper to be shared
+    /// across multiple plans or with other components.
+    #[allow(dead_code)]
+    pub fn new_with_shared_ffhelper(
+        scanner: Scanner,
+        ffhelper: Arc<FFHelper>,
+        visibility: Box<dyn VisibilityChecker>,
+    ) -> Self {
+        let schema = scanner.schema();
+        let properties = PlanProperties::new(
+            EquivalenceProperties::new(schema),
+            Partitioning::UnknownPartitioning(1),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+        Self {
             state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
             properties,
         }
     }
+
+    /// Creates a new ScanPlan with a shared FFHelper and declared sort ordering.
+    #[allow(dead_code)]
+    pub fn new_sorted_with_shared_ffhelper(
+        scanner: Scanner,
+        ffhelper: Arc<FFHelper>,
+        visibility: Box<dyn VisibilityChecker>,
+        sort_order: Option<&SortByField>,
+    ) -> Self {
+        let schema = scanner.schema();
+        let eq_properties = build_equivalence_properties(schema.clone(), sort_order);
+        let properties = PlanProperties::new(
+            eq_properties,
+            Partitioning::UnknownPartitioning(1),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+        Self {
+            state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
+            properties,
+        }
+    }
+}
+
+/// Build `EquivalenceProperties` with the specified sort ordering.
+///
+/// If `sort_order` is `Some`, the returned properties will declare that the
+/// data is sorted by the specified field in the specified direction.
+/// If `sort_order` is `None`, returns empty equivalence properties.
+fn build_equivalence_properties(
+    schema: SchemaRef,
+    sort_order: Option<&SortByField>,
+) -> EquivalenceProperties {
+    let mut eq_properties = EquivalenceProperties::new(schema.clone());
+
+    if let Some(sort_field) = sort_order {
+        // Find the column index for the sort field
+        let field_name = sort_field.field_name.as_ref();
+        if let Some((col_idx, _)) = schema.column_with_name(field_name) {
+            let sort_options = SortOptions {
+                descending: matches!(sort_field.direction, SortByDirection::Desc),
+                // Tantivy's sort behavior:
+                // - ASC: nulls sort first
+                // - DESC: nulls sort last
+                nulls_first: matches!(sort_field.direction, SortByDirection::Asc),
+            };
+
+            let sort_expr = PhysicalSortExpr {
+                expr: Arc::new(Column::new(field_name, col_idx)),
+                options: sort_options,
+            };
+
+            // Add the ordering to the equivalence properties
+            eq_properties.add_ordering(std::iter::once(sort_expr));
+        }
+    }
+
+    eq_properties
 }
 
 impl DisplayAs for ScanPlan {
@@ -141,7 +266,7 @@ impl ExecutionPlan for ScanPlan {
 
 struct ScanStream {
     scanner: Scanner,
-    ffhelper: FFHelper,
+    ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
 }
@@ -151,7 +276,7 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this.scanner.next(&mut this.ffhelper, &mut *this.visibility) {
+        match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
             None => Poll::Ready(None),
         }
@@ -193,4 +318,217 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
     fn schema(&self) -> SchemaRef {
         self.0.schema()
     }
+}
+
+// ============================================================================
+// Multi-partition SegmentScanPlan for sorted segment scanning
+// ============================================================================
+
+/// A DataFusion `ExecutionPlan` that scans multiple segments in parallel partitions.
+///
+/// Each partition corresponds to one Tantivy segment. When the index is sorted,
+/// each partition produces sorted output, which can then be merged using
+/// `SortPreservingMergeExec` to produce a globally sorted result.
+///
+/// Uses lazy segment checkout - segments are checked out on-demand when `execute()`
+/// is called, rather than upfront at plan creation time. This defers memory allocation
+/// until the partition is actually executed.
+#[allow(dead_code)]
+pub struct SegmentScanPlan {
+    /// Number of segments/partitions.
+    segment_count: usize,
+    /// Factory function that creates a ScanState for a given partition on demand.
+    checkout_factory: CheckoutFactory,
+    /// Tracks which partitions have been executed (to prevent double execution).
+    checked_out: Mutex<Vec<bool>>,
+    properties: PlanProperties,
+}
+
+impl std::fmt::Debug for SegmentScanPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SegmentScanPlan")
+            .field("properties", &self.properties)
+            .finish()
+    }
+}
+
+impl SegmentScanPlan {
+    /// Creates a new SegmentScanPlan with lazy segment checkout.
+    ///
+    /// Instead of building all segment states upfront, this constructor accepts
+    /// a factory function that creates states on-demand when `execute()` is called.
+    /// This defers memory allocation until the partition is actually executed.
+    ///
+    /// # Arguments
+    ///
+    /// * `segment_count` - The number of segments/partitions
+    /// * `checkout_factory` - Factory function (wrapped in UnsafeSendSync) that creates a `ScanState`
+    /// * `schema` - Arrow schema for the output
+    /// * `sort_order` - Optional sort order declaration for equivalence properties
+    #[allow(dead_code)]
+    pub fn new(
+        segment_count: usize,
+        checkout_factory: CheckoutFactory,
+        schema: SchemaRef,
+        sort_order: Option<&SortByField>,
+    ) -> Self {
+        let eq_properties = build_equivalence_properties(schema, sort_order);
+
+        let properties = PlanProperties::new(
+            eq_properties,
+            Partitioning::UnknownPartitioning(segment_count),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+
+        Self {
+            segment_count,
+            checkout_factory,
+            checked_out: Mutex::new(vec![false; segment_count]),
+            properties,
+        }
+    }
+}
+
+impl DisplayAs for SegmentScanPlan {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "PgSearchSegmentScan(segments={})", self.segment_count)
+    }
+}
+
+impl ExecutionPlan for SegmentScanPlan {
+    fn name(&self) -> &str {
+        "PgSearchSegmentScan"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn properties(&self) -> &PlanProperties {
+        &self.properties
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
+        vec![]
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        _children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(self)
+    }
+
+    fn execute(
+        &self,
+        partition: usize,
+        _context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        if partition >= self.segment_count {
+            return Err(DataFusionError::Internal(format!(
+                "Partition {} out of range (have {} segments)",
+                partition, self.segment_count
+            )));
+        }
+
+        let mut checked_out = self.checked_out.lock().map_err(|e| {
+            DataFusionError::Internal(format!("Failed to lock SegmentScanPlan state: {e}"))
+        })?;
+
+        if checked_out[partition] {
+            return Err(DataFusionError::Internal(format!(
+                "Segment {} has already been executed",
+                partition
+            )));
+        }
+        checked_out[partition] = true;
+
+        // Call the factory to create the state NOW (deferred/lazy checkout)
+        let UnsafeSendSync(factory) = &self.checkout_factory;
+        let (scanner, ffhelper, visibility) = factory(partition);
+
+        // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres
+        let stream = unsafe {
+            UnsafeSendStream::new(ScanStream {
+                scanner,
+                ffhelper,
+                visibility,
+                schema: self.properties.eq_properties.schema().clone(),
+            })
+        };
+        Ok(Box::pin(stream))
+    }
+}
+
+// ============================================================================
+// Builder for creating sorted scans with SortPreservingMergeExec
+// ============================================================================
+
+/// Creates a sorted scan plan with `SortPreservingMergeExec` to merge sorted segments.
+///
+/// Uses lazy segment checkout - segments are checked out on-demand when `execute()` is
+/// called, rather than upfront at plan creation time.
+///
+/// When there is only one segment, returns the `SegmentScanPlan` directly without
+/// the merge layer (no merging needed for a single partition).
+///
+/// Returns `None` if the sort field is not present in the schema (e.g., the sort column
+/// was not projected in the scan). In this case, the caller should fall back to an
+/// unsorted scan to avoid producing incorrectly ordered results.
+///
+/// # Arguments
+///
+/// * `segment_count` - The number of segments to scan
+/// * `checkout_factory` - Factory function that creates a `ScanState` for a given partition
+/// * `schema` - Arrow schema for the output
+/// * `sort_order` - Sort order for the merge operation
+#[allow(dead_code)]
+pub fn create_sorted_scan(
+    segment_count: usize,
+    checkout_factory: CheckoutFactory,
+    schema: SchemaRef,
+    sort_order: &SortByField,
+) -> Option<Arc<dyn ExecutionPlan>> {
+    // Validate that the sort field exists in the schema
+    let field_name = sort_order.field_name.as_ref();
+    let col_idx = match schema.column_with_name(field_name) {
+        Some((idx, _)) => idx,
+        None => {
+            // Sort field is not in the schema - cannot create sorted merge.
+            // Return None so the caller can fall back to unsorted execution.
+            return None;
+        }
+    };
+
+    let segment_scan = Arc::new(SegmentScanPlan::new(
+        segment_count,
+        checkout_factory,
+        schema.clone(),
+        Some(sort_order),
+    ));
+
+    // For a single segment, no merging is needed
+    if segment_count == 1 {
+        return Some(segment_scan);
+    }
+
+    let sort_options = SortOptions {
+        descending: matches!(sort_order.direction, SortByDirection::Desc),
+        nulls_first: matches!(sort_order.direction, SortByDirection::Asc),
+    };
+
+    let sort_expr = PhysicalSortExpr {
+        expr: Arc::new(Column::new(field_name, col_idx)),
+        options: sort_options,
+    };
+
+    let ordering =
+        LexOrdering::new(vec![sort_expr]).expect("sort expression should create valid ordering");
+
+    // Wrap with SortPreservingMergeExec to merge sorted partitions
+    Some(Arc::new(SortPreservingMergeExec::new(
+        ordering,
+        segment_scan,
+    )))
 }

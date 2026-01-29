@@ -200,7 +200,7 @@ impl Scanner {
     /// Fetch the next batch of results, applying visibility checks.
     pub fn next(
         &mut self,
-        ffhelper: &mut FFHelper,
+        ffhelper: &FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
     ) -> Option<Batch> {
         pgrx::check_for_interrupts!();

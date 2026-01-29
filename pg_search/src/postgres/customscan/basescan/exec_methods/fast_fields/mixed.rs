@@ -15,18 +15,41 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
+use arrow_array::{Array, RecordBatch};
+use arrow_schema::SchemaRef;
+use datafusion_execution::{SendableRecordBatchStream, TaskContext};
+use datafusion_physical_plan::ExecutionPlan;
+use futures::{Stream, StreamExt};
+
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
-use crate::index::reader::index::SearchIndexScore;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::{Batch, Scanner};
+use crate::scan::datafusion_plan::{create_sorted_scan, make_checkout_factory, ScanPlan};
+use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
+
+// ============================================================================
+// Synchronous stream polling utilities
+// ============================================================================
+
+/// Polls a stream for the next item synchronously using a blocking executor.
+/// This properly handles `Poll::Pending` by driving the stream to completion,
+/// which is necessary for DataFusion operators like `SortPreservingMergeExec`
+/// that may buffer data across partitions.
+fn poll_next_sync<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
+    // Use futures::executor::block_on to properly drive the stream.
+    // This handles Poll::Pending correctly by spinning until the stream is ready.
+    futures::executor::block_on(stream.next())
+}
 
 struct Inner {
     heaprel: Option<PgSearchRelation>,
@@ -34,7 +57,9 @@ struct Inner {
 
     /// Execution time WhichFastFields.
     pub which_fast_fields: Vec<WhichFastField>,
-    pub ffhelper: FFHelper,
+
+    /// Fast field helper wrapped in Arc for sharing with DataFusion plans.
+    pub ffhelper: Option<Arc<FFHelper>>,
 
     pub slot: *mut pg_sys::TupleTableSlot,
 
@@ -47,7 +72,7 @@ impl Inner {
             heaprel: None,
             tupdesc: None,
             which_fast_fields,
-            ffhelper: Default::default(),
+            ffhelper: None,
             slot: std::ptr::null_mut(),
             did_query: false,
         }
@@ -63,11 +88,11 @@ impl Inner {
                 (*cstate).ss.ps.ps_ResultTupleDesc,
                 &pg_sys::TTSOpsVirtual,
             );
-            // Initialize the fast field helper
-            self.ffhelper = FFHelper::with_fields(
+            // Initialize the fast field helper wrapped in Arc for sharing
+            self.ffhelper = Some(Arc::new(FFHelper::with_fields(
                 state.search_reader.as_ref().unwrap(),
                 &self.which_fast_fields,
-            );
+            )));
         }
     }
 
@@ -76,14 +101,23 @@ impl Inner {
     }
 }
 
-/// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
+/// Execution state for mixed fast field retrieval using DataFusion execution.
 ///
 /// This execution state is designed to handle two scenarios:
 /// 1. Multiple string fast fields in a single query
 /// 2. A mix of string and numeric fast fields in a single query
 ///
-/// This struct uses composition to build on the shared `Inner` state while adding
-/// optimized processing paths for mixed field types.
+/// The execution method produces data through DataFusion's execution engine,
+/// consuming results as Arrow RecordBatches from a DataFusion stream.
+///
+/// # Sorted Mode
+///
+/// When `sorted` is true and the index has a `sort_by` configuration, this execution
+/// method uses `SortPreservingMergeExec` to merge sorted segment outputs into a
+/// globally sorted result. This requires upfront segment checkout (not lazy).
+///
+/// When `sorted` is false, segments are processed lazily via PostgreSQL's parallel
+/// query infrastructure with DataFusion producing batches for each segment.
 ///
 /// # Usage Context
 /// This execution method is selected when a query uses multiple fast fields with at least one
@@ -103,12 +137,28 @@ pub struct MixedFastFieldExecState {
     /// The batch size hint to use for this execution.
     batch_size_hint: Option<usize>,
 
-    /// The scanner that iterates over the results.
-    scanner: Option<Scanner>,
+    /// Whether to produce sorted output by merging sorted segments.
+    sorted: bool,
 
-    /// The current batch of fast field values
-    current_batch: Option<Batch>,
-    current_batch_offset: usize,
+    /// The sort order from the index (if any).
+    sort_order: Option<SortByField>,
+
+    /// Arrow schema for the RecordBatch
+    schema: Option<SchemaRef>,
+
+    /// The DataFusion stream producing RecordBatches.
+    stream: Option<SendableRecordBatchStream>,
+
+    /// The current RecordBatch of fast field values (DataFusion format)
+    current_record_batch: Option<RecordBatch>,
+    current_batch_row_idx: usize,
+
+    /// Column index for ctid in the RecordBatch
+    ctid_column_idx: Option<usize>,
+
+    /// Column index for score in the RecordBatch (reserved for future sorted merge support)
+    #[allow(dead_code)]
+    score_column_idx: Option<usize>,
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
@@ -117,84 +167,78 @@ pub struct MixedFastFieldExecState {
     const_values: HashMap<usize, (pg_sys::Datum, bool)>,
 }
 
-/// Populates the target slot with values for each attribute in the tuple descriptor.
+/// Populates the target slot with values from a RecordBatch.
 ///
-/// Values are primarily retrieved from the pre-materialized Arrow columns in the `Batch`.
-/// Special fields (like `ctid`, `tableoid`, and `score`) or constant expressions are
-/// handled as fallbacks when a column is not present in the batch.
+/// Extracts values from Arrow columns and converts them to PostgreSQL datums.
+/// Special handling for ctid and tableoid which are set on the slot directly.
 #[allow(clippy::too_many_arguments)]
-fn populate_slot(
+fn populate_slot_from_record_batch(
     const_values: &HashMap<usize, (pg_sys::Datum, bool)>,
-    batch: &Batch,
+    record_batch: &RecordBatch,
     row_idx: usize,
-    scored: SearchIndexScore,
     which_fast_fields: &[WhichFastField],
     tupdesc: &pgrx::PgTupleDesc,
     slot: &mut pg_sys::TupleTableSlot,
     datums: &mut [pg_sys::Datum],
     isnull: &mut [bool],
 ) {
-    let fields = &batch.fields;
     for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
-        match &fields[i] {
-            Some(column) => {
-                // We extracted this field: convert it into a datum.
-                match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
-                    Ok(Some(datum)) => {
-                        datums[i] = datum;
-                        isnull[i] = false;
-                        continue;
-                    }
-                    Ok(None) => {
-                        // Null datum.
-                        continue;
-                    }
-                    Err(e) => {
-                        panic!(
-                            "Failed to convert to attribute type for \
-                                {:?} and {which_fast_field:?}: {e}",
-                            att.atttypid
-                        );
-                    }
+        let column = record_batch.column(i);
+
+        // Check if this column has a null at this row
+        if column.is_null(row_idx) {
+            // Check for constant values
+            if let Some((val, is_null)) = const_values.get(&i) {
+                datums[i] = *val;
+                isnull[i] = *is_null;
+            }
+            // Otherwise leave as null (already initialized)
+            continue;
+        }
+
+        // Handle special fields that don't need datum conversion
+        match which_fast_field {
+            WhichFastField::Ctid => {
+                // ctid is already set on slot.tts_tid before calling this function
+                datums[i] = slot.tts_tid.into_datum().unwrap_or(pg_sys::Datum::null());
+                isnull[i] = false;
+                continue;
+            }
+            WhichFastField::TableOid => {
+                // tableoid is already set on slot.tts_tableOid before calling this function
+                datums[i] = slot
+                    .tts_tableOid
+                    .into_datum()
+                    .unwrap_or(pg_sys::Datum::null());
+                isnull[i] = false;
+                continue;
+            }
+            WhichFastField::Junk(_) => {
+                // Junk columns produce null
+                continue;
+            }
+            _ => {}
+        }
+
+        // Convert Arrow array value to datum
+        match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
+            Ok(Some(datum)) => {
+                datums[i] = datum;
+                isnull[i] = false;
+            }
+            Ok(None) => {
+                // Null datum - check for const value
+                if let Some((val, is_null)) = const_values.get(&i) {
+                    datums[i] = *val;
+                    isnull[i] = *is_null;
                 }
             }
-            None => {
-                // Fall back to manual extraction for special fields, or constant expressions.
-                let datum_opt = match which_fast_field {
-                    WhichFastField::Ctid => slot.tts_tid.into_datum(),
-                    WhichFastField::TableOid => slot.tts_tableOid.into_datum(),
-                    WhichFastField::Score => scored.bm25.into_datum(),
-                    WhichFastField::Named(_, FastFieldType::String) => {
-                        panic!("String fast field {which_fast_field:?} should already have been extracted.");
-                    }
-                    WhichFastField::Named(_, FastFieldType::Int64)
-                    | WhichFastField::Named(_, FastFieldType::UInt64)
-                    | WhichFastField::Named(_, FastFieldType::Float64)
-                    | WhichFastField::Named(_, FastFieldType::Bool)
-                    | WhichFastField::Named(_, FastFieldType::Date) => {
-                        panic!("Numeric fast field {which_fast_field:?} should already have been extracted.");
-                    }
-                    WhichFastField::Junk(_) => None,
-                };
-
-                if let Some(datum) = datum_opt {
-                    datums[i] = datum;
-                    isnull[i] = false;
-                } else {
-                    // if the tlist entry is not null but the datum retrieved is null,
-                    // it could mean there was a constant value in the tlist that we can
-                    // project into the slot
-                    if let Some((val, is_null)) = const_values.get(&i) {
-                        datums[i] = *val;
-                        isnull[i] = *is_null;
-                        continue;
-                    } else {
-                        pgrx::error!(
-                            "Expression in target list is not yet supported. \
-                                Please file an issue at https://github.com/paradedb/paradedb/issues."
-                        );
-                    }
-                }
+            Err(e) => {
+                panic!(
+                    "Failed to convert to attribute type for \
+                        {:?} and {which_fast_field:?}: {e}",
+                    att.atttypid
+                );
             }
         }
     }
@@ -209,24 +253,252 @@ impl MixedFastFieldExecState {
     /// # Arguments
     ///
     /// * `which_fast_fields` - Vector of fast fields that will be processed
+    /// * `limit` - Optional limit for batch size optimization
+    /// * `sorted` - Whether to produce globally sorted output via SortPreservingMergeExec
+    /// * `sort_order` - The sort order from the index (required if sorted is true)
     ///
     /// # Returns
     ///
     /// A new MixedFastFieldExecState instance
-    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>) -> Self {
+    pub fn new(
+        which_fast_fields: Vec<WhichFastField>,
+        limit: Option<usize>,
+        sorted: bool,
+        sort_order: Option<SortByField>,
+    ) -> Self {
+        // Find ctid and score column indices
+        let ctid_column_idx = which_fast_fields
+            .iter()
+            .position(|f| matches!(f, WhichFastField::Ctid));
+        let score_column_idx = which_fast_fields
+            .iter()
+            .position(|f| matches!(f, WhichFastField::Score));
+
         // If there is a limit, then we use a batch size hint which is a small multiple of the
         // limit, in case of dead tuples.
         let batch_size_hint = limit.map(|limit| limit * 2);
         Self {
             inner: Inner::new(which_fast_fields),
             batch_size_hint,
-            scanner: None,
-            current_batch: None,
-            current_batch_offset: 0,
+            sorted,
+            sort_order,
+            schema: None,
+            stream: None,
+            current_record_batch: None,
+            current_batch_row_idx: 0,
+            ctid_column_idx,
+            score_column_idx,
             num_visible: 0,
             const_values: HashMap::default(),
         }
     }
+
+    /// Creates a DataFusion stream for the unsorted path.
+    ///
+    /// Uses PostgreSQL's lazy segment checkout - one segment at a time.
+    /// Each segment is processed through DataFusion's ScanPlan.
+    fn create_unsorted_stream(
+        &mut self,
+        state: &mut BaseScanState,
+    ) -> Option<SendableRecordBatchStream> {
+        // Get search results (lazily checks out one segment in parallel mode)
+        let search_results = if let Some(parallel_state) = state.parallel_state {
+            // Parallel: try to check out a segment.
+            if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
+                Some(
+                    state
+                        .search_reader
+                        .as_ref()
+                        .unwrap()
+                        .search_segments([segment_id].into_iter()),
+                )
+            } else {
+                None
+            }
+        } else if self.inner.did_query {
+            // Not parallel and already queried.
+            None
+        } else {
+            // First time query in non-parallel mode.
+            self.inner.did_query = true;
+            Some(state.search_reader.as_ref().unwrap().search())
+        };
+
+        let results = search_results?;
+
+        let heaprel = self
+            .inner
+            .heaprel
+            .as_ref()
+            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+        let ffhelper = self
+            .inner
+            .ffhelper
+            .as_ref()
+            .expect("MixedFastFieldsExecState: ffhelper should be initialized");
+
+        // Create scanner
+        let scanner = Scanner::new(
+            results,
+            self.batch_size_hint,
+            self.inner.which_fast_fields.clone(),
+            heaprel.oid().into(),
+        );
+
+        // Capture schema
+        self.schema = Some(scanner.schema());
+
+        // Clone visibility checker for the plan
+        let visibility = state
+            .visibility_checker
+            .as_ref()
+            .expect("MixedFastFieldsExecState: visibility_checker should be initialized")
+            .clone();
+
+        // Create ScanPlan and execute via DataFusion
+        let plan =
+            ScanPlan::new_with_shared_ffhelper(scanner, Arc::clone(ffhelper), Box::new(visibility));
+
+        let task_ctx = Arc::new(TaskContext::default());
+        match plan.execute(0, task_ctx) {
+            Ok(stream) => Some(stream),
+            Err(e) => {
+                pgrx::warning!("Failed to execute ScanPlan: {e}");
+                None
+            }
+        }
+    }
+
+    /// Creates a DataFusion stream for the sorted path.
+    ///
+    /// Uses lazy segment checkout - segments are checked out on-demand via a factory
+    /// function when SortPreservingMergeExec calls execute() on each partition.
+    /// This defers memory allocation until execution time rather than plan creation.
+    fn create_sorted_stream(
+        &mut self,
+        state: &mut BaseScanState,
+    ) -> Option<SendableRecordBatchStream> {
+        if self.inner.did_query {
+            return None;
+        }
+        self.inner.did_query = true;
+
+        pgrx::log!("SORTED STREAM: create_sorted_stream() called - using lazy segment checkout");
+
+        let sort_order = self.sort_order.as_ref()?;
+
+        let heaprel = self
+            .inner
+            .heaprel
+            .as_ref()
+            .expect("MixedFastFieldsExecState: heaprel should be initialized");
+        let ffhelper = self
+            .inner
+            .ffhelper
+            .as_ref()
+            .expect("MixedFastFieldsExecState: ffhelper should be initialized");
+        let search_reader = state.search_reader.as_ref().unwrap();
+
+        // Get segment count and IDs (cheap - just metadata)
+        let segment_readers = search_reader.segment_readers();
+        let segment_count = segment_readers.len();
+
+        if segment_count == 0 {
+            return None;
+        }
+
+        // Collect segment IDs for the factory closure
+        let segment_ids: Vec<_> = segment_readers.iter().map(|r| r.segment_id()).collect();
+
+        // Build schema from which_fast_fields (same logic as Scanner::schema())
+        let schema = build_schema_from_fast_fields(&self.inner.which_fast_fields);
+        self.schema = Some(schema.clone());
+
+        // Capture variables for the factory closure
+        let search_reader = state.search_reader.clone().unwrap();
+        let batch_size = self.batch_size_hint;
+        let which_fast_fields = self.inner.which_fast_fields.clone();
+        let table_oid: u32 = heaprel.oid().into();
+        let ffhelper = Arc::clone(ffhelper);
+        let visibility_checker = state
+            .visibility_checker
+            .clone()
+            .expect("MixedFastFieldsExecState: visibility_checker should be initialized");
+
+        // Create factory that checks out segment on demand (lazy checkout)
+        // Uses make_checkout_factory to safely wrap the closure (which captures non-Send/Sync types)
+        let checkout_factory = make_checkout_factory(move |partition: usize| {
+            pgrx::log!(
+                "LAZY CHECKOUT: partition {} of {} (segment_id: {:?})",
+                partition,
+                segment_ids.len(),
+                segment_ids[partition]
+            );
+            let segment_id = segment_ids[partition];
+            let results = search_reader.search_segments([segment_id].into_iter());
+            let scanner = Scanner::new(results, batch_size, which_fast_fields.clone(), table_oid);
+            let visibility: Box<dyn crate::scan::VisibilityChecker> =
+                Box::new(visibility_checker.clone());
+            (scanner, Arc::clone(&ffhelper), visibility)
+        });
+
+        // Create sorted scan plan with SortPreservingMergeExec (lazy)
+        // Returns None if the sort field is not in the schema
+        let plan = match create_sorted_scan(segment_count, checkout_factory, schema, sort_order) {
+            Some(plan) => plan,
+            None => {
+                // Sort field not in schema - cannot create sorted merge.
+                // Actually fall back to unsorted execution instead of returning None
+                // (returning None would cause zero rows to be returned).
+                pgrx::warning!(
+                    "Sort field '{}' not found in scan schema - falling back to unsorted execution",
+                    sort_order.field_name.as_ref()
+                );
+                return self.create_unsorted_stream(state);
+            }
+        };
+
+        // Execute the plan (partition 0 for merged output)
+        let task_ctx = Arc::new(TaskContext::default());
+        match plan.execute(0, task_ctx) {
+            Ok(stream) => Some(stream),
+            Err(e) => {
+                pgrx::warning!("Failed to execute sorted ScanPlan: {e}");
+                None
+            }
+        }
+    }
+}
+
+/// Build an Arrow schema from the fast fields specification.
+/// This mirrors the logic in Scanner::schema() but doesn't require a Scanner instance.
+fn build_schema_from_fast_fields(which_fast_fields: &[WhichFastField]) -> SchemaRef {
+    use crate::index::fast_fields_helper::FastFieldType;
+    use arrow_schema::{DataType, Field, Schema};
+
+    let fields: Vec<Field> = which_fast_fields
+        .iter()
+        .map(|wff| {
+            let data_type = match wff {
+                WhichFastField::Ctid => DataType::UInt64,
+                WhichFastField::TableOid => DataType::UInt32,
+                WhichFastField::Score => DataType::Float32,
+                WhichFastField::Named(_, ff_type) => match ff_type {
+                    FastFieldType::String => DataType::Utf8View,
+                    FastFieldType::Int64 => DataType::Int64,
+                    FastFieldType::UInt64 => DataType::UInt64,
+                    FastFieldType::Float64 => DataType::Float64,
+                    FastFieldType::Bool => DataType::Boolean,
+                    FastFieldType::Date => {
+                        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+                    }
+                },
+                WhichFastField::Junk(_) => DataType::Null,
+            };
+            Field::new(wff.name(), data_type, true)
+        })
+        .collect();
+    Arc::new(Schema::new(fields))
 }
 
 impl ExecMethod for MixedFastFieldExecState {
@@ -258,17 +530,23 @@ impl ExecMethod for MixedFastFieldExecState {
         }
 
         // Reset mixed field specific state
-        self.scanner = None;
-        self.current_batch = None;
-        self.current_batch_offset = 0;
+        self.stream = None;
+        self.schema = None;
+        self.current_record_batch = None;
+        self.current_batch_row_idx = 0;
         self.num_visible = 0;
     }
 
     /// Executes the search query and prepares result processing.
     ///
-    /// This method handles both parallel and non-parallel execution paths.
-    /// For parallel execution, it processes a single segment at a time.
-    /// For non-parallel execution, it processes all segments at once.
+    /// This method handles both parallel and non-parallel execution paths using
+    /// DataFusion's execution engine to produce RecordBatch streams.
+    ///
+    /// For sorted mode (`sorted = true`), all segments are checked out upfront
+    /// and merged via `SortPreservingMergeExec` for globally sorted output.
+    ///
+    /// For unsorted mode, segments are processed lazily via PostgreSQL's parallel
+    /// query infrastructure, with each segment producing its own DataFusion stream.
     ///
     /// # Arguments
     ///
@@ -279,64 +557,55 @@ impl ExecMethod for MixedFastFieldExecState {
     /// `true` if there are results to process, `false` otherwise
     fn query(&mut self, state: &mut BaseScanState) -> bool {
         loop {
-            // If we have a scanner, try to get the next batch.
-            if let Some(scanner) = &mut self.scanner {
-                if let Some(batch) =
-                    scanner.next(&mut self.inner.ffhelper, state.visibility_checker())
-                {
-                    self.current_batch = Some(batch);
-                    self.current_batch_offset = 0;
-                    return true;
+            // Try to get next batch from existing stream
+            if let Some(stream) = &mut self.stream {
+                match poll_next_sync(stream) {
+                    Some(Ok(batch)) => {
+                        self.current_record_batch = Some(batch);
+                        self.current_batch_row_idx = 0;
+                        return true;
+                    }
+                    Some(Err(e)) => {
+                        pgrx::warning!("Error polling DataFusion stream: {e}");
+                        self.stream = None;
+                        return false;
+                    }
+                    None => {
+                        // Stream exhausted
+                        self.stream = None;
+                        // For unsorted mode, try to get another stream (next segment)
+                        if !self.sorted {
+                            continue;
+                        }
+                        // For sorted mode, we're done (all segments processed in one stream)
+                        return false;
+                    }
                 }
-                // No more batches from this scanner.
-                self.scanner = None;
             }
 
-            // We need a new scanner.
-            let search_results = if let Some(parallel_state) = state.parallel_state {
-                // Parallel: try to check out a segment.
-                if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                    Some(
-                        state
-                            .search_reader
-                            .as_ref()
-                            .unwrap()
-                            .search_segments([segment_id].into_iter()),
-                    )
-                } else {
-                    None
-                }
-            } else if self.inner.did_query {
-                // Not parallel and already queried.
-                None
+            // Create a new DataFusion stream
+            let new_stream = if self.sorted && self.sort_order.is_some() {
+                self.create_sorted_stream(state)
             } else {
-                // First time query in non-parallel mode.
-                self.inner.did_query = true;
-                Some(state.search_reader.as_ref().unwrap().search())
+                self.create_unsorted_stream(state)
             };
 
-            if let Some(results) = search_results {
-                let heaprel = self
-                    .inner
-                    .heaprel
-                    .as_ref()
-                    .expect("MixedFastFieldsExecState: heaprel should be initialized");
-                self.scanner = Some(Scanner::new(
-                    results,
-                    self.batch_size_hint,
-                    self.inner.which_fast_fields.clone(),
-                    heaprel.oid().into(),
-                ));
-            } else {
-                return false;
+            match new_stream {
+                Some(stream) => {
+                    self.stream = Some(stream);
+                    // Continue loop to poll the new stream
+                }
+                None => {
+                    return false;
+                }
             }
         }
     }
 
     /// Fetches the next result and prepares it for returning to PostgreSQL.
     ///
-    /// This method converts optimized search results into PostgreSQL tuple format,
-    /// handling value retrieval for both string and numeric fields.
+    /// This method converts DataFusion RecordBatch results into PostgreSQL tuple format,
+    /// handling value retrieval for all field types from Arrow columns.
     ///
     /// # Arguments
     ///
@@ -347,63 +616,74 @@ impl ExecMethod for MixedFastFieldExecState {
     /// The next execution state containing the result or EOF
     fn internal_next(&mut self, _state: &mut BaseScanState) -> ExecState {
         unsafe {
-            let batch = match self.current_batch.as_ref() {
+            let record_batch = match self.current_record_batch.as_ref() {
                 Some(batch) => batch,
                 None => return ExecState::Eof,
             };
 
-            if let Some((scored, _)) = batch.ids.get(self.current_batch_offset) {
-                let row_idx = self.current_batch_offset;
-                self.current_batch_offset += 1;
-
-                let heaprel = self
-                    .inner
-                    .heaprel
-                    .as_ref()
-                    .expect("MixedFastFieldsExecState: heaprel should be initialized");
-                let slot = self.inner.slot;
-                let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
-
-                // Set ctid and table OID
-                crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut (*slot).tts_tid);
-                (*slot).tts_tableOid = heaprel.oid();
-
-                // Setup slot for returning data
-                (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-                (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-                (*slot).tts_nvalid = natts as _;
-
-                let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-                let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-                // Initialize all values to NULL
-                for i in 0..natts {
-                    datums[i] = pg_sys::Datum::null();
-                    isnull[i] = true;
-                }
-
-                let which_fast_fields = &self.inner.which_fast_fields;
-                let tupdesc = self.inner.tupdesc.as_ref().unwrap();
-                debug_assert!(natts == which_fast_fields.len());
-
-                populate_slot(
-                    &self.const_values,
-                    batch,
-                    row_idx,
-                    *scored,
-                    which_fast_fields,
-                    tupdesc,
-                    &mut *slot,
-                    datums,
-                    isnull,
-                );
-
-                ExecState::Virtual { slot }
-            } else {
+            let row_idx = self.current_batch_row_idx;
+            if row_idx >= record_batch.num_rows() {
                 // This batch is exhausted.
-                self.current_batch = None;
-                ExecState::Eof
+                self.current_record_batch = None;
+                return ExecState::Eof;
             }
+
+            self.current_batch_row_idx += 1;
+
+            let heaprel = self
+                .inner
+                .heaprel
+                .as_ref()
+                .expect("MixedFastFieldsExecState: heaprel should be initialized");
+            let slot = self.inner.slot;
+            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+
+            // Extract ctid from the RecordBatch
+            let ctid = if let Some(ctid_idx) = self.ctid_column_idx {
+                let ctid_array = record_batch
+                    .column(ctid_idx)
+                    .as_any()
+                    .downcast_ref::<arrow_array::UInt64Array>()
+                    .expect("ctid column should be UInt64Array");
+                ctid_array.value(row_idx)
+            } else {
+                0u64
+            };
+
+            // Set ctid and table OID on the slot
+            crate::postgres::utils::u64_to_item_pointer(ctid, &mut (*slot).tts_tid);
+            (*slot).tts_tableOid = heaprel.oid();
+
+            // Setup slot for returning data
+            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+            (*slot).tts_nvalid = natts as _;
+
+            let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+            let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+            // Initialize all values to NULL
+            for i in 0..natts {
+                datums[i] = pg_sys::Datum::null();
+                isnull[i] = true;
+            }
+
+            let which_fast_fields = &self.inner.which_fast_fields;
+            let tupdesc = self.inner.tupdesc.as_ref().unwrap();
+            debug_assert!(natts == which_fast_fields.len());
+
+            populate_slot_from_record_batch(
+                &self.const_values,
+                record_batch,
+                row_idx,
+                which_fast_fields,
+                tupdesc,
+                &mut *slot,
+                datums,
+                isnull,
+            );
+
+            ExecState::Virtual { slot }
         }
     }
 
@@ -416,10 +696,11 @@ impl ExecMethod for MixedFastFieldExecState {
         // Reset inner FastFieldExecState
         self.inner.reset(state);
 
-        // Reset mixed results state
-        self.scanner = None;
-        self.current_batch = None;
-        self.current_batch_offset = 0;
+        // Reset DataFusion stream state
+        self.stream = None;
+        self.schema = None;
+        self.current_record_batch = None;
+        self.current_batch_row_idx = 0;
 
         // Reset statistics
         self.num_visible = 0;

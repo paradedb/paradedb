@@ -23,6 +23,7 @@
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `extract_score_pathkey()` in mod.rs.
 
+use crate::postgres::options::SortByField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -47,6 +48,14 @@ pub struct JoinSideInfo {
     /// True when ORDER BY paradedb.score() is present for this side.
     /// Used to optimize FastField executor (skip score computation when not needed).
     pub score_needed: bool,
+    /// The sort order of the BM25 index segments, if the index was created with `sort_by`.
+    ///
+    /// When this is `Some`, the index segments are physically sorted by this field.
+    /// This enables DataFusion-based execution to:
+    /// - Declare sort ordering via `EquivalenceProperties`
+    /// - Use `SortPreservingMergeExec` to merge sorted segment streams
+    /// - Enable sort-merge joins when both sides are sorted on join keys
+    pub sort_order: Option<SortByField>,
 }
 
 impl JoinSideInfo {
@@ -88,6 +97,23 @@ impl JoinSideInfo {
     pub fn with_score_needed(mut self, needed: bool) -> Self {
         self.score_needed = needed;
         self
+    }
+
+    /// Sets the sort order from the BM25 index metadata.
+    ///
+    /// This is populated at planning time by reading from `SearchIndexReader::sort_order()`.
+    /// When set, DataFusion-based execution can leverage the physical sort order for:
+    /// - Declaring output ordering via `EquivalenceProperties`
+    /// - Using `SortPreservingMergeExec` for merging sorted segment streams
+    /// - Enabling sort-merge joins when beneficial
+    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
+        self.sort_order = sort_order;
+        self
+    }
+
+    /// Returns true if this side's index produces sorted output.
+    pub fn is_sorted(&self) -> bool {
+        self.sort_order.is_some()
     }
 }
 

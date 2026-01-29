@@ -22,12 +22,13 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
@@ -42,7 +43,7 @@ use tantivy::collector::sort_key::{
     ComparatorEnum, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue, SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
-use tantivy::index::{Index, SegmentId};
+use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
@@ -200,6 +201,26 @@ impl MultiSegmentSearchResults {
 
     pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
         self.iterators.pop()
+    }
+
+    /// Consumes and returns all segment iterators along with the searcher.
+    ///
+    /// This is useful for DataFusion integration where each segment iterator
+    /// becomes a separate partition in the execution plan. The searcher is needed
+    /// to create single-segment wrappers via `from_single_segment`.
+    pub fn into_segments(self) -> (Searcher, Vec<ScorerIter>) {
+        (self.searcher, self.iterators)
+    }
+
+    /// Creates a new `MultiSegmentSearchResults` from a single segment iterator.
+    ///
+    /// This is used for per-segment partition scanning in DataFusion integration.
+    pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
+        Self {
+            searcher,
+            ctid_column: None,
+            iterators: vec![scorer_iter],
+        }
     }
 }
 
@@ -458,6 +479,21 @@ impl SearchIndexReader {
 
     pub fn searcher(&self) -> &Searcher {
         &self.searcher
+    }
+
+    /// Returns the sort order of the index segments, if the index was created with `sort_by`.
+    ///
+    /// This reads from the Tantivy index settings stored in the index metadata.
+    /// Returns `None` if the index was not created with segment sorting.
+    pub fn sort_order(&self) -> Option<SortByField> {
+        let settings = self.underlying_index.settings();
+        settings.sort_by_field.as_ref().map(|sort_field| {
+            let direction = match sort_field.order {
+                Order::Asc => SortByDirection::Asc,
+                Order::Desc => SortByDirection::Desc,
+            };
+            SortByField::new(FieldName::from(sort_field.field.clone()), direction)
+        })
     }
 
     pub fn validate_checksum(&self) -> Result<std::collections::HashSet<PathBuf>> {

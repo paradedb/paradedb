@@ -41,6 +41,8 @@ pub struct BM25Options {
     pub field_type: &'static str,
     /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
     pub config_json: &'static str,
+    /// Whether this field has `fast: true` (for numeric fields used in sort_by)
+    pub fast: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +105,7 @@ impl Column {
         self.bm25_options = Some(BM25Options {
             field_type: "text_fields",
             config_json,
+            fast: false,
         });
         self
     }
@@ -111,7 +114,16 @@ impl Column {
         self.bm25_options = Some(BM25Options {
             field_type: "numeric_fields",
             config_json,
+            fast: false,
         });
+        self
+    }
+
+    /// Mark the BM25 field as a fast field (enables efficient sorting via sort_by)
+    pub const fn fast(mut self) -> Self {
+        if let Some(ref mut opts) = self.bm25_options {
+            opts.fast = true;
+        }
         self
     }
 
@@ -195,6 +207,13 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
+    // Find the first indexed field with fast: true to use for sort_by
+    let sort_by_field = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .filter_map(|c| c.bm25_options.as_ref().filter(|o| o.fast).map(|_| c.name))
+        .next();
+
     // For INSERT statements
     let insert_columns = columns_def
         .iter()
@@ -218,6 +237,11 @@ pub fn generated_queries_setup(
         .join(",\n      ");
 
     for (tname, row_count) in tables {
+        // Build sort_by clause if we have a suitable field
+        let sort_by_clause = sort_by_field
+            .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
+            .unwrap_or_default();
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
@@ -227,7 +251,7 @@ CREATE TABLE {tname} (
 CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'
+    numeric_fields = '{{ {numeric_fields} }}'{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});

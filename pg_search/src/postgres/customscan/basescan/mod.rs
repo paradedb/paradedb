@@ -70,6 +70,7 @@ use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
+use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
@@ -765,7 +766,71 @@ impl CustomScan for BaseScan {
             // indicate that we'll be doing projection ourselves
             builder = builder.set_flag(Flags::Projection);
 
-            Some(builder.build(custom_private))
+            // Check if the index has a sort_by configuration and the query has a matching pathkey.
+            // If so, create an additional sorted path that declares the pathkey.
+            // This allows Postgres to use merge joins when joining with other sorted inputs.
+            let sort_by_fields = bm25_index.options().sort_by();
+            let sort_by_pathkey = sort_by_fields
+                .first()
+                .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table));
+
+            // Only create the sorted path if MixedFastFieldExec can be used.
+            // MixedFastFieldExec uses SortPreservingMergeExec to merge sorted segment outputs.
+            // NormalScanExecState iterates segments sequentially without merging, so it cannot
+            // provide globally sorted output. If we advertise pathkeys but fall back to Normal,
+            // the planner will skip the Sort node and we'll return unsorted results.
+            let can_use_sorted_execution =
+                exec_methods::fast_fields::is_mixed_fast_field_capable(&custom_private);
+
+            if let Some(ref pathkey_style) = sort_by_pathkey.filter(|_| can_use_sorted_execution) {
+                // We have a matching pathkey - create both sorted and unsorted paths.
+                // Build the unsorted path first (it will be returned)
+                custom_private.set_use_sorted_path(false);
+                let unsorted_path = builder.build(custom_private.clone());
+
+                // Create the sorted path by copying the unsorted path and modifying it
+                let mut sorted_path = unsorted_path;
+
+                // Update cost (slightly higher for sorted merge overhead)
+                sorted_path.path.total_cost = total_cost * 1.01;
+
+                // Update private data to indicate sorted path
+                let mut sorted_private = custom_private.clone();
+                sorted_private.set_use_sorted_path(true);
+                sorted_path.custom_private = sorted_private.into();
+
+                // Add the pathkey to declare sorted output
+                let mut pklist = PgList::<pg_sys::PathKey>::from_pg(sorted_path.path.pathkeys);
+                pklist.push(pathkey_style.pathkey());
+                sorted_path.path.pathkeys = pklist.into_pg();
+
+                // Disable parallel execution for the sorted path.
+                // The sorted path uses SortPreservingMergeExec which merges ALL segments internally.
+                // If parallel workers were enabled, each worker would scan all segments and
+                // Gather Merge would emit duplicates. Until we add checkout_segment coordination
+                // to create_sorted_stream(), we must disable parallelism for correctness.
+                sorted_path.path.parallel_aware = false;
+                sorted_path.path.parallel_safe = false;
+                sorted_path.path.parallel_workers = 0;
+
+                // Copy to Postgres memory and add the sorted path
+                let sorted_path_ptr: *mut pg_sys::CustomPath =
+                    PgMemoryContexts::CurrentMemoryContext
+                        .copy_ptr_into(&mut sorted_path, std::mem::size_of_val(&sorted_path));
+                pg_sys::add_path(rel, sorted_path_ptr.cast());
+
+                // Also need to copy and add the unsorted path since we modified it
+                let unsorted_path_copy = unsorted_path;
+                let mut unsorted_private = custom_private;
+                unsorted_private.set_use_sorted_path(false);
+
+                // Return the unsorted path (built from the copy we made)
+                Some(unsorted_path_copy)
+            } else {
+                // No matching pathkey - just return the unsorted path
+                custom_private.set_use_sorted_path(false);
+                Some(builder.build(custom_private))
+            }
         }
     }
 
@@ -1583,9 +1648,25 @@ fn choose_exec_method(
 
     // Otherwise, see if we can use a fast fields method.
     let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
+        // Check if the index has a sort_by configuration
+        let sort_order: Option<SortByField> = privdata.indexrelid().and_then(|indexrelid| {
+            let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+            let sort_by_fields = indexrel.options().sort_by();
+            // Currently only single-field sorting is supported
+            sort_by_fields.into_iter().next()
+        });
+
+        // Use sorted execution only if:
+        // 1. The index has a sort_by configuration, AND
+        // 2. Postgres chose the sorted path (which declares pathkeys)
+        // This allows the planner to choose between sorted/unsorted based on query needs.
+        let sorted = sort_order.is_some() && privdata.use_sorted_path();
+
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
+            sorted,
+            sort_order,
         }
     } else {
         // Else, fall back to normal execution
@@ -1623,7 +1704,14 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,
+            sorted: _, // Ignore: computed before use_sorted_path was set
+            sort_order,
         } => {
+            // Compute sorted at execution time from PrivateData's use_sorted_path().
+            // The exec_method_type's sorted field is computed during choose_exec_method
+            // which runs BEFORE we set use_sorted_path for the sorted/unsorted paths,
+            // so it's always false. The correct value comes from use_sorted_path().
+            let sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
@@ -1631,6 +1719,8 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
                         limit,
+                        sorted,
+                        sort_order,
                     ),
                     None,
                 )
@@ -1921,6 +2011,144 @@ impl PathKeyInfo {
             PathKeyInfo::None | PathKeyInfo::Unusable(_) => None,
         }
     }
+}
+
+/// Find a pathkey from the query that matches the index's sort_by field.
+///
+/// This is used to expose sorted CustomPaths when the query has an ORDER BY
+/// that matches the index's sort order. The Postgres planner can then choose
+/// the sorted path when downstream operations (like merge joins) need sorted input.
+///
+/// Returns `Some(OrderByStyle)` if a matching pathkey is found, `None` otherwise.
+unsafe fn find_sort_by_pathkey(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    sort_by: &SortByField,
+    table: &PgSearchRelation,
+) -> Option<OrderByStyle> {
+    use crate::postgres::options::SortByDirection;
+
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return None;
+    }
+
+    let sort_field_name = sort_by.field_name.as_ref();
+
+    // Look through all pathkeys to find one matching our sort_by field
+    for pathkey_ptr in pathkeys.iter_ptr() {
+        let pathkey = pathkey_ptr;
+        let equivclass = (*pathkey).pk_eclass;
+        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+        for member in members.iter_ptr() {
+            let expr = (*member).em_expr;
+
+            // Check if this is a Var (column reference) for our relation
+            if let Some(var) = nodecast!(Var, T_Var, expr) {
+                if (*var).varno as pg_sys::Index != rti {
+                    continue;
+                }
+
+                // Get the column name from the tuple descriptor
+                let tupdesc = table.tuple_desc();
+                let attno = (*var).varattno;
+                if attno <= 0 || attno as usize > tupdesc.len() {
+                    continue;
+                }
+
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    let col_name = att.name();
+                    if col_name == sort_field_name {
+                        // Check if the sort direction matches
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        let is_desc = match (*pathkey).pk_strategy as u32 {
+                            pg_sys::BTLessStrategyNumber => false,
+                            pg_sys::BTGreaterStrategyNumber => true,
+                            _ => continue, // Unknown strategy
+                        };
+                        #[cfg(feature = "pg18")]
+                        let is_desc = match (*pathkey).pk_cmptype {
+                            pg_sys::CompareType::COMPARE_LT => false,
+                            pg_sys::CompareType::COMPARE_GT => true,
+                            _ => continue,
+                        };
+
+                        let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
+
+                        // Check NULLS ordering
+                        // Our index sort_by uses: ASC NULLS FIRST or DESC NULLS LAST
+                        // (these are the only valid combinations enforced at index creation)
+                        let pathkey_nulls_first = (*pathkey).pk_nulls_first;
+                        // For our index: ASC means NULLS FIRST, DESC means NULLS LAST
+                        let sort_by_nulls_first = !sort_by_is_desc;
+
+                        if is_desc == sort_by_is_desc && pathkey_nulls_first == sort_by_nulls_first
+                        {
+                            // TODO: Check ec_collation for text fields. Tantivy uses byte ordering
+                            // (like C/POSIX collation). If the query uses a different collation,
+                            // we should not match because sort order would differ.
+
+                            // Found a matching pathkey!
+                            return Some(OrderByStyle::Field(pathkey, sort_field_name.into()));
+                        }
+                    }
+                }
+            }
+
+            // Also check for RelabelType wrapping a Var (common for type coercions)
+            if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
+                    if (*var).varno as pg_sys::Index != rti {
+                        continue;
+                    }
+
+                    let tupdesc = table.tuple_desc();
+                    let attno = (*var).varattno;
+                    if attno <= 0 || attno as usize > tupdesc.len() {
+                        continue;
+                    }
+
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        let col_name = att.name();
+                        if col_name == sort_field_name {
+                            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                            let is_desc = match (*pathkey).pk_strategy as u32 {
+                                pg_sys::BTLessStrategyNumber => false,
+                                pg_sys::BTGreaterStrategyNumber => true,
+                                _ => continue,
+                            };
+                            #[cfg(feature = "pg18")]
+                            let is_desc = match (*pathkey).pk_cmptype {
+                                pg_sys::CompareType::COMPARE_LT => false,
+                                pg_sys::CompareType::COMPARE_GT => true,
+                                _ => continue,
+                            };
+
+                            let sort_by_is_desc =
+                                matches!(sort_by.direction, SortByDirection::Desc);
+
+                            // Check NULLS ordering
+                            let pathkey_nulls_first = (*pathkey).pk_nulls_first;
+                            let sort_by_nulls_first = !sort_by_is_desc;
+
+                            if is_desc == sort_by_is_desc
+                                && pathkey_nulls_first == sort_by_nulls_first
+                            {
+                                // TODO: Check ec_collation for text fields. Tantivy uses byte ordering
+                                // (like C/POSIX collation). If the query uses a different collation,
+                                // we should not match because sort order would differ.
+
+                                return Some(OrderByStyle::Field(pathkey, sort_field_name.into()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

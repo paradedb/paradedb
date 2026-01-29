@@ -244,6 +244,13 @@ pub(super) unsafe fn extract_join_side_info(
     if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
         side_info = side_info.with_indexrelid(bm25_index.oid());
 
+        // Read the sort order from the index's relation options.
+        // This allows DataFusion-based execution to leverage physical sort order
+        // for optimizations like SortPreservingMergeExec and sort-merge joins.
+        let sort_by = bm25_index.options().sort_by();
+        let sort_order = sort_by.into_iter().next();
+        side_info = side_info.with_sort_order(sort_order);
+
         // Try to extract quals for this relation
         let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
         if !baserestrictinfo.is_empty() {

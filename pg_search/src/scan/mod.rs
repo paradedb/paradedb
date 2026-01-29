@@ -19,7 +19,7 @@ pub mod batch_scanner;
 pub mod datafusion_plan;
 mod tests;
 
-pub use batch_scanner::{Batch, Scanner};
+pub use batch_scanner::Scanner;
 
 /// A trait for checking visibility of rows.
 pub trait VisibilityChecker {

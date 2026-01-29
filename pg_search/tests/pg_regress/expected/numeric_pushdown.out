@@ -2144,25 +2144,43 @@ WHERE id @@@ paradedb.all();
 
 DROP TABLE max_scale_test;
 -- ----------------------------------------------------------------------------
--- TEST: NaN Handling (Document behavior)
+-- TEST: NaN Handling
 -- ----------------------------------------------------------------------------
--- Note: PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
--- This test documents the current behavior - NaN values may not be queryable
--- via the search index since decimal-bytes may not support NaN encoding.
--- Users should avoid indexing NaN values if they need to query them.
+-- PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
+-- This test documents the behavior when NaN values are indexed and queried.
 CREATE TABLE nan_test (
     id SERIAL PRIMARY KEY,
     val NUMERIC(10,2)
 );
--- Insert regular values and document that NaN behavior is undefined
+-- Insert regular values and NaN
 INSERT INTO nan_test (val) VALUES
     (100.00),
     (200.00),
+    ('NaN'::numeric),
     (300.00);
 CREATE INDEX nan_test_idx ON nan_test USING bm25 (
     id, val
 ) WITH (key_field = 'id');
--- This should work normally with non-NaN values
+-- Query for regular values should work
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 100.00
+ORDER BY id;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_test
+         Output: id, val
+         Table: nan_test
+         Index: nan_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"100","is_datetime":false}}]}}
+(10 rows)
+
 SELECT * FROM nan_test
 WHERE id @@@ paradedb.all()
 AND val = 100.00
@@ -2171,5 +2189,76 @@ ORDER BY id;
 ----+--------
   1 | 100.00
 (1 row)
+
+-- Query for NaN value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_test
+         Output: id, val
+         Table: nan_test
+         Index: nan_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val","value":"NaN","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+ id | val 
+----+-----
+  3 | NaN
+(1 row)
+
+-- Range query should exclude NaN (NaN is not comparable)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val > 50.00 AND val < 250.00
+ORDER BY id;
+                                                                                                                                   QUERY PLAN                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_test
+         Output: id, val
+         Table: nan_test
+         Index: nan_test_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"50"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"250"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val > 50.00 AND val < 250.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+(2 rows)
+
+-- Verify all rows can be retrieved
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  3 |    NaN
+  4 | 300.00
+(4 rows)
 
 DROP TABLE nan_test;

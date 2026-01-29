@@ -1295,32 +1295,66 @@ WHERE id @@@ paradedb.all();
 DROP TABLE max_scale_test;
 
 -- ----------------------------------------------------------------------------
--- TEST: NaN Handling (Document behavior)
+-- TEST: NaN Handling
 -- ----------------------------------------------------------------------------
--- Note: PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
--- This test documents the current behavior - NaN values may not be queryable
--- via the search index since decimal-bytes may not support NaN encoding.
--- Users should avoid indexing NaN values if they need to query them.
+-- PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
+-- This test documents the behavior when NaN values are indexed and queried.
 
 CREATE TABLE nan_test (
     id SERIAL PRIMARY KEY,
     val NUMERIC(10,2)
 );
 
--- Insert regular values and document that NaN behavior is undefined
+-- Insert regular values and NaN
 INSERT INTO nan_test (val) VALUES
     (100.00),
     (200.00),
+    ('NaN'::numeric),
     (300.00);
 
 CREATE INDEX nan_test_idx ON nan_test USING bm25 (
     id, val
 ) WITH (key_field = 'id');
 
--- This should work normally with non-NaN values
+-- Query for regular values should work
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM nan_test
 WHERE id @@@ paradedb.all()
 AND val = 100.00
+ORDER BY id;
+
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 100.00
+ORDER BY id;
+
+-- Query for NaN value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+
+-- Range query should exclude NaN (NaN is not comparable)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val > 50.00 AND val < 250.00
+ORDER BY id;
+
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val > 50.00 AND val < 250.00
+ORDER BY id;
+
+-- Verify all rows can be retrieved
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
 ORDER BY id;
 
 DROP TABLE nan_test;

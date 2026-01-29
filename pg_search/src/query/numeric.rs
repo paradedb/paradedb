@@ -45,13 +45,6 @@ pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
 // This provides the symmetric counterpart to descale_owned_value.
 pub use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
 
-/// Alias for scale_owned_value for backward compatibility.
-/// Prefer using scale_owned_value directly.
-#[inline]
-pub fn scale_numeric_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
-    scale_owned_value(value, scale)
-}
-
 // ============================================================================
 // NumericBytes Conversions
 // ============================================================================
@@ -221,7 +214,7 @@ where
 
 /// Scale a numeric bound value for Numeric64 storage.
 pub fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> Result<Bound<OwnedValue>> {
-    convert_bound(bound, |v| scale_numeric_value(v, scale))
+    convert_bound(bound, |v| scale_owned_value(v, scale))
 }
 
 /// Convert a numeric bound to lexicographically sortable bytes.

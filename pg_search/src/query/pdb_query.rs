@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::query::numeric::{
     convert_value_for_range_field, map_bound, numeric_bound_to_bytes, numeric_value_to_bytes,
-    scale_numeric_bound, scale_numeric_value, string_to_f64, string_to_i64, string_to_json_numeric,
+    scale_numeric_bound, scale_owned_value, string_to_f64, string_to_i64, string_to_json_numeric,
     string_to_u64,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
@@ -702,7 +702,7 @@ fn term_set(
         .into_iter()
         .map(|term| match search_field_type {
             SearchFieldType::Numeric64(_, scale) => {
-                scale_numeric_value(term, scale).unwrap_or(OwnedValue::Null)
+                scale_owned_value(term, scale).unwrap_or(OwnedValue::Null)
             }
             SearchFieldType::NumericBytes(_) => {
                 numeric_value_to_bytes(term).unwrap_or(OwnedValue::Null)
@@ -748,7 +748,7 @@ fn term(
     let value = match search_field_type {
         SearchFieldType::Numeric64(_, scale) => {
             // Scale value for I64 fixed-point storage
-            scale_numeric_value(value.clone(), scale)?
+            scale_owned_value(value.clone(), scale)?
         }
         SearchFieldType::NumericBytes(_) => {
             // Convert value to lexicographically sortable bytes
@@ -1718,7 +1718,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         SearchFieldType::Numeric64(_, scale) => {
             // Parse the query string as a decimal and scale it for I64 storage
             if let Ok(value) = query_string.trim().parse::<f64>() {
-                let scaled_value = scale_numeric_value(OwnedValue::F64(value), scale)?;
+                let scaled_value = scale_owned_value(OwnedValue::F64(value), scale)?;
                 let field_type = search_field.field_entry().field_type();
                 let term = value_to_term(
                     search_field.field(),

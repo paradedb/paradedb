@@ -17,6 +17,7 @@
 
 pub mod aggregate_type;
 pub mod build;
+pub mod descale;
 pub mod exec;
 pub mod filterquery;
 pub mod groupby;
@@ -30,7 +31,7 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::extract_agg_name_to_field;
 pub use aggregate_type::AggregateType;
-pub use exec::descale_numeric_values_in_json;
+pub use descale::descale_numeric_values_in_json;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 

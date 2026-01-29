@@ -1029,6 +1029,53 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
     }
 }
 
+/// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.
+///
+/// This is useful when you need to create a temporary PostgreSQL list for use with
+/// PostgreSQL functions and want to ensure it's properly freed even if the code
+/// returns early or panics.
+///
+/// # Example
+/// ```ignore
+/// let temp_list = TempPgList::new();
+/// temp_list.push(some_node as *mut std::ffi::c_void);
+/// let result = pg_sys::some_function(temp_list.as_ptr());
+/// // temp_list is automatically freed when it goes out of scope
+/// ```
+#[derive(Default)]
+pub struct TempPgList(*mut pg_sys::List);
+
+impl TempPgList {
+    /// Create a new empty temporary list.
+    pub fn new() -> Self {
+        Self(std::ptr::null_mut())
+    }
+
+    /// Append a cell to the list.
+    ///
+    /// # Safety
+    /// The caller must ensure that `datum` is a valid pointer that can be
+    /// stored in a PostgreSQL list.
+    pub unsafe fn push(&mut self, datum: *mut std::ffi::c_void) {
+        self.0 = pg_sys::lappend(self.0, datum);
+    }
+
+    /// Get the raw pointer to the list.
+    pub fn as_ptr(&self) -> *mut pg_sys::List {
+        self.0
+    }
+}
+
+impl Drop for TempPgList {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                pg_sys::list_free(self.0);
+            }
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! debug1 {
     ($($arg:tt)*) => {{

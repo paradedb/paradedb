@@ -73,6 +73,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::TempPgList;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -203,10 +204,17 @@ impl BaseScan {
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
+
+        // Filter out predicates that are implied by the partial index predicate.
+        // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
+        // also has predicate P, we don't need to create a heap filter for P since the
+        // partial index already guarantees it.
+        let filtered_restrict_info = Self::filter_implied_predicates(indexrel, &restrict_info);
+
         let mut quals = extract_quals(
             &context,
             rti,
-            restrict_info.as_ptr().cast(),
+            filtered_restrict_info.as_ptr().cast(),
             anyelement_query_input_opoid(),
             ri_type,
             indexrel,
@@ -298,6 +306,49 @@ impl BaseScan {
         }
 
         quals.clone()
+    }
+
+    /// Filter out RestrictInfo entries whose clauses are implied by the partial index predicate.
+    ///
+    /// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
+    /// the index only contains rows that satisfy the predicate. If the query's WHERE clause
+    /// includes the same predicate (e.g., `WHERE ... AND deleted_at IS NULL`), we don't need
+    /// to create a heap filter for it since the partial index already guarantees it.
+    ///
+    /// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
+    /// implies each query clause. If so, that clause is filtered out.
+    unsafe fn filter_implied_predicates(
+        indexrel: &PgSearchRelation,
+        restrict_info: &PgList<pg_sys::RestrictInfo>,
+    ) -> PgList<pg_sys::RestrictInfo> {
+        // If this is not a partial index, return the original list unchanged
+        if indexrel.rd_indpred.is_null() {
+            return PgList::from_pg(restrict_info.as_ptr());
+        }
+
+        // Build a new list with only the predicates that are NOT implied by the index predicate
+        let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
+
+        for ri in restrict_info.iter_ptr() {
+            // Create a single-element list containing this clause
+            let clause = (*ri).clause;
+            let mut clause_list = TempPgList::new();
+            clause_list.push(clause as *mut std::ffi::c_void);
+
+            // Check if the index predicate implies this clause.
+            // predicate_implied_by(A, B, false) returns true if B => A
+            // So we check: does the index predicate (B) imply this clause (A)?
+            let is_implied =
+                pg_sys::predicate_implied_by(clause_list.as_ptr(), indexrel.rd_indpred, false);
+
+            if !is_implied {
+                // This clause is NOT implied by the index predicate, keep it
+                filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
+            }
+            // If is_implied is true, we skip adding this RestrictInfo to the filtered list
+        }
+
+        PgList::from_pg(filtered_list)
     }
 }
 

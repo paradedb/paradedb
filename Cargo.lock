@@ -4673,6 +4673,7 @@ dependencies = [
  "chrono",
  "datafusion-common",
  "datafusion-execution",
+ "datafusion-expr",
  "datafusion-physical-expr",
  "datafusion-physical-plan",
  "decimal-bytes",

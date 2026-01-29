@@ -1003,7 +1003,13 @@ pub struct VarRef {
 
 /// Collects all unique Var references (RTI + attribute number) from an expression tree.
 /// Returns a Vec of VarRef structs for each column referenced by the expression.
-pub unsafe fn expr_collect_vars(node: *mut pg_sys::Node) -> Vec<VarRef> {
+///
+/// If `include_special_vars` is true, variables with special varnos (like INDEX_VAR) are included.
+/// If false, only variables referencing base relations (varno > 0 and < INNER_VAR) are included.
+pub unsafe fn expr_collect_vars(
+    node: *mut pg_sys::Node,
+    include_special_vars: bool,
+) -> Vec<VarRef> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -1013,27 +1019,41 @@ pub unsafe fn expr_collect_vars(node: *mut pg_sys::Node) -> Vec<VarRef> {
             return false;
         }
 
-        let vars = &mut *(data as *mut Vec<VarRef>);
+        let (vars, include_special_vars) = &mut *(data as *mut (Vec<VarRef>, bool));
 
         if (*node).type_ == pg_sys::NodeTag::T_Var {
             let var = node as *mut pg_sys::Var;
             let varno = (*var).varno as pg_sys::Index;
             let varattno = (*var).varattno;
-            // Skip special RTIs like INNER_VAR/OUTER_VAR and system columns (attno <= 0)
-            if varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index && varattno > 0 {
-                vars.push(VarRef {
-                    rti: varno,
-                    attno: varattno,
-                });
+
+            // Standard check for base relation var:
+            let is_base_rel_var = varno > 0 && varno < pg_sys::INNER_VAR as pg_sys::Index;
+
+            if *include_special_vars {
+                // Include if valid attno
+                if varattno > 0 {
+                    vars.push(VarRef {
+                        rti: varno,
+                        attno: varattno,
+                    });
+                }
+            } else {
+                // Only include base relation vars
+                if is_base_rel_var && varattno > 0 {
+                    vars.push(VarRef {
+                        rti: varno,
+                        attno: varattno,
+                    });
+                }
             }
         }
 
         pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
-    let mut vars = Vec::new();
-    walker(node, addr_of_mut!(vars).cast());
-    vars
+    let mut context = (Vec::new(), include_special_vars);
+    walker(node, addr_of_mut!(context).cast());
+    context.0
 }
 
 /// Look up a function in the pdb schema by name and argument types.

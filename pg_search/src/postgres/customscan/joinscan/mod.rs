@@ -104,12 +104,9 @@
 //! 3. **Probe**: For each driving row, probe the hash table for matching build rows
 //! 4. **Result**: Emit joined tuples, respecting LIMIT
 //!
-//! If the hash table exceeds `work_mem`, JoinScan falls back to a nested loop algorithm.
-//!
 //! # Submodules
 //!
 //! - [`build`]: Data structures for planning serialization (`JoinCSClause`, `JoinSideInfo`)
-//! - [`executors`]: FastField executor for batched ctid lookups from Tantivy
 //! - [`planning`]: Cost estimation, condition extraction, pathkey handling
 //! - [`predicate`]: Transform PostgreSQL expressions to evaluable expression trees
 //! - [`scan_state`]: Execution state (hash table, visibility checkers, slots)
@@ -117,28 +114,26 @@
 //! - [`explain`]: EXPLAIN output formatting
 
 pub mod build;
-pub mod executors;
 mod explain;
+mod memory;
+mod plan_builder;
 mod planning;
 mod predicate;
 pub mod privdat;
 pub mod scan_state;
+mod translator;
 
 use self::build::{JoinAlgorithmHint, JoinCSClause, JoinType};
 use self::explain::{format_join_level_expr, get_attname_safe};
+use self::memory::PanicOnOOMMemoryPool;
+use self::plan_builder::JoinScanPlanBuilder;
 use self::planning::{
     compute_execution_hints, extract_join_conditions, extract_join_side_info,
     extract_score_pathkey, order_by_columns_are_fast_fields,
 };
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
-use self::scan_state::{
-    CompositeKey, InnerRow, JoinKeyInfo, JoinLevelEvalContext, JoinLevelExpr, JoinScanState,
-    JoinSide, KeyValue,
-};
-use crate::api::HashMap;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use self::scan_state::JoinScanState;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -148,12 +143,17 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
-use crate::postgres::heap::{OwnedVisibilityChecker, VisibilityChecker};
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::item_pointer_to_u64;
-use crate::query::SearchQueryInput;
+use datafusion_execution::runtime_env::RuntimeEnvBuilder;
+use datafusion_execution::TaskContext;
+use datafusion_physical_plan::filter::FilterExec;
+use datafusion_physical_plan::joins::HashJoinExec;
+use datafusion_physical_plan::ExecutionPlan;
+use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -568,11 +568,15 @@ impl CustomScan for JoinScan {
             .heaprelid
             .map(|oid| PgSearchRelation::open(oid).name().to_string())
             .unwrap_or_else(|| "?".to_string());
-        let inner_rel_name = join_clause
+        let inner_relid = join_clause
             .inner_side
             .heaprelid
-            .map(|oid| PgSearchRelation::open(oid).name().to_string())
-            .unwrap_or_else(|| "?".to_string());
+            .unwrap_or(pg_sys::InvalidOid);
+        let inner_rel_name = if inner_relid != pg_sys::InvalidOid {
+            PgSearchRelation::open(inner_relid).name().to_string()
+        } else {
+            "?".to_string()
+        };
 
         // Get aliases (use alias if available, otherwise use table name)
         let outer_alias = join_clause
@@ -693,51 +697,10 @@ impl CustomScan for JoinScan {
 
             // Clone the join clause to avoid borrow issues
             let join_clause = state.custom_state().join_clause.clone();
-            let snapshot = (*estate).es_snapshot;
-
-            // Determine which side is driving (has search predicate) vs build
-            let driving_is_outer = join_clause.driving_side_is_outer();
-            state.custom_state_mut().driving_is_outer = driving_is_outer;
-
-            let (driving_side, build_side) = if driving_is_outer {
-                (&join_clause.outer_side, &join_clause.inner_side)
-            } else {
-                (&join_clause.inner_side, &join_clause.outer_side)
-            };
-
-            // Populate join key info for execution
-            let build_relid = build_side.heaprelid.unwrap_or(pg_sys::InvalidOid);
-            let driving_relid = driving_side.heaprelid.unwrap_or(pg_sys::InvalidOid);
-
-            for jk in &join_clause.join_keys {
-                let (build_attno, driving_attno) = if driving_is_outer {
-                    (jk.inner_attno as i32, jk.outer_attno as i32)
-                } else {
-                    (jk.outer_attno as i32, jk.inner_attno as i32)
-                };
-
-                state.custom_state_mut().build_key_info.push(JoinKeyInfo {
-                    relid: build_relid,
-                    attno: build_attno,
-                    typlen: jk.typlen,
-                    typbyval: jk.typbyval,
-                });
-                state.custom_state_mut().driving_key_info.push(JoinKeyInfo {
-                    relid: driving_relid,
-                    attno: driving_attno,
-                    typlen: jk.typlen,
-                    typbyval: jk.typbyval,
-                });
-            }
 
             // Initialize memory limit from work_mem (in KB, convert to bytes)
             let work_mem_bytes = (pg_sys::work_mem as usize) * 1024;
             state.custom_state_mut().max_hash_memory = work_mem_bytes;
-
-            // Note: Execution hints (algorithm preference, memory estimates) are stored in
-            // join_clause.hints and used during hash table building to make informed decisions:
-            // 1. Pre-size the hash table based on estimated_build_rows
-            // 2. Panic if hash table exceeds work_mem (DataFusion will handle spilling)
 
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
@@ -750,207 +713,15 @@ impl CustomScan for JoinScan {
             let result_slot = state.csstate.ss.ps.ps_ResultTupleSlot;
             state.custom_state_mut().result_slot = Some(result_slot);
 
-            // Open relations for the driving side
-            // If driving side has a search predicate, use search scan; otherwise use heap scan
-            if let Some(heaprelid) = driving_side.heaprelid {
-                let heaprel = PgSearchRelation::open(heaprelid);
-
-                // Create a slot for fetching driving tuples
-                let driving_slot =
-                    pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-                state.custom_state_mut().driving_fetch_slot = Some(driving_slot);
-
-                // If driving side has a search predicate, create an executor
-                if let (Some(indexrelid), Some(ref query)) =
-                    (driving_side.indexrelid, &driving_side.query)
-                {
-                    // Use FastField executor which iterates all matching results
-                    // using batched ctid lookups for efficiency.
-                    let executor = executors::JoinSideExecutor::new_fast_field(
-                        indexrelid,
-                        query.clone(),
-                        driving_side.score_needed,
-                    );
-                    state.custom_state_mut().driving_executor = Some(executor);
-
-                    // Create visibility checker for fetching tuples by ctid from executor results
-                    // Only needed when using search executor (not heap scan)
-                    let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                    state.custom_state_mut().driving_visibility_checker = Some(vis_checker);
-                } else {
-                    // No search predicate - use heap scan for driving side
-                    let scan_desc = pg_sys::table_beginscan(
-                        heaprel.as_ptr(),
-                        snapshot,
-                        0,
-                        std::ptr::null_mut(),
-                    );
-                    state.custom_state_mut().driving_scan_desc = Some(scan_desc);
-                    state.custom_state_mut().driving_uses_heap_scan = true;
-                }
-
-                state.custom_state_mut().driving_heaprel = Some(heaprel);
-            }
-
-            // Open relations for the build side (side we build hash table from)
-            if let Some(heaprelid) = build_side.heaprelid {
-                let heaprel = PgSearchRelation::open(heaprelid);
-
-                // Create visibility checker for build side
-                let vis_checker = VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                state.custom_state_mut().build_visibility_checker = Some(vis_checker);
-
-                // Create a slot for scanning build tuples
-                let build_slot =
-                    pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
-                state.custom_state_mut().build_scan_slot = Some(build_slot);
-
-                // Use the BM25 index to get all matching ctids
-                // If there's a search predicate, only matching rows will be included
-                // If there's no search predicate, use All query to get all rows from the index
-                if let Some(indexrelid) = build_side.indexrelid {
-                    // Use the search query if present, otherwise match all documents
-                    let query = build_side.query.clone().unwrap_or(SearchQueryInput::All);
-
-                    let indexrel = PgSearchRelation::open(indexrelid);
-                    let search_reader = SearchIndexReader::open_with_context(
-                        &indexrel,
-                        query,
-                        build_side.score_needed, // need scores if paradedb.score() references build side
-                        MvccSatisfies::Snapshot,
-                        None,
-                        None,
-                    );
-
-                    if let Ok(reader) = search_reader {
-                        // Store ctid -> score mapping (score is 0.0 if not needed)
-                        let mut build_ctids = HashMap::default();
-
-                        // Create a visibility checker to resolve stale ctids
-                        let mut vis_checker = OwnedVisibilityChecker::new(&heaprel, snapshot);
-
-                        let results = reader.search();
-                        for (scored, _doc_address) in results {
-                            // Verify tuple visibility and get its current ctid
-                            if let Some(current_ctid) = vis_checker.get_current_ctid(scored.ctid) {
-                                build_ctids.insert(current_ctid, scored.bm25);
-                            }
-                        }
-
-                        state.custom_state_mut().build_matching_ctids = Some(build_ctids);
-                    }
-                }
-
-                state.custom_state_mut().build_heaprel = Some(heaprel);
-            }
-
-            // Initialize heap condition evaluation if we have any
-            // The heap condition expressions were added to custom_exprs during plan_custom_path
-            // and have been transformed by set_customscan_references to use INDEX_VAR references.
-            if join_clause.has_multi_table_predicates() {
-                let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
-                let custom_exprs = PgList::<pg_sys::Node>::from_pg((*cscan).custom_exprs);
-
-                // Create expression context for all heap conditions
-                let econtext = pg_sys::CreateExprContext(estate);
-                state.custom_state_mut().multi_table_predicate_econtext = Some(econtext);
-
-                // Initialize expression state for each heap condition
-                // The expressions in custom_exprs are in the same order as multi_table_predicates
-                for (i, _heap_cond) in join_clause.multi_table_predicates.iter().enumerate() {
-                    if i < custom_exprs.len() {
-                        if let Some(expr_node) = custom_exprs.get_ptr(i) {
-                            if !expr_node.is_null() {
-                                // Create a single-element list for ExecInitQual
-                                let mut qual_list = PgList::<pg_sys::Expr>::new();
-                                qual_list.push(expr_node as *mut pg_sys::Expr);
-                                let qual_state = pg_sys::ExecInitQual(
-                                    qual_list.into_pg(),
-                                    &mut state.csstate.ss.ps,
-                                );
-                                state
-                                    .custom_state_mut()
-                                    .multi_table_predicate_states
-                                    .push(qual_state);
-                                continue;
-                            }
-                        }
-                    }
-                    // If we couldn't initialize this condition, push null
-                    state
-                        .custom_state_mut()
-                        .multi_table_predicate_states
-                        .push(std::ptr::null_mut());
-                }
-            }
-
-            // Initialize join-level predicate evaluation if we have a join-level expression
-            //
-            // TODO(ordered-merge): Currently, all matching ctids are materialized into HashSets
-            // upfront with no memory limit. A broad predicate like `content @@@ 'the'` could
-            // match millions of rows, causing OOM.
-            //
-            // A better approach would be to use ordered-merge instead of hashing. If we require
-            // that BM25 indexes are sorted by the join key (see issue #3053), we could implement
-            // this as a sorted merge of three streams all sorted on the join key:
-            //   1. outer relation rows
-            //   2. inner relation rows
-            //   3. inner single-table predicate results
-            //
-            // This would avoid materializing large ctid sets and instead stream results with
-            // O(1) memory per predicate instead of O(N).
-            if let Some(ref serializable_expr) = join_clause.join_level_expr {
-                let join_level_predicates = &join_clause.join_level_predicates;
-
-                // Execute Tantivy queries for each predicate and collect matching ctids
-                // The results are stored in join_level_ctid_sets, indexed by predicate position
-                for predicate in join_level_predicates {
-                    let indexrel = PgSearchRelation::open(predicate.indexrelid);
-
-                    let search_reader = SearchIndexReader::open_with_context(
-                        &indexrel,
-                        predicate.query.clone(),
-                        false, // don't need scores
-                        MvccSatisfies::Snapshot,
-                        None,
-                        None,
-                    );
-
-                    let mut ctid_set = std::collections::HashSet::new();
-
-                    if let Ok(reader) = search_reader {
-                        // Create a visibility checker for this relation (owns its slot)
-                        let heaprel = PgSearchRelation::open(predicate.heaprelid);
-                        let mut vis_checker = OwnedVisibilityChecker::new(&heaprel, snapshot);
-
-                        let results = reader.search();
-                        for (scored, _doc_address) in results {
-                            // Verify tuple visibility and get its current ctid
-                            if let Some(ctid) = vis_checker.get_current_ctid(scored.ctid) {
-                                ctid_set.insert(ctid);
-                            }
-                        }
-                        // vis_checker is dropped here, cleaning up the slot
-                    }
-
-                    state.custom_state_mut().join_level_ctid_sets.push(ctid_set);
-                }
-
-                // Convert the serializable expression to the runtime expression
-                let runtime_expr = convert_to_runtime_expr(serializable_expr);
-                state.custom_state_mut().join_level_expr = Some(runtime_expr);
-            }
+            // Determine which side is driving (has search predicate) vs build
+            let driving_is_outer = join_clause.driving_side_is_outer();
+            state.custom_state_mut().driving_is_outer = driving_is_outer;
         }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Reset state for rescanning
         state.custom_state_mut().reset();
-
-        // Also reset the driving executor if present
-        if let Some(ref mut executor) = state.custom_state_mut().driving_executor {
-            executor.reset();
-        }
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -959,99 +730,189 @@ impl CustomScan for JoinScan {
             // another join (e.g., 3-table join). PostgreSQL's Limit node handles limiting.
             // The limit value in join_clause is used for cost estimation and executor hints.
 
-            // Phase 1: Build hash table from build side (first call only)
-            if !state.custom_state().hash_table_built {
-                Self::build_hash_table(state);
-                state.custom_state_mut().hash_table_built = true;
-            }
+            // Initialize plan if not already done
+            if state.custom_state().datafusion_stream.is_none() {
+                // We use block_on to execute the plan synchronously
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap();
 
-            // Extract key info once before the loop to avoid repeated clones
-            let driving_key_info = state.custom_state().driving_key_info.clone();
+                let join_clause = state.custom_state().join_clause.clone();
+                let cscan = state.csstate.ss.ps.plan as *mut pg_sys::CustomScan;
+                let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
-            // Phase 2: Probe hash table with driving side search results
-            loop {
-                // If we have pending matches, return one
-                if let Some((build_ctid, build_score)) =
-                    state.custom_state_mut().pending_build_ctids.pop_front()
-                {
-                    if let Some(slot) = Self::build_result_tuple(state, build_ctid, build_score) {
-                        // Check join-level predicate using the expression tree
-                        if !Self::evaluate_join_level_predicate(state, slot) {
-                            continue;
-                        }
-
-                        state.custom_state_mut().rows_returned += 1;
-                        return slot;
-                    }
-                    // Visibility check failed, try next match
-                    continue;
+                // Initialize heap relations and visibility checkers for JoinScanState
+                // These are needed for build_result_tuple to fetch the final tuples from ctids
+                if let Some(heaprelid) = join_clause.driving_side().heaprelid {
+                    let heaprel = PgSearchRelation::open(heaprelid);
+                    state.custom_state_mut().driving_visibility_checker =
+                        Some(VisibilityChecker::with_rel_and_snap(&heaprel, snapshot));
+                    state.custom_state_mut().driving_fetch_slot = Some(pg_sys::MakeTupleTableSlot(
+                        heaprel.rd_att,
+                        &pg_sys::TTSOpsBufferHeapTuple,
+                    ));
+                    state.custom_state_mut().driving_heaprel = Some(heaprel);
                 }
 
-                // Get next driving row - either from executor or heap scan
-                let (driving_ctid, driving_score) =
-                    if state.custom_state().driving_executor.is_some() {
-                        // Use the executor for incremental fetching
-                        let executor = state.custom_state_mut().driving_executor.as_mut().unwrap();
+                if let Some(heaprelid) = join_clause.build_side().heaprelid {
+                    let heaprel = PgSearchRelation::open(heaprelid);
+                    state.custom_state_mut().build_visibility_checker =
+                        Some(VisibilityChecker::with_rel_and_snap(&heaprel, snapshot));
+                    state.custom_state_mut().build_scan_slot = Some(pg_sys::MakeTupleTableSlot(
+                        heaprel.rd_att,
+                        &pg_sys::TTSOpsBufferHeapTuple,
+                    ));
+                    state.custom_state_mut().build_heaprel = Some(heaprel);
+                }
 
-                        // Note: We don't check executor.reached_limit() here because
-                        // for joins the LIMIT applies to output rows (tracked by rows_returned),
-                        // not input driving rows. The executor's limit is set very high.
-                        match executor.next_visible() {
-                            executors::JoinExecResult::Visible { ctid, score } => (ctid, score),
-                            executors::JoinExecResult::Eof => return std::ptr::null_mut(),
-                        }
-                    } else if let Some(scan_desc) = state.custom_state().driving_scan_desc {
-                        // Fallback to heap scan (no search predicate case)
-                        let slot = state.custom_state().driving_fetch_slot;
-                        let Some(slot) = slot else {
-                            return std::ptr::null_mut();
-                        };
+                let mut private_data = PrivateData::new(join_clause.clone());
+                // output_columns is needed to map INDEX_VARs (from multi-table predicates)
+                // back to their original columns during plan building.
+                private_data.output_columns = state.custom_state().output_columns.clone();
 
-                        let has_tuple = pg_sys::table_scan_getnextslot(
-                            scan_desc,
-                            pg_sys::ScanDirection::ForwardScanDirection,
-                            slot,
-                        );
+                let plan = JoinScanPlanBuilder::build(
+                    &join_clause,
+                    &private_data,
+                    (*cscan).custom_exprs,
+                    snapshot,
+                )
+                .expect("Failed to build DataFusion plan");
 
-                        if !has_tuple {
-                            return std::ptr::null_mut(); // No more heap tuples
-                        }
+                // Configure DataFusion memory management
+                // We use a custom memory pool that panics on OOM to enforce work_mem
+                // TODO: Support spilling to PostgreSQL temporary files when work_mem is exceeded
+                let memory_limit = state.custom_state().max_hash_memory;
+                let memory_pool = Arc::new(PanicOnOOMMemoryPool::new(memory_limit));
 
-                        // Get ctid from the slot
-                        let ctid = item_pointer_to_u64((*slot).tts_tid);
-                        (ctid, 0.0) // No score for heap scan
+                let runtime_env = RuntimeEnvBuilder::new()
+                    .with_memory_pool(memory_pool)
+                    .build()
+                    .expect("Failed to create RuntimeEnv");
+
+                let task_ctx = TaskContext::default().with_runtime(Arc::new(runtime_env));
+                let task_ctx = Arc::new(task_ctx);
+
+                let stream = plan
+                    .execute(0, task_ctx)
+                    .expect("Failed to execute DataFusion plan");
+
+                // Determine score column indices
+                let schema = plan.schema();
+                // We need to know where outer columns end and inner columns start
+                let outer_cols_len =
+                    if let Some(filter) = plan.as_any().downcast_ref::<FilterExec>() {
+                        filter
+                            .input()
+                            .as_any()
+                            .downcast_ref::<HashJoinExec>()
+                            .expect("FilterExec child should be HashJoinExec")
+                            .children()[0]
+                            .schema()
+                            .fields()
+                            .len()
+                    } else if let Some(join) = plan.as_any().downcast_ref::<HashJoinExec>() {
+                        join.children()[0].schema().fields().len()
                     } else {
-                        return std::ptr::null_mut(); // No source for driving rows
+                        panic!("Unexpected plan type");
                     };
 
-                state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
-                state.custom_state_mut().current_driving_score = driving_score;
+                let mut outer_score_idx = None;
+                let mut inner_score_idx = None;
 
-                // Extract join key from driving tuple
-                let join_key =
-                    Self::extract_driving_join_key(state, driving_ctid, &driving_key_info);
-                let Some(key) = join_key else {
-                    // Couldn't extract join key (tuple not visible), try next driving row
-                    continue;
-                };
-
-                // Look up matching build rows in hash table
-                // Clone the (ctid, score) pairs to avoid borrow issues
-                let build_rows: Vec<(u64, f32)> = state
-                    .custom_state()
-                    .hash_table
-                    .get(&key)
-                    .map(|rows| rows.iter().map(|r| (r.ctid, r.score)).collect())
-                    .unwrap_or_default();
-
-                for (ctid, score) in build_rows {
-                    state
-                        .custom_state_mut()
-                        .pending_build_ctids
-                        .push_back((ctid, score));
+                for (i, field) in schema.fields().iter().enumerate() {
+                    if field.name() == "pdb.score()" {
+                        if i < outer_cols_len {
+                            outer_score_idx = Some(i);
+                        } else {
+                            inner_score_idx = Some(i);
+                        }
+                    }
                 }
 
-                // Loop back to process pending matches
+                state.custom_state_mut().outer_score_col_idx = outer_score_idx;
+                state.custom_state_mut().inner_score_col_idx = inner_score_idx;
+
+                state.custom_state_mut().runtime = Some(runtime);
+                state.custom_state_mut().datafusion_stream = Some(stream);
+            }
+
+            loop {
+                // Check if we have a current batch to iterate
+                if let Some(batch) = &state.custom_state().current_batch {
+                    if state.custom_state().batch_index < batch.num_rows() {
+                        let idx = state.custom_state().batch_index;
+
+                        // JoinScanPlanBuilder ensures that CTIDs are at the following indices:
+                        // - Outer CTID: index 0
+                        // - Inner CTID: the last "ctid" column in the schema
+                        let schema = batch.schema();
+                        let outer_ctid_col = batch.column(0);
+                        let inner_ctid_col_idx = schema
+                            .fields()
+                            .iter()
+                            .rposition(|f| f.name() == "ctid")
+                            .expect("Inner ctid column not found");
+                        let inner_ctid_col = batch.column(inner_ctid_col_idx);
+
+                        let outer_ctids = outer_ctid_col
+                            .as_any()
+                            .downcast_ref::<arrow_array::UInt64Array>()
+                            .expect("ctid should be u64");
+                        let inner_ctids = inner_ctid_col
+                            .as_any()
+                            .downcast_ref::<arrow_array::UInt64Array>()
+                            .expect("ctid should be u64");
+
+                        let outer_ctid = outer_ctids.value(idx);
+                        let inner_ctid = inner_ctids.value(idx);
+
+                        // Increment index for next call
+                        state.custom_state_mut().batch_index += 1;
+
+                        // Map outer/inner to driving/build
+                        let (driving_ctid, build_ctid) = if state.custom_state().driving_is_outer {
+                            (outer_ctid, inner_ctid)
+                        } else {
+                            (inner_ctid, outer_ctid)
+                        };
+
+                        // Set current driving ctid for `build_result_tuple`
+                        state.custom_state_mut().current_driving_ctid = Some(driving_ctid);
+
+                        if let Some(slot) = Self::build_result_tuple(state, build_ctid, idx) {
+                            return slot;
+                        } else {
+                            // Tuple not visible (or deleted), skip
+                            continue;
+                        }
+                    } else {
+                        // Finished this batch
+                        state.custom_state_mut().current_batch = None;
+                    }
+                }
+
+                // Poll for next batch
+                let custom_state = state.custom_state_mut();
+                let runtime = custom_state.runtime.as_mut().unwrap();
+                let stream = custom_state.datafusion_stream.as_mut().unwrap();
+
+                let next_batch = runtime.block_on(async { stream.next().await });
+
+                match next_batch {
+                    Some(Ok(batch)) => {
+                        state.custom_state_mut().current_batch = Some(batch);
+                        state.custom_state_mut().batch_index = 0;
+                        // Loop continues to process this batch
+                    }
+                    Some(Err(e)) => {
+                        // TODO: Handle error properly (ereport)
+                        panic!("DataFusion execution failed: {}", e);
+                    }
+                    None => {
+                        // End of stream
+                        return std::ptr::null_mut();
+                    }
+                }
             }
         }
     }
@@ -1060,11 +921,6 @@ impl CustomScan for JoinScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         unsafe {
-            // End driving heap scan if active
-            if let Some(scan_desc) = state.custom_state().driving_scan_desc {
-                pg_sys::table_endscan(scan_desc);
-            }
-
             // Drop tuple slots that we own.
             // Note: Don't drop result_slot - we borrowed it from PostgreSQL's ps_ResultTupleSlot.
             if let Some(slot) = state.custom_state().build_scan_slot {
@@ -1077,8 +933,6 @@ impl CustomScan for JoinScan {
 
         // Clean up resources
         state.custom_state_mut().driving_heaprel = None;
-        state.custom_state_mut().driving_executor = None;
-        state.custom_state_mut().driving_scan_desc = None;
         state.custom_state_mut().build_heaprel = None;
         state.custom_state_mut().build_scan_slot = None;
         state.custom_state_mut().driving_fetch_slot = None;
@@ -1087,132 +941,30 @@ impl CustomScan for JoinScan {
 }
 
 impl JoinScan {
-    /// Build the hash table from the build side using ctids from the BM25 index.
-    ///
-    /// This iterates over the ctids collected during begin_custom_scan (from the BM25 index)
-    /// and fetches each tuple to extract the join key. The ctids have already been validated
-    /// for visibility when they were collected.
-    unsafe fn build_hash_table(state: &mut CustomScanStateWrapper<Self>) {
-        let build_key_info = state.custom_state().build_key_info.clone();
-        let has_equi_join_keys = !build_key_info.is_empty();
-        let max_hash_memory = state.custom_state().max_hash_memory;
-
-        // Get the ctids from the index (collected during begin_custom_scan)
-        let Some(build_matching_ctids) = state.custom_state().build_matching_ctids.clone() else {
-            return;
-        };
-        let Some(slot) = state.custom_state().build_scan_slot else {
-            return;
-        };
-        // Clone the visibility checker to avoid borrow conflicts with state mutation
-        let Some(vis_checker) = state.custom_state().build_visibility_checker.clone() else {
-            return;
-        };
-
-        // Pre-size hash table based on execution hints from planner
-        // This avoids reallocations as the hash table grows
-        if let Some(est_rows) = state.custom_state().join_clause.hints.estimated_build_rows {
-            let capacity = (est_rows as usize).min(100_000); // Cap at 100K to avoid huge allocations
-            state.custom_state_mut().hash_table.reserve(capacity);
-        }
-
-        // Iterate over ctids from the index and fetch each tuple to extract the join key
-        for (&ctid, &build_score) in &build_matching_ctids {
-            // Fetch the tuple by ctid - these ctids were already visibility-checked when collected
-            if !vis_checker.fetch_tuple_direct(ctid, slot) {
-                continue; // Tuple no longer visible (rare race condition)
-            }
-
-            // Extract the composite key from the fetched tuple
-            let key = match extract_composite_key(slot, &build_key_info) {
-                Some(k) => k,
-                None => continue, // Skip rows with NULL keys
-            };
-
-            // Estimate memory for this entry
-            let entry_size = estimate_entry_size(&key);
-            let new_memory = state.custom_state().hash_table_memory + entry_size;
-
-            // Check memory limit
-            if new_memory > max_hash_memory && max_hash_memory > 0 {
-                panic!(
-                    "JoinScan: hash table exceeded work_mem limit ({} bytes). \
-                     Consider increasing work_mem or using a more restrictive query.",
-                    max_hash_memory
-                );
-            }
-
-            state.custom_state_mut().hash_table_memory = new_memory;
-
-            // Add to hash table with ctid and score
-            state
-                .custom_state_mut()
-                .hash_table
-                .entry(key)
-                .or_default()
-                .push(InnerRow {
-                    ctid,
-                    score: build_score,
-                });
-        }
-    }
-
-    /// Extract the join key from the driving tuple.
-    ///
-    /// # Arguments
-    /// * `state` - The custom scan state
-    /// * `driving_ctid` - The ctid of the driving tuple
-    /// * `driving_key_info` - Key extraction info (passed to avoid repeated clones in hot paths)
-    unsafe fn extract_driving_join_key(
-        state: &mut CustomScanStateWrapper<Self>,
-        driving_ctid: u64,
-        driving_key_info: &[JoinKeyInfo],
-    ) -> Option<CompositeKey> {
-        let driving_slot = state.custom_state().driving_fetch_slot?;
-        let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
-
-        if uses_heap_scan {
-            // Tuple already in slot from heap scan
-            extract_composite_key(driving_slot, driving_key_info)
-        } else {
-            // Fetch tuple by ctid and verify visibility
-            let vis_checker = state
-                .custom_state_mut()
-                .driving_visibility_checker
-                .as_mut()?;
-
-            vis_checker.exec_if_visible(driving_ctid, driving_slot, |_rel| {
-                extract_composite_key(driving_slot, driving_key_info)
-            })?
-        }
-    }
-
     /// Build a result tuple from the current driving row and a build row.
     ///
     /// # Arguments
     /// * `state` - The custom scan state
     /// * `build_ctid` - The ctid of the build row to include in the result
-    /// * `build_score` - The BM25 score of the build row (used if paradedb.score() references build side)
+    /// * `row_idx` - The index of the row in the current batch (for score lookup)
     unsafe fn build_result_tuple(
         state: &mut CustomScanStateWrapper<Self>,
         build_ctid: u64,
-        build_score: f32,
+        row_idx: usize,
     ) -> Option<*mut pg_sys::TupleTableSlot> {
         let result_slot = state.custom_state().result_slot?;
         let driving_slot = state.custom_state().driving_fetch_slot?;
         let build_slot = state.custom_state().build_scan_slot?;
         let driving_ctid = state.custom_state().current_driving_ctid?;
         let driving_is_outer = state.custom_state().driving_is_outer;
-        let uses_heap_scan = state.custom_state().driving_uses_heap_scan;
 
-        // Fetch driving tuple if not using heap scan
-        // (with heap scan, tuple is already in the slot)
-        if !uses_heap_scan {
-            let driving_vis = state
-                .custom_state_mut()
-                .driving_visibility_checker
-                .as_mut()?;
-            driving_vis.exec_if_visible(driving_ctid, driving_slot, |_| ())?;
+        // Fetch driving tuple
+        let driving_vis = state
+            .custom_state_mut()
+            .driving_visibility_checker
+            .as_mut()?;
+        if !driving_vis.fetch_tuple_direct(driving_ctid, driving_slot) {
+            return None;
         }
 
         // Fetch build tuple using direct tuple fetch.
@@ -1266,7 +1018,7 @@ impl JoinScan {
                 // Use helper to determine which score (driving vs build) based on column's side
                 let score = state
                     .custom_state()
-                    .score_for_column(col_info.is_outer, build_score);
+                    .score_for_column(col_info.is_outer, row_idx);
 
                 use pgrx::IntoDatum;
                 if let Some(datum) = score.into_datum() {
@@ -1311,64 +1063,6 @@ impl JoinScan {
 
         Some(result_slot)
     }
-
-    /// Evaluate the join-level predicate for a result tuple.
-    ///
-    /// Returns `true` if:
-    /// - There is no join-level predicate (unconditionally passes), or
-    /// - The predicate evaluates to true for the current row pair
-    ///
-    /// Returns `false` if the predicate evaluates to false (row should be skipped).
-    ///
-    /// This is used by both hash join and nested loop execution paths.
-    unsafe fn evaluate_join_level_predicate(
-        state: &mut CustomScanStateWrapper<Self>,
-        result_slot: *mut pg_sys::TupleTableSlot,
-    ) -> bool {
-        let Some(ref expr) = state.custom_state().join_level_expr else {
-            // No join-level predicate - passes unconditionally
-            return true;
-        };
-
-        // Map driving/build to outer/inner based on driving_is_outer
-        let (outer_slot, inner_slot) = state.custom_state().outer_inner_slots();
-
-        // Convert heap ctids to u64 using the SAME encoding as the BM25 index
-        let outer_ctid_u64 = outer_slot
-            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-            .unwrap_or(0);
-
-        let inner_ctid_u64 = inner_slot
-            .map(|s| crate::postgres::utils::item_pointer_to_u64((*s).tts_tid))
-            .unwrap_or(0);
-
-        // Set up expression context for heap condition evaluation (if any)
-        if let Some(econtext) = state.custom_state().multi_table_predicate_econtext {
-            (*econtext).ecxt_scantuple = result_slot;
-
-            // Also set outer/inner tuple slots for the expression context
-            if let (Some(outer), Some(inner)) = (outer_slot, inner_slot) {
-                (*econtext).ecxt_outertuple = outer;
-                (*econtext).ecxt_innertuple = inner;
-            }
-        }
-
-        // Create evaluation context for the unified expression tree
-        let econtext = state
-            .custom_state()
-            .multi_table_predicate_econtext
-            .unwrap_or(std::ptr::null_mut());
-        let eval_ctx = JoinLevelEvalContext {
-            ctid_sets: &state.custom_state().join_level_ctid_sets,
-            multi_table_predicate_states: &state.custom_state().multi_table_predicate_states,
-            econtext,
-        };
-
-        // Evaluate the full boolean expression tree (includes both
-        // Predicate nodes for Tantivy searches and MultiTablePredicate nodes
-        // for PostgreSQL expressions)
-        expr.evaluate(outer_ctid_u64, inner_ctid_u64, &eval_ctx)
-    }
 }
 
 impl ExecMethod for JoinScan {
@@ -1378,112 +1072,3 @@ impl ExecMethod for JoinScan {
 }
 
 impl PlainExecCapable for JoinScan {}
-
-/// Estimate the memory size of a hash table entry.
-fn estimate_entry_size(key: &CompositeKey) -> usize {
-    let key_size = key
-        .0
-        .iter()
-        .map(|v| v.data.len() + std::mem::size_of::<Vec<u8>>())
-        .sum::<usize>()
-        + std::mem::size_of::<Vec<KeyValue>>();
-    // InnerRow (ctid: u64) + Vec overhead + HashMap entry overhead
-    std::mem::size_of::<InnerRow>() + key_size + 64
-}
-
-/// Extract a composite key from a tuple slot using the given key info.
-/// Returns None if any key column is NULL.
-///
-/// Note: key_info should never be empty since JoinScan requires equi-join keys.
-/// Cross joins are rejected during planning.
-unsafe fn extract_composite_key(
-    slot: *mut pg_sys::TupleTableSlot,
-    key_info: &[JoinKeyInfo],
-) -> Option<CompositeKey> {
-    debug_assert!(
-        !key_info.is_empty(),
-        "extract_composite_key called with empty key_info - cross joins should be rejected"
-    );
-
-    let mut values = Vec::with_capacity(key_info.len());
-    for info in key_info {
-        let mut is_null = false;
-        let datum = pg_sys::slot_getattr(slot, info.attno, &mut is_null);
-        if is_null {
-            return None; // Skip rows with NULL keys (standard SQL behavior)
-        }
-
-        // Copy the datum value to owned bytes
-        let key_value = copy_datum_to_key_value(datum, info.typlen, info.typbyval);
-        values.push(key_value);
-    }
-    Some(CompositeKey(values))
-}
-
-/// Extract non-equijoin predicates from a restrictlist.
-/// These are the predicates that need to be evaluated after the hash join lookup.
-/// Copy a datum to an owned KeyValue, handling pass-by-reference types.
-unsafe fn copy_datum_to_key_value(datum: pg_sys::Datum, typlen: i16, typbyval: bool) -> KeyValue {
-    if typbyval {
-        // Pass-by-value: datum IS the value, copy its bytes directly
-        let len = (typlen as usize).min(8);
-        let bytes = datum.value().to_ne_bytes();
-        KeyValue {
-            data: bytes[..len].to_vec(),
-        }
-    } else if typlen == -1 {
-        // Varlena type (TEXT, BYTEA, etc.)
-        let varlena = datum.cast_mut_ptr::<pg_sys::varlena>();
-        let detoasted = pg_sys::pg_detoast_datum_packed(varlena);
-        // Use pgrx's varsize_any_exhdr and vardata_any macros
-        let len = pgrx::varsize_any_exhdr(detoasted);
-        let ptr = pgrx::vardata_any(detoasted) as *const u8;
-        let data = std::slice::from_raw_parts(ptr, len).to_vec();
-        KeyValue { data }
-    } else if typlen == -2 {
-        // Cstring
-        let cstr = datum.cast_mut_ptr::<std::ffi::c_char>();
-        let c_str = std::ffi::CStr::from_ptr(cstr);
-        let data = c_str.to_bytes().to_vec();
-        KeyValue { data }
-    } else {
-        // Fixed-length pass-by-reference
-        let len = typlen as usize;
-        let ptr = datum.cast_mut_ptr::<u8>();
-        let data = std::slice::from_raw_parts(ptr, len).to_vec();
-        KeyValue { data }
-    }
-}
-
-/// Convert a serializable join-level expression to a runtime expression.
-fn convert_to_runtime_expr(expr: &build::JoinLevelExpr) -> JoinLevelExpr {
-    match expr {
-        build::JoinLevelExpr::SingleTablePredicate {
-            side,
-            predicate_idx,
-        } => {
-            let runtime_side = match side {
-                build::JoinSide::Outer => JoinSide::Outer,
-                build::JoinSide::Inner => JoinSide::Inner,
-            };
-            JoinLevelExpr::SingleTablePredicate {
-                side: runtime_side,
-                ctid_set_idx: *predicate_idx,
-            }
-        }
-        build::JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
-            JoinLevelExpr::MultiTablePredicate {
-                predicate_idx: *predicate_idx,
-            }
-        }
-        build::JoinLevelExpr::And(children) => {
-            JoinLevelExpr::And(children.iter().map(convert_to_runtime_expr).collect())
-        }
-        build::JoinLevelExpr::Or(children) => {
-            JoinLevelExpr::Or(children.iter().map(convert_to_runtime_expr).collect())
-        }
-        build::JoinLevelExpr::Not(child) => {
-            JoinLevelExpr::Not(Box::new(convert_to_runtime_expr(child)))
-        }
-    }
-}

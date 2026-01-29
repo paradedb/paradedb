@@ -827,7 +827,10 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
 /// Extract precision and scale from PostgreSQL NUMERIC typmod.
 ///
 /// PostgreSQL encodes NUMERIC precision and scale in the typmod as:
-/// `typmod = ((precision << 16) | (scale + NUMERIC_SCALE_BIAS)) + VARHDRSZ`
+/// `typmod = ((precision << 16) | (scale & 0x7ff)) + VARHDRSZ`
+///
+/// The scale is stored in 11 bits (0x7ff = 2047), supporting the range [-1000, 1000].
+/// Negative scales are stored in two's complement within those 11 bits.
 ///
 /// # Returns
 /// - `(precision, Some(scale))` if typmod specifies precision/scale
@@ -837,37 +840,30 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
 /// - For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
 ///   PostgreSQL uses typmod = -1, indicating arbitrary precision.
 /// - PostgreSQL 15+ supports negative scales (e.g., NUMERIC(5,-3) rounds to nearest 1000).
-///   The scale is stored with a bias of 2048 to allow the range [-1000, 1000].
+///
+/// # Reference
+/// See PostgreSQL's `numeric_typmod_scale()` in src/backend/utils/adt/numeric.c:
+/// ```c
+/// return (((typmod - VARHDRSZ) & 0x7ff) ^ 1024) - 1024;
+/// ```
 pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
     // PostgreSQL uses typmod = -1 for unlimited precision NUMERIC
     if typmod < 0 {
         return (0, None);
     }
 
-    // PostgreSQL's NUMERIC scale encoding:
-    // - Pre-PG15: scale stored directly (range 0-1000)
-    // - PG15+: scale stored with bias of 2048 (stored_scale = actual_scale + 2048)
-    //
-    // With bias, stored_scale ranges from 1048 (-1000+2048) to 3048 (1000+2048)
-    // Without bias, stored_scale ranges from 0 to 1000
-    // These ranges don't overlap, so we can detect which encoding is used.
-    //
-    // See: https://www.postgresql.org/message-id/E1m80U9-0002Rl-Hv%40gemulon.postgresql.org
-    const NUMERIC_SCALE_BIAS: i16 = 2048;
-    const NUMERIC_MIN_BIASED_SCALE: i16 = 1048; // minimum biased scale = -1000 + 2048
+    // Extract precision and scale from typmod
+    // See PostgreSQL's make_numeric_typmod() and numeric_typmod_scale()
+    let typmod_val = (typmod - pg_sys::VARHDRSZ as i32) as u32;
 
-    let typmod = (typmod - pg_sys::VARHDRSZ as i32) as u32;
-    let precision = ((typmod >> 16) & 0xFFFF) as u16;
-    let stored_scale = (typmod & 0xFFFF) as i16;
+    // Precision is in upper 16 bits
+    let precision = ((typmod_val >> 16) & 0xFFFF) as u16;
 
-    // Detect if bias encoding is being used based on the stored scale value
-    let scale = if stored_scale >= NUMERIC_MIN_BIASED_SCALE {
-        // Bias encoding (PG15+): stored_scale = actual_scale + 2048
-        stored_scale - NUMERIC_SCALE_BIAS
-    } else {
-        // No bias encoding (pre-PG15 or unbiased): stored_scale = actual_scale
-        stored_scale
-    };
+    // Scale is stored in lower 11 bits (0x7ff), using two's complement for negatives.
+    // The formula (x ^ 1024) - 1024 sign-extends an 11-bit value to a full integer.
+    // This works because 1024 = 2^10, the midpoint of the 11-bit range.
+    let stored_scale = (typmod_val & 0x7ff) as i16;
+    let scale = (stored_scale ^ 1024) - 1024;
 
     (precision, Some(scale))
 }

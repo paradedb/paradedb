@@ -10,6 +10,7 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
+#[derive(Clone, Copy)]
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),
     Query(*mut pg_sys::Query),
@@ -96,6 +97,19 @@ impl VarContext {
 
                 if (*rte).rtekind == pg_sys::RTEKind::RTE_RELATION {
                     return ((*rte).relid, varattno);
+                } else if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY {
+                    let subquery = (*rte).subquery;
+                    if !subquery.is_null() {
+                        let targetlist =
+                            PgList::<pg_sys::TargetEntry>::from_pg((*subquery).targetList);
+                        if varattno > 0 && (varattno as usize) <= targetlist.len() {
+                            if let Some(te) = targetlist.get_ptr(varattno as usize - 1) {
+                                if (*te).resorigtbl != pg_sys::InvalidOid {
+                                    return ((*te).resorigtbl, (*te).resorigcol);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 #[cfg(feature = "pg18")]

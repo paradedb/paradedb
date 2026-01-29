@@ -2302,6 +2302,10 @@ SELECT
   ])
   ORDER BY name ASC
   LIMIT 25;
-WARNING:  Query has LIMIT 25 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
-ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
+ count | id 
+-------+----
+     2 |  1
+     2 |  2
+(2 rows)
+
 DROP TABLE test_window_order;

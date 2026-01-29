@@ -779,3 +779,283 @@ WHERE id @@@ paradedb.term('val', 1.23::numeric)
 ORDER BY id;
 
 DROP TABLE numeric64_decimal_compare_test;
+
+-- ============================================================================
+-- PART 9: Large Precision NUMERIC Tests
+-- ============================================================================
+-- Tests for NUMERIC types with precision > 18 (stored as NumericBytes)
+
+-- Test 9.1: NUMERIC(36,18) - Double the Numeric64 precision
+CREATE TABLE numeric_large_precision_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(36, 18)
+);
+
+INSERT INTO numeric_large_precision_test (val) VALUES
+    (123456789012345678.123456789012345678),   -- id=1: max precision value
+    (123456789012345678.123456789012345679),   -- id=2: differs in last digit
+    (999999999999999999.999999999999999999),   -- id=3: max value
+    (-123456789012345678.123456789012345678),  -- id=4: negative max
+    (0.000000000000000001),                    -- id=5: smallest positive
+    (1.0),                                     -- id=6: simple value
+    (0.5);                                     -- id=7: half
+
+CREATE INDEX numeric_large_precision_idx ON numeric_large_precision_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Exact match on large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val = 1.0
+ORDER BY id;
+
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val = 1.0
+ORDER BY id;
+
+-- Range query on large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 2
+ORDER BY id;
+
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 2
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_large_precision_test
+WHERE val > 0 AND val < 2
+ORDER BY id;
+
+-- Test negative range
+SELECT * FROM numeric_large_precision_test
+WHERE id @@@ paradedb.all()
+AND val < 0
+ORDER BY id;
+
+DROP TABLE numeric_large_precision_test;
+
+-- Test 9.2: NUMERIC(38,10) - Near PostgreSQL's typical max
+CREATE TABLE numeric_very_large_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(38, 10)
+);
+
+INSERT INTO numeric_very_large_test (val) VALUES
+    (1234567890123456789012345678.1234567890),   -- id=1: large integer part
+    (9999999999999999999999999999.9999999999),   -- id=2: max value
+    (-9999999999999999999999999999.9999999999),  -- id=3: min value
+    (0.0000000001),                              -- id=4: smallest decimal
+    (42.1234567890);                             -- id=5: normal value
+
+CREATE INDEX numeric_very_large_idx ON numeric_very_large_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query on very large precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val = 42.1234567890
+ORDER BY id;
+
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val = 42.1234567890
+ORDER BY id;
+
+-- Range query spanning positive and negative
+SELECT * FROM numeric_very_large_test
+WHERE id @@@ paradedb.all()
+AND val >= -100 AND val <= 100
+ORDER BY id;
+
+DROP TABLE numeric_very_large_test;
+
+-- Test 9.3: Unbounded NUMERIC (no precision/scale)
+CREATE TABLE numeric_unbounded_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC
+);
+
+INSERT INTO numeric_unbounded_test (val) VALUES
+    (12345678901234567890123456789012345678901234567890),                    -- id=1: huge integer
+    (0.00000000000000000000000000000000000000000000000001),                  -- id=2: tiny decimal
+    (123456789.123456789123456789123456789123456789),                        -- id=3: mixed
+    (-99999999999999999999999999999999999999999999999999.9999999999999999),  -- id=4: large negative
+    (1),                                                                     -- id=5: one
+    (0),                                                                     -- id=6: zero
+    (-1),                                                                    -- id=7: negative one
+    (3.14159265358979323846264338327950288419716939937510);                 -- id=8: pi with many digits
+
+CREATE INDEX numeric_unbounded_idx ON numeric_unbounded_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query exact match on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val = 1
+ORDER BY id;
+
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val = 1
+ORDER BY id;
+
+-- Range query on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val >= -2 AND val <= 5
+ORDER BY id;
+
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val >= -2 AND val <= 5
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_unbounded_test
+WHERE val >= -2 AND val <= 5
+ORDER BY id;
+
+-- Test pi approximation range
+SELECT * FROM numeric_unbounded_test
+WHERE id @@@ paradedb.all()
+AND val > 3.14 AND val < 3.15
+ORDER BY id;
+
+DROP TABLE numeric_unbounded_test;
+
+-- Test 9.4: High-scale NUMERIC (many decimal places)
+CREATE TABLE numeric_high_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(40, 35)  -- 40 total digits, 35 after decimal point
+);
+
+INSERT INTO numeric_high_scale_test (val) VALUES
+    (1.12345678901234567890123456789012345),    -- id=1: full precision decimal
+    (2.99999999999999999999999999999999999),    -- id=2: many 9s
+    (0.00000000000000000000000000000000001),    -- id=3: smallest positive
+    (-1.12345678901234567890123456789012345),   -- id=4: negative
+    (9999.9);                                    -- id=5: larger integer part
+
+CREATE INDEX numeric_high_scale_idx ON numeric_high_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query on high-scale numeric
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_high_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 3
+ORDER BY id;
+
+SELECT * FROM numeric_high_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0 AND val < 3
+ORDER BY id;
+
+-- Verify with PostgreSQL
+SELECT * FROM numeric_high_scale_test
+WHERE val > 0 AND val < 3
+ORDER BY id;
+
+DROP TABLE numeric_high_scale_test;
+
+-- Test 9.5: Aggregates on unbounded NUMERIC
+CREATE TABLE numeric_unbounded_agg_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    amount NUMERIC
+);
+
+INSERT INTO numeric_unbounded_agg_test (category, amount) VALUES
+    ('A', 100.123456789012345678901234567890),
+    ('A', 200.987654321098765432109876543210),
+    ('B', 50.111111111111111111111111111111),
+    ('B', 75.222222222222222222222222222222),
+    ('B', 25.333333333333333333333333333333);
+
+CREATE INDEX numeric_unbounded_agg_idx ON numeric_unbounded_agg_test USING bm25 (
+    id, category, amount
+) WITH (key_field = 'id');
+
+-- SUM aggregate on unbounded NUMERIC
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+WHERE id @@@ paradedb.all()
+GROUP BY category
+ORDER BY category;
+
+-- Verify with PostgreSQL
+SELECT category, SUM(amount) as total
+FROM numeric_unbounded_agg_test
+GROUP BY category
+ORDER BY category;
+
+DROP TABLE numeric_unbounded_agg_test;
+
+-- Test 9.6: Mix of bounded high-precision and unbounded in same table
+CREATE TABLE numeric_mixed_precision_test (
+    id SERIAL PRIMARY KEY,
+    bounded_high NUMERIC(30, 15),    -- bounded but > 18 precision
+    unbounded NUMERIC                 -- unlimited
+);
+
+INSERT INTO numeric_mixed_precision_test (bounded_high, unbounded) VALUES
+    (123456789012345.123456789012345, 999999999999999999999999999999.999999),
+    (1.5, 2.5),
+    (100.0, 100.0),
+    (-50.123456789012345, -75.987654321);
+
+CREATE INDEX numeric_mixed_precision_idx ON numeric_mixed_precision_test USING bm25 (
+    id, bounded_high, unbounded
+) WITH (key_field = 'id');
+
+-- Query on bounded high-precision
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high = 100.0
+ORDER BY id;
+
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high = 100.0
+ORDER BY id;
+
+-- Query on unbounded
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND unbounded = 100.0
+ORDER BY id;
+
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND unbounded = 100.0
+ORDER BY id;
+
+-- Combined query
+SELECT * FROM numeric_mixed_precision_test
+WHERE id @@@ paradedb.all()
+AND bounded_high > 0 AND unbounded > 0
+ORDER BY id;
+
+DROP TABLE numeric_mixed_precision_test;

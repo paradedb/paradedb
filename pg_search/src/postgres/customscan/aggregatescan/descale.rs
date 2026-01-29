@@ -20,6 +20,7 @@
 //! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
 use crate::api::HashMap;
+use crate::schema::{SearchFieldType, SearchIndexSchema};
 use std::sync::LazyLock;
 use tantivy::schema::OwnedValue;
 
@@ -136,6 +137,35 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedV
 
     let scaled = scale_i64(&numeric_str, scale)?;
     Ok(OwnedValue::I64(scaled))
+}
+
+/// Build a mapping of aggregate names to their numeric scales from a schema.
+///
+/// Given a mapping of aggregate names to field names (from `extract_agg_name_to_field`),
+/// looks up each field in the schema and extracts the scale for Numeric64 fields.
+///
+/// # Arguments
+///
+/// * `schema` - The search schema containing field definitions
+/// * `agg_name_to_field` - Map of aggregate names to field names
+///
+/// # Returns
+///
+/// A HashMap where keys are aggregate names and values are the scale for Numeric64 fields.
+/// Fields that are not Numeric64 are not included in the result.
+pub fn build_numeric_field_scales(
+    schema: &SearchIndexSchema,
+    agg_name_to_field: &HashMap<String, String>,
+) -> HashMap<String, i16> {
+    let mut scales = HashMap::default();
+    for (agg_name, field_name) in agg_name_to_field {
+        if let Some(search_field) = schema.search_field(field_name) {
+            if let SearchFieldType::Numeric64(_, scale) = search_field.field_type() {
+                scales.insert(agg_name.clone(), scale);
+            }
+        }
+    }
+    scales
 }
 
 // ============================================================================

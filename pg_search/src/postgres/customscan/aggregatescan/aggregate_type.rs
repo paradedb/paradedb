@@ -188,23 +188,14 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
-            // Extract aggregate name to field mappings and get scales for Numeric64 fields.
-            // This allows us to descale only the aggregate results that reference Numeric64 fields.
+            // Build scales for Numeric64 fields to descale aggregate results
             let agg_name_to_field = extract_agg_name_to_field(&json_value);
-
-            let mut numeric_field_scales = HashMap::default();
-            if let Ok(schema) = bm25_index.schema() {
-                for (agg_name, field_name) in agg_name_to_field {
-                    if let Some(search_field) = schema.search_field(&field_name) {
-                        if let crate::schema::SearchFieldType::Numeric64(_, scale) =
-                            search_field.field_type()
-                        {
-                            // Store the aggregate name -> scale mapping
-                            numeric_field_scales.insert(agg_name, scale);
-                        }
-                    }
-                }
-            }
+            let numeric_field_scales = bm25_index
+                .schema()
+                .map(|schema| {
+                    super::descale::build_numeric_field_scales(&schema, &agg_name_to_field)
+                })
+                .unwrap_or_default();
 
             return Some(AggregateType::Custom {
                 agg_json: json_value,

@@ -55,15 +55,13 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
-use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::{
-    descale_numeric_values_in_json, extract_agg_name_to_field,
+    build_numeric_field_scales, descale_numeric_values_in_json, extract_agg_name_to_field,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchFieldType;
 
 fn aggregate_impl(
     index: PgRelation,
@@ -86,20 +84,12 @@ fn aggregate_impl(
     let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
     let standalone_context = ExprContextGuard::new();
 
-    // Extract aggregate name to field mappings for descaling Numeric64 fields
+    // Build a mapping of aggregate names to their numeric scales for descaling Numeric64 fields
     let agg_name_to_field = extract_agg_name_to_field(&agg.0);
-
-    // Build a mapping of aggregate names to their numeric scales
-    let mut numeric_field_scales = HashMap::default();
-    if let Ok(schema) = relation.schema() {
-        for (agg_name, field_name) in &agg_name_to_field {
-            if let Some(search_field) = schema.search_field(field_name) {
-                if let SearchFieldType::Numeric64(_, scale) = search_field.field_type() {
-                    numeric_field_scales.insert(agg_name.clone(), scale);
-                }
-            }
-        }
-    }
+    let numeric_field_scales = relation
+        .schema()
+        .map(|schema| build_numeric_field_scales(&schema, &agg_name_to_field))
+        .unwrap_or_default();
 
     let aggregate = execute_aggregate(
         &relation,

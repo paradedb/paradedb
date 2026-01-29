@@ -573,7 +573,8 @@ pub fn resolve_window_aggregate_numeric_scales(
     window_aggregates: &mut [WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
 ) {
-    use crate::postgres::customscan::aggregatescan::aggregate_type::extract_agg_name_to_field;
+    use crate::postgres::customscan::aggregatescan::descale::build_numeric_field_scales;
+    use crate::postgres::customscan::aggregatescan::extract_agg_name_to_field;
 
     let schema = match bm25_index.schema() {
         Ok(s) => s,
@@ -588,18 +589,9 @@ pub fn resolve_window_aggregate_numeric_scales(
                     numeric_field_scales,
                     ..
                 } => {
-                    // Extract aggregate name to field mappings and get scales for Numeric64 fields
+                    // Build scales for Numeric64 fields to descale aggregate results
                     let agg_name_to_field = extract_agg_name_to_field(agg_json);
-
-                    for (agg_name, field_name) in agg_name_to_field {
-                        if let Some(search_field) = schema.search_field(&field_name) {
-                            if let crate::schema::SearchFieldType::Numeric64(_, scale) =
-                                search_field.field_type()
-                            {
-                                numeric_field_scales.insert(agg_name, scale);
-                            }
-                        }
-                    }
+                    *numeric_field_scales = build_numeric_field_scales(&schema, &agg_name_to_field);
                 }
                 AggregateType::Sum {
                     field,

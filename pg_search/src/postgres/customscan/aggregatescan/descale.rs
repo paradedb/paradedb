@@ -59,6 +59,14 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> anyhow::Result<i64> {
 /// Descale an I64 value back to f64.
 ///
 /// Divides by 10^scale to restore the original decimal representation.
+///
+/// # Precision Warning
+///
+/// For aggregate results (SUM, AVG) on large datasets, values exceeding
+/// 2^53 (~9 quadrillion) may lose precision due to f64 representation limits.
+/// This is inherent to IEEE 754 double-precision floating-point format.
+/// For most use cases, this precision is sufficient, but users working with
+/// very large sums of high-precision NUMERIC values should be aware of this limit.
 #[inline]
 pub fn descale_i64(value: i64, scale: i16) -> f64 {
     value as f64 / scale_factor(scale)

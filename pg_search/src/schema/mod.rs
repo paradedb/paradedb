@@ -222,6 +222,14 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                     // Route NUMERIC based on precision:
                     // - precision <= 18 with defined scale -> Numeric64 (I64 fixed-point)
                     // - precision > 18 or unlimited -> NumericBytes (lexicographic bytes)
+                    //
+                    // The 18-digit threshold comes from decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION,
+                    // which is the maximum number of decimal digits that can be stored in an i64
+                    // without overflow (i64::MAX = 9,223,372,036,854,775,807, which has 19 digits,
+                    // but we need headroom for the scaled representation).
+                    //
+                    // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
+                    // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
                     let (precision, scale) = extract_numeric_precision_scale(typmod);
                     if let Some(scale) = scale {
                         if precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {

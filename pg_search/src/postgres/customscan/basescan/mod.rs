@@ -39,7 +39,7 @@ use crate::postgres::customscan::basescan::exec_methods::{
 };
 use crate::postgres::customscan::basescan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::{detect_scores, is_score_func};
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
@@ -946,7 +946,7 @@ impl CustomScan for BaseScan {
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
 
             // Detect score function usage and extract BM25 parameters
-            builder.custom_state().bm25_params = detect_scores(
+            builder.custom_state().bm25_params = Bm25Params::from_pg(
                 builder.target_list().as_ptr().cast(),
                 score_funcoids,
                 builder.custom_state().execution_rti,

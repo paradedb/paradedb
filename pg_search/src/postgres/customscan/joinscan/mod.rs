@@ -135,7 +135,6 @@ use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 use self::scan_state::JoinScanState;
 use crate::index::reader::index::Bm25Params;
-use crate::postgres::customscan::basescan::projections::score::detect_scores;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -243,7 +242,7 @@ impl CustomScan for JoinScan {
 
             // Check if outer side needs scores
             let outer_bm25_params =
-                detect_scores((*root).processed_tlist.cast(), funcoids, outer_rti);
+                Bm25Params::from_pg((*root).processed_tlist.cast(), funcoids, outer_rti);
             let outer_score_needed = if driving_side_is_outer {
                 score_pathkey.is_some() || outer_bm25_params.wants_scores()
             } else {
@@ -252,7 +251,7 @@ impl CustomScan for JoinScan {
 
             // Check if inner side needs scores
             let inner_bm25_params =
-                detect_scores((*root).processed_tlist.cast(), funcoids, inner_rti);
+                Bm25Params::from_pg((*root).processed_tlist.cast(), funcoids, inner_rti);
             let inner_score_needed = if !driving_side_is_outer {
                 score_pathkey.is_some() || inner_bm25_params.wants_scores()
             } else {
@@ -467,14 +466,16 @@ impl CustomScan for JoinScan {
                         original_attno: varattno,
                         is_score: false,
                     });
-                } else if detect_scores((*te).expr.cast(), funcoids, outer_rti).wants_scores() {
+                } else if Bm25Params::from_pg((*te).expr.cast(), funcoids, outer_rti).wants_scores()
+                {
                     // This expression contains paradedb.score() for the outer side
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer: true,
                         original_attno: 0,
                         is_score: true,
                     });
-                } else if detect_scores((*te).expr.cast(), funcoids, inner_rti).wants_scores() {
+                } else if Bm25Params::from_pg((*te).expr.cast(), funcoids, inner_rti).wants_scores()
+                {
                     // This expression contains paradedb.score() for the inner side
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer: false,

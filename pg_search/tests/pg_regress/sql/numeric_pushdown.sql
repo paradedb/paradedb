@@ -1295,66 +1295,135 @@ WHERE id @@@ paradedb.all();
 DROP TABLE max_scale_test;
 
 -- ----------------------------------------------------------------------------
--- TEST: NaN Handling
+-- TEST: Special Values (NaN, Infinity, -Infinity)
 -- ----------------------------------------------------------------------------
--- PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
--- This test documents the behavior when NaN values are indexed and queried.
+-- PostgreSQL NUMERIC supports special values: NaN, Infinity, -Infinity
+-- IMPORTANT: These special values are ONLY allowed in unbounded NUMERIC columns.
+-- Bounded NUMERIC types like NUMERIC(18,2) or NUMERIC(30,10) will reject these
+-- values with "numeric field overflow" error.
+--
+-- Therefore, special values can only be indexed using NumericBytes storage
+-- (unbounded NUMERIC), not Numeric64 storage (bounded NUMERIC with precision <= 18).
 
-CREATE TABLE nan_test (
+CREATE TABLE special_values_test (
     id SERIAL PRIMARY KEY,
-    val NUMERIC(10,2)
+    val NUMERIC  -- unbounded NUMERIC required for special values
 );
 
--- Insert regular values and NaN
-INSERT INTO nan_test (val) VALUES
-    (100.00),
-    (200.00),
+-- Insert regular values and special values
+INSERT INTO special_values_test (val) VALUES
+    (100),
+    (200),
     ('NaN'::numeric),
-    (300.00);
+    ('Infinity'::numeric),
+    ('-Infinity'::numeric),
+    (300),
+    (-100),
+    (0);
 
-CREATE INDEX nan_test_idx ON nan_test USING bm25 (
+CREATE INDEX special_values_idx ON special_values_test USING bm25 (
     id, val
 ) WITH (key_field = 'id');
 
--- Query for regular values should work
+-- Query for regular value
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
-AND val = 100.00
+AND val = 100
 ORDER BY id;
 
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
-AND val = 100.00
+AND val = 100
 ORDER BY id;
 
--- Query for NaN value
+-- Query for NaN
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
 AND val = 'NaN'::numeric
 ORDER BY id;
 
--- Range query should exclude NaN (NaN is not comparable)
+-- Query for Infinity
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
-AND val > 50.00 AND val < 250.00
+AND val = 'Infinity'::numeric
 ORDER BY id;
 
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
-AND val > 50.00 AND val < 250.00
+AND val = 'Infinity'::numeric
+ORDER BY id;
+
+-- Query for -Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = '-Infinity'::numeric
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = '-Infinity'::numeric
+ORDER BY id;
+
+-- Range query (should only return finite values in range, excluding NaN and infinities)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 50 AND val < 250
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 50 AND val < 250
+ORDER BY id;
+
+-- Greater than query - test if Infinity is greater than finite values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 250
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val > 250
+ORDER BY id;
+
+-- Less than query - test if -Infinity is less than finite values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val < -50
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val < -50
+ORDER BY id;
+
+-- Query for zero
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = 0
+ORDER BY id;
+
+-- Query for negative value
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val = -100
 ORDER BY id;
 
 -- Verify all rows can be retrieved
-SELECT * FROM nan_test
+SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
 ORDER BY id;
 
-DROP TABLE nan_test;
+DROP TABLE special_values_test;

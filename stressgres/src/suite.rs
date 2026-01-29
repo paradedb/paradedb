@@ -344,16 +344,24 @@ fn default_log_tps() -> bool {
 /// A full suite of jobs, plus optional name, setup, teardown, monitor.
 #[derive(Deserialize, Debug)]
 pub struct SuiteDefinition {
+    /// The file path to the suite definition.
     #[serde(skip_serializing)]
     pub path: Option<PathBuf>,
 
+    /// The display name of the suite.
     pub name: Option<String>,
 
+    /// The list of jobs to run as part of the suite.
     pub jobs: Vec<Job>,
 
+    /// The list of servers (Postgres instances) involved in the suite.
     #[serde(deserialize_with = "validate_server_list")]
     #[serde(rename = "server")]
     pub servers: Vec<Server>,
+
+    /// A list of error message substrings that should be ignored during execution and termination.
+    #[serde(default)]
+    pub ignore_errors: Vec<String>,
 }
 
 pub struct Suite {
@@ -427,6 +435,10 @@ impl Suite {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "<no name>".to_string())
         })
+    }
+
+    pub fn ignore_errors(&self) -> &[String] {
+        &self.definition.ignore_errors
     }
 
     pub fn jobs(&self) -> impl Iterator<Item = &Job> {

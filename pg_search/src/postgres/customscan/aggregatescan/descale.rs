@@ -19,7 +19,6 @@
 //! 3. **Aggregates**: `descale_f64()` converts aggregate results back to decimals
 //! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
-use crate::schema::{SearchFieldType, SearchIndexSchema};
 use std::collections::HashMap;
 use tantivy::schema::OwnedValue;
 
@@ -110,50 +109,6 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedV
 
     let scaled = scale_i64(&numeric_str, scale)?;
     Ok(OwnedValue::I64(scaled))
-}
-
-// ============================================================================
-// Schema Helpers
-// ============================================================================
-
-/// Extract numeric scales from a schema for a list of field names.
-///
-/// Returns a map of field name -> scale for all fields that use Numeric64 storage.
-#[allow(dead_code)]
-pub fn extract_numeric_scales_from_schema(
-    schema: &SearchIndexSchema,
-    field_names: &[&str],
-) -> HashMap<String, i16> {
-    let mut scales = HashMap::new();
-    for &field_name in field_names {
-        if let Some(search_field) = schema.search_field(field_name) {
-            if let SearchFieldType::Numeric64(_, scale) = search_field.field_type() {
-                scales.insert(field_name.to_string(), scale);
-            }
-        }
-    }
-    scales
-}
-
-/// Get the numeric scale for a single field if it uses Numeric64 storage.
-#[allow(dead_code)]
-pub fn get_numeric_scale_for_field(schema: &SearchIndexSchema, field_name: &str) -> Option<i16> {
-    schema.search_field(field_name).and_then(|search_field| {
-        if let SearchFieldType::Numeric64(_, scale) = search_field.field_type() {
-            Some(scale)
-        } else {
-            None
-        }
-    })
-}
-
-/// Check if a field uses NumericBytes storage (unlimited precision).
-#[allow(dead_code)]
-pub fn field_uses_numeric_bytes(schema: &SearchIndexSchema, field_name: &str) -> bool {
-    schema
-        .search_field(field_name)
-        .map(|search_field| matches!(search_field.field_type(), SearchFieldType::NumericBytes(_)))
-        .unwrap_or(false)
 }
 
 // ============================================================================

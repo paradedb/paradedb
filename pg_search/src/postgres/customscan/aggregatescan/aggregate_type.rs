@@ -238,8 +238,8 @@ impl AggregateType {
             if let Some(search_field) = schema.search_field(&field) {
                 match search_field.field_type() {
                     crate::schema::SearchFieldType::NumericBytes(_) => {
-                        pgrx::debug1!(
-                            "Disabling aggregate pushdown for field '{}': NumericBytes type cannot be aggregated by Tantivy",
+                        pgrx::notice!(
+                            "Aggregate pushdown disabled for field '{}': NUMERIC columns without precision (or precision > 18) use byte storage which cannot be aggregated by the search index. Consider using NUMERIC(p,s) where p <= 18 for aggregate pushdown support.",
                             field
                         );
                         return None;

@@ -24,8 +24,7 @@ pub struct DeferredScorer {
     query: Box<dyn Query>,
     segment_reader: SegmentReader,
     searcher: Searcher,
-    /// BM25 parameters for scoring. `None` means scoring is disabled.
-    bm25_params: Option<Bm25Params>,
+    bm25_params: Bm25Params,
     scorer: OnceLock<Box<dyn Scorer>>,
 }
 
@@ -34,7 +33,7 @@ impl DeferredScorer {
         query: Box<dyn Query>,
         segment_reader: SegmentReader,
         searcher: Searcher,
-        bm25_params: Option<Bm25Params>,
+        bm25_params: Bm25Params,
     ) -> Self {
         Self {
             query,
@@ -58,9 +57,10 @@ impl DeferredScorer {
     #[inline(always)]
     fn scorer(&self) -> &dyn Scorer {
         self.scorer.get_or_init(|| {
+            let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
             let weight = self
                 .query
-                .weight(enable_scoring(&self.searcher, self.bm25_params))
+                .weight(enable_scoring(&self.searcher, statistics_provider.as_ref()))
                 .expect("weight should be constructable");
 
             weight

@@ -20,7 +20,7 @@ use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Params, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
@@ -180,7 +180,7 @@ pub fn search_with_query_input(
         let search_reader = SearchIndexReader::open(
             &index_relation,
             search_query_input,
-            None,
+            Bm25Params::default(),
             MvccSatisfies::Snapshot,
         )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");

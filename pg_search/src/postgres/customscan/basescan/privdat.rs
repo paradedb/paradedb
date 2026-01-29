@@ -45,8 +45,8 @@ pub struct PrivateData {
     planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
-    /// BM25 parameters for scoring. `None` means no scores requested.
-    bm25_params: Option<(f32, f32)>,
+    /// BM25 parameters for scoring. Tuple of (wants_scores, b, k1).
+    bm25_params: (bool, f32, f32),
     exec_method_type: ExecMethodType,
     // Additional search predicates from join filters that are relevant for snippet/score generation
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
@@ -216,7 +216,7 @@ impl PrivateData {
         self.referenced_columns_count = count;
     }
 
-    pub fn set_bm25_params(&mut self, params: Option<(f32, f32)>) {
+    pub fn set_bm25_params(&mut self, params: (bool, f32, f32)) {
         self.bm25_params = params;
     }
 
@@ -285,10 +285,10 @@ impl PrivateData {
     }
 
     pub fn need_scores(&self) -> bool {
-        self.bm25_params.is_some()
+        self.bm25_params.0
     }
 
-    pub fn bm25_params(&self) -> Option<(f32, f32)> {
+    pub fn bm25_params(&self) -> (bool, f32, f32) {
         self.bm25_params
     }
 

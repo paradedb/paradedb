@@ -33,7 +33,7 @@ use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{Bm25Params, SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -946,7 +946,6 @@ impl CustomScan for BaseScan {
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
 
             // Detect score function usage and extract BM25 parameters
-            // Returns None if no score function, or Some(Bm25Params) with default or custom params
             builder.custom_state().bm25_params = detect_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoids,
@@ -1160,7 +1159,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
-                            None,                          // No scoring needed for estimates
+                            Bm25Params::default(),         // No scoring needed for estimates
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

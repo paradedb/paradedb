@@ -311,7 +311,7 @@ unsafe fn compute_predicate_matches(
         MvccSatisfies::Snapshot,
         None,
         None,
-        None,
+        Bm25Params::default(),
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
@@ -364,11 +364,10 @@ unsafe fn build_side_plan(
         MvccSatisfies::Snapshot,
         None,
         None,
-        // Use default BM25 params if scoring needed, None otherwise
         if side.score_needed {
-            Some(Bm25Params::default())
+            Bm25Params::default().with_scoring()
         } else {
-            None
+            Bm25Params::default()
         },
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;

@@ -19,7 +19,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
+use crate::index::reader::index::{Bm25Params, MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
@@ -182,7 +182,7 @@ pub extern "C-unwind" fn amrescan(
             SearchIndexReader::open(
                 &indexrel,
                 search_query_input,
-                None,
+                Bm25Params::default(),
                 MvccSatisfies::ParallelWorker(segment_ids),
             )
             .expect("amrescan: worker should be able to open a SearchIndexReader")
@@ -192,7 +192,7 @@ pub extern "C-unwind" fn amrescan(
             let reader = SearchIndexReader::open(
                 &indexrel,
                 search_query_input,
-                None,
+                Bm25Params::default(),
                 MvccSatisfies::Snapshot,
             )
             .expect("amrescan: should be able to open a SearchIndexReader");

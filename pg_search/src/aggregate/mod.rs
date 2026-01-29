@@ -21,7 +21,7 @@ use std::ptr::NonNull;
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Params, SearchIndexReader};
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
@@ -255,7 +255,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
             NonNull::new(context_ptr),
             planstate.and_then(NonNull::new),
-            None,
+            Bm25Params::default(),
         )?;
 
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
@@ -392,7 +392,7 @@ pub fn execute_aggregate(
             MvccSatisfies::Snapshot,
             NonNull::new(expr_context),
             NonNull::new(planstate),
-            None,
+            Bm25Params::default(),
         )?;
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader

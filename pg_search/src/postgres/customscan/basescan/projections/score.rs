@@ -75,14 +75,14 @@ extension_sql!(
 );
 
 /// Detect score function usage and extract BM25 parameters.
-/// Returns:
-/// - `None` if no score function is used (scoring disabled)
-/// - `Some(Bm25Params)` if score function is used (with default or custom params)
+/// Returns `Bm25Params` with `wants_scores` set appropriately:
+/// - `wants_scores: false` if no score function is used
+/// - `wants_scores: true` with default or custom b/k1 if score function is found
 pub unsafe fn detect_scores(
     node: *mut pg_sys::Node,
     score_funcoids: [pg_sys::Oid; 3],
     rti: pg_sys::Index,
-) -> Option<Bm25Params> {
+) -> Bm25Params {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -104,8 +104,7 @@ pub unsafe fn detect_scores(
 
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     if (*var).varno as i32 == (*data).rti as i32 {
-                        // Found a matching score function - start with defaults
-                        (*data).params = Some(Bm25Params::default());
+                        (*data).params = Bm25Params::default().with_scoring();
 
                         // Check if it has custom BM25 params (3-arg variant)
                         if args.len() == 3 {
@@ -125,7 +124,7 @@ pub unsafe fn detect_scores(
                                         (*k1_const).constisnull,
                                     )
                                     .expect("k1 parameter should be a valid float4");
-                                    (*data).params = Some(Bm25Params::new(b, k1));
+                                    (*data).params = Bm25Params::new(b, k1);
                                 }
                             }
                         }
@@ -141,13 +140,13 @@ pub unsafe fn detect_scores(
     struct Data {
         score_funcoids: [pg_sys::Oid; 3],
         rti: pg_sys::Index,
-        params: Option<Bm25Params>,
+        params: Bm25Params,
     }
 
     let mut data = Data {
         score_funcoids,
         rti,
-        params: None,
+        params: Bm25Params::default(), // wants_scores: false by default
     };
 
     walker(node, addr_of_mut!(data).cast());
@@ -156,14 +155,13 @@ pub unsafe fn detect_scores(
 }
 
 /// Simple wrapper around `detect_scores` that returns true if any score function is used.
-/// Use `detect_scores` directly when you also need the BM25 parameters.
 #[inline]
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
     score_funcoids: [pg_sys::Oid; 3],
     rti: pg_sys::Index,
 ) -> bool {
-    detect_scores(node, score_funcoids, rti).is_some()
+    detect_scores(node, score_funcoids, rti).wants_scores
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {

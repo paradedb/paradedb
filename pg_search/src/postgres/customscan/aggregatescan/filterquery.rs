@@ -21,7 +21,7 @@
 //! which is required to avoid linker errors in pgrx_embed.
 
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Params, SearchIndexReader};
 use crate::postgres::utils::ExprContextGuard;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -111,7 +111,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
         MvccSatisfies::Snapshot,
         NonNull::new(context.as_ptr()),
         None,
-        None,
+        Bm25Params::default(),
     )?;
 
     let tantivy_query = query.into_tantivy_query(

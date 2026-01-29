@@ -71,9 +71,8 @@ pub struct BaseScanState {
 
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 3],
-    /// BM25 parameters for scoring. `None` means no scores requested,
-    /// `Some(params)` means scores are needed with the given parameters.
-    pub bm25_params: Option<Bm25Params>,
+    /// BM25 parameters for scoring. Check `wants_scores` to see if scoring is enabled.
+    pub bm25_params: Bm25Params,
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
@@ -209,7 +208,7 @@ impl BaseScanState {
 
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        self.bm25_params.is_some()
+        self.bm25_params.wants_scores
             || self.base_search_query_input.need_scores()
             || self
                 .quals

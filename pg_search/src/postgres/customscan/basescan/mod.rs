@@ -1159,7 +1159,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
-                            Bm25Params::default(),         // No scoring needed for estimates
+                            Bm25Params::default(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

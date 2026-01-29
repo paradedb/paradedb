@@ -192,10 +192,10 @@ impl JoinScanPlanBuilder {
         }
 
         // 3. Add score fields if needed
-        if join_clause.outer_side.score_needed {
+        if join_clause.outer_side.bm25_params.wants_scores() {
             outer_schema.add_score();
         }
-        if join_clause.inner_side.score_needed {
+        if join_clause.inner_side.bm25_params.wants_scores() {
             inner_schema.add_score();
         }
 
@@ -364,11 +364,7 @@ unsafe fn build_side_plan(
         MvccSatisfies::Snapshot,
         None,
         None,
-        if side.score_needed {
-            Bm25Params::default().with_scoring()
-        } else {
-            Bm25Params::default()
-        },
+        side.bm25_params,
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

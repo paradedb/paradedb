@@ -134,7 +134,8 @@ use self::planning::{
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 use self::scan_state::JoinScanState;
-use crate::postgres::customscan::basescan::projections::score::uses_scores;
+use crate::index::reader::index::Bm25Params;
+use crate::postgres::customscan::basescan::projections::score::detect_scores;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -241,26 +242,26 @@ impl CustomScan for JoinScan {
             let score_pathkey = extract_score_pathkey(root, driving_side_rti as pg_sys::Index);
 
             // Check if outer side needs scores
-            let outer_score_in_tlist =
-                uses_scores((*root).processed_tlist.cast(), funcoids, outer_rti);
+            let outer_bm25_params =
+                detect_scores((*root).processed_tlist.cast(), funcoids, outer_rti);
             let outer_score_needed = if driving_side_is_outer {
-                score_pathkey.is_some() || outer_score_in_tlist
+                score_pathkey.is_some() || outer_bm25_params.wants_scores()
             } else {
-                outer_score_in_tlist
+                outer_bm25_params.wants_scores()
             };
 
             // Check if inner side needs scores
-            let inner_score_in_tlist =
-                uses_scores((*root).processed_tlist.cast(), funcoids, inner_rti);
+            let inner_bm25_params =
+                detect_scores((*root).processed_tlist.cast(), funcoids, inner_rti);
             let inner_score_needed = if !driving_side_is_outer {
-                score_pathkey.is_some() || inner_score_in_tlist
+                score_pathkey.is_some() || inner_bm25_params.wants_scores()
             } else {
-                inner_score_in_tlist
+                inner_bm25_params.wants_scores()
             };
 
-            // Record score_needed for each side
-            outer_side = outer_side.with_score_needed(outer_score_needed);
-            inner_side = inner_side.with_score_needed(inner_score_needed);
+            // Record bm25_params for each side
+            outer_side = outer_side.with_bm25_params(outer_bm25_params);
+            inner_side = inner_side.with_bm25_params(inner_bm25_params);
 
             // Build the join clause with join keys
             let mut join_clause = JoinCSClause::new()
@@ -466,14 +467,14 @@ impl CustomScan for JoinScan {
                         original_attno: varattno,
                         is_score: false,
                     });
-                } else if uses_scores((*te).expr.cast(), funcoids, outer_rti) {
+                } else if detect_scores((*te).expr.cast(), funcoids, outer_rti).wants_scores() {
                     // This expression contains paradedb.score() for the outer side
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer: true,
                         original_attno: 0,
                         is_score: true,
                     });
-                } else if uses_scores((*te).expr.cast(), funcoids, inner_rti) {
+                } else if detect_scores((*te).expr.cast(), funcoids, inner_rti).wants_scores() {
                     // This expression contains paradedb.score() for the inner side
                     output_columns.push(privdat::OutputColumnInfo {
                         is_outer: false,

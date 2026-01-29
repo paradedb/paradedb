@@ -411,7 +411,11 @@ impl SearchIndexReader {
     pub fn weight(&self) -> Box<dyn Weight> {
         let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
         self.query
-            .weight(enable_scoring(&self.searcher, statistics_provider.as_ref()))
+            .weight(enable_scoring(
+                self.bm25_params.wants_scores(),
+                &self.searcher,
+                &statistics_provider,
+            ))
             .expect("weight should be constructable")
     }
 
@@ -1025,7 +1029,11 @@ impl SearchIndexReader {
                 &self.query,
                 &collector,
                 &Executor::SingleThread,
-                enable_scoring(&self.searcher, statistics_provider.as_ref()),
+                enable_scoring(
+                    self.bm25_params.wants_scores(),
+                    &self.searcher,
+                    &statistics_provider,
+                ),
             )
             .expect("search should not fail")
     }
@@ -1041,7 +1049,11 @@ impl SearchIndexReader {
         let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
         let query = self.query();
         let weight = query
-            .weight(enable_scoring(&self.searcher, statistics_provider.as_ref()))
+            .weight(enable_scoring(
+                self.bm25_params.wants_scores(),
+                &self.searcher,
+                &statistics_provider,
+            ))
             .expect("creating a Weight from a Query should not fail");
 
         let Some(aux_collector) = aux_collector else {
@@ -1158,11 +1170,11 @@ impl SearchIndexReader {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Bm25Params {
-    pub wants_scores: bool,
-    pub b: f32,  // length normalization
-    pub k1: f32, // term saturation
+    wants_scores: bool,
+    b: f32,  // length normalization
+    k1: f32, // term saturation
 }
 
 impl Default for Bm25Params {
@@ -1191,12 +1203,20 @@ impl Bm25Params {
         }
     }
 
-    pub fn statistics_provider<'a>(&self, searcher: &'a Searcher) -> Option<TunedSearcher<'a>> {
-        if self.wants_scores {
-            Some(TunedSearcher::new(searcher, *self))
-        } else {
-            None
-        }
+    pub fn b(&self) -> f32 {
+        self.b
+    }
+
+    pub fn k1(&self) -> f32 {
+        self.k1
+    }
+
+    pub fn wants_scores(&self) -> bool {
+        self.wants_scores
+    }
+
+    pub fn statistics_provider<'a>(&self, searcher: &'a Searcher) -> TunedSearcher<'a> {
+        TunedSearcher::new(searcher, *self)
     }
 }
 
@@ -1235,12 +1255,14 @@ impl Bm25StatisticsProvider for TunedSearcher<'_> {
 }
 
 pub(super) fn enable_scoring<'a>(
+    wants_scores: bool,
     searcher: &'a Searcher,
-    statistics_provider: Option<&'a TunedSearcher<'a>>,
+    statistics_provider: &'a TunedSearcher<'a>,
 ) -> EnableScoring<'a> {
-    match statistics_provider {
-        Some(provider) => EnableScoring::enabled_from_statistics_provider(provider, searcher),
-        None => EnableScoring::disabled_from_searcher(searcher),
+    if wants_scores {
+        EnableScoring::enabled_from_statistics_provider(statistics_provider, searcher)
+    } else {
+        EnableScoring::disabled_from_searcher(searcher)
     }
 }
 

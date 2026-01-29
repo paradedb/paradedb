@@ -208,7 +208,7 @@ impl BaseScanState {
 
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        self.bm25_params.wants_scores
+        self.bm25_params.wants_scores()
             || self.base_search_query_input.need_scores()
             || self
                 .quals

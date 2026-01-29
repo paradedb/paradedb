@@ -60,7 +60,11 @@ impl DeferredScorer {
             let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
             let weight = self
                 .query
-                .weight(enable_scoring(&self.searcher, statistics_provider.as_ref()))
+                .weight(enable_scoring(
+                    self.bm25_params.wants_scores(),
+                    &self.searcher,
+                    &statistics_provider,
+                ))
                 .expect("weight should be constructable");
 
             weight

@@ -96,7 +96,7 @@ pub unsafe fn detect_scores(
             let data = data.cast::<Data>();
             if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                // Score function can have 1 argument (key) or 3 arguments (key, b, k1)
+                // pdb.score can have 1 argument (key) or 3 arguments (key, b, k1)
                 assert!(
                     args.len() == 1 || args.len() == 3,
                     "score function must have 1 or 3 arguments"
@@ -106,7 +106,6 @@ pub unsafe fn detect_scores(
                     if (*var).varno as i32 == (*data).rti as i32 {
                         (*data).params = Bm25Params::default().with_scoring();
 
-                        // Check if it has custom BM25 params (3-arg variant)
                         if args.len() == 3 {
                             if let Some(b_const) =
                                 nodecast!(Const, T_Const, args.get_ptr(1).unwrap())
@@ -146,22 +145,12 @@ pub unsafe fn detect_scores(
     let mut data = Data {
         score_funcoids,
         rti,
-        params: Bm25Params::default(), // wants_scores: false by default
+        params: Bm25Params::default(),
     };
 
     walker(node, addr_of_mut!(data).cast());
 
     data.params
-}
-
-/// Simple wrapper around `detect_scores` that returns true if any score function is used.
-#[inline]
-pub unsafe fn uses_scores(
-    node: *mut pg_sys::Node,
-    score_funcoids: [pg_sys::Oid; 3],
-    rti: pg_sys::Index,
-) -> bool {
-    detect_scores(node, score_funcoids, rti).wants_scores
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {

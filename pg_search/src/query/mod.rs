@@ -19,6 +19,7 @@ pub mod builder;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
+pub mod numeric;
 pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
@@ -1224,66 +1225,20 @@ impl SearchQueryInput {
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
 fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
-    // Only convert string values - other types pass through unchanged
-    let s = match value {
-        OwnedValue::Str(s) => s,
-        _ => return value.clone(),
+    use crate::query::numeric::{
+        string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
     };
 
-    let trimmed = s.trim();
+    // Only convert string values - other types pass through unchanged
+    if !matches!(value, OwnedValue::Str(_)) {
+        return value.clone();
+    }
 
     match field_type {
-        FieldType::JsonObject(_) => {
-            // JSON distinguishes between integers (I64/U64) and floats (F64).
-            // We detect based on whether the value contains a decimal point or scientific notation.
-            let is_plain_integer =
-                !trimmed.contains('.') && !trimmed.contains('e') && !trimmed.contains('E');
-
-            if is_plain_integer {
-                // Integer value - try i64 first, then u64
-                if let Ok(i) = trimmed.parse::<i64>() {
-                    return OwnedValue::I64(i);
-                }
-                if let Ok(u) = trimmed.parse::<u64>() {
-                    return OwnedValue::U64(u);
-                }
-            }
-            // Decimal values and scientific notation use F64
-            if let Ok(f) = trimmed.parse::<f64>() {
-                return OwnedValue::F64(f);
-            }
-            value.clone()
-        }
-        FieldType::I64(_) => {
-            // Try i64 first to preserve precision
-            if let Ok(i) = trimmed.parse::<i64>() {
-                return OwnedValue::I64(i);
-            }
-            // Fall back to f64 for decimals, then truncate
-            if let Ok(f) = trimmed.parse::<f64>() {
-                return OwnedValue::I64(f as i64);
-            }
-            value.clone()
-        }
-        FieldType::U64(_) => {
-            // Try u64 first to preserve precision
-            if let Ok(u) = trimmed.parse::<u64>() {
-                return OwnedValue::U64(u);
-            }
-            // Fall back to f64 for decimals, then truncate
-            if let Ok(f) = trimmed.parse::<f64>() {
-                if f >= 0.0 {
-                    return OwnedValue::U64(f as u64);
-                }
-            }
-            value.clone()
-        }
-        FieldType::F64(_) => {
-            if let Ok(f) = trimmed.parse::<f64>() {
-                return OwnedValue::F64(f);
-            }
-            value.clone()
-        }
+        FieldType::JsonObject(_) => string_to_json_numeric(value.clone()),
+        FieldType::I64(_) => string_to_i64(value.clone()),
+        FieldType::U64(_) => string_to_u64(value.clone()),
+        FieldType::F64(_) => string_to_f64(value.clone()),
         _ => value.clone(),
     }
 }

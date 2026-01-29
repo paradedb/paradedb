@@ -20,16 +20,35 @@
 //! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use tantivy::schema::OwnedValue;
 
 // ============================================================================
 // Core Scaling/Descaling Operations
 // ============================================================================
 
+/// Pre-computed scale factors for common scales (0-18).
+/// Avoids repeated calls to 10f64.powi() for frequently used scale values.
+/// Scale 18 is the maximum for Numeric64 storage (i64 precision limit).
+static SCALE_FACTORS: LazyLock<[f64; 19]> = LazyLock::new(|| {
+    let mut factors = [0.0; 19];
+    for (i, factor) in factors.iter_mut().enumerate() {
+        *factor = 10f64.powi(i as i32);
+    }
+    factors
+});
+
 /// Compute the scale factor: 10^scale
+///
+/// Uses pre-computed values for common scales (0-18) for performance.
+/// Falls back to computation for other scales (negative or >18).
 #[inline]
 pub fn scale_factor(scale: i16) -> f64 {
-    10f64.powi(scale as i32)
+    if scale >= 0 && (scale as usize) < SCALE_FACTORS.len() {
+        SCALE_FACTORS[scale as usize]
+    } else {
+        10f64.powi(scale as i32)
+    }
 }
 
 /// Scale a numeric string to I64 fixed-point representation.
@@ -46,7 +65,7 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> anyhow::Result<i64> {
 
     let decimal = Decimal64NoScale::new(numeric_str, scale as i32).map_err(|e| {
         anyhow::anyhow!(
-            "Failed to scale '{}' with scale {}: {:?}",
+            "Failed to scale '{}' with scale {}: {:?}. This may occur if the value exceeds i64 range after scaling.",
             numeric_str,
             scale,
             e

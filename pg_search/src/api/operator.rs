@@ -467,8 +467,12 @@ unsafe fn is_type_cast_function(funcid: pg_sys::Oid, result_type: pg_sys::Oid) -
 
     let name_str = std::ffi::CStr::from_ptr(func_name).to_string_lossy();
 
-    // Common type cast function names in PostgreSQL
-    // These are type constructors/casts, not mathematical functions
+    // List of PostgreSQL type constructor/cast function names.
+    // These represent type casts (not mathematical functions like abs()).
+    // Derived from PostgreSQL's built-in type system (see pg_type catalog).
+    // When PostgreSQL adds new built-in types, this list may need updating.
+    // Note: This approach is used because dynamically querying pg_type at runtime
+    // would add overhead for each expression match check.
     let type_cast_names = [
         "numeric",
         "int2",

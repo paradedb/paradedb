@@ -1295,6 +1295,79 @@ WHERE id @@@ paradedb.all();
 DROP TABLE max_scale_test;
 
 -- ----------------------------------------------------------------------------
+-- TEST: Negative Scale (NUMERIC(5,-3) - rounds to nearest 1000)
+-- ----------------------------------------------------------------------------
+-- PostgreSQL allows negative scale, which rounds values to the left of decimal point.
+-- NUMERIC(5,-3) means: 5 non-rounded digits, rounded to nearest 1000.
+-- This is documented at: https://www.postgresql.org/docs/current/datatype-numeric.html
+-- "a column declared as NUMERIC(2, -3) will round values to the nearest thousand"
+
+CREATE TABLE negative_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(5, -3)
+);
+
+-- Values are rounded to nearest 1000
+INSERT INTO negative_scale_test (val) VALUES
+    (12000),
+    (15000),
+    (18000),
+    (99000),   -- max value with 5 digits
+    (-12000),  -- negative
+    (0);       -- zero
+
+CREATE INDEX negative_scale_idx ON negative_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Exact match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 12000
+ORDER BY id;
+
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 12000
+ORDER BY id;
+
+-- Range query
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 10000 AND val < 20000
+ORDER BY id;
+
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 10000 AND val < 20000
+ORDER BY id;
+
+-- Negative value query
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+AND val = -12000
+ORDER BY id;
+
+-- Aggregate on negative scale
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM negative_scale_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM negative_scale_test
+WHERE id @@@ paradedb.all();
+
+-- Verify all rows
+SELECT * FROM negative_scale_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+DROP TABLE negative_scale_test;
+
+-- ----------------------------------------------------------------------------
 -- TEST: Special Values (NaN, Infinity, -Infinity)
 -- ----------------------------------------------------------------------------
 -- PostgreSQL NUMERIC supports special values: NaN, Infinity, -Infinity

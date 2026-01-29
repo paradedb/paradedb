@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{Bm25Params, SearchIndexReader};
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader};
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -378,7 +378,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     let search_index = SearchIndexReader::open(
         &index,
         query,
-        Bm25Params::default(),
+        Bm25Settings::default(),
         MvccSatisfies::Snapshot,
     )?;
     let results = search_index.search();

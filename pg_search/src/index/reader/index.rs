@@ -266,8 +266,7 @@ pub struct SearchIndexReader {
     underlying_reader: IndexReader,
     underlying_index: Index,
     query: Box<dyn Query>,
-    /// BM25 parameters for scoring. Check `wants_scores` to see if scoring is enabled.
-    bm25_params: Bm25Params,
+    bm25_settings: Bm25Settings,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -285,7 +284,7 @@ impl Clone for SearchIndexReader {
             underlying_reader: self.underlying_reader.clone(),
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
-            bm25_params: self.bm25_params,
+            bm25_settings: self.bm25_settings,
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -298,7 +297,7 @@ impl SearchIndexReader {
         Self::open(
             index_relation,
             SearchQueryInput::Empty,
-            Bm25Params::default(),
+            Bm25Settings::default(),
             mvcc_style,
         )
     }
@@ -307,7 +306,7 @@ impl SearchIndexReader {
     pub fn open(
         index_relation: &PgSearchRelation,
         search_query_input: SearchQueryInput,
-        bm25_params: Bm25Params,
+        bm25_settings: Bm25Settings,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
         Self::open_with_context(
@@ -316,7 +315,7 @@ impl SearchIndexReader {
             mvcc_style,
             None,
             None,
-            bm25_params,
+            bm25_settings,
         )
     }
 
@@ -327,7 +326,7 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
-        bm25_params: Bm25Params,
+        bm25_settings: Bm25Settings,
     ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
@@ -354,10 +353,10 @@ impl SearchIndexReader {
 
         // if the query doesn't contain `pdb.score` but the search query requires scores
         // (i.e. more like this), enable scoring with default parameters
-        let bm25_params = if !bm25_params.wants_scores && search_query_input.need_scores() {
-            Bm25Params::default().with_scoring()
+        let bm25_settings = if !bm25_settings.enabled && search_query_input.need_scores() {
+            Bm25Settings::default().with_scoring()
         } else {
-            bm25_params
+            bm25_settings
         };
 
         let query = {
@@ -386,7 +385,7 @@ impl SearchIndexReader {
             underlying_reader: reader,
             underlying_index: index,
             query,
-            bm25_params,
+            bm25_settings,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -400,11 +399,11 @@ impl SearchIndexReader {
     }
 
     pub fn need_scores(&self) -> bool {
-        self.bm25_params.wants_scores
+        self.bm25_settings.enabled
     }
 
-    pub fn bm25_params(&self) -> Bm25Params {
-        self.bm25_params
+    pub fn bm25_settings(&self) -> Bm25Settings {
+        self.bm25_settings
     }
 
     pub fn query(&self) -> &dyn Query {
@@ -412,10 +411,10 @@ impl SearchIndexReader {
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
-        let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
+        let statistics_provider = self.bm25_settings.statistics_provider(&self.searcher);
         self.query
             .weight(enable_scoring(
-                self.bm25_params.wants_scores(),
+                self.bm25_settings.enabled(),
                 &self.searcher,
                 &statistics_provider,
             ))
@@ -537,7 +536,7 @@ impl SearchIndexReader {
                         self.query().box_clone(),
                         segment_reader.clone(),
                         self.searcher.clone(),
-                        self.bm25_params,
+                        self.bm25_settings,
                     ),
                     segment_ord,
                     segment_reader.clone(),
@@ -1026,14 +1025,14 @@ impl SearchIndexReader {
     }
 
     pub fn collect<C: Collector>(&self, collector: C) -> C::Fruit {
-        let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
+        let statistics_provider = self.bm25_settings.statistics_provider(&self.searcher);
         self.searcher
             .search_with_executor(
                 &self.query,
                 &collector,
                 &Executor::SingleThread,
                 enable_scoring(
-                    self.bm25_params.wants_scores(),
+                    self.bm25_settings.enabled(),
                     &self.searcher,
                     &statistics_provider,
                 ),
@@ -1049,11 +1048,11 @@ impl SearchIndexReader {
         top_docs_collector: C,
         aux_collector: Option<TopNAuxiliaryCollector>,
     ) -> (C::Fruit, Option<IntermediateAggregationResults>) {
-        let statistics_provider = self.bm25_params.statistics_provider(&self.searcher);
+        let statistics_provider = self.bm25_settings.statistics_provider(&self.searcher);
         let query = self.query();
         let weight = query
             .weight(enable_scoring(
-                self.bm25_params.wants_scores(),
+                self.bm25_settings.enabled(),
                 &self.searcher,
                 &statistics_provider,
             ))
@@ -1174,42 +1173,38 @@ impl SearchIndexReader {
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub struct Bm25Params {
-    wants_scores: bool,
+pub struct Bm25Settings {
+    enabled: bool,
     b: f32,  // length normalization
     k1: f32, // term saturation
 }
 
-impl Default for Bm25Params {
+impl Default for Bm25Settings {
     fn default() -> Self {
         Self {
-            wants_scores: false,
+            enabled: false,
             b: tantivy::query::DEFAULT_BM25_B,
             k1: tantivy::query::DEFAULT_BM25_K1,
         }
     }
 }
 
-impl Bm25Params {
+impl Bm25Settings {
     pub fn with_scoring(self) -> Self {
         Self {
-            wants_scores: true,
+            enabled: true,
             ..self
         }
     }
 
     pub fn new(b: f32, k1: f32) -> Self {
         Self {
-            wants_scores: true,
+            enabled: true,
             b,
             k1,
         }
     }
 
-    /// Detect score function usage in a PostgreSQL expression tree and extract BM25 parameters.
-    /// Returns `Bm25Params` with `wants_scores` set appropriately:
-    /// - `wants_scores: false` if no score function is used
-    /// - `wants_scores: true` with default or custom b/k1 if score function is found
     pub unsafe fn from_pg(
         node: *mut pgrx::pg_sys::Node,
         score_funcoids: [pgrx::pg_sys::Oid; 3],
@@ -1241,7 +1236,7 @@ impl Bm25Params {
 
                     if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                         if (*var).varno as i32 == (*data).rti as i32 {
-                            (*data).params = Bm25Params::default().with_scoring();
+                            (*data).params = Bm25Settings::default().with_scoring();
 
                             if args.len() == 3 {
                                 if let Some(b_const) =
@@ -1260,7 +1255,7 @@ impl Bm25Params {
                                             (*k1_const).constisnull,
                                         )
                                         .expect("k1 parameter should be a valid float4");
-                                        (*data).params = Bm25Params::new(b, k1);
+                                        (*data).params = Bm25Settings::new(b, k1);
                                     }
                                 }
                             }
@@ -1276,13 +1271,13 @@ impl Bm25Params {
         struct Data {
             score_funcoids: [pg_sys::Oid; 3],
             rti: pg_sys::Index,
-            params: Bm25Params,
+            params: Bm25Settings,
         }
 
         let mut data = Data {
             score_funcoids,
             rti,
-            params: Bm25Params::default(),
+            params: Bm25Settings::default(),
         };
 
         walker(node, addr_of_mut!(data).cast());
@@ -1298,8 +1293,8 @@ impl Bm25Params {
         self.k1
     }
 
-    pub fn wants_scores(&self) -> bool {
-        self.wants_scores
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 
     pub fn statistics_provider<'a>(&self, searcher: &'a Searcher) -> TunedSearcher<'a> {
@@ -1310,11 +1305,11 @@ impl Bm25Params {
 /// A custom BM25 statistics provider that wraps a Searcher with configurable b and k1 parameters.
 pub struct TunedSearcher<'a> {
     searcher: &'a Searcher,
-    params: Bm25Params,
+    params: Bm25Settings,
 }
 
 impl<'a> TunedSearcher<'a> {
-    pub fn new(searcher: &'a Searcher, params: Bm25Params) -> Self {
+    pub fn new(searcher: &'a Searcher, params: Bm25Settings) -> Self {
         Self { searcher, params }
     }
 }
@@ -1342,11 +1337,11 @@ impl Bm25StatisticsProvider for TunedSearcher<'_> {
 }
 
 pub(super) fn enable_scoring<'a>(
-    wants_scores: bool,
+    enabled: bool,
     searcher: &'a Searcher,
     statistics_provider: &'a TunedSearcher<'a>,
 ) -> EnableScoring<'a> {
-    if wants_scores {
+    if enabled {
         EnableScoring::enabled_from_statistics_provider(statistics_provider, searcher)
     } else {
         EnableScoring::disabled_from_searcher(searcher)

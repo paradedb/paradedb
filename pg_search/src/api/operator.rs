@@ -36,7 +36,7 @@ use crate::api::tokenizers::{
 };
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{Bm25Params, SearchIndexReader};
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader};
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
@@ -230,7 +230,7 @@ pub(crate) fn estimate_selectivity(
     let search_reader = SearchIndexReader::open(
         indexrel,
         search_query_input,
-        Bm25Params::default(),
+        Bm25Settings::default(),
         MvccSatisfies::LargestSegment,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");

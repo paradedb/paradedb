@@ -23,7 +23,7 @@
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `extract_score_pathkey()` in mod.rs.
 
-use crate::index::reader::index::Bm25Params;
+use crate::index::reader::index::Bm25Settings;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -44,8 +44,8 @@ pub struct JoinSideInfo {
     pub has_search_predicate: bool,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
     pub alias: Option<String>,
-    /// BM25 parameters for scoring. Check `wants_scores()` to see if scoring is enabled.
-    pub bm25_params: Bm25Params,
+    /// BM25 parameters for scoring. Check `enabled()` to see if scoring is enabled.
+    pub bm25_settings: Bm25Settings,
 }
 
 impl JoinSideInfo {
@@ -84,8 +84,8 @@ impl JoinSideInfo {
         self
     }
 
-    pub fn with_bm25_params(mut self, params: Bm25Params) -> Self {
-        self.bm25_params = params;
+    pub fn with_bm25_settings(mut self, params: Bm25Settings) -> Self {
+        self.bm25_settings = params;
         self
     }
 }

@@ -32,7 +32,7 @@ mod pdb {
     /// - `b`: Length normalization parameter (0.0 to 1.0, default 0.75)
     /// - `k1`: Term saturation parameter (default 1.2)
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-    fn score_from_relation_with_bm25_params(
+    fn score_from_relation_with_bm25_settings(
         _relation_reference: AnyElement,
         _b: f32,
         _k1: f32,
@@ -48,7 +48,7 @@ mod pdb {
         name = "score_placeholder",
         requires = [
             score_from_relation,
-            score_from_relation_with_bm25_params,
+            score_from_relation_with_bm25_settings,
             placeholder_support
         ]
     );

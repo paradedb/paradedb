@@ -33,7 +33,7 @@ use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{Bm25Params, SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -105,7 +105,7 @@ impl BaseScan {
             .expect("custom_state.indexrel should already be open");
 
         let search_query_input = state.custom_state().search_query_input();
-        let bm25_params = state.custom_state().bm25_params;
+        let bm25_settings = state.custom_state().bm25_settings;
 
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
@@ -128,7 +128,7 @@ impl BaseScan {
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
-            bm25_params,
+            bm25_settings,
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -946,7 +946,7 @@ impl CustomScan for BaseScan {
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
 
             // Detect score function usage and extract BM25 parameters
-            builder.custom_state().bm25_params = Bm25Params::from_pg(
+            builder.custom_state().bm25_settings = Bm25Settings::from_pg(
                 builder.target_list().as_ptr().cast(),
                 score_funcoids,
                 builder.custom_state().execution_rti,
@@ -1159,7 +1159,7 @@ impl CustomScan for BaseScan {
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
-                            Bm25Params::default(),
+                            Bm25Settings::default(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

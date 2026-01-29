@@ -17,6 +17,7 @@
 
 use crate::api::{AsCStr, Cardinality, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::reader::index::Bm25Settings;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
@@ -45,8 +46,7 @@ pub struct PrivateData {
     planned_which_fast_fields: Option<HashSet<WhichFastField>>,
     target_list_len: Option<usize>,
     referenced_columns_count: usize,
-    /// BM25 parameters for scoring. Tuple of (wants_scores, b, k1).
-    bm25_params: (bool, f32, f32),
+    bm25_settings: Bm25Settings,
     exec_method_type: ExecMethodType,
     // Additional search predicates from join filters that are relevant for snippet/score generation
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
@@ -216,8 +216,8 @@ impl PrivateData {
         self.referenced_columns_count = count;
     }
 
-    pub fn set_bm25_params(&mut self, params: (bool, f32, f32)) {
-        self.bm25_params = params;
+    pub fn set_bm25_settings(&mut self, settings: Bm25Settings) {
+        self.bm25_settings = settings;
     }
 
     pub fn set_join_predicates(&mut self, predicates: Option<SearchQueryInput>) {
@@ -285,11 +285,11 @@ impl PrivateData {
     }
 
     pub fn need_scores(&self) -> bool {
-        self.bm25_params.0
+        self.bm25_settings.enabled()
     }
 
-    pub fn bm25_params(&self) -> (bool, f32, f32) {
-        self.bm25_params
+    pub fn bm25_settings(&self) -> Bm25Settings {
+        self.bm25_settings
     }
 
     pub fn join_predicates(&self) -> &Option<SearchQueryInput> {

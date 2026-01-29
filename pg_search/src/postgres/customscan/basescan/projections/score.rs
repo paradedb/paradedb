@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::reader::index::Bm25Params;
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
+use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, FromDatum, PgList};
 use std::ptr::addr_of_mut;
 
 #[pgrx::pg_schema]
@@ -30,17 +31,35 @@ mod pdb {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
+    /// Score function with custom BM25 parameters.
+    /// - `b`: Length normalization parameter (0.0 to 1.0, default 0.75)
+    /// - `k1`: Term saturation parameter (default 1.2)
+    #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
+    fn score_from_relation_with_bm25_params(
+        _relation_reference: AnyElement,
+        _b: f32,
+        _k1: f32,
+    ) -> f32 {
+        panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
+    }
+
     extension_sql!(
         r#"
-    ALTER FUNCTION pdb.score SUPPORT paradedb.placeholder_support;
+    ALTER FUNCTION pdb.score(anyelement) SUPPORT paradedb.placeholder_support;
+    ALTER FUNCTION pdb.score(anyelement, float4, float4) SUPPORT paradedb.placeholder_support;
     "#,
         name = "score_placeholder",
-        requires = [score_from_relation, placeholder_support]
+        requires = [
+            score_from_relation,
+            score_from_relation_with_bm25_params,
+            placeholder_support
+        ]
     );
 }
 
 // In `0.19.0`, we renamed the schema from `paradedb` to `pdb`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
+// Note: Only 1-arg variant is supported for paradedb.score (use pdb.score for custom BM25 params)
 #[warn(deprecated)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
@@ -49,17 +68,21 @@ fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> 
 
 extension_sql!(
     r#"
-    ALTER FUNCTION paradedb.score SUPPORT paradedb.placeholder_support;
+    ALTER FUNCTION paradedb.score(anyelement) SUPPORT paradedb.placeholder_support;
     "#,
     name = "paradedb_score_placeholder",
     requires = [paradedb_score_from_relation, placeholder_support]
 );
 
-pub unsafe fn uses_scores(
+/// Detect score function usage and extract BM25 parameters.
+/// Returns:
+/// - `None` if no score function is used (scoring disabled)
+/// - `Some(Bm25Params)` if score function is used (with default or custom params)
+pub unsafe fn detect_scores(
     node: *mut pg_sys::Node,
-    score_funcoids: [pg_sys::Oid; 2],
+    score_funcoids: [pg_sys::Oid; 3],
     rti: pg_sys::Index,
-) -> bool {
+) -> Option<Bm25Params> {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -73,9 +96,39 @@ pub unsafe fn uses_scores(
             let data = data.cast::<Data>();
             if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                assert!(args.len() == 1, "score function must have 1 argument");
+                // Score function can have 1 argument (key) or 3 arguments (key, b, k1)
+                assert!(
+                    args.len() == 1 || args.len() == 3,
+                    "score function must have 1 or 3 arguments"
+                );
+
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     if (*var).varno as i32 == (*data).rti as i32 {
+                        // Found a matching score function - start with defaults
+                        (*data).params = Some(Bm25Params::default());
+
+                        // Check if it has custom BM25 params (3-arg variant)
+                        if args.len() == 3 {
+                            if let Some(b_const) =
+                                nodecast!(Const, T_Const, args.get_ptr(1).unwrap())
+                            {
+                                if let Some(k1_const) =
+                                    nodecast!(Const, T_Const, args.get_ptr(2).unwrap())
+                                {
+                                    let b = f32::from_datum(
+                                        (*b_const).constvalue,
+                                        (*b_const).constisnull,
+                                    )
+                                    .expect("b parameter should be a valid float4");
+                                    let k1 = f32::from_datum(
+                                        (*k1_const).constvalue,
+                                        (*k1_const).constisnull,
+                                    )
+                                    .expect("k1 parameter should be a valid float4");
+                                    (*data).params = Some(Bm25Params::new(b, k1));
+                                }
+                            }
+                        }
                         return true;
                     }
                 }
@@ -86,23 +139,42 @@ pub unsafe fn uses_scores(
     }
 
     struct Data {
-        score_funcoids: [pg_sys::Oid; 2],
+        score_funcoids: [pg_sys::Oid; 3],
         rti: pg_sys::Index,
+        params: Option<Bm25Params>,
     }
 
     let mut data = Data {
         score_funcoids,
         rti,
+        params: None,
     };
 
-    walker(node, addr_of_mut!(data).cast())
+    walker(node, addr_of_mut!(data).cast());
+
+    data.params
+}
+
+/// Simple wrapper around `detect_scores` that returns true if any score function is used.
+/// Use `detect_scores` directly when you also need the BM25 parameters.
+#[inline]
+pub unsafe fn uses_scores(
+    node: *mut pg_sys::Node,
+    score_funcoids: [pg_sys::Oid; 3],
+    rti: pg_sys::Index,
+) -> bool {
+    detect_scores(node, score_funcoids, rti).is_some()
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if score_funcoids().contains(&(*funcexpr).funcid) {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            assert!(args.len() == 1, "score function must have 1 argument");
+            // Score function can have 1 argument (key) or 3 arguments (key, b, k1)
+            assert!(
+                args.len() == 1 || args.len() == 3,
+                "score function must have 1 or 3 arguments"
+            );
             if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                 if (*var).varno as i32 == rti as i32 {
                     return true;

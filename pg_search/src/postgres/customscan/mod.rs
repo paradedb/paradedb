@@ -359,8 +359,9 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
     .expect("should be able to lookup operator signature")
 }
 
-pub fn score_funcoids() -> [pg_sys::Oid; 2] {
+pub fn score_funcoids() -> [pg_sys::Oid; 3] {
     [
+        // 1-arg variants: pdb.score(key) and paradedb.score(key)
         unsafe {
             direct_function_call::<pg_sys::Oid>(
                 pg_sys::regprocedurein,
@@ -374,6 +375,14 @@ pub fn score_funcoids() -> [pg_sys::Oid; 2] {
                 &[c"paradedb.score(anyelement)".into_datum()],
             )
             .expect("the `paradedb.score(anyelement)` function should exist")
+        },
+        // 3-arg variant: pdb.score(key, b, k1) - only available in pdb schema
+        unsafe {
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::regprocedurein,
+                &[c"pdb.score(anyelement,float4,float4)".into_datum()],
+            )
+            .expect("the `pdb.score(anyelement,float4,float4)` function should exist")
         },
     ]
 }

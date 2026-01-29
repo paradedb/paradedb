@@ -375,7 +375,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
             is_datetime: false,
         },
     };
-    let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;
+    let search_index = SearchIndexReader::open(&index, query, None, MvccSatisfies::Snapshot)?;
     let results = search_index.search();
 
     let results = results
@@ -1531,7 +1531,7 @@ pub mod pdb {
 
         // Query pg_index joined with pg_class to find all BM25 indexes
         let query = r#"
-        SELECT 
+        SELECT
             n.nspname::text AS schemaname,
             t.relname::text AS tablename,
             i.relname::text AS indexname,
@@ -1677,7 +1677,7 @@ pub mod pdb {
         // Build query with optional pattern filters
         let mut query = String::from(
             r#"
-        SELECT 
+        SELECT
             n.nspname::text AS schemaname,
             i.relname::text AS indexname,
             i.oid AS indexrelid

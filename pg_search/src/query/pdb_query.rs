@@ -17,9 +17,9 @@
 
 use crate::api::FieldName;
 use crate::query::numeric::{
-    convert_value_for_range_field, map_bound, numeric_bound_to_bytes, numeric_value_to_bytes,
-    scale_numeric_bound, scale_owned_value, string_to_f64, string_to_i64, string_to_json_numeric,
-    string_to_u64,
+    convert_value_for_field, convert_value_for_field_or_default, convert_value_for_range_field,
+    map_bound, numeric_bound_to_bytes, numeric_value_to_bytes, scale_numeric_bound,
+    scale_owned_value, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -697,22 +697,10 @@ fn term_set(
     let is_date_time = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
-    // Convert terms based on field type (same logic as term())
+    // Convert terms based on field type (uses same logic as term())
     let converted_terms: Vec<OwnedValue> = terms
         .into_iter()
-        .map(|term| match search_field_type {
-            SearchFieldType::Numeric64(_, scale) => {
-                scale_owned_value(term, scale).unwrap_or(OwnedValue::Null)
-            }
-            SearchFieldType::NumericBytes(_) => {
-                numeric_value_to_bytes(term).unwrap_or(OwnedValue::Null)
-            }
-            SearchFieldType::Json(_) => string_to_json_numeric(term),
-            SearchFieldType::I64(_) => string_to_i64(term),
-            SearchFieldType::U64(_) => string_to_u64(term),
-            SearchFieldType::F64(_) => string_to_f64(term),
-            _ => term,
-        })
+        .map(|term| convert_value_for_field_or_default(term, &search_field_type, OwnedValue::Null))
         .collect();
 
     Ok(Box::new(TermSetQuery::new(
@@ -743,35 +731,8 @@ fn term(
     let is_datetime = search_field.is_datetime() || is_datetime;
     let search_field_type = search_field.field_type();
 
-    // Handle NUMERIC field types with special storage strategies
-    // Also handle string-encoded numeric values for JSON and other numeric fields
-    let value = match search_field_type {
-        SearchFieldType::Numeric64(_, scale) => {
-            // Scale value for I64 fixed-point storage
-            scale_owned_value(value.clone(), scale)?
-        }
-        SearchFieldType::NumericBytes(_) => {
-            // Convert value to lexicographically sortable bytes
-            numeric_value_to_bytes(value.clone())?
-        }
-        SearchFieldType::Json(_) => {
-            // For JSON fields, convert string numeric values to appropriate JSON types
-            string_to_json_numeric(value.clone())
-        }
-        SearchFieldType::I64(_) => {
-            // Convert string numeric values to I64
-            string_to_i64(value.clone())
-        }
-        SearchFieldType::U64(_) => {
-            // Convert string numeric values to U64
-            string_to_u64(value.clone())
-        }
-        SearchFieldType::F64(_) => {
-            // Convert string numeric values to F64
-            string_to_f64(value.clone())
-        }
-        _ => value.clone(),
-    };
+    // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
+    let value = convert_value_for_field(value.clone(), &search_field_type)?;
 
     let term = value_to_term(
         search_field.field(),

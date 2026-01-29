@@ -275,6 +275,48 @@ pub fn convert_value_for_range_field(
     }
 }
 
+// ============================================================================
+// Generic Field Type Conversion
+// ============================================================================
+
+/// Convert a value to the appropriate format for a search field type.
+///
+/// This consolidates the conversion logic used across term queries, term_set queries,
+/// and other places where values need to be converted based on field type.
+///
+/// # Arguments
+/// * `value` - The input value to convert
+/// * `field_type` - The target field type determining the conversion
+///
+/// # Returns
+/// The converted value, or an error if conversion fails for Numeric64/NumericBytes.
+pub fn convert_value_for_field(
+    value: OwnedValue,
+    field_type: &SearchFieldType,
+) -> Result<OwnedValue> {
+    match field_type {
+        SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
+        SearchFieldType::NumericBytes(_) => numeric_value_to_bytes(value),
+        SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
+        SearchFieldType::I64(_) => Ok(string_to_i64(value)),
+        SearchFieldType::U64(_) => Ok(string_to_u64(value)),
+        SearchFieldType::F64(_) => Ok(string_to_f64(value)),
+        _ => Ok(value),
+    }
+}
+
+/// Convert a value for a field, returning a default on error.
+///
+/// This is useful for bulk conversions (like term_set) where individual
+/// failures shouldn't abort the entire operation.
+pub fn convert_value_for_field_or_default(
+    value: OwnedValue,
+    field_type: &SearchFieldType,
+    default: OwnedValue,
+) -> OwnedValue {
+    convert_value_for_field(value, field_type).unwrap_or(default)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2642,3 +2642,192 @@ ORDER BY id;
 (8 rows)
 
 DROP TABLE special_values_test;
+-- ----------------------------------------------------------------------------
+-- TEST: NUMERIC(p) without explicit scale - scale defaults to 0
+-- ----------------------------------------------------------------------------
+-- PostgreSQL documentation states:
+-- "If the scale of a value to be stored is greater than the declared scale
+--  of the column, the system will round the value to the specified number
+--  of fractional digits."
+-- When scale is not specified, it defaults to 0, meaning values are integers.
+-- See: https://www.postgresql.org/docs/current/datatype-numeric.html
+-- Test with NUMERIC(10) - precision only, scale defaults to 0
+CREATE TABLE numeric_precision_only_test (
+    id SERIAL PRIMARY KEY,
+    val_small NUMERIC(5),      -- precision 5, scale 0 (implicit)
+    val_large NUMERIC(15)      -- precision 15, scale 0 (implicit)
+);
+-- Insert integer values (scale 0 means integers)
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (100, 1000000000000),
+    (200, 2000000000000),
+    (12345, 123456789012345),  -- max 5-digit / 15-digit integers
+    (-500, -500000000000),     -- negative integers
+    (0, 0);                     -- zero
+-- Insert values with decimals - they should be rounded to integers
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (123, 999999999999);  -- Will be stored as-is (already integers)
+-- This shows PostgreSQL rounds to scale 0:
+-- (99.9 becomes 100, 12345.678 rounds to 12346)
+INSERT INTO numeric_precision_only_test (val_small, val_large) VALUES
+    (100, 12346);  -- Pre-rounded values
+CREATE INDEX numeric_prec_only_idx ON numeric_precision_only_test USING bm25 (
+    id, val_small, val_large
+) WITH (key_field = 'id');
+-- Test: Exact match on NUMERIC(5) - should use Numeric64 storage with scale=0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_small = 100
+ORDER BY id;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val_small, val_large
+   Sort Key: numeric_precision_only_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: id, val_small, val_large
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"val_small","value":"100","is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_small = 100
+ORDER BY id;
+ id | val_small |   val_large   
+----+-----------+---------------
+  1 |       100 | 1000000000000
+  7 |       100 |         12346
+(2 rows)
+
+-- Test: Range query on NUMERIC(15) - also Numeric64 with scale=0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_large > 100000000000 AND val_large < 1500000000000
+ORDER BY id;
+                                                                                                                                                   QUERY PLAN                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val_small, val_large
+   Sort Key: numeric_precision_only_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: id, val_small, val_large
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val_large","lower_bound":{"excluded":"100000000000"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val_large","lower_bound":null,"upper_bound":{"excluded":"1500000000000"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+AND val_large > 100000000000 AND val_large < 1500000000000
+ORDER BY id;
+ id | val_small |   val_large   
+----+-----------+---------------
+  1 |       100 | 1000000000000
+  6 |       123 |  999999999999
+(2 rows)
+
+-- Test: Aggregate on NUMERIC(p) columns
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Aggregate
+   Output: sum(val_small), avg(val_small), min(val_small), max(val_small)
+   ->  Custom Scan (ParadeDB Scan) on public.numeric_precision_only_test
+         Output: val_small
+         Table: numeric_precision_only_test
+         Index: numeric_prec_only_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(10 rows)
+
+SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+  sum  |          avg          | min  |  max  
+-------+-----------------------+------+-------
+ 12368 | 1766.8571428571428571 | -500 | 12345
+(1 row)
+
+SELECT SUM(val_large), AVG(val_large), MIN(val_large), MAX(val_large)
+FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all();
+       sum       |         avg         |      min      |       max       
+-----------------+---------------------+---------------+-----------------
+ 126956789024690 | 18136684146384.2857 | -500000000000 | 123456789012345
+(1 row)
+
+-- Verify all rows
+SELECT * FROM numeric_precision_only_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+ id | val_small |    val_large    
+----+-----------+-----------------
+  1 |       100 |   1000000000000
+  2 |       200 |   2000000000000
+  3 |     12345 | 123456789012345
+  4 |      -500 |   -500000000000
+  5 |         0 |               0
+  6 |       123 |    999999999999
+  7 |       100 |           12346
+(7 rows)
+
+DROP TABLE numeric_precision_only_test;
+-- ----------------------------------------------------------------------------
+-- TEST: Compare NUMERIC(p) vs NUMERIC(p,0) - should be equivalent
+-- ----------------------------------------------------------------------------
+-- This test verifies that NUMERIC(10) and NUMERIC(10,0) behave identically
+CREATE TABLE numeric_explicit_scale_zero (
+    id SERIAL PRIMARY KEY,
+    implicit_scale NUMERIC(10),    -- scale defaults to 0
+    explicit_scale NUMERIC(10, 0)  -- scale explicitly 0
+);
+INSERT INTO numeric_explicit_scale_zero (implicit_scale, explicit_scale) VALUES
+    (12345, 12345),
+    (67890, 67890),
+    (-11111, -11111),
+    (0, 0);
+CREATE INDEX numeric_scale_zero_idx ON numeric_explicit_scale_zero USING bm25 (
+    id, implicit_scale, explicit_scale
+) WITH (key_field = 'id');
+-- Both columns should produce identical results
+SELECT * FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all()
+AND implicit_scale = 12345
+ORDER BY id;
+ id | implicit_scale | explicit_scale 
+----+----------------+----------------
+  1 |          12345 |          12345
+(1 row)
+
+SELECT * FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all()
+AND explicit_scale = 12345
+ORDER BY id;
+ id | implicit_scale | explicit_scale 
+----+----------------+----------------
+  1 |          12345 |          12345
+(1 row)
+
+-- Aggregates should also be identical
+SELECT SUM(implicit_scale), SUM(explicit_scale)
+FROM numeric_explicit_scale_zero
+WHERE id @@@ paradedb.all();
+  sum  |  sum  
+-------+-------
+ 69124 | 69124
+(1 row)
+
+DROP TABLE numeric_explicit_scale_zero;

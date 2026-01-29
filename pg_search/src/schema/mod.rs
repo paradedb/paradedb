@@ -135,6 +135,42 @@ impl SearchFieldType {
     }
 }
 
+/// Reconcile a computed SearchFieldType with the stored tantivy schema for backwards compatibility.
+///
+/// When upgrading pg_search, new code computes Numeric64/NumericBytes for NUMERIC columns,
+/// but old indexes stored NUMERIC as F64. This function detects this mismatch and returns
+/// the correct field type based on what's actually stored in the index.
+fn reconcile_field_type_with_schema(
+    computed_type: SearchFieldType,
+    field_entry: &FieldEntry,
+) -> SearchFieldType {
+    use tantivy::schema::FieldType;
+
+    // Only reconcile NUMERIC types (Numeric64 and NumericBytes)
+    if !computed_type.is_numeric() {
+        return computed_type;
+    }
+
+    // Get the actual tantivy field type from the stored schema
+    let stored_field_type = field_entry.field_type();
+
+    // If computed type is Numeric64/NumericBytes but stored type is F64, use F64 (legacy index)
+    match (&computed_type, stored_field_type) {
+        (SearchFieldType::Numeric64(oid, _), FieldType::F64(_)) => {
+            // Legacy index: NUMERIC was stored as F64
+            SearchFieldType::F64(*oid)
+        }
+        (SearchFieldType::NumericBytes(oid), FieldType::F64(_)) => {
+            // Legacy index: NUMERIC was stored as F64
+            SearchFieldType::F64(*oid)
+        }
+        _ => {
+            // No mismatch, use the computed type
+            computed_type
+        }
+    }
+}
+
 impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(value: (PgOid, Typmod, pg_sys::Oid)) -> Result<Self, Self::Error> {
@@ -470,9 +506,14 @@ impl SearchField {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let field_config = options.field_config_or_default(&field_name);
-        let field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
+        let computed_field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
             panic!("`{field_name}`'s configuration not found in index WITH options")
         });
+
+        // Reconcile computed field type with stored tantivy schema for backwards compatibility.
+        // If the current code computes Numeric64/NumericBytes but the stored schema is F64,
+        // use F64 (this is a legacy index where NUMERIC was stored as f64).
+        let field_type = reconcile_field_type_with_schema(computed_field_type, &field_entry);
 
         Self {
             field,

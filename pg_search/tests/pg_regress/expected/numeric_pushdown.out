@@ -1768,3 +1768,117 @@ ORDER BY id;
 (3 rows)
 
 DROP TABLE numeric_mixed_precision_test;
+-- ============================================================================
+-- PART 10: Backwards Compatibility Documentation
+-- ============================================================================
+-- This section documents how backwards compatibility is maintained for indexes
+-- created before the Numeric64/NumericBytes storage types were introduced.
+--
+-- LEGACY BEHAVIOR (before this feature):
+-- - NUMERIC columns were stored as SearchFieldType::F64(NUMERICOID)
+-- - Values were stored as f64 in tantivy, losing precision beyond ~15 digits
+--
+-- NEW BEHAVIOR (after this feature):
+-- - NUMERIC(p,s) with p <= 18: stored as SearchFieldType::Numeric64(NUMERICOID, scale)
+--   Values are stored as I64 fixed-point, preserving exact decimal precision
+-- - NUMERIC with p > 18 or unbounded: stored as SearchFieldType::NumericBytes(NUMERICOID)
+--   Values are stored as lexicographically sortable bytes
+--
+-- BACKWARDS COMPATIBILITY:
+-- The implementation is backwards compatible because:
+-- 1. SearchFieldType is serialized in the index schema using Serde
+-- 2. Old variants (F64) deserialize correctly even after new variants are added
+-- 3. Query code branches on SearchFieldType, handling all three cases:
+--    - SearchFieldType::Numeric64 -> scale to I64 fixed-point
+--    - SearchFieldType::NumericBytes -> convert to sortable bytes
+--    - SearchFieldType::F64 -> convert to f64 (handles legacy indexes)
+--
+-- This means:
+-- - Old indexes with F64 storage remain queryable
+-- - Queries on old indexes use f64 comparison (same as before)
+-- - New indexes benefit from improved precision
+-- - No reindexing is required for old indexes (they just keep using f64)
+--
+-- Helper methods added to SearchFieldType:
+-- - is_legacy_numeric(): Returns true for F64(NUMERICOID)
+-- - is_any_numeric(): Returns true for Numeric64, NumericBytes, or legacy F64
+-- ============================================================================
+-- Test 10.1: Document that F64 storage still works for numeric-like queries
+-- This test uses FLOAT8 (which uses F64 storage) to demonstrate that
+-- the F64 query path works correctly - same path used by legacy NUMERIC indexes
+CREATE TABLE float8_test (
+    id SERIAL PRIMARY KEY,
+    value FLOAT8
+);
+INSERT INTO float8_test (value) VALUES
+    (100.5),
+    (200.75),
+    (300.0),
+    (400.25),
+    (500.99);
+CREATE INDEX float8_idx ON float8_test USING bm25 (
+    id, value
+) WITH (key_field = 'id');
+-- Equality query on F64 field
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value = 100.5
+ORDER BY id;
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, value
+   Sort Key: float8_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+         Output: id, value
+         Table: float8_test
+         Index: float8_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5,"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value = 100.5
+ORDER BY id;
+ id | value 
+----+-------
+  1 | 100.5
+(1 row)
+
+-- Range query on F64 field
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value > 200.0 AND value < 500.0
+ORDER BY id;
+                                                                                                                                      QUERY PLAN                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, value
+   Sort Key: float8_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.float8_test
+         Output: id, value
+         Table: float8_test
+         Index: float8_idx
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0},"is_datetime":false}}]}}
+(11 rows)
+
+SELECT * FROM float8_test
+WHERE id @@@ paradedb.all()
+AND value > 200.0 AND value < 500.0
+ORDER BY id;
+ id | value  
+----+--------
+  2 | 200.75
+  3 |    300
+  4 | 400.25
+(3 rows)
+
+DROP TABLE float8_test;

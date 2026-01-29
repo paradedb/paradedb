@@ -1184,18 +1184,18 @@ impl Bm25Params {
 }
 
 /// A custom BM25 statistics provider that wraps a Searcher with configurable b and k1 parameters.
-pub struct CustomBm25StatisticsProvider<'a> {
+pub struct TunedBm25<'a> {
     searcher: &'a Searcher,
     params: Bm25Params,
 }
 
-impl<'a> CustomBm25StatisticsProvider<'a> {
+impl<'a> TunedBm25<'a> {
     pub fn new(searcher: &'a Searcher, params: Bm25Params) -> Self {
         Self { searcher, params }
     }
 }
 
-impl Bm25StatisticsProvider for CustomBm25StatisticsProvider<'_> {
+impl Bm25StatisticsProvider for TunedBm25<'_> {
     fn total_num_tokens(&self, field: Field) -> tantivy::Result<u64> {
         self.searcher.total_num_tokens(field)
     }
@@ -1217,21 +1217,13 @@ impl Bm25StatisticsProvider for CustomBm25StatisticsProvider<'_> {
     }
 }
 
-/// Create an EnableScoring based on whether scores are needed.
-/// - `None`: Scoring is disabled
-/// - `Some(params)`: Scoring is enabled with the given BM25 parameters
 pub(super) fn enable_scoring<'a>(
     searcher: &'a Searcher,
     bm25_params: Option<Bm25Params>,
 ) -> EnableScoring<'a> {
     match bm25_params {
         Some(params) => {
-            // Note: We need to leak the provider because EnableScoring requires &'a dyn Bm25StatisticsProvider
-            // and we can't return a reference to a local value. This is safe because the provider
-            // is only used for the duration of the query and is small.
-            let provider = Box::leak(Box::new(CustomBm25StatisticsProvider::new(
-                searcher, params,
-            )));
+            let provider = Box::leak(Box::new(TunedBm25::new(searcher, params)));
             EnableScoring::Enabled {
                 searcher,
                 statistics_provider: provider,

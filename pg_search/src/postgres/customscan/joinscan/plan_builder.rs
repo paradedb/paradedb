@@ -311,7 +311,7 @@ unsafe fn compute_predicate_matches(
         MvccSatisfies::Snapshot,
         None,
         None,
-        None, // No scoring needed
+        None,
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

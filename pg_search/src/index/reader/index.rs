@@ -351,6 +351,9 @@ impl SearchIndexReader {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         let searcher = reader.searcher();
+
+        // if the query doesn't contain `pdb.score` but the search query requires scores
+        // (i.e. more like this), enable scoring with default parameters
         let bm25_params = if !bm25_params.wants_scores && search_query_input.need_scores() {
             Bm25Params::default().with_scoring()
         } else {

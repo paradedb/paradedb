@@ -1298,16 +1298,97 @@ DROP TABLE max_scale_test;
 -- TEST: Special Values (NaN, Infinity, -Infinity)
 -- ----------------------------------------------------------------------------
 -- PostgreSQL NUMERIC supports special values: NaN, Infinity, -Infinity
--- IMPORTANT: These special values are ONLY allowed in unbounded NUMERIC columns.
--- Bounded NUMERIC types like NUMERIC(18,2) or NUMERIC(30,10) will reject these
--- values with "numeric field overflow" error.
+-- (See: https://www.postgresql.org/docs/current/datatype-numeric.html)
 --
--- Therefore, special values can only be indexed using NumericBytes storage
--- (unbounded NUMERIC), not Numeric64 storage (bounded NUMERIC with precision <= 18).
+-- Key constraints from PostgreSQL documentation:
+-- - "an infinity can only be stored in an unconstrained numeric column,
+--    because it notionally exceeds any finite precision limit"
+-- - NaN is treated as equal to itself and greater than all non-NaN values
+--
+-- Actual behavior (verified by tests below):
+-- - Infinity/-Infinity: ONLY allowed in unbounded NUMERIC (per docs)
+-- - NaN: ALLOWED in both bounded and unbounded NUMERIC (not explicitly restricted)
+
+-- ----------------------------------------------------------------------------
+-- TEST: NaN with bounded NUMERIC(18,2) - Numeric64 storage
+-- ----------------------------------------------------------------------------
+-- Test if NaN alone (without Infinity) works with bounded NUMERIC
+
+CREATE TABLE nan_numeric64_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,2)
+);
+
+-- Try to insert NaN into bounded NUMERIC
+-- (PostgreSQL may or may not allow this - documenting actual behavior)
+INSERT INTO nan_numeric64_test (val) VALUES
+    (100.00),
+    (200.00),
+    ('NaN'::numeric),
+    (300.00);
+
+-- If insert succeeded, create index and test queries
+CREATE INDEX nan_numeric64_idx ON nan_numeric64_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for NaN in Numeric64 storage
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+
+-- Verify all rows
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+DROP TABLE nan_numeric64_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: NaN with bounded NUMERIC(30,10) - NumericBytes storage
+-- ----------------------------------------------------------------------------
+-- Test if NaN alone works with bounded high-precision NUMERIC
+
+CREATE TABLE nan_numeric_bytes_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(30,10)
+);
+
+-- Try to insert NaN into bounded NUMERIC
+INSERT INTO nan_numeric_bytes_test (val) VALUES
+    (100.0000000000),
+    (200.0000000000),
+    ('NaN'::numeric),
+    (300.0000000000);
+
+-- If insert succeeded, create index and test queries
+CREATE INDEX nan_numeric_bytes_idx ON nan_numeric_bytes_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query for NaN in NumericBytes storage
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val = 'NaN'::numeric
+ORDER BY id;
+
+-- Verify all rows
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+DROP TABLE nan_numeric_bytes_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: All special values with unbounded NUMERIC
+-- ----------------------------------------------------------------------------
+-- Unbounded NUMERIC is required for Infinity/-Infinity per PostgreSQL docs.
+-- This uses NumericBytes storage.
 
 CREATE TABLE special_values_test (
     id SERIAL PRIMARY KEY,
-    val NUMERIC  -- unbounded NUMERIC required for special values
+    val NUMERIC  -- unbounded NUMERIC required for Infinity values
 );
 
 -- Insert regular values and special values
@@ -1373,7 +1454,8 @@ WHERE id @@@ paradedb.all()
 AND val = '-Infinity'::numeric
 ORDER BY id;
 
--- Range query (should only return finite values in range, excluding NaN and infinities)
+-- Range query (should only return finite values in range)
+-- Per PostgreSQL: NaN is greater than all non-NaN values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -1385,7 +1467,8 @@ WHERE id @@@ paradedb.all()
 AND val > 50 AND val < 250
 ORDER BY id;
 
--- Greater than query - test if Infinity is greater than finite values
+-- Greater than query - Infinity should be greater than finite values
+-- NaN should also appear (PostgreSQL: NaN > all non-NaN)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
@@ -1397,7 +1480,7 @@ WHERE id @@@ paradedb.all()
 AND val > 250
 ORDER BY id;
 
--- Less than query - test if -Infinity is less than finite values
+-- Less than query - -Infinity should be less than finite values
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()

@@ -459,6 +459,11 @@ pub unsafe fn try_extract_quals_from_query(
 /// Errors if `pdb.agg()` is used AT THE CURRENT LEVEL but requirements aren't met.
 /// Note: pdb.agg() in subqueries/CTEs will be checked separately when those are processed.
 unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+    // Check if custom scan is enabled globally
+    if !gucs::enable_custom_scan() {
+        return false;
+    }
+
     // Early return: not a SELECT query
     if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
         return false;

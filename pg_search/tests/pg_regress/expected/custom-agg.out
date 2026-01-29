@@ -1405,7 +1405,17 @@ SELECT COUNT(*) OVER ()
 FROM logs
 WHERE description @@@ 'error'
 ORDER BY timestamp DESC LIMIT 10;
-ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
+ count 
+-------
+     7
+     7
+     7
+     7
+     7
+     7
+     7
+(7 rows)
+
 SET paradedb.enable_custom_scan TO on;
 -- Test 48: pdb.agg() as window function with WHERE clause when filter_pushdown is disabled
 -- The custom scan will reject queries where quals can't be extracted

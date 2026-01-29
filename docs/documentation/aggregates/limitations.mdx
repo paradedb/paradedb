@@ -25,3 +25,35 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 ## Join Support
 
 ParadeDB is currently only able to push down aggregates over a single table. JOINs are not yet pushed down but are on the [roadmap](/welcome/roadmap).
+
+## NUMERIC Column Precision
+
+For `NUMERIC` columns, aggregate pushdown support depends on the column's declared precision:
+
+| Column Definition              | Aggregate Pushdown | Notes                                            |
+| ------------------------------ | ------------------ | ------------------------------------------------ |
+| `NUMERIC(p,s)` where `p <= 18` | Supported          | Values stored as 64-bit fixed-point integers     |
+| `NUMERIC(p,s)` where `p > 18`  | Not supported      | Values stored as sortable bytes (not aggregable) |
+| `NUMERIC` (unbounded)          | Not supported      | Values stored as sortable bytes (not aggregable) |
+
+For best performance with `NUMERIC` columns that need aggregate pushdown, declare an explicit precision of 18 or less:
+
+```sql
+-- Aggregates can be pushed down
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(18,2)  -- precision <= 18
+);
+
+-- Aggregates cannot be pushed down (falls back to PostgreSQL)
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC  -- unbounded precision
+);
+```
+
+<Note>
+  Filter pushdown (equality and range queries) is supported for all `NUMERIC`
+  columns regardless of precision. Only aggregate pushdown has the precision
+  limitation.
+</Note>

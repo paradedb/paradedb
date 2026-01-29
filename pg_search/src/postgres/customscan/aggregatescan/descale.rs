@@ -19,7 +19,7 @@
 //! 3. **Aggregates**: `descale_f64()` converts aggregate results back to decimals
 //! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
-use std::collections::HashMap;
+use crate::api::HashMap;
 use std::sync::LazyLock;
 use tantivy::schema::OwnedValue;
 
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_descale_json_empty_scales() {
         let json = json!({"value": 123.45});
-        let scales = HashMap::new();
+        let scales = HashMap::default();
         let result = descale_numeric_values_in_json(json.clone(), &scales);
         assert_eq!(result, json);
     }
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_descale_json_top_level() {
         let json = json!({"value": 12345.0});
-        let mut scales = HashMap::new();
+        let mut scales = HashMap::default();
         scales.insert("__top_level__".to_string(), 2i16);
         let result = descale_numeric_values_in_json(json, &scales);
         assert_eq!(result, json!({"value": 123.45}));
@@ -340,7 +340,7 @@ mod tests {
                 "value": 9999.0
             }
         });
-        let mut scales = HashMap::new();
+        let mut scales = HashMap::default();
         scales.insert("avg_price".to_string(), 2i16);
         let result = descale_numeric_values_in_json(json, &scales);
         assert_eq!(

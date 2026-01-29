@@ -55,6 +55,7 @@ use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::{
     descale_numeric_values_in_json, extract_agg_name_to_field,
@@ -89,7 +90,7 @@ fn aggregate_impl(
     let agg_name_to_field = extract_agg_name_to_field(&agg.0);
 
     // Build a mapping of aggregate names to their numeric scales
-    let mut numeric_field_scales = std::collections::HashMap::new();
+    let mut numeric_field_scales = HashMap::default();
     if let Ok(schema) = relation.schema() {
         for (agg_name, field_name) in &agg_name_to_field {
             if let Some(search_field) = schema.search_field(field_name) {

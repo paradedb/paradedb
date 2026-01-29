@@ -17,8 +17,8 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
-    MvccVisibility,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashMap,
+    HashSet, MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
@@ -96,7 +96,7 @@ pub enum AggregateType {
         mvcc_visibility: MvccVisibility,
         /// Map of field names to their numeric scales for Numeric64 fields.
         /// Used to descale aggregate results in custom aggregates.
-        numeric_field_scales: std::collections::HashMap<String, i16>,
+        numeric_field_scales: HashMap<String, i16>,
     },
 }
 
@@ -192,7 +192,7 @@ impl AggregateType {
             // This allows us to descale only the aggregate results that reference Numeric64 fields.
             let agg_name_to_field = extract_agg_name_to_field(&json_value);
 
-            let mut numeric_field_scales = std::collections::HashMap::new();
+            let mut numeric_field_scales = HashMap::default();
             if let Ok(schema) = bm25_index.schema() {
                 for (agg_name, field_name) in agg_name_to_field {
                     if let Some(search_field) = schema.search_field(&field_name) {
@@ -305,7 +305,7 @@ impl AggregateType {
     }
 
     /// Get the numeric field scales for Custom aggregates (used for descaling results)
-    pub fn numeric_field_scales(&self) -> Option<&std::collections::HashMap<String, i16>> {
+    pub fn numeric_field_scales(&self) -> Option<&crate::api::HashMap<String, i16>> {
         match self {
             AggregateType::Custom {
                 numeric_field_scales,
@@ -462,17 +462,15 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
 /// Extract a mapping from aggregate names to the field they aggregate.
 /// For example, {"aggs": {"avg_price": {"avg": {"field": "price"}}}} -> {"avg_price": "price"}
 /// This also handles nested aggregations and top-level metric aggregates.
-pub fn extract_agg_name_to_field(
-    json: &serde_json::Value,
-) -> std::collections::HashMap<String, String> {
-    let mut result = std::collections::HashMap::new();
+pub fn extract_agg_name_to_field(json: &serde_json::Value) -> HashMap<String, String> {
+    let mut result = HashMap::default();
     extract_agg_name_to_field_recursive(json, &mut result, None);
     result
 }
 
 fn extract_agg_name_to_field_recursive(
     json: &serde_json::Value,
-    result: &mut std::collections::HashMap<String, String>,
+    result: &mut HashMap<String, String>,
     current_agg_name: Option<&str>,
 ) {
     const METRIC_TYPES: &[&str] = &[

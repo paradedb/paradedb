@@ -381,7 +381,7 @@ unsafe fn convert_window_func_to_aggregate_type(
             filter,
             indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
             mvcc_visibility,
-            numeric_field_scales: std::collections::HashMap::new(), // Will be filled in during planning
+            numeric_field_scales: HashMap::default(), // Will be filled in during planning
         });
     }
 

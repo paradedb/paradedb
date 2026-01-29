@@ -1140,3 +1140,187 @@ AND value > 200.0 AND value < 500.0
 ORDER BY id;
 
 DROP TABLE float8_test;
+
+-- ============================================================================
+-- PART 11: Edge Cases
+-- ============================================================================
+-- Tests for edge cases: scientific notation, very small decimals, maximum scale
+
+-- ----------------------------------------------------------------------------
+-- TEST: Scientific Notation
+-- ----------------------------------------------------------------------------
+-- PostgreSQL NUMERIC accepts scientific notation in input
+CREATE TABLE sci_notation_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,2)
+);
+
+INSERT INTO sci_notation_test (val) VALUES
+    (1.23e10),   -- 12300000000.00
+    (4.56e5),    -- 456000.00
+    (7.89e-3),   -- 0.01 (rounded to 2 decimal places)
+    (1e6),       -- 1000000.00
+    (2.5e3);     -- 2500.00
+
+CREATE INDEX sci_notation_idx ON sci_notation_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Query with scientific notation comparison
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val > 1e6
+ORDER BY id;
+
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val > 1e6
+ORDER BY id;
+
+-- Query for exact match (scientific notation input)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val = 2.5e3
+ORDER BY id;
+
+SELECT * FROM sci_notation_test
+WHERE id @@@ paradedb.all()
+AND val = 2.5e3
+ORDER BY id;
+
+DROP TABLE sci_notation_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: Very Small Decimals (High Scale)
+-- ----------------------------------------------------------------------------
+-- Test precision preservation with many decimal places
+CREATE TABLE small_decimal_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,16)
+);
+
+INSERT INTO small_decimal_test (val) VALUES
+    (0.0000000000000001),  -- 1e-16
+    (0.0000000000000002),  -- 2e-16
+    (0.0000000000000010),  -- 1e-15
+    (0.0000000000000100),  -- 1e-14
+    (0.1234567890123456);  -- 16 decimal places
+
+CREATE INDEX small_decimal_idx ON small_decimal_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Exact match on very small value
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val = 0.0000000000000001
+ORDER BY id;
+
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val = 0.0000000000000001
+ORDER BY id;
+
+-- Range query on very small values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0000000000000001 AND val < 0.0000000000000100
+ORDER BY id;
+
+SELECT * FROM small_decimal_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0000000000000001 AND val < 0.0000000000000100
+ORDER BY id;
+
+DROP TABLE small_decimal_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: Maximum Scale (NUMERIC(18,18) - all decimal places)
+-- ----------------------------------------------------------------------------
+-- Edge case: precision equals scale (value must be between -1 and 1)
+CREATE TABLE max_scale_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(18,18)
+);
+
+INSERT INTO max_scale_test (val) VALUES
+    (0.000000000000000001),  -- smallest positive
+    (0.123456789012345678),  -- 18 decimal places
+    (0.999999999999999999),  -- near 1
+    (-0.500000000000000000), -- negative
+    (0.0);                   -- zero
+
+CREATE INDEX max_scale_idx ON max_scale_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- Exact match
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 0.123456789012345678
+ORDER BY id;
+
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val = 0.123456789012345678
+ORDER BY id;
+
+-- Range query on max scale values
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0 AND val < 0.5
+ORDER BY id;
+
+SELECT * FROM max_scale_test
+WHERE id @@@ paradedb.all()
+AND val > 0.0 AND val < 0.5
+ORDER BY id;
+
+-- Aggregate on max scale
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM max_scale_test
+WHERE id @@@ paradedb.all();
+
+SELECT SUM(val), AVG(val), MIN(val), MAX(val)
+FROM max_scale_test
+WHERE id @@@ paradedb.all();
+
+DROP TABLE max_scale_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: NaN Handling (Document behavior)
+-- ----------------------------------------------------------------------------
+-- Note: PostgreSQL NUMERIC supports 'NaN' (Not a Number) as a special value.
+-- This test documents the current behavior - NaN values may not be queryable
+-- via the search index since decimal-bytes may not support NaN encoding.
+-- Users should avoid indexing NaN values if they need to query them.
+
+CREATE TABLE nan_test (
+    id SERIAL PRIMARY KEY,
+    val NUMERIC(10,2)
+);
+
+-- Insert regular values and document that NaN behavior is undefined
+INSERT INTO nan_test (val) VALUES
+    (100.00),
+    (200.00),
+    (300.00);
+
+CREATE INDEX nan_test_idx ON nan_test USING bm25 (
+    id, val
+) WITH (key_field = 'id');
+
+-- This should work normally with non-NaN values
+SELECT * FROM nan_test
+WHERE id @@@ paradedb.all()
+AND val = 100.00
+ORDER BY id;
+
+DROP TABLE nan_test;

@@ -90,6 +90,28 @@ pub fn descale_owned_value(value: &OwnedValue, scale: i16) -> OwnedValue {
     }
 }
 
+/// Scale an OwnedValue to I64 fixed-point representation.
+///
+/// Handles Str, I64, U64, and F64 values, converting to scaled I64.
+/// Used for query value scaling where the input type may vary.
+///
+/// # Example
+/// ```ignore
+/// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
+/// ```
+pub fn scale_owned_value(value: OwnedValue, scale: i16) -> anyhow::Result<OwnedValue> {
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(),
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    };
+
+    let scaled = scale_i64(&numeric_str, scale)?;
+    Ok(OwnedValue::I64(scaled))
+}
+
 // ============================================================================
 // Schema Helpers
 // ============================================================================
@@ -276,6 +298,40 @@ mod tests {
             descale_owned_value(&OwnedValue::Str("test".to_string()), 2),
             OwnedValue::Str("test".to_string())
         );
+    }
+
+    #[test]
+    fn test_scale_owned_value() {
+        // String input
+        assert_eq!(
+            scale_owned_value(OwnedValue::Str("123.45".to_string()), 2).unwrap(),
+            OwnedValue::I64(12345)
+        );
+        // F64 input
+        assert_eq!(
+            scale_owned_value(OwnedValue::F64(0.999), 3).unwrap(),
+            OwnedValue::I64(999)
+        );
+        // I64 input (already integer, but scales)
+        assert_eq!(
+            scale_owned_value(OwnedValue::I64(50), 1).unwrap(),
+            OwnedValue::I64(500)
+        );
+        // Negative value
+        assert_eq!(
+            scale_owned_value(OwnedValue::Str("-50.5".to_string()), 1).unwrap(),
+            OwnedValue::I64(-505)
+        );
+    }
+
+    #[test]
+    fn test_scale_descale_roundtrip() {
+        // Verify that scale followed by descale returns the original value
+        let original = 123.45f64;
+        let scale = 2i16;
+        let scaled = scale_owned_value(OwnedValue::F64(original), scale).unwrap();
+        let descaled = descale_owned_value(&scaled, scale);
+        assert_eq!(descaled, OwnedValue::F64(original));
     }
 
     #[test]

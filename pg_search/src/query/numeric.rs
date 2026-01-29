@@ -41,20 +41,15 @@ pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
 // Numeric64 (I64 Fixed-Point) Conversions
 // ============================================================================
 
-/// Scale a numeric value for Numeric64 (I64 fixed-point) storage.
-///
-/// Converts the value to a scaled integer by multiplying by 10^scale.
-/// For example, with scale=2: 123.45 becomes 12345.
-///
-/// Delegates to the centralized `scale_i64` in the descale module.
+// Re-export scale_owned_value from the centralized descale module.
+// This provides the symmetric counterpart to descale_owned_value.
+pub use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
+
+/// Alias for scale_owned_value for backward compatibility.
+/// Prefer using scale_owned_value directly.
+#[inline]
 pub fn scale_numeric_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
-    use crate::postgres::customscan::aggregatescan::descale::scale_i64;
-
-    let numeric_str = extract_numeric_string(&value)
-        .ok_or_else(|| anyhow::anyhow!("Cannot scale non-numeric value: {:?}", value))?;
-
-    let scaled = scale_i64(&numeric_str, scale)?;
-    Ok(OwnedValue::I64(scaled))
+    scale_owned_value(value, scale)
 }
 
 // ============================================================================

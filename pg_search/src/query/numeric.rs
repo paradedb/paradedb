@@ -86,13 +86,7 @@ pub fn numeric_value_to_bytes(value: OwnedValue) -> Result<OwnedValue> {
     })?;
 
     // Hex-encode the bytes to create a string that preserves lexicographic ordering
-    let hex: String = decimal
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
-
-    Ok(OwnedValue::Str(hex))
+    Ok(OwnedValue::Str(bytes_to_hex(decimal.as_bytes())))
 }
 
 /// Convert a numeric string to hex-encoded sortable bytes.
@@ -102,11 +96,17 @@ pub fn numeric_to_hex_bytes(numeric_str: &str) -> Result<String> {
     let decimal = Decimal::from_str(numeric_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", numeric_str, e))?;
 
-    Ok(decimal
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect())
+    Ok(bytes_to_hex(decimal.as_bytes()))
+}
+
+/// Convert a byte slice to a hex-encoded string.
+///
+/// This is a common utility for encoding lexicographically sortable decimal bytes
+/// into strings that preserve the byte ordering. Used by NumericBytes storage
+/// and NUMRANGE fields.
+#[inline]
+pub fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 // ============================================================================

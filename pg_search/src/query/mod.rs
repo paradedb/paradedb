@@ -673,14 +673,9 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<Own
             _ => return None,
         };
 
-        Decimal::from_str(&numeric_str).ok().map(|dec| {
-            let hex: String = dec
-                .as_bytes()
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect();
-            OwnedValue::Str(hex)
-        })
+        Decimal::from_str(&numeric_str)
+            .ok()
+            .map(|dec| OwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
     };
 
     match bound {

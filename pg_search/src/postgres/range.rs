@@ -1,4 +1,5 @@
 use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::query::numeric::bytes_to_hex;
 use crate::schema::range::TantivyRangeBuilder;
 use decimal_bytes::Decimal;
 use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
@@ -77,13 +78,7 @@ impl Serialize for SortableDecimal {
         // Hex encoding preserves lexicographic ordering since:
         // - Each byte maps to exactly 2 hex chars
         // - Hex chars compare in the same order as byte values
-        let hex: String = self
-            .0
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect();
-        serializer.serialize_str(&hex)
+        serializer.serialize_str(&bytes_to_hex(self.0.as_bytes()))
     }
 }
 

@@ -353,7 +353,7 @@ pub unsafe fn maybe_needs_const_projections(node: *mut pg_sys::Node) -> bool {
     }
 
     struct Data {
-        score_funcoids: [pg_sys::Oid; 2],
+        score_funcoids: [pg_sys::Oid; 3],
         snippet_funcoids: [pg_sys::Oid; 2],
         snippet_positions_funcoids: [pg_sys::Oid; 2],
     }
@@ -440,7 +440,7 @@ pub unsafe fn pullout_funcexprs(
 pub unsafe fn inject_placeholders(
     targetlist: *mut pg_sys::List,
     rti: pg_sys::Index,
-    score_funcoids: [pg_sys::Oid; 2],
+    score_funcoids: [pg_sys::Oid; 3],
     snippet_funcoids: [pg_sys::Oid; 2],
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
@@ -546,7 +546,7 @@ pub unsafe fn inject_placeholders(
     struct Data<'a> {
         rti: pg_sys::Index,
 
-        score_funcoids: [pg_sys::Oid; 2],
+        score_funcoids: [pg_sys::Oid; 3],
         const_score_node: *mut pg_sys::Const,
 
         snippet_funcoids: [pg_sys::Oid; 2],

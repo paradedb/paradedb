@@ -29,7 +29,7 @@ use pgrx::{pg_sys, PgList};
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader};
 use crate::postgres::customscan::joinscan::build::{
     JoinCSClause, JoinLevelSearchPredicate, JoinSideInfo,
 };
@@ -192,10 +192,10 @@ impl JoinScanPlanBuilder {
         }
 
         // 3. Add score fields if needed
-        if join_clause.outer_side.score_needed {
+        if join_clause.outer_side.bm25_settings.enabled() {
             outer_schema.add_score();
         }
-        if join_clause.inner_side.score_needed {
+        if join_clause.inner_side.bm25_settings.enabled() {
             inner_schema.add_score();
         }
 
@@ -308,10 +308,10 @@ unsafe fn compute_predicate_matches(
     let reader = SearchIndexReader::open_with_context(
         &index_rel,
         pred.query.clone(),
-        false,
         MvccSatisfies::Snapshot,
         None,
         None,
+        Bm25Settings::disabled(),
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
@@ -361,10 +361,10 @@ unsafe fn build_side_plan(
     let reader = SearchIndexReader::open_with_context(
         &index_rel,
         query,
-        side.score_needed,
         MvccSatisfies::Snapshot,
         None,
         None,
+        side.bm25_settings,
     )
     .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 

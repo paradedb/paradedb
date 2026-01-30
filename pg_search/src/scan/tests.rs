@@ -20,7 +20,7 @@
 mod tests {
     use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
     use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::SearchIndexReader;
+    use crate::index::reader::index::{Bm25Settings, SearchIndexReader};
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
@@ -67,7 +67,7 @@ mod tests {
         let reader = SearchIndexReader::open(
             &index_rel,
             SearchQueryInput::All, // Scan all docs
-            false,                 // need_scores
+            Bm25Settings::disabled(),
             MvccSatisfies::Snapshot,
         )
         .unwrap();

@@ -19,7 +19,7 @@ use std::cell::UnsafeCell;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader};
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
 use crate::postgres::customscan::basescan::projections::snippet::SnippetType;
@@ -69,9 +69,10 @@ pub struct BaseScanState {
     pub segment_count: usize,
     pub quals: Option<Qual>,
 
-    pub need_scores: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
-    pub score_funcoids: [pg_sys::Oid; 2],
+    pub score_funcoids: [pg_sys::Oid; 3],
+    /// BM25 parameters for scoring. Check `enabled` to see if scoring is enabled.
+    pub bm25_settings: Bm25Settings,
 
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
@@ -207,7 +208,7 @@ impl BaseScanState {
 
     #[inline(always)]
     pub fn need_scores(&self) -> bool {
-        self.need_scores
+        self.bm25_settings.enabled()
             || self.base_search_query_input.need_scores()
             || self
                 .quals

@@ -21,9 +21,10 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
+use crate::index::reader::index::Bm25Settings;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
@@ -342,7 +343,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if uses_scores((*te).expr.cast(), score_funcoids(), rti) {
+        if Bm25Settings::from_pg((*te).expr.cast(), score_funcoids(), rti).enabled() {
             // we can only pull up a score if the score is:
             // 1. directly a call to `pdb.score`, with no wrapping expression (i.e. `is_score_func`)
             // 2. a call to `pdb.score` inside of an expression which will be solved by a

@@ -23,6 +23,7 @@
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `extract_score_pathkey()` in mod.rs.
 
+use crate::index::reader::index::Bm25Settings;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -43,10 +44,8 @@ pub struct JoinSideInfo {
     pub has_search_predicate: bool,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
     pub alias: Option<String>,
-    /// Whether scores are needed for this side's results.
-    /// True when ORDER BY paradedb.score() is present for this side.
-    /// Used to optimize FastField executor (skip score computation when not needed).
-    pub score_needed: bool,
+    /// BM25 parameters for scoring. Check `enabled()` to see if scoring is enabled.
+    pub bm25_settings: Bm25Settings,
 }
 
 impl JoinSideInfo {
@@ -85,8 +84,8 @@ impl JoinSideInfo {
         self
     }
 
-    pub fn with_score_needed(mut self, needed: bool) -> Self {
-        self.score_needed = needed;
+    pub fn with_bm25_settings(mut self, params: Bm25Settings) -> Self {
+        self.bm25_settings = params;
         self
     }
 }

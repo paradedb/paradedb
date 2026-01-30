@@ -33,13 +33,13 @@ use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
+use crate::index::reader::index::{Bm25Settings, SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
 use crate::postgres::customscan::basescan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
+use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
@@ -106,12 +106,11 @@ impl BaseScan {
             .expect("custom_state.indexrel should already be open");
 
         let search_query_input = state.custom_state().search_query_input();
-        let need_scores = state.custom_state().need_scores();
+        let bm25_settings = state.custom_state().bm25_settings;
 
         let search_reader = SearchIndexReader::open_with_context(
             indexrel,
             search_query_input.clone(),
-            need_scores,
             unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // the leader only sees snapshot-visible segments
@@ -130,6 +129,7 @@ impl BaseScan {
             },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
+            bm25_settings,
         )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
@@ -952,7 +952,9 @@ impl CustomScan for BaseScan {
             builder.custom_state().snippet_funcoids = snippet_funcoids;
             builder.custom_state().snippets_funcoids = snippets_funcoids;
             builder.custom_state().snippet_positions_funcoids = snippet_positions_funcoids;
-            builder.custom_state().need_scores = uses_scores(
+
+            // Detect score function usage and extract BM25 parameters
+            builder.custom_state().bm25_settings = Bm25Settings::from_pg(
                 builder.target_list().as_ptr().cast(),
                 score_funcoids,
                 builder.custom_state().execution_rti,
@@ -976,7 +978,7 @@ impl CustomScan for BaseScan {
                 .custom_state()
                 .set_base_search_query_input(base_query);
 
-            if builder.custom_state().need_scores {
+            if builder.custom_state().need_scores() {
                 let state = builder.custom_state();
                 // Pre-compute enhanced score query if we have join predicates that could affect scoring
                 let mut enhanced_score_query = None;
@@ -1162,10 +1164,10 @@ impl CustomScan for BaseScan {
                         let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
                             base_query.clone(),
-                            false,                         // don't need scores for estimates
                             MvccSatisfies::LargestSegment, // Use largest segment for estimation
                             None,                          // No expr_context needed for estimates
                             None,                          // No planstate needed for estimates
+                            Bm25Settings::disabled(),
                         )
                         .expect("opening temporary search reader for estimates should not fail");
 

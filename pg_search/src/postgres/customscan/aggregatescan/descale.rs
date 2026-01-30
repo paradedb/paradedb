@@ -1,6 +1,20 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
 //! Numeric scaling utilities for NUMERIC column pushdown.
 //!
-//! This module provides a unified abstraction for scaling and descaling numeric values
+//! This module provides an abstraction for scaling and descaling numeric values
 //! in the Numeric64 (I64 fixed-point) storage format. The core idea is simple:
 //!
 //! - **Scaling** (at index/query time): Multiply by 10^scale to convert decimals to integers

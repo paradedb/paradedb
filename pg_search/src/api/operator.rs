@@ -829,10 +829,6 @@ pub unsafe fn field_name_from_node(
     //
     // we're looking for a more complex expression
     //
-    pgrx::debug1!(
-        "field_name_from_node: looking for complex expression, node type: {:?}",
-        (*node).type_
-    );
 
     let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
     let mut expressions_iter = expressions.iter_ptr();
@@ -849,7 +845,6 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
-                pgrx::debug1!("field_name_from_node: found composite type expression");
                 if let Some(row_expr) = row_expr_from_indexed_expr(indexed_expression) {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
@@ -857,26 +852,13 @@ pub unsafe fn field_name_from_node(
                     };
 
                     let row_args = unsafe { PgList::<pg_sys::Node>::from_pg((*row_expr).args) };
-                    pgrx::debug1!(
-                        "field_name_from_node: checking {} row args against {} fields",
-                        row_args.len(),
-                        fields.len()
-                    );
 
                     for (position, arg) in row_args.iter_ptr().enumerate() {
                         if position >= fields.len() || fields[position].is_dropped {
                             continue;
                         }
 
-                        pgrx::debug1!(
-                            "field_name_from_node: checking arg {} (type {:?}) against field {}",
-                            position,
-                            unsafe { (*arg).type_ },
-                            fields[position].field_name
-                        );
-                        let matches = expr_matches_node(node, arg.cast());
-                        pgrx::debug1!("field_name_from_node: match result: {}", matches);
-                        if matches {
+                        if expr_matches_node(node, arg.cast()) {
                             return Some(FieldName::from(fields[position].field_name.clone()));
                         }
                     }

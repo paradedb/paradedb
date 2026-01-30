@@ -1865,7 +1865,12 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
-ERROR:  `account_num` is missing or is not configured as a fast field
+      description       | holder_name | amount  
+------------------------+-------------+---------
+ Wire transfer received | John Doe    | 1000.00
+ Stock purchase wire    | Bob Wilson  | 5000.00
+(2 rows)
+
 -- =============================================================================
 -- TEST 22: Large result set (functional, not performance)
 -- =============================================================================

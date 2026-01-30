@@ -607,6 +607,12 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
+    /// Returns true if this field uses NumericBytes storage (hex-encoded string).
+    /// NumericBytes fields are stored as text but should support direct equality/range pushdown.
+    pub fn is_numeric_bytes(&self) -> bool {
+        matches!(self.field_type, SearchFieldType::NumericBytes(_))
+    }
+
     pub fn with_positions(self) -> Result<Self, QueryError> {
         if self.supports_positions() {
             Ok(self)

@@ -301,6 +301,23 @@ impl From<SearchFieldConfig> for TextOptions {
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
+            // NumericBytes fields are stored as hex-encoded text strings.
+            // They don't need tokenization since they're exact values.
+            SearchFieldConfig::Numeric { indexed, fast, .. } => {
+                if fast {
+                    // Use raw normalizer for hex strings (no transformation needed)
+                    text_options = text_options.set_fast(Some("raw"));
+                }
+                if indexed {
+                    // Use raw tokenizer (no tokenization) for exact matching
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(tantivy::schema::IndexRecordOption::Basic)
+                        .set_fieldnorms(false)
+                        .set_tokenizer("raw");
+
+                    text_options = text_options.set_indexing_options(text_field_indexing);
+                }
+            }
             _ => panic!("attempted to convert non-text search field config to tantivy text config"),
         }
         text_options

@@ -274,9 +274,12 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::Numeric64(_, _) => {
                 builder.add_i64_field(name.as_ref(), config.clone())
             }
-            // NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes
+            // NUMERIC with precision > 18 or unlimited: stored as hex-encoded sortable string
+            // We use text storage instead of bytes because Tantivy's FastFieldReaders
+            // doesn't support bytes columns for join pushdown and other fast field operations.
+            // Hex encoding preserves lexicographic byte ordering.
             SearchFieldType::NumericBytes(_) => {
-                builder.add_bytes_field(name.as_ref(), config.clone())
+                builder.add_text_field(name.as_ref(), config.clone())
             }
         };
     }

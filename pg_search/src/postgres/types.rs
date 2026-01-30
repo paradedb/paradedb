@@ -736,10 +736,12 @@ impl TantivyValue {
         Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
     }
 
-    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with Bytes storage.
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with hex-encoded string storage.
     /// Used for NUMERIC with precision > 18 or unlimited precision.
     ///
-    /// The bytes are lexicographically sortable, supporting range queries.
+    /// The hex encoding preserves lexicographic byte ordering, supporting range queries.
+    /// We use string storage (not bytes) because Tantivy's FastFieldReaders doesn't
+    /// support bytes columns for join pushdown and other fast field operations.
     pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
         use decimal_bytes::Decimal;
         use std::str::FromStr;
@@ -752,14 +754,19 @@ impl TantivyValue {
 
         let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
             TantivyValueError::NumericConversion(format!(
-                "Failed to convert NUMERIC '{}' to bytes: {:?}",
+                "Failed to convert NUMERIC '{}' to hex: {:?}",
                 numeric_str, e
             ))
         })?;
 
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
-            decimal.as_bytes().to_vec(),
-        )))
+        // Hex-encode the bytes to create a string that preserves lexicographic ordering
+        let hex: String = decimal
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(hex)))
     }
 
     /// Convert a PostgreSQL NUMERIC value to a TantivyValue based on the target field type.
@@ -845,7 +852,7 @@ impl TantivyValue {
             .collect()
     }
 
-    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with Bytes storage.
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with hex-encoded string storage.
     /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
     pub unsafe fn try_from_numeric_array_bytes(
         datum: Datum,
@@ -866,14 +873,19 @@ impl TantivyValue {
                 let numeric_str = numeric.normalize().to_string();
                 let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
                     TantivyValueError::NumericConversion(format!(
-                        "Failed to convert NUMERIC array element '{}' to bytes: {:?}",
+                        "Failed to convert NUMERIC array element '{}' to hex: {:?}",
                         numeric_str, e
                     ))
                 })?;
 
-                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
-                    decimal.as_bytes().to_vec(),
-                )))
+                // Hex-encode the bytes to create a string that preserves lexicographic ordering
+                let hex: String = decimal
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
+
+                Ok(TantivyValue(tantivy::schema::OwnedValue::Str(hex)))
             })
             .collect()
     }

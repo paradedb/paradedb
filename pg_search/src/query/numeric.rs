@@ -67,23 +67,32 @@ pub use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
 // NumericBytes Conversions
 // ============================================================================
 
-/// Convert a numeric value to lexicographically sortable bytes.
+/// Convert a numeric value to a hex-encoded string for NumericBytes storage.
 ///
 /// Used for NumericBytes storage where precision exceeds 18 digits.
-/// The byte representation maintains sort order for range queries.
+/// The hex encoding preserves lexicographic byte ordering for range queries.
+/// We use string storage (not bytes) because Tantivy's FastFieldReaders doesn't
+/// support bytes columns for join pushdown and other fast field operations.
 pub fn numeric_value_to_bytes(value: OwnedValue) -> Result<OwnedValue> {
     let numeric_str = extract_numeric_string(&value)
-        .ok_or_else(|| anyhow::anyhow!("Cannot convert non-numeric value to bytes: {:?}", value))?;
+        .ok_or_else(|| anyhow::anyhow!("Cannot convert non-numeric value to hex: {:?}", value))?;
 
     let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
         anyhow::anyhow!(
-            "Failed to convert numeric value '{}' to bytes: {:?}",
+            "Failed to convert numeric value '{}' to hex: {:?}",
             numeric_str,
             e
         )
     })?;
 
-    Ok(OwnedValue::Bytes(decimal.as_bytes().to_vec()))
+    // Hex-encode the bytes to create a string that preserves lexicographic ordering
+    let hex: String = decimal
+        .as_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+
+    Ok(OwnedValue::Str(hex))
 }
 
 /// Convert a numeric string to hex-encoded sortable bytes.

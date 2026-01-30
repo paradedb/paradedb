@@ -5,7 +5,7 @@ CREATE TABLE data_records (
     id SERIAL PRIMARY KEY,
     title TEXT,
     category TEXT,
-    price NUMERIC(18,2),
+    price NUMERIC,
     in_stock BOOLEAN,
     created_at TIMESTAMP,
     valid_period TSTZRANGE,

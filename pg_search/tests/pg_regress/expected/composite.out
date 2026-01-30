@@ -16,14 +16,14 @@ SET search_path TO composite_test, public;
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC(18,2)
+    price NUMERIC
 );
 -- Create table with composite type in index
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC(18,2)
+    price NUMERIC
 );
 -- Create index using composite type expression
 CREATE INDEX idx_products
@@ -352,12 +352,12 @@ DROP TYPE dup_field_comp;
 ------------------------------------------------------------
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC(18,2)
+    price NUMERIC
 );
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
     id, (ROW(name, description, price)::nullable_comp)
@@ -389,12 +389,12 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 ------------------------------------------------------------
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC(18,2));
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC(18,2)
+    price NUMERIC
 );
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
     id, (ROW(name, description, price)::reindex_comp)
@@ -1059,13 +1059,13 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC(18,2)
+    product_price NUMERIC
 );
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC(18,2)
+    product_price NUMERIC
 );
 CREATE INDEX idx_products_schema
 ON products_schema
@@ -1346,7 +1346,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC(18,2),
+    price NUMERIC,
     in_stock BOOLEAN
 );
 -- Insert test data

@@ -9,14 +9,14 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE products_2023 (
     id SERIAL,
     product_name TEXT,
-    amount DECIMAL(18,2),
+    amount DECIMAL,
     sale_date DATE
 );
 
 CREATE TABLE products_2024 (
     id SERIAL,
     product_name TEXT,
-    amount DECIMAL(18,2),
+    amount DECIMAL,
     sale_date DATE
 );
 

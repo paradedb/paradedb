@@ -17,7 +17,7 @@ CREATE TABLE products (
     description TEXT,
     rating INTEGER,
     category TEXT,
-    price NUMERIC(18,2),
+    price NUMERIC,
     in_stock BOOLEAN
 );
 

@@ -125,12 +125,12 @@ SELECT *, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY id DESC LIMIT 3;
-                                                                                                                                                 QUERY PLAN                                                                                                                                                 
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, description, rating, created_at, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   Output: id, description, rating, created_at, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
    ->  Custom Scan (ParadeDB Scan) on public.mock_items
-         Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Output: id, description, rating, created_at, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
          Table: mock_items
          Index: mock_items_idx
          Exec Method: TopNScanExecState

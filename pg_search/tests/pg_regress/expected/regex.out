@@ -2,7 +2,6 @@ CREATE INDEX IF NOT EXISTS idxregress_mock_items
 ON regress.mock_items
     USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
 WITH (key_field='id');
-ERROR:  schema "regress" does not exist
 -- ensure a cast to `::pdb.regex` works to tokenize using a regular expression
 SELECT 'ooh lala'::pdb.regex_pattern('oo|a')::text[];
    text   
@@ -13,6 +12,18 @@ SELECT 'ooh lala'::pdb.regex_pattern('oo|a')::text[];
 -- test the `pdb.regex_term` function.  This function was once called `pdb.regex` but it ended up being ambiguous
 -- with the tokenizer type `::pdb.regex`, so the function has been renamed to `pdb.regex_term`
 SELECT * FROM regress.mock_items WHERE description @@@ pdb.regex('sh.es') ORDER BY id;
-ERROR:  relation "regress.mock_items" does not exist at character 15
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
 SELECT pdb.score(id), * FROM regress.mock_items WHERE description @@@ pdb.regex('sh.es')::pdb.const(42) ORDER BY id;
-ERROR:  relation "regress.mock_items" does not exist at character 30
+ score | id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+-------+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+    42 |  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+    42 |  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+    42 |  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+

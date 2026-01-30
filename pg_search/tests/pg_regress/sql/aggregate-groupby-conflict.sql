@@ -10,7 +10,7 @@ CREATE TABLE groupby_conflict_test (
     title TEXT,
     category TEXT,
     rating INTEGER,
-    price NUMERIC(18,2),
+    price NUMERIC,
     views INTEGER
 );
 

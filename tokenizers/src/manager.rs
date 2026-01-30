@@ -47,7 +47,9 @@ pub struct SearchTokenizerFilters {
     pub remove_short: Option<usize>,
     pub remove_long: Option<usize>,
     pub lowercase: Option<bool>,
-    pub stemmer: Option<Language>,
+    /// Supports one or more languages for stemming.
+    /// Useful for documents containing multiple languages.
+    pub stemmer: Option<Vec<Language>>,
     /// Supports one or more languages for stopwords filtering.
     /// Useful for documents containing multiple languages.
     pub stopwords_language: Option<Vec<Language>>,
@@ -130,6 +132,36 @@ impl SearchTokenizerFilters {
         }
     }
 
+    /// Parse stemmer from JSON - supports both a single string and an array of strings
+    fn parse_stemmer(value: &serde_json::Value) -> Result<Option<Vec<Language>>, anyhow::Error> {
+        match value {
+            serde_json::Value::Null => Ok(None),
+            serde_json::Value::String(s) => {
+                let lang: Language =
+                    serde_json::from_value(serde_json::Value::String(s.clone()))
+                        .map_err(|e| anyhow::anyhow!("stemmer requires a valid language: {e}"))?;
+                Ok(Some(vec![lang]))
+            }
+            serde_json::Value::Array(arr) => {
+                let languages: Vec<Language> = arr
+                    .iter()
+                    .map(|v| {
+                        serde_json::from_value(v.clone())
+                            .map_err(|e| anyhow::anyhow!("stemmer requires valid languages: {e}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if languages.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(languages))
+                }
+            }
+            _ => Err(anyhow::anyhow!(
+                "stemmer must be a string or array of strings"
+            )),
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 
@@ -158,9 +190,7 @@ impl SearchTokenizerFilters {
             })?);
         };
         if let Some(stemmer) = value.get("stemmer") {
-            filters.stemmer = Some(serde_json::from_value(stemmer.clone()).map_err(|_| {
-                anyhow::anyhow!("stemmer tokenizer requires a valid 'stemmer' field")
-            })?);
+            filters.stemmer = Self::parse_stemmer(stemmer)?;
         }
         if let Some(stopwords_language) = value.get("stopwords_language") {
             filters.stopwords_language = Self::parse_stopwords_language(stopwords_language)?;
@@ -219,8 +249,12 @@ impl SearchTokenizerFilters {
                 .expect("Writing to String buffer should never fail");
             is_empty = false;
         }
-        if let Some(value) = self.stemmer {
-            write!(buffer, "{}stemmer={value:?}", sep(is_empty)).unwrap();
+        if let Some(value) = self.stemmer.as_ref() {
+            if value.len() == 1 {
+                write!(buffer, "{}stemmer={:?}", sep(is_empty), value[0]).unwrap();
+            } else {
+                write!(buffer, "{}stemmer={value:?}", sep(is_empty)).unwrap();
+            }
             is_empty = false;
         }
         if let Some(value) = self.stopwords_language.as_ref() {
@@ -266,8 +300,13 @@ impl SearchTokenizerFilters {
         }
     }
 
-    fn stemmer(&self) -> Option<Stemmer> {
-        self.stemmer.map(Stemmer::new)
+    /// Returns Stemmers for all specified languages.
+    /// Useful for documents containing multiple languages.
+    fn stemmers(&self) -> Vec<Stemmer> {
+        self.stemmer
+            .as_ref()
+            .map(|languages| languages.iter().map(|lang| Stemmer::new(*lang)).collect())
+            .unwrap_or_default()
     }
 
     /// Returns StopWordFilters for all specified languages.
@@ -318,21 +357,33 @@ impl SearchTokenizerFilters {
 
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
-        // Build the analyzer with static filters first
+        // Build the analyzer with filters applied in the correct order.
+        // Order: token_length -> trim -> lowercase -> STEMMERS -> stopwords -> ascii_folding -> extra -> alpha_num_only -> stopwords_languages
+        // Stemmers must come BEFORE ascii_folding to preserve original behavior.
         let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
             .filter($filters.trim_filter())
             .filter($filters.lower_caser())
-            .filter($filters.stemmer())
-            .filter($filters.stopwords())
-            .filter($filters.ascii_folding())
-            $(
-                .filter($extra_filter)
-            )*
-            .filter($filters.alpha_num_only())
-            // Convert to type-erased builder for dynamic filter application
+            // Convert to dynamic early so we can apply stemmers in the correct position
             .dynamic();
-        // Apply stopword language filters dynamically in a for loop
+        // Apply stemmer filters dynamically (supports multiple languages)
+        for stemmer_filter in $filters.stemmers() {
+            builder = builder.filter_dynamic(stemmer_filter);
+        }
+        // Apply remaining filters in original order
+        if let Some(f) = $filters.stopwords() {
+            builder = builder.filter_dynamic(f);
+        }
+        if let Some(f) = $filters.ascii_folding() {
+            builder = builder.filter_dynamic(f);
+        }
+        $(
+            builder = builder.filter_dynamic($extra_filter);
+        )*
+        if let Some(f) = $filters.alpha_num_only() {
+            builder = builder.filter_dynamic(f);
+        }
+        // Apply stopword language filters dynamically
         for stopword_filter in $filters.stopwords_languages() {
             builder = builder.filter_dynamic(stopword_filter);
         }

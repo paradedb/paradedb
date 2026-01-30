@@ -68,6 +68,7 @@ pub fn tokenizer(
     language: default!(Option<String>, "NULL"),
     pattern: default!(Option<String>, "NULL"),
     stemmer: default!(Option<String>, "NULL"),
+    stemmers: default!(Option<Vec<String>>, "NULL"),
     stopwords_language: default!(Option<String>, "NULL"),
     stopwords_languages: default!(Option<Vec<String>>, "NULL"),
     stopwords: default!(Option<Vec<String>>, "NULL"),
@@ -80,7 +81,20 @@ pub fn tokenizer(
     // Options for all types
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
-    stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
+    // Handle both single stemmer and array (stemmers)
+    // for backwards compatibility. Array takes precedence if both are specified.
+    if let Some(langs) = stemmers {
+        config.insert(
+            "stemmer".to_string(),
+            Value::Array(langs.into_iter().map(Value::String).collect()),
+        );
+    } else if let Some(lang) = stemmer {
+        // Single stemmer - still store as array for internal consistency
+        config.insert(
+            "stemmer".to_string(),
+            Value::Array(vec![Value::String(lang)]),
+        );
+    }
     // Handle both single language (stopwords_language) and array (stopwords_languages)
     // for backwards compatibility. Array takes precedence if both are specified.
     if let Some(langs) = stopwords_languages {

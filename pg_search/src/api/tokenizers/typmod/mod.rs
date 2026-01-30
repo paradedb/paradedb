@@ -353,34 +353,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             remove_long: value.get("remove_long").and_then(|p| p.as_usize()),
             remove_short: value.get("remove_short").and_then(|p| p.as_usize()),
             lowercase: value.get("lowercase").and_then(|p| p.as_bool()),
-            stemmer: value
-                .get("stemmer")
-                .and_then(|p| p.as_str())
-                .map(|stemmer| {
-                    let lcase = stemmer.to_lowercase();
-                    match lcase.as_str() {
-                        "arabic" => Language::Arabic,
-                        "danish" => Language::Danish,
-                        "dutch" => Language::Dutch,
-                        "english" => Language::English,
-                        "finnish" => Language::Finnish,
-                        "french" => Language::French,
-                        "german" => Language::German,
-                        "greek" => Language::Greek,
-                        "hungarian" => Language::Hungarian,
-                        "italian" => Language::Italian,
-                        "norwegian" => Language::Norwegian,
-                        "polish" => Language::Polish,
-                        "portuguese" => Language::Portuguese,
-                        "romanian" => Language::Romanian,
-                        "russian" => Language::Russian,
-                        "spanish" => Language::Spanish,
-                        "swedish" => Language::Swedish,
-                        "tamil" => Language::Tamil,
-                        "turkish" => Language::Turkish,
-                        other => panic!("unknown stemmer: {other}"),
-                    }
-                }),
+            stemmer: value.get("stemmer").and_then(|p| p.as_languages().ok()),
             stopwords_language: value
                 .get("stopwords_language")
                 .and_then(|p| p.as_languages().ok()),

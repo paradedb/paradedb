@@ -229,7 +229,7 @@ impl TypmodSchema {
                 rule!("lowercase", ValueConstraint::Boolean),
                 rule!(
                     "stemmer",
-                    ValueConstraint::StringChoice(LANGUAGES.values().cloned().collect())
+                    ValueConstraint::StringChoiceMultiple(LANGUAGES.values().cloned().collect())
                 ),
                 rule!(
                     "stopwords_language",

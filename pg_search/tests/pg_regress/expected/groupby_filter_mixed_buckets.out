@@ -10,7 +10,7 @@ CREATE TABLE filter_agg_test (
     category TEXT,
     brand TEXT,
     status TEXT,
-    price NUMERIC(18, 2),
+    price FLOAT,
     rating INTEGER,
     in_stock BOOLEAN,
     views INTEGER

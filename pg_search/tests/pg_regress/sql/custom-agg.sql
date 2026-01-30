@@ -824,7 +824,7 @@ CREATE TABLE products (
     category TEXT,
     brand TEXT,
     rating INTEGER,
-    price NUMERIC
+    price FLOAT
 );
 
 INSERT INTO products (description, category, brand, rating, price) VALUES

@@ -9,8 +9,8 @@ CREATE TABLE products (
     description TEXT,
     category TEXT,
     brand TEXT,
-    price NUMERIC,
-    rating NUMERIC,
+    price FLOAT,
+    rating FLOAT,
     in_stock BOOLEAN,
     sales INTEGER
 );
@@ -387,7 +387,21 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT 
     id,
     name,
@@ -400,7 +414,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ id |    name     | rating | price | total_count | total_price | avg_rating 
+----+-------------+--------+-------+-------------+-------------+------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 |        4.6
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 |        4.6
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 |        4.6
+(3 rows)
+
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -539,11 +559,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |     moving_avg     
-----+-------------+--------+--------------------
-  1 | MacBook Pro |    4.8 | 4.7500000000000000
-  5 | ASUS ROG    |    4.7 | 4.6666666666666667
-  3 | ThinkPad X1 |    4.5 | 4.5333333333333333
+ id |    name     | rating |    moving_avg     
+----+-------------+--------+-------------------
+  1 | MacBook Pro |    4.8 |              4.75
+  5 | ASUS ROG    |    4.7 | 4.666666666666667
+  3 | ThinkPad X1 |    4.5 | 4.533333333333333
 (3 rows)
 
 -- Test 7: MIN and MAX window aggregates
@@ -559,7 +579,21 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT 
     id,
     name,
@@ -571,7 +605,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ id |    name     | rating | price | min_price | max_price 
+----+-------------+--------+-------+-----------+-----------
+  1 | MacBook Pro |    4.8 |  2499 |      1399 |      2499
+  5 | ASUS ROG    |    4.7 |  1899 |      1399 |      2499
+  3 | ThinkPad X1 |    4.5 |  1599 |      1399 |      2499
+(3 rows)
+
 -- Test 8: Window aggregate with FILTER clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -774,7 +814,7 @@ LIMIT 3;
          Sort Key: products.rating DESC
          ->  WindowAgg
                Output: id, name, rating, price, sum(price) OVER w1
-               Window: w1 AS (ORDER BY products.rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING)
+               Window: w1 AS (ORDER BY products.rating RANGE BETWEEN '0.5'::double precision PRECEDING AND '0.5'::double precision FOLLOWING)
                ->  Sort
                      Output: rating, id, name, price
                      Sort Key: products.rating
@@ -930,8 +970,8 @@ FROM products
 WHERE rating > 4.5
 ORDER BY rating DESC
 LIMIT 3;
-                        QUERY PLAN                        
-----------------------------------------------------------
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (count(*) OVER w1)
    ->  Sort
@@ -942,7 +982,7 @@ LIMIT 3;
                Window: w1 AS ()
                ->  Seq Scan on public.products
                      Output: id, name, rating
-                     Filter: (products.rating > 4.5)
+                     Filter: (products.rating > '4.5'::double precision)
 (11 rows)
 
 SELECT 
@@ -1145,24 +1185,24 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
+   Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
    ->  Sort
-         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
+         Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER w2, (count(*) OVER w1), rating
+               Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER w2, (count(*) OVER w1), rating
                Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER w1
-                     Window: w1 AS (PARTITION BY (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END))
+                     Output: (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.price < '1000'::double precision) THEN 'Budget'::text WHEN (products.price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END))
                      ->  Sort
-                           Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
-                           Sort Key: (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END)
+                           Output: (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
+                           Sort Key: (CASE WHEN (products.price < '1000'::double precision) THEN 'Budget'::text WHEN (products.price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END)
                            ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END, id, name, price, rating
+                                 Output: CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END, id, name, price, rating
                                  Table: products
                                  Index: products_idx
                                  Exec Method: NormalScanExecState
@@ -1248,11 +1288,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | total_results | brand_count |    avg_brand_price    
-----+-------------+--------+-------+---------------+-------------+-----------------------
-  1 | MacBook Pro | Apple  |  2499 |             4 |           1 | 2499.0000000000000000
-  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 | 1899.0000000000000000
-  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 | 1599.0000000000000000
+ id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
+----+-------------+--------+-------+---------------+-------------+-----------------
+  1 | MacBook Pro | Apple  |  2499 |             4 |           1 |            2499
+  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 |            1899
+  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 |            1599
 (3 rows)
 
 -- Test 21: Facet with aggregates - MIN/MAX price per category
@@ -1444,24 +1484,24 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
+   Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
    ->  Sort
-         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
+         Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER w2, (count(*) OVER w1)
+               Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER w2, (count(*) OVER w1)
                Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER w1
-                     Window: w1 AS (PARTITION BY (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END))
+                     Output: (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END))
                      ->  Sort
-                           Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
-                           Sort Key: (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
+                           Output: (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
+                           Sort Key: (CASE WHEN (products.rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
                            ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, id, name, rating
+                                 Output: CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, id, name, rating
                                  Table: products
                                  Index: products_idx
                                  Exec Method: NormalScanExecState
@@ -1524,36 +1564,36 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+   Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
    ->  Sort
-         Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+         Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, brand, price, rating, in_stock, count(*) OVER w4, avg(price) OVER w4, avg(rating) OVER w4, (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+               Output: id, name, brand, price, rating, in_stock, count(*) OVER w4, avg(price) OVER w4, avg(rating) OVER w4, (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                Window: w4 AS ()
                ->  WindowAgg
-                     Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2), count(*) OVER w3
+                     Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2), count(*) OVER w3
                      Window: w3 AS (PARTITION BY products.brand)
                      ->  Sort
-                           Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2)
+                           Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2)
                            Sort Key: products.brand
                            ->  WindowAgg
-                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), count(*) OVER w2
-                                 Window: w2 AS (PARTITION BY (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END))
+                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), count(*) OVER w2
+                                 Window: w2 AS (PARTITION BY (CASE WHEN (products.price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END))
                                  ->  Sort
-                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1)
-                                       Sort Key: (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1)
+                                       Sort Key: (CASE WHEN (products.price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                                        ->  WindowAgg
-                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER w1
+                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER w1
                                              Window: w1 AS (PARTITION BY products.in_stock)
                                              ->  Sort
-                                                   Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating
+                                                   Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating
                                                    Sort Key: products.in_stock
                                                    ->  Custom Scan (ParadeDB Scan) on public.products
-                                                         Output: brand, in_stock, CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END, id, name, price, rating
+                                                         Output: brand, in_stock, CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END, id, name, price, rating
                                                          Table: products
                                                          Index: products_idx
                                                          Exec Method: NormalScanExecState
@@ -1585,11 +1625,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | rating | in_stock | total_results |       avg_price       |     avg_rating     | brand_count | price_range_count | stock_count 
-----+-------------+--------+-------+--------+----------+---------------+-----------------------+--------------------+-------------+-------------------+-------------
-  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+ id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
+----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------
+  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
+  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
+  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
 (3 rows)
 
 -- =============================================================================
@@ -1621,7 +1661,7 @@ LIMIT 3;
                ->  GroupAggregate
                      Output: category, avg(price)
                      Group Key: products.category
-                     Filter: (avg(products.price) > '1000'::numeric)
+                     Filter: (avg(products.price) > '1000'::double precision)
                      ->  Sort
                            Output: category, price
                            Sort Key: products.category
@@ -1644,9 +1684,9 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
- category |       avg_price       | total_count 
-----------+-----------------------+-------------
- Laptops  | 1849.0000000000000000 |           1
+ category | avg_price | total_count 
+----------+-----------+-------------
+ Laptops  |      1849 |           1
 (1 row)
 
 -- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
@@ -1878,7 +1918,7 @@ LIMIT 2;
                ->  GroupAggregate
                      Output: p.category, pc.description, avg(p.price)
                      Group Key: p.category, pc.description
-                     Filter: (avg(p.price) > '1000'::numeric)
+                     Filter: (avg(p.price) > '1000'::double precision)
                      ->  Sort
                            Output: p.category, pc.description, p.price
                            Sort Key: p.category, pc.description
@@ -1908,9 +1948,9 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
- category |        description         |       avg_price       | total_count 
-----------+----------------------------+-----------------------+-------------
- Laptops  | Portable computing devices | 1849.0000000000000000 |           1
+ category |        description         | avg_price | total_count 
+----------+----------------------------+-----------+-------------
+ Laptops  | Portable computing devices |      1849 |           1
 (1 row)
 
 -- Test 31: Window function with FILTER clause in different contexts
@@ -1929,12 +1969,12 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
+   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1)
    ->  Sort
-         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
+         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > 4.5)) OVER w1
+               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1
                Window: w1 AS ()
                ->  Custom Scan (ParadeDB Scan) on public.products
                      Output: id, name, rating, in_stock
@@ -2000,7 +2040,21 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT 
     id,
     name,
@@ -2013,7 +2067,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ id |    name     | rating | price | total_count | total_price | brand_count 
+----+-------------+--------+-------+-------------+-------------+-------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |        7396 |           4
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |        7396 |           4
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |        7396 |           4
+(3 rows)
+
 -- Test 33: Only supported window functions (should use custom scan)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -2196,7 +2256,27 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                                     QUERY PLAN                                                                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
+   ->  Result
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
+         ->  Sort
+               Output: id, name, rating, price, (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
+               Sort Key: products.rating DESC
+               ->  WindowAgg
+                     Output: id, name, rating, price, sum(COALESCE(price, '0'::double precision)) OVER w1, avg(COALESCE(rating, '4'::double precision)) OVER w1
+                     Window: w1 AS ()
+                     ->  Custom Scan (ParadeDB Scan) on public.products
+                           Output: id, name, rating, price
+                           Table: products
+                           Index: products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
+
 SELECT 
     id,
     name,
@@ -2209,7 +2289,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
 -- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
 -- Verify this produces TopN execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -2290,13 +2370,34 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ id |    name     |                description                | category | brand  |      agg       
+----+-------------+-------------------------------------------+----------+--------+----------------
+  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"value": 4.6}
+  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"value": 4.6}
+  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"value": 4.6}
+  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"value": 4.6}
+(4 rows)
+
 -- Test 36: TopN with nested aggregations (window function)
 -- Verify that nested "aggs" work correctly in TopN/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -2306,14 +2407,35 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+                                                                                                                                                       QUERY PLAN                                                                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled"}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          
+----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
+(4 rows)
+
 -- Cleanup
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

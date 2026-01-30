@@ -13,7 +13,7 @@ CREATE TABLE filter_agg_test (
     category TEXT,
     brand TEXT,
     status TEXT,
-    price NUMERIC(18, 2),
+    price FLOAT,
     rating INTEGER,
     in_stock BOOLEAN,
     views INTEGER
@@ -161,9 +161,9 @@ SELECT
     MAX(price) FILTER (WHERE description @@@ 'laptop') AS max_laptop_price,
     MIN(views) FILTER (WHERE status @@@ 'sold') AS min_sold_views
 FROM filter_agg_test;
- total | electronics_revenue |  apple_avg_rating  | max_laptop_price | min_sold_views 
--------+---------------------+--------------------+------------------+----------------
-    20 |             8679.92 | 4.6666666666666667 |          2499.99 |            180
+ total | electronics_revenue | apple_avg_rating | max_laptop_price | min_sold_views 
+-------+---------------------+------------------+------------------+----------------
+    20 |             8679.92 | 4.66666666666667 |          2499.99 |            180
 (1 row)
 
 -- =====================================================================
@@ -178,18 +178,15 @@ SELECT
     MAX(views) AS max_views
 FROM filter_agg_test
 WHERE status @@@ 'available';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*), sum(price), avg(rating), max(views)
-   ->  Custom Scan (ParadeDB Scan) on public.filter_agg_test
-         Output: price, rating, views
-         Table: filter_agg_test
-         Index: filter_agg_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MAX'::text)
+   Index: filter_agg_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MAX(views)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"rating","missing":null}},"3":{"max":{"field":"views","missing":null}}}
+(6 rows)
 
 -- Test 2.2: All aggregates have SAME filter (single query optimization)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -198,13 +195,15 @@ SELECT
     SUM(price) FILTER (WHERE category @@@ 'electronics') AS electronics_revenue,
     AVG(rating) FILTER (WHERE category @@@ 'electronics') AS electronics_avg_rating
 FROM filter_agg_test;
-                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   ->  Seq Scan on public.filter_agg_test
-         Output: id, title, description, category, brand, status, price, rating, in_stock, views
-(4 rows)
+                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating)
+     Aggregate Definition: {"0":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"electronics"}}}},"type":"FilterQuery"}},"1":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"electronics"}}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"electronics"}}}},"type":"FilterQuery"}}}
+(6 rows)
 
 -- Test 2.3: Mixed filters - some same, some different (partial optimization)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -215,13 +214,15 @@ SELECT
     SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_revenue, -- Filter 1 (same)
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count   -- Filter 2 (different)
 FROM filter_agg_test;
-                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*), sum(price), count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   ->  Seq Scan on public.filter_agg_test
-         Output: id, title, description, category, brand, status, price, rating, in_stock, views
-(4 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), COUNT(*), SUM(price), COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"3":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"4":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"books"}}}},"type":"FilterQuery"}}}
+(6 rows)
 
 -- Test 2.4: Many different filters (multi-query required)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -293,17 +294,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                  QUERY PLAN                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), count(*) FILTER (WHERE (rating >= 4)), avg(price) FILTER (WHERE in_stock)
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, id, rating, price, in_stock
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, id, rating, price, in_stock
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), COUNT(*), AVG(price)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"rating","is_datetime":false,"lower_bound":{"included":4},"upper_bound":null}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"term":{"field":"in_stock","is_datetime":false,"value":true}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"value_count":{"field":"ctid","missing":null}},"2":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 SELECT
     category,
@@ -313,12 +313,12 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-  category   | available_count | highly_rated_count |  avg_available_price  
--------------+-----------------+--------------------+-----------------------
- books       |               3 |                  4 |   51.6566666666666667
- clothing    |               3 |                  3 |   54.9900000000000000
- electronics |               6 |                  6 | 1188.3233333333333333
- sports      |               3 |                  3 |  376.6566666666666667
+  category   | available_count | highly_rated_count | avg_available_price 
+-------------+-----------------+--------------------+---------------------
+ books       |               3 |                  4 |  51.656666666666666
+ clothing    |               3 |                  3 |   54.98999999999999
+ electronics |               6 |                  6 |  1188.3233333333333
+ sports      |               3 |                  3 |   376.6566666666667
 (4 rows)
 
 -- Test 3.3: GROUP BY with mixed aggregates (some filtered, some not)
@@ -332,11 +332,11 @@ FROM filter_agg_test
 WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
-   brand   | total_products |       avg_price       | electronics_count | available_revenue 
------------+----------------+-----------------------+-------------------+-------------------
- Apple     |              3 | 1799.9900000000000000 |                 3 |           4499.98
- Samsung   |              3 | 1016.6566666666666667 |                 3 |           2399.98
- TechPress |              2 |   54.9900000000000000 |                 0 |            109.98
+   brand   | total_products |     avg_price      | electronics_count | available_revenue 
+-----------+----------------+--------------------+-------------------+-------------------
+ Apple     |              3 | 1799.9899999999998 |                 3 |           4499.98
+ Samsung   |              3 | 1016.6566666666668 |                 3 |           2399.98
+ TechPress |              2 |              54.99 |                 0 |            109.98
 (3 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -350,22 +350,16 @@ FROM filter_agg_test
 WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
-                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: brand, count(*), avg(price), count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.brand
-   ->  Sort
-         Output: brand, price, id
-         Sort Key: filter_agg_test.brand
-         ->  Custom Scan (ParadeDB Scan) on public.filter_agg_test
-               Output: brand, price, id
-               Table: filter_agg_test
-               Index: filter_agg_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple OR Samsung OR TechPress","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: brand, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Index: filter_agg_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple OR Samsung OR TechPress","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), AVG(price), COUNT(*), SUM(price)
+     Group By: brand
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"electronics"}}}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}},"1":{"value_count":{"field":"ctid","missing":null}},"2":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple OR Samsung OR TechPress"}}}},"type":"FilterQuery"}}}
+(7 rows)
 
 -- Test 3.4: Multi-column GROUP BY with FILTER
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -387,7 +381,7 @@ ORDER BY category, status;
    Tantivy Query: "all"
      Applies to Aggregates: COUNT(*), AVG(rating), MAX(views), MAX(views)
      Group By: category, status
-     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":"100"},"upper_bound":null}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"term":{"field":"in_stock","is_datetime":false,"value":false}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}},"1":{"max":{"field":"views","missing":null}},"2":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":100.0},"upper_bound":null}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"term":{"field":"in_stock","is_datetime":false,"value":false}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}},"1":{"max":{"field":"views","missing":null}},"2":{"max":{"field":"views","missing":null}}},"terms":{"field":"status","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
 (7 rows)
 
 SELECT
@@ -549,9 +543,9 @@ SELECT paradedb.aggregate(
         "max_rating": {"max": {"field": "rating"}}
     }'::json
 );
-                                            aggregate                                            
--------------------------------------------------------------------------------------------------
- {"sum_price": {"value": 867992.0}, "max_rating": {"value": 5.0}, "total_count": {"value": 8.0}}
+                                           aggregate                                            
+------------------------------------------------------------------------------------------------
+ {"sum_price": {"value": 8679.92}, "max_rating": {"value": 5.0}, "total_count": {"value": 8.0}}
 (1 row)
 
 -- Test 7.2: Complex aggregation with grouping
@@ -572,9 +566,9 @@ SELECT paradedb.aggregate(
         }
     }'::json
 );
-                                                                                                                                                                                                                                                         aggregate                                                                                                                                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"category_breakdown": {"buckets": [{"key": "books", "avg_price": {"value": 5165.666666666667}, "doc_count": 3, "total_views": {"value": 4600.0}}, {"key": "clothing", "avg_price": {"value": 5499.0}, "doc_count": 3, "total_views": {"value": 670.0}}, {"key": "electronics", "avg_price": {"value": 118832.33333333333}, "doc_count": 6, "total_views": {"value": 4800.0}}, {"key": "sports", "avg_price": {"value": 37665.666666666664}, "doc_count": 3, "total_views": {"value": 500.0}}], "sum_other_doc_count": 0}}
+                                                                                                                                                                                                                                                               aggregate                                                                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"category_breakdown": {"buckets": [{"key": "books", "avg_price": {"value": 51.656666666666666}, "doc_count": 3, "total_views": {"value": 4600.0}}, {"key": "clothing", "avg_price": {"value": 54.98999999999999}, "doc_count": 3, "total_views": {"value": 670.0}}, {"key": "electronics", "avg_price": {"value": 1188.3233333333333}, "doc_count": 6, "total_views": {"value": 4800.0}}, {"key": "sports", "avg_price": {"value": 376.6566666666667}, "doc_count": 3, "total_views": {"value": 500.0}}], "sum_other_doc_count": 0}}
 (1 row)
 
 -- =====================================================================
@@ -625,13 +619,15 @@ SELECT
     MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
     MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
 FROM filter_agg_test;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   ->  Seq Scan on public.filter_agg_test
-         Output: id, title, description, category, brand, status, price, rating, in_stock, views
-(4 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
+     Aggregate Definition: {"0":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"1":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"3":{"aggs":{"0":{"min":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"4":{"aggs":{"0":{"max":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}}}
+(6 rows)
 
 SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
@@ -640,9 +636,9 @@ SELECT
     MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
     MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
 FROM filter_agg_test;
- apple_count | apple_total_price |    apple_avg_price    | apple_min_price | apple_max_price 
--------------+-------------------+-----------------------+-----------------+-----------------
-           3 |           5399.97 | 1799.9900000000000000 |          899.99 |         2499.99
+ apple_count | apple_total_price |  apple_avg_price   | apple_min_price | apple_max_price 
+-------------+-------------------+--------------------+-----------------+-----------------
+           3 | 5399.969999999999 | 1799.9899999999998 |          899.99 |         2499.99
 (1 row)
 
 -- Test 9.2: Multiple aggregates with same filter - with GROUP BY
@@ -658,17 +654,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(views) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, id, price, rating, views
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, id, price, rating, views
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(price), MIN(rating), MAX(views)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"0":{"min":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"4":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"price","missing":null}},"3":{"min":{"field":"rating","missing":null}},"4":{"max":{"field":"views","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 SELECT
     category,
@@ -680,12 +675,12 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-  category   | apple_count | apple_total_price |    apple_avg_price    | apple_min_rating | apple_max_views 
--------------+-------------+-------------------+-----------------------+------------------+-----------------
- books       |           0 |                   |                       |                  |                
- clothing    |           0 |                   |                       |                  |                
- electronics |           3 |           5399.97 | 1799.9900000000000000 |                4 |            2000
- sports      |           0 |                   |                       |                  |                
+  category   | apple_count | apple_total_price |  apple_avg_price   | apple_min_rating | apple_max_views 
+-------------+-------------+-------------------+--------------------+------------------+-----------------
+ books       |           0 |                   |                    |                  |                
+ clothing    |           0 |                   |                    |                  |                
+ electronics |           3 | 5399.969999999999 | 1799.9899999999998 |                4 |            2000
+ sports      |           0 |                   |                    |                  |                
 (4 rows)
 
 -- Test 9.3: Multiple aggregates with same complex filter
@@ -698,17 +693,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*) FILTER (WHERE ((id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) AND (price > '500'::numeric))), sum(price) FILTER (WHERE ((id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) AND (price > '500'::numeric))), avg(rating) FILTER (WHERE ((id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) AND (price > '500'::numeric)))
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, id, price, rating
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, id, price, rating
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":500.0},"upper_bound":null}}]}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":500.0},"upper_bound":null}}]}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":500.0},"upper_bound":null}}]}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 SELECT
     category,
@@ -722,8 +716,8 @@ ORDER BY category;
 -------------+---------------------------+---------------------------+--------------------------------
  books       |                         0 |                           |                               
  clothing    |                         0 |                           |                               
- electronics |                         4 |                   6899.96 |             4.5000000000000000
- sports      |                         1 |                    899.99 |             5.0000000000000000
+ electronics |                         4 |                   6899.96 |                            4.5
+ sports      |                         1 |                    899.99 |                              5
 (4 rows)
 
 -- Test 9.4: Multiple aggregates with same numeric filter
@@ -762,10 +756,10 @@ GROUP BY category
 ORDER BY category;
   category   | highly_rated_count | highly_rated_total_price | highly_rated_avg_price | highly_rated_min_price | highly_rated_max_price 
 -------------+--------------------+--------------------------+------------------------+------------------------+------------------------
- books       |                  4 |                   194.96 |    48.7400000000000000 |                  39.99 |                  59.99
- clothing    |                  3 |                   214.97 |    71.6566666666666667 |                  24.99 |                 129.99
- electronics |                  6 |                  7879.94 |  1313.3233333333333333 |                  79.99 |                2499.99
- sports      |                  3 |                  1139.97 |   379.9900000000000000 |                  39.99 |                 899.99
+ books       |                  4 |                   194.96 |                  48.74 |                  39.99 |                  59.99
+ clothing    |                  3 |       214.97000000000003 |      71.65666666666668 |                  24.99 |                 129.99
+ electronics |                  6 |                  7879.94 |     1313.3233333333333 |                  79.99 |                2499.99
+ sports      |                  3 |                  1139.97 |                 379.99 |                  39.99 |                 899.99
 (4 rows)
 
 -- Test 9.5: Multiple aggregates with same boolean filter
@@ -805,12 +799,12 @@ ORDER BY brand;
  Apple       |              2 |              4499.98 |  5.0000000000000000 |               1500
  DataBooks   |              1 |                44.99 |  4.0000000000000000 |               1200
  FashionCo   |              1 |                79.99 |  3.0000000000000000 |                120
- Generic     |              2 |               229.98 |  3.5000000000000000 |                400
+ Generic     |              2 |   229.98000000000002 |  3.5000000000000000 |                400
  GolfPro     |              1 |               899.99 |  5.0000000000000000 |                100
  PlayTime    |              0 |                      |                     |                   
  Samsung     |              2 |              2399.98 |  4.0000000000000000 |                800
  SportsBrand |              0 |                      |                     |                   
- SportsCorp  |              2 |               229.98 |  3.5000000000000000 |                250
+ SportsCorp  |              2 |   229.98000000000002 |  3.5000000000000000 |                250
  TechPress   |              2 |               109.98 |  5.0000000000000000 |               1800
  TechWear    |              2 |                84.98 |  4.5000000000000000 |                350
 (11 rows)
@@ -830,12 +824,12 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-  category   | apple_count | apple_total_price |  apple_avg_rating  | available_count | available_max_views | highly_rated_min_price 
--------------+-------------+-------------------+--------------------+-----------------+---------------------+------------------------
- books       |           0 |                   |                    |               3 |                1800 |                  39.99
- clothing    |           0 |                   |                    |               3 |                 350 |                  24.99
- electronics |           3 |           5399.97 | 4.6666666666666667 |               6 |                1500 |                  79.99
- sports      |           0 |                   |                    |               3 |                 250 |                  39.99
+  category   | apple_count | apple_total_price | apple_avg_rating | available_count | available_max_views | highly_rated_min_price 
+-------------+-------------+-------------------+------------------+-----------------+---------------------+------------------------
+ books       |           0 |                   |                  |               3 |                1800 |                  39.99
+ clothing    |           0 |                   |                  |               3 |                 350 |                  24.99
+ electronics |           3 | 5399.969999999999 | 4.66666666666667 |               6 |                1500 |                  79.99
+ sports      |           0 |                   |                  |               3 |                 250 |                  39.99
 (4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -853,17 +847,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(views) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(price) FILTER (WHERE (rating >= 4))
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, id, price, rating, views
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, id, price, rating, views
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('MIN'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), COUNT(*), MAX(views), MIN(price)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"4":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"views","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"5":{"aggs":{"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"rating","is_datetime":false,"lower_bound":{"included":4},"upper_bound":null}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"rating","missing":null}},"3":{"value_count":{"field":"ctid","missing":null}},"4":{"max":{"field":"views","missing":null}},"5":{"min":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 -- Test 9.7: Many aggregates with same filter (stress test for MultiCollector)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -876,13 +869,15 @@ SELECT
     MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
     SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
 FROM filter_agg_test;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(views) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   ->  Seq Scan on public.filter_agg_test
-         Output: id, title, description, category, brand, status, price, rating, in_stock, views
-(4 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('SUM'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), MIN(price), MAX(price), MIN(rating), MAX(rating), SUM(views)
+     Aggregate Definition: {"0":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"1":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"2":{"aggs":{"0":{"min":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"3":{"aggs":{"0":{"max":{"field":"price","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"4":{"aggs":{"0":{"min":{"field":"rating","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"5":{"aggs":{"0":{"max":{"field":"rating","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}},"6":{"aggs":{"0":{"sum":{"field":"views","missing":null}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Samsung"}}}},"type":"FilterQuery"}}}
+(6 rows)
 
 SELECT
     COUNT(*) FILTER (WHERE brand @@@ 'Samsung') AS samsung_count,
@@ -895,7 +890,7 @@ SELECT
 FROM filter_agg_test;
  samsung_count | samsung_total_price | samsung_min_price | samsung_max_price | samsung_min_rating | samsung_max_rating | samsung_total_views 
 ---------------+---------------------+-------------------+-------------------+--------------------+--------------------+---------------------
-             3 |             3049.97 |            599.99 |           1799.99 |                  3 |                  4 |                2300
+             3 |  3049.9700000000003 |            599.99 |           1799.99 |                  3 |                  4 |                2300
 (1 row)
 
 -- Test 9.8: Multiple aggregates with same filter on different field types
@@ -928,10 +923,10 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                         QUERY PLAN                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                               QUERY PLAN                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Output: category, count(*) FILTER (WHERE (price > '1000'::numeric)), sum(rating) FILTER (WHERE (price > '1000'::numeric)), avg(views) FILTER (WHERE (price > '1000'::numeric)), min(price) FILTER (WHERE (price > '1000'::numeric)), max(price) FILTER (WHERE (price > '1000'::numeric))
+   Output: category, count(*) FILTER (WHERE (price > '1000'::double precision)), sum(rating) FILTER (WHERE (price > '1000'::double precision)), avg(views) FILTER (WHERE (price > '1000'::double precision)), min(price) FILTER (WHERE (price > '1000'::double precision)), max(price) FILTER (WHERE (price > '1000'::double precision))
    Group Key: filter_agg_test.category
    ->  Sort
          Output: category, price, rating, views
@@ -958,11 +953,11 @@ ORDER BY category, brand;
  clothing    | SportsBrand |               0 |                       |                     
  clothing    | TechWear    |               2 |                 84.98 |                    9
  electronics | Apple       |               2 |               4499.98 |                   10
- electronics | Generic     |               2 |                229.98 |                    7
+ electronics | Generic     |               2 |    229.98000000000002 |                    7
  electronics | Samsung     |               2 |               2399.98 |                    8
  sports      | GolfPro     |               1 |                899.99 |                    5
  sports      | PlayTime    |               0 |                       |                     
- sports      | SportsCorp  |               2 |                229.98 |                    7
+ sports      | SportsCorp  |               2 |    229.98000000000002 |                    7
 (11 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -975,17 +970,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category, brand
 ORDER BY category, brand;
-                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, brand, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(rating) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.category, filter_agg_test.brand
-   ->  Sort
-         Output: category, brand, id, price, rating
-         Sort Key: filter_agg_test.category, filter_agg_test.brand
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, brand, id, price, rating
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, brand, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('SUM'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: COUNT(*), SUM(price), SUM(rating)
+     Group By: category, brand
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"rating","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"available"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"sum":{"field":"rating","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 -- Test 9.10: Identical filters with different aggregate functions on same field
 SELECT
@@ -998,12 +992,12 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-  category   | apple_price_sum |    apple_price_avg    | apple_price_min | apple_price_max | apple_price_count 
--------------+-----------------+-----------------------+-----------------+-----------------+-------------------
- books       |                 |                       |                 |                 |                 0
- clothing    |                 |                       |                 |                 |                 0
- electronics |         5399.97 | 1799.9900000000000000 |          899.99 |         2499.99 |                 3
- sports      |                 |                       |                 |                 |                 0
+  category   |  apple_price_sum  |  apple_price_avg   | apple_price_min | apple_price_max | apple_price_count 
+-------------+-------------------+--------------------+-----------------+-----------------+-------------------
+ books       |                   |                    |                 |                 |                 0
+ clothing    |                   |                    |                 |                 |                 0
+ electronics | 5399.969999999999 | 1799.9899999999998 |          899.99 |         2499.99 |                 3
+ sports      |                   |                    |                 |                 |                 0
 (4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -1017,17 +1011,16 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), min(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), max(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), count(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, price, id
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, price, id
-(8 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('COUNT'::text)
+   Index: filter_agg_idx
+   Tantivy Query: "all"
+     Applies to Aggregates: SUM(price), AVG(price), MIN(price), MAX(price), COUNT(price)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"2":{"aggs":{"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"3":{"aggs":{"grouped":{"aggs":{"0":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"4":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"price","missing":null}},"2":{"min":{"field":"price","missing":null}},"3":{"max":{"field":"price","missing":null}},"4":{"value_count":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":"all","type":"FilterQuery"}}}
+(7 rows)
 
 -- =====================================================================
 -- SECTION 10: Limitations and fallback scenarios
@@ -1115,28 +1108,16 @@ FROM filter_agg_test
 WHERE category @@@ 'electronics'
 GROUP BY brand
 ORDER BY brand;
-                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize GroupAggregate
-   Output: brand, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.brand
-   ->  Gather Merge
-         Output: brand, (PARTIAL count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))), (PARTIAL sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)))
-         Workers Planned: 1
-         ->  Partial GroupAggregate
-               Output: brand, PARTIAL count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), PARTIAL sum(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-               Group Key: filter_agg_test.brand
-               ->  Sort
-                     Output: brand, id, price
-                     Sort Key: filter_agg_test.brand
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.filter_agg_test
-                           Output: brand, id, price
-                           Table: filter_agg_test
-                           Index: filter_agg_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: brand, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
+   Index: filter_agg_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), SUM(price)
+     Group By: brand
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"sold"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"status","lenient":null,"query_string":"sold"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"category","lenient":null,"query_string":"electronics"}}}},"type":"FilterQuery"}}}
+(7 rows)
 
 SELECT
     brand,
@@ -1165,18 +1146,16 @@ FROM filter_agg_test
 WHERE price > 500
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: category, count(*) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)), avg(price) FILTER (WHERE (id @@@ '{"with_index":{"oid":1962121,"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-   Group Key: filter_agg_test.category
-   ->  Sort
-         Output: category, id, price
-         Sort Key: filter_agg_test.category
-         ->  Seq Scan on public.filter_agg_test
-               Output: category, id, price
-               Filter: (filter_agg_test.price > '500'::numeric)
-(9 rows)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
+   Index: filter_agg_idx
+   Tantivy Query: {"range":{"field":"price","lower_bound":{"excluded":500.0},"upper_bound":null,"is_datetime":false}}
+     Applies to Aggregates: COUNT(*), AVG(price)
+     Group By: category
+     Aggregate Definition: {"0":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"1":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"with_index":{"query":{"parse_with_field":{"conjunction_mode":null,"field":"brand","lenient":null,"query_string":"Apple"}}}},"type":"FilterQuery"}},"filter_sentinel":{"aggs":{"grouped":{"aggs":{"0":{"value_count":{"field":"ctid","missing":null}},"1":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"filter":{"query":{"range":{"field":"price","is_datetime":false,"lower_bound":{"excluded":500.0},"upper_bound":null}},"type":"FilterQuery"}}}
+(7 rows)
 
 SELECT
     category,
@@ -1186,10 +1165,10 @@ FROM filter_agg_test
 WHERE price > 500
 GROUP BY category
 ORDER BY category;
-  category   | apple_count |    apple_avg_price    
--------------+-------------+-----------------------
- electronics |           3 | 1799.9900000000000000
- sports      |           0 |                      
+  category   | apple_count |  apple_avg_price   
+-------------+-------------+--------------------
+ electronics |           3 | 1799.9899999999998
+ sports      |           0 |                   
 (2 rows)
 
 -- =====================================================================

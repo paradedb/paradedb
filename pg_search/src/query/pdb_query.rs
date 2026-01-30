@@ -18,8 +18,8 @@
 use crate::api::FieldName;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_field_or_default, convert_value_for_range_field,
-    map_bound, numeric_bound_to_bytes, numeric_value_to_bytes, scale_numeric_bound,
-    scale_owned_value, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    map_bound, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64, string_to_i64,
+    string_to_json_numeric, string_to_u64, try_numeric_term_query,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -1673,50 +1673,10 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         .search_field(field)
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
-    // Handle Numeric64 and NumericBytes fields specially since Tantivy's QueryParser
-    // can't parse decimal strings for I64 fields or arbitrary precision for Bytes fields.
-    // Pass the string directly to preserve full precision (don't parse through f64).
-    match search_field.field_type() {
-        SearchFieldType::Numeric64(_, scale) => {
-            // Scale the string value directly for I64 storage (preserves precision)
-            let trimmed = query_string.trim();
-            if let Ok(scaled_value) = scale_owned_value(OwnedValue::Str(trimmed.to_string()), scale)
-            {
-                let field_type = search_field.field_entry().field_type();
-                let term = value_to_term(
-                    search_field.field(),
-                    &scaled_value,
-                    field_type,
-                    field.path().as_deref(),
-                    false,
-                )?;
-                return Ok(Box::new(TermQuery::new(
-                    term,
-                    IndexRecordOption::WithFreqsAndPositions.into(),
-                )));
-            }
-            // Fall through to regular parsing if not a valid decimal
-        }
-        SearchFieldType::NumericBytes(_) => {
-            // Convert the string value directly to bytes (preserves precision)
-            let trimmed = query_string.trim();
-            if let Ok(bytes_value) = numeric_value_to_bytes(OwnedValue::Str(trimmed.to_string())) {
-                let field_type = search_field.field_entry().field_type();
-                let term = value_to_term(
-                    search_field.field(),
-                    &bytes_value,
-                    field_type,
-                    field.path().as_deref(),
-                    false,
-                )?;
-                return Ok(Box::new(TermQuery::new(
-                    term,
-                    IndexRecordOption::WithFreqsAndPositions.into(),
-                )));
-            }
-            // Fall through to regular parsing if not a valid decimal
-        }
-        _ => {}
+    // Try to create a term query for numeric fields (Numeric64/NumericBytes)
+    // These need special handling since Tantivy's QueryParser can't parse decimals directly
+    if let Some(result) = try_numeric_term_query(&search_field, field, &query_string) {
+        return result;
     }
 
     let mut parser = parser();

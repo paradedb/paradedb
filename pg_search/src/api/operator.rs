@@ -453,7 +453,10 @@ unsafe fn opexpr_matches_funcexpr(
 }
 
 /// Check if a function is a type cast function (as opposed to a regular function like abs())
-/// Type cast functions typically have names matching PostgreSQL type names
+///
+/// Type cast functions are identified by checking if the function name matches a type name
+/// in the pg_type catalog. This is determined dynamically by looking up whether a type
+/// with that name exists, rather than maintaining a hardcoded list.
 unsafe fn is_type_cast_function(funcid: pg_sys::Oid, result_type: pg_sys::Oid) -> bool {
     if funcid == pg_sys::Oid::INVALID {
         return false;
@@ -465,53 +468,21 @@ unsafe fn is_type_cast_function(funcid: pg_sys::Oid, result_type: pg_sys::Oid) -
         return false;
     }
 
-    let name_str = std::ffi::CStr::from_ptr(func_name).to_string_lossy();
+    // Check if a type with this name exists in pg_type catalog
+    // Type cast functions have the same name as their target type
+    let type_oid = pg_sys::TypenameGetTypid(func_name);
+    let is_cast = type_oid != pg_sys::Oid::INVALID;
 
-    // List of PostgreSQL type constructor/cast function names.
-    // These represent type casts (not mathematical functions like abs()).
-    // Derived from PostgreSQL's built-in type system (see pg_type catalog).
-    // When PostgreSQL adds new built-in types, this list may need updating.
-    // Note: This approach is used because dynamically querying pg_type at runtime
-    // would add overhead for each expression match check.
-    let type_cast_names = [
-        "numeric",
-        "int2",
-        "int4",
-        "int8",
-        "float4",
-        "float8",
-        "text",
-        "varchar",
-        "bpchar",
-        "bool",
-        "date",
-        "time",
-        "timestamp",
-        "timestamptz",
-        "interval",
-        "uuid",
-        "json",
-        "jsonb",
-        "xml",
-        "money",
-        "bytea",
-        "point",
-        "line",
-        "box",
-        "path",
-        "polygon",
-        "circle",
-    ];
-
-    let is_cast = type_cast_names.contains(&name_str.as_ref());
-
-    pgrx::debug1!(
-        "is_type_cast_function: {} ({}) -> result_type {} = {}",
-        name_str,
-        funcid.to_u32(),
-        result_type.to_u32(),
-        is_cast
-    );
+    if cfg!(debug_assertions) {
+        let name_str = std::ffi::CStr::from_ptr(func_name).to_string_lossy();
+        pgrx::debug1!(
+            "is_type_cast_function: {} ({}) -> result_type {} = {}",
+            name_str,
+            funcid.to_u32(),
+            result_type.to_u32(),
+            is_cast
+        );
+    }
 
     is_cast
 }

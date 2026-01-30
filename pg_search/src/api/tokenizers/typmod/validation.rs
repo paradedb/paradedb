@@ -250,6 +250,7 @@ impl TypmodSchema {
                         "t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"
                     ])
                 ),
+                rule!("columnar", ValueConstraint::Boolean),
             ]
         });
 

@@ -195,7 +195,10 @@ pub fn aggregate_result_to_datum(
                 });
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
-                // DateTime - convert nanoseconds timestamp back to DateTime
+                // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
+                // since UNIX epoch. The f64 value from MIN/MAX aggregates represents this nanosecond
+                // timestamp. We need to convert it back to a DateTime before converting to the
+                // expected PostgreSQL type.
                 metric.value.and_then(|value| unsafe {
                     let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
                     TantivyValue(OwnedValue::Date(datetime))

@@ -88,12 +88,8 @@ impl<'de> Deserialize<'de> for SortableDecimal {
         D: Deserializer<'de>,
     {
         let hex_str = String::deserialize(deserializer)?;
-        // Decode hex string to bytes
-        let bytes: Result<Vec<u8>, _> = (0..hex_str.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16))
-            .collect();
-        let bytes = bytes.map_err(serde::de::Error::custom)?;
+        let bytes = crate::query::numeric::hex_to_bytes(&hex_str)
+            .ok_or_else(|| serde::de::Error::custom("invalid hex string"))?;
         let decimal = Decimal::from_bytes(&bytes).map_err(serde::de::Error::custom)?;
         Ok(SortableDecimal(decimal))
     }

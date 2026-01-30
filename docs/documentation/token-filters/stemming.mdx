@@ -15,7 +15,47 @@ USING bm25 (id, (description::pdb.simple('stemmer=english')))
 WITH (key_field='id');
 ```
 
-Valid languages are `arabic`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`.
+Valid languages are `arabic`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`. Language names are case-insensitive.
+
+## Multiple Languages
+
+For documents containing multiple languages, you can specify multiple stemmers as a comma-separated list.
+Each token will be processed through all specified stemmers in sequence, which is useful for multilingual content
+like a CRM database with contacts who have descriptions in different languages.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.simple('stemmer=english,french')))
+WITH (key_field='id');
+```
+
+With multiple stemmers, searching for a word in one form will match related forms in any of the specified languages:
+
+```sql
+-- "studies" stems to "studi", matching "studying" in the indexed content
+SELECT 'team is studying hard'::pdb.simple('stemmer=english,french')::text[];
+```
+
+```ini Expected Response
+        text
+--------------------
+ {team,is,studi,hard}
+(1 row)
+```
+
+```sql
+-- "courir" (French: to run) stems to "cour", matching "courant" (French: running)
+SELECT 'il est courant'::pdb.simple('stemmer=english,french')::text[];
+```
+
+```ini Expected Response
+     text
+---------------
+ {il,est,cour}
+(1 row)
+```
+
+## Example
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 

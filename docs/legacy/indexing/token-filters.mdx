@@ -33,6 +33,24 @@ WITH (
   and `Turkish`.
 </ParamField>
 
+### Multiple Stemmers
+
+For documents containing multiple languages, you can specify multiple stemmers as an array.
+Each token will be processed through all specified stemmers in sequence, which is useful for multilingual content.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "stemmer": ["English", "French"]}}
+    }'
+);
+```
+
+With multiple stemmers, searching for "studies" will match "studying", and searching for "courir" (French: to run) will match "courant" (French: running).
+
 ## Remove Long
 
 The `remove_long` filter removes all tokens longer than a fixed number of bytes. If not specified,

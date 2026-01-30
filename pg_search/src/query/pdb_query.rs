@@ -1674,12 +1674,14 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
     // Handle Numeric64 and NumericBytes fields specially since Tantivy's QueryParser
-    // can't parse decimal strings for I64 fields or arbitrary precision for Bytes fields
+    // can't parse decimal strings for I64 fields or arbitrary precision for Bytes fields.
+    // Pass the string directly to preserve full precision (don't parse through f64).
     match search_field.field_type() {
         SearchFieldType::Numeric64(_, scale) => {
-            // Parse the query string as a decimal and scale it for I64 storage
-            if let Ok(value) = query_string.trim().parse::<f64>() {
-                let scaled_value = scale_owned_value(OwnedValue::F64(value), scale)?;
+            // Scale the string value directly for I64 storage (preserves precision)
+            let trimmed = query_string.trim();
+            if let Ok(scaled_value) = scale_owned_value(OwnedValue::Str(trimmed.to_string()), scale)
+            {
                 let field_type = search_field.field_entry().field_type();
                 let term = value_to_term(
                     search_field.field(),
@@ -1696,9 +1698,9 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
             // Fall through to regular parsing if not a valid decimal
         }
         SearchFieldType::NumericBytes(_) => {
-            // Parse the query string as a decimal and convert to bytes
-            if let Ok(value) = query_string.trim().parse::<f64>() {
-                let bytes_value = numeric_value_to_bytes(OwnedValue::F64(value))?;
+            // Convert the string value directly to bytes (preserves precision)
+            let trimmed = query_string.trim();
+            if let Ok(bytes_value) = numeric_value_to_bytes(OwnedValue::Str(trimmed.to_string())) {
                 let field_type = search_field.field_entry().field_type();
                 let term = value_to_term(
                     search_field.field(),

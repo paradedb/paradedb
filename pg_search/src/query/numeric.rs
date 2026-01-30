@@ -349,56 +349,34 @@ pub fn try_numeric_term_query(
     field: &FieldName,
     query_string: &str,
 ) -> Option<Result<Box<dyn TantivyQuery>>> {
-    use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
+    let field_type = search_field.field_type();
 
-    let trimmed = query_string.trim();
+    // Only handle Numeric64 and NumericBytes fields
+    if !matches!(
+        field_type,
+        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(_)
+    ) {
+        return None;
+    }
 
-    match search_field.field_type() {
-        SearchFieldType::Numeric64(_, scale) => {
-            // Scale the string value directly for I64 storage (preserves precision)
-            match scale_owned_value(OwnedValue::Str(trimmed.to_string()), scale) {
-                Ok(scaled_value) => {
-                    let field_type = search_field.field_entry().field_type();
-                    match value_to_term(
-                        search_field.field(),
-                        &scaled_value,
-                        field_type,
-                        field.path().as_deref(),
-                        false,
-                    ) {
-                        Ok(term) => Some(Ok(Box::new(TermQuery::new(
-                            term,
-                            IndexRecordOption::WithFreqsAndPositions,
-                        )))),
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                Err(_) => None, // Not a valid decimal, fall through to regular parsing
-            }
-        }
-        SearchFieldType::NumericBytes(_) => {
-            // Convert the string value directly to bytes (preserves precision)
-            match numeric_value_to_bytes(OwnedValue::Str(trimmed.to_string())) {
-                Ok(bytes_value) => {
-                    let field_type = search_field.field_entry().field_type();
-                    match value_to_term(
-                        search_field.field(),
-                        &bytes_value,
-                        field_type,
-                        field.path().as_deref(),
-                        false,
-                    ) {
-                        Ok(term) => Some(Ok(Box::new(TermQuery::new(
-                            term,
-                            IndexRecordOption::WithFreqsAndPositions,
-                        )))),
-                        Err(e) => Some(Err(e)),
-                    }
-                }
-                Err(_) => None, // Not a valid decimal, fall through to regular parsing
-            }
-        }
-        _ => None, // Not a numeric field, use regular parsing
+    // Convert the query string to the appropriate format for this field type
+    let value = OwnedValue::Str(query_string.trim().to_string());
+    let converted = convert_value_for_field(value, &field_type).ok()?;
+
+    // Create the term query
+    let tantivy_field_type = search_field.field_entry().field_type();
+    match value_to_term(
+        search_field.field(),
+        &converted,
+        tantivy_field_type,
+        field.path().as_deref(),
+        false,
+    ) {
+        Ok(term) => Some(Ok(Box::new(TermQuery::new(
+            term,
+            IndexRecordOption::WithFreqsAndPositions,
+        )))),
+        Err(e) => Some(Err(e)),
     }
 }
 

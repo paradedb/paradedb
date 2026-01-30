@@ -635,12 +635,13 @@ impl TryFrom<TantivyValue> for f64 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
-            Ok(val)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            OwnedValue::F64(val) => Ok(val),
+            OwnedValue::I64(val) => Ok(val as f64),
+            OwnedValue::U64(val) => Ok(val as f64),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "f64".to_string(),
-            ))
+            )),
         }
     }
 }

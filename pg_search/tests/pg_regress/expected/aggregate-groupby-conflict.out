@@ -98,7 +98,21 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY price
 ORDER BY price;
-ERROR:  should be able to convert to datum: UnsupportedIntoConversion("f64")
+ price  | total_price | count 
+--------+-------------+-------
+     30 |          30 |     1
+     40 |          40 |     1
+     50 |          50 |     1
+     60 |          60 |     1
+     80 |          80 |     1
+     90 |          90 |     1
+    100 |         100 |     1
+    150 |         150 |     1
+    200 |         200 |     1
+    250 |         250 |     1
+ 299.99 |     1199.96 |     4
+(11 rows)
+
 -- =====================================================================
 -- Test 3: GROUP BY on views field with MAX(views)
 -- =====================================================================

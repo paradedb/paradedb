@@ -220,28 +220,8 @@ impl AggregateType {
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
 
-        // Check if the field is a NumericBytes type - if so, disable aggregate pushdown.
-        // Tantivy cannot aggregate on bytes columns, so we must let PostgreSQL handle these.
-        // For Numeric64 fields, get the scale for descaling aggregate results.
-        // See NUMERIC_SUPPORT_DESIGN.md for details.
-        let mut numeric_scale: Option<i16> = None;
-        if let Ok(schema) = bm25_index.schema() {
-            if let Some(search_field) = schema.search_field(&field) {
-                match search_field.field_type() {
-                    crate::schema::SearchFieldType::NumericBytes(_) => {
-                        pgrx::notice!(
-                            "Aggregate pushdown disabled for field '{}': NUMERIC columns without precision (or precision > 18) use byte storage which cannot be aggregated by the search index. Consider using NUMERIC(p,s) where p <= 18 for aggregate pushdown support.",
-                            field
-                        );
-                        return None;
-                    }
-                    crate::schema::SearchFieldType::Numeric64(_, scale) => {
-                        numeric_scale = Some(scale);
-                    }
-                    _ => {}
-                }
-            }
-        }
+        // Check if aggregate pushdown is supported for this field type
+        let numeric_scale = super::descale::get_numeric_scale_for_field(bm25_index, &field)?;
 
         let agg_type = create_aggregate_from_oid(
             aggfnoid,

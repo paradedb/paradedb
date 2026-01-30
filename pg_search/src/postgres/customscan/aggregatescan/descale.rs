@@ -20,6 +20,7 @@
 //! 4. **GROUP BY**: `descale_owned_value()` restores group key values
 
 use crate::api::HashMap;
+use crate::postgres::PgSearchRelation;
 use crate::schema::{SearchFieldType, SearchIndexSchema};
 use std::sync::LazyLock;
 use tantivy::schema::OwnedValue;
@@ -166,6 +167,35 @@ pub fn build_numeric_field_scales(
         }
     }
     scales
+}
+
+/// Check if aggregate pushdown is supported for a field and return its numeric scale.
+///
+/// Returns:
+/// - `Some(Some(scale))` for Numeric64 fields (I64 fixed-point storage)
+/// - `Some(None)` for other aggregatable field types
+/// - `None` if the field uses NumericBytes storage (aggregate pushdown not supported)
+pub fn get_numeric_scale_for_field(
+    bm25_index: &PgSearchRelation,
+    field: &str,
+) -> Option<Option<i16>> {
+    let schema = bm25_index.schema().ok()?;
+    let search_field = schema.search_field(field)?;
+
+    match search_field.field_type() {
+        SearchFieldType::NumericBytes(_) => {
+            pgrx::notice!(
+                "Aggregate pushdown disabled for field '{}': \
+                 NUMERIC columns without precision (or precision > 18) use byte storage \
+                 which cannot be aggregated by the search index. \
+                 Consider using NUMERIC(p,s) where p <= 18 for aggregate pushdown support.",
+                field
+            );
+            None
+        }
+        SearchFieldType::Numeric64(_, scale) => Some(Some(scale)),
+        _ => Some(None),
+    }
 }
 
 // ============================================================================

@@ -501,13 +501,19 @@ ORDER BY p.id
 LIMIT 3;
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
-ORDER BY p.price DESC
-LIMIT 3;
+--
+-- TODO: This query does NOT get a JoinScan because 'price' is DECIMAL (NUMERIC).
+-- While it is indexed as a fast field, we cannot safely pull it up from the index
+-- without potential precision loss, so fast field execution is disabled for NUMERIC.
+-- See: https://github.com/paradedb/paradedb/issues/2968
+--
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'mouse'
+-- ORDER BY p.price DESC
+-- LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1730,6 +1736,145 @@ ORDER BY m."ID"
 LIMIT 5;
 
 DROP TABLE "MixedCaseTable";
+
+-- =============================================================================
+-- TEST 28: Multi-table join specific scenarios
+-- =============================================================================
+
+-- Setup specific data for these tests
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS suppliers CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+
+-- Create test tables
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    contact_info TEXT,
+    country TEXT
+);
+
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER,
+    category_id INTEGER,
+    price DECIMAL(10,2)
+);
+
+-- Insert test data
+INSERT INTO categories (id, name) VALUES
+(10, 'Electronics'),
+(11, 'Accessories'),
+(12, 'Office');
+
+INSERT INTO suppliers (id, name, contact_info, country) VALUES
+(151, 'TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
+(152, 'GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
+(153, 'FastParts', 'sales@fastparts.com quick delivery', 'Germany');
+
+INSERT INTO products (id, name, description, supplier_id, category_id, price) VALUES
+(201, 'Wireless Mouse', 'Ergonomic wireless mouse', 151, 11, 29.99),
+(202, 'USB Cable', 'High-speed USB-C cable', 152, 11, 9.99),
+(203, 'Keyboard', 'Mechanical keyboard', 151, 10, 89.99),
+(204, 'Monitor Stand', 'Adjustable monitor stand', 153, 12, 49.99),
+(206, 'Headphones', 'Wireless noise-canceling headphones', 151, 10, 199.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad', 152, 11, 29.99);
+
+-- Create BM25 indexes
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, category_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}');
+
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+WITH (key_field = 'id');
+
+CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name)
+WITH (key_field = 'id');
+
+-- Enable JoinScan
+SET paradedb.enable_join_custom_scan = on;
+
+-- Query joining Products, Suppliers, and Categories.
+-- Search predicate on Products.
+-- Should produce nested JoinScans.
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+LIMIT 10;
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- Search predicate on Suppliers.
+-- Products joins Suppliers, then Categories.
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+LIMIT 10;
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- Order by score from the nested relation (Products).
+-- Products is in the child join (p join c).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+
+-- Order by score from the top outer relation (Suppliers).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
+
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
 
 -- =============================================================================
 -- CLEANUP

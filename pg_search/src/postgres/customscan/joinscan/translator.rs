@@ -22,8 +22,7 @@ use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
-use crate::postgres::customscan::joinscan::build::JoinLevelExpr;
-use crate::postgres::customscan::joinscan::build::ScanInfo;
+use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, JoinSource};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS,
 };
@@ -34,38 +33,21 @@ use crate::postgres::customscan::opexpr::{
 
 static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
 
-pub trait ColumnMapper {
+pub(super) trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
-///
-/// This struct handles the mapping of PostgreSQL variables (Vars) to DataFusion columns,
-/// taking into account the source relation (outer vs inner) and any necessary aliasing.
-/// It also handles the translation of operators and constants.
-pub struct PredicateTranslator<'a> {
-    #[allow(dead_code)]
-    outer_side: &'a ScanInfo,
-    #[allow(dead_code)]
-    inner_side: &'a ScanInfo,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
+pub(super) struct PredicateTranslator<'a> {
+    pub sources: &'a [JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
 impl<'a> PredicateTranslator<'a> {
-    pub fn new(
-        outer_side: &'a ScanInfo,
-        inner_side: &'a ScanInfo,
-        outer_rti: pg_sys::Index,
-        inner_rti: pg_sys::Index,
-    ) -> Self {
+    pub fn new(sources: &'a [JoinSource]) -> Self {
         Self {
-            outer_side,
-            inner_side,
-            outer_rti,
-            inner_rti,
+            sources,
             mapper: None,
         }
     }
@@ -80,25 +62,17 @@ impl<'a> PredicateTranslator<'a> {
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
         join_level_sets: &[Arc<Vec<u64>>],
-        outer_ctid_col: &Expr,
-        inner_ctid_col: &Expr,
+        source_ctid_cols: &[Expr],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
-                side,
+                source_idx,
                 predicate_idx,
             } => {
                 let set = join_level_sets.get(*predicate_idx)?.clone();
-                let col = match side {
-                    crate::postgres::customscan::joinscan::build::JoinSide::Outer => {
-                        outer_ctid_col.clone()
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinSide::Inner => {
-                        inner_ctid_col.clone()
-                    }
-                };
+                let col = source_ctid_cols.get(*source_idx)?;
                 let udf = datafusion::logical_expr::ScalarUDF::new_from_impl(RowInSetUDF::new(set));
-                Some(udf.call(vec![col]))
+                Some(udf.call(vec![col.clone()]))
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 custom_exprs.get(*predicate_idx).cloned()
@@ -111,16 +85,14 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    source_ctid_cols,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        outer_ctid_col,
-                        inner_ctid_col,
+                        source_ctid_cols,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -138,16 +110,14 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    source_ctid_cols,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        outer_ctid_col,
-                        inner_ctid_col,
+                        source_ctid_cols,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -162,8 +132,7 @@ impl<'a> PredicateTranslator<'a> {
                     child,
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    source_ctid_cols,
                 )?;
                 Some(Expr::Not(Box::new(inner)))
             }
@@ -183,8 +152,6 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
-            // T_RelabelType is common (casting), often safe to ignore if types are compatible
-            // For now, stricter is better.
             _ => None,
         }
     }
@@ -222,14 +189,10 @@ impl<'a> PredicateTranslator<'a> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // Check if the var belongs to one of the relations we are handling.
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output,
-        // which contains the columns from both sides of the join.
-        if varno != self.outer_rti
-            && varno != self.inner_rti
-            && varno != pg_sys::INDEX_VAR as pg_sys::Index
+        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
+        if varno != pg_sys::INDEX_VAR as pg_sys::Index
+            && !self.sources.iter().any(|s| s.contains_rti(varno))
         {
-            // Reference to a relation outside the join?
             return None;
         }
 
@@ -240,7 +203,6 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
-        // For validation (no mapper), we just need to ensure it's a valid reference.
         Some(col("placeholder"))
     }
 
@@ -278,7 +240,6 @@ impl<'a> PredicateTranslator<'a> {
                 let val = datum.value() != 0;
                 ScalarValue::Boolean(Some(val))
             }
-            // TODO: Add support for TEXT strings via pgrx utils
             _ => return None,
         };
 
@@ -338,11 +299,8 @@ impl<'a> PredicateTranslator<'a> {
 }
 
 /// Creates a DataFusion column expression with a bare table reference.
-///
 /// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
-/// which can lead to normalization issues with mixed-case identifiers unless strictly quoted.
-/// Constructing `Expr::Column` directly ensures the identifier is used exactly as provided.
-pub fn make_col(relation: &str, name: &str) -> Expr {
+pub(super) fn make_col(relation: &str, name: &str) -> Expr {
     Expr::Column(Column::new(
         Some(TableReference::Bare {
             table: relation.into(),
@@ -351,63 +309,58 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
-/// Helper to map PostgreSQL variables to DataFusion column expressions across both sides
-/// of the join. Used during predicate translation.
-///
-/// `output_columns` is used to resolve `INDEX_VAR` references. These variables
-/// point to the output columns of the custom scan itself, and must be mapped
-/// back to the original source relation (outer or inner) and its attribute
-/// to find the correct column in the DataFusion plan.
-pub struct CombinedMapper<'a> {
-    pub outer: &'a ScanInfo,
-    pub inner: &'a ScanInfo,
+pub(super) struct CombinedMapper<'a> {
+    pub sources: &'a [JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
-    pub outer_alias: &'a str,
-    pub inner_alias: &'a str,
-}
-
-impl<'a> CombinedMapper<'a> {
-    pub fn get_field_name(side: &ScanInfo, attno: pg_sys::AttrNumber) -> Option<String> {
-        side.fields
-            .iter()
-            .find(|f| f.attno == attno)
-            .map(|f| f.field.name())
-    }
 }
 
 impl<'a> ColumnMapper for CombinedMapper<'a> {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
-        // Handle INDEX_VAR references which point to the custom scan output columns
-        if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+        // 1. Resolve to (rti, attno, is_score)
+        let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
             let idx = (varattno - 1) as usize;
-            if idx >= self.output_columns.len() {
-                return None;
-            }
-            let info = &self.output_columns[idx];
-
-            if info.is_outer {
-                if info.is_score {
-                    return Some(make_col(self.outer_alias, OUTER_SCORE_ALIAS));
-                } else {
-                    let field_name = Self::get_field_name(self.outer, info.original_attno)?;
-                    return Some(make_col(self.outer_alias, &field_name));
-                }
-            } else if info.is_score {
-                return Some(make_col(self.inner_alias, INNER_SCORE_ALIAS));
-            } else {
-                let field_name = Self::get_field_name(self.inner, info.original_attno)?;
-                return Some(make_col(self.inner_alias, &field_name));
-            }
-        }
-
-        if varno == self.outer.heap_rti.unwrap_or(0) {
-            let field_name = Self::get_field_name(self.outer, varattno)?;
-            Some(make_col(self.outer_alias, &field_name))
-        } else if varno == self.inner.heap_rti.unwrap_or(0) {
-            let field_name = Self::get_field_name(self.inner, varattno)?;
-            Some(make_col(self.inner_alias, &field_name))
+            let info = self.output_columns.get(idx)?;
+            (info.rti, info.original_attno, info.is_score)
         } else {
-            None
+            (varno, varattno, false)
+        };
+
+        // 2. Find the source
+        let (source_idx, source) = self
+            .sources
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.contains_rti(rti))?;
+
+        let alias = source.alias().unwrap_or_else(|| {
+            if source_idx == 0 {
+                "outer".to_string()
+            } else {
+                "inner".to_string()
+            }
+        });
+
+        // 3. Resolve column name
+        if is_score {
+            // Try to resolve score via map_var(rti, 0) first (for nested joins)
+            if let Some(col_idx) = source.map_var(rti, 0) {
+                if let Some(name) = source.column_name(col_idx) {
+                    return Some(make_col(&alias, &name));
+                }
+            }
+            // Default to alias-specific score alias
+            let score_alias = if source_idx == 0 {
+                OUTER_SCORE_ALIAS
+            } else {
+                INNER_SCORE_ALIAS
+            };
+            return Some(make_col(&alias, score_alias));
         }
+
+        // Normal column
+        // We need to map the rti/attno to the source's output attno
+        let mapped_attno = source.map_var(rti, attno)?;
+        let col_name = source.column_name(mapped_attno)?;
+        Some(make_col(&alias, &col_name))
     }
 }

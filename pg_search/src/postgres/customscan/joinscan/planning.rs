@@ -23,12 +23,69 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, ScanInfo};
-use super::privdat::{OutputColumnInfo, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS};
+use super::build::{ChildProjection, JoinCSClause, JoinKeyPair, JoinSource, ScanInfo};
+use super::predicate::find_base_info_recursive;
+use super::privdat::{OutputColumnInfo, PrivateData, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
+use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::customscan::score_funcoids;
+
+/// Check if an expression uses paradedb.score() for any relation in the JoinSource.
+pub(super) unsafe fn expr_uses_scores_from_source(
+    node: *mut pg_sys::Node,
+    source: &JoinSource,
+) -> bool {
+    // We use a walker to find score functions
+    use pgrx::pg_sys::expression_tree_walker;
+    use std::ptr::addr_of_mut;
+
+    #[pgrx::pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let data = context.cast::<Data>();
+            if (*data).funcoids.contains(&(*funcexpr).funcid) {
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                if args.len() == 1 {
+                    if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                        let varno = (*var).varno as pg_sys::Index;
+                        if (*data).source.contains_rti(varno) {
+                            (*data).found = true;
+                            return true; // Abort traversal, found it
+                        }
+                    }
+                }
+            }
+        }
+
+        expression_tree_walker(node, Some(walker), context)
+    }
+
+    struct Data<'a> {
+        source: &'a JoinSource,
+        funcoids: [pg_sys::Oid; 2],
+        found: bool,
+    }
+
+    let mut data = Data {
+        source,
+        funcoids: score_funcoids(),
+        found: false,
+    };
+
+    walker(node, addr_of_mut!(data).cast());
+    data.found
+}
+
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::opexpr::{
@@ -64,8 +121,7 @@ pub(super) struct JoinConditions {
 /// - Whether any condition contains our @@@ search operator
 pub(super) unsafe fn extract_join_conditions(
     extra: *mut pg_sys::JoinPathExtraData,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
+    sources: &[JoinSource],
 ) -> JoinConditions {
     let mut result = JoinConditions {
         equi_keys: Vec::new(),
@@ -73,22 +129,20 @@ pub(super) unsafe fn extract_join_conditions(
         has_search_predicate: false,
     };
 
-    if extra.is_null() {
+    if extra.is_null() || sources.len() < 2 {
         return result;
     }
+
+    let outer_side = &sources[0];
+    let inner_side = &sources[1];
 
     let restrictlist = (*extra).restrictlist;
     if restrictlist.is_null() {
         return result;
     }
 
-    let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
-
-    for ri in restrict_infos.iter_ptr() {
-        if ri.is_null() {
-            continue;
-        }
-
+    let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+    for ri in list.iter_ptr() {
         let clause = (*ri).clause;
         if clause.is_null() {
             continue;
@@ -128,26 +182,30 @@ pub(super) unsafe fn extract_join_conditions(
                     let attno0 = (*var0).varattno;
                     let attno1 = (*var1).varattno;
 
-                    // Check if this is an equi-join between outer and inner
-                    if varno0 == outer_rti && varno1 == inner_rti {
-                        // Get type info from the Var
+                    // Try to map vars to positions in outer/inner sides
+                    if let (Some(outer_attno), Some(inner_attno)) = (
+                        outer_side.map_var(varno0, attno0),
+                        inner_side.map_var(varno1, attno1),
+                    ) {
                         let type_oid = (*var0).vartype;
                         let (typlen, typbyval) = get_type_info(type_oid);
                         result.equi_keys.push(JoinKeyPair {
-                            outer_attno: attno0,
-                            inner_attno: attno1,
+                            outer_attno,
+                            inner_attno,
                             type_oid,
                             typlen,
                             typbyval,
                         });
                         is_equi_join = true;
-                    } else if varno0 == inner_rti && varno1 == outer_rti {
-                        // Get type info from the Var
+                    } else if let (Some(outer_attno), Some(inner_attno)) = (
+                        outer_side.map_var(varno1, attno1),
+                        inner_side.map_var(varno0, attno0),
+                    ) {
                         let type_oid = (*var1).vartype;
                         let (typlen, typbyval) = get_type_info(type_oid);
                         result.equi_keys.push(JoinKeyPair {
-                            outer_attno: attno1,
-                            inner_attno: attno0,
+                            outer_attno,
+                            inner_attno,
                             type_oid,
                             typlen,
                             typbyval,
@@ -158,9 +216,6 @@ pub(super) unsafe fn extract_join_conditions(
             }
         }
 
-        // If it's not an equi-join, it's an "other" condition
-        // BUT: Skip conditions that contain our @@@ search operator, as these
-        // will be handled separately via join-level predicate evaluation
         if !is_equi_join {
             let search_op = anyelement_query_input_opoid();
             let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
@@ -173,6 +228,9 @@ pub(super) unsafe fn extract_join_conditions(
     result
 }
 
+/// Lookup the Tantivy operator string for a given PostgreSQL operator OID.
+///
+/// Returns `Some("=")` for equality operators, or `None` if the operator is not supported.
 fn lookup_operator(opno: pg_sys::Oid) -> Option<&'static str> {
     let lookup = OPERATOR_LOOKUP
         .get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) });
@@ -187,12 +245,12 @@ pub(super) unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
     (typlen, typbyval)
 }
 
-/// Try to extract join side information from a RelOptInfo.
-/// Returns ScanInfo if we find a base relation (possibly with a BM25 index).
-pub(super) unsafe fn extract_join_side_info(
+/// Try to extract join source information from a RelOptInfo.
+/// Returns JoinSource if we find a base relation (possibly with a BM25 index) or a supported child join.
+pub(super) unsafe fn extract_join_source(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<ScanInfo> {
+) -> Option<JoinSource> {
     if rel.is_null() {
         return None;
     }
@@ -202,76 +260,400 @@ pub(super) unsafe fn extract_join_side_info(
         return None;
     }
 
-    // TODO(multi-relation-sides): Currently we only handle single base relations on
-    // each side. This means queries like:
-    //   SELECT * FROM A JOIN B ON ... JOIN C ON ... WHERE A.text @@@ 'x' LIMIT 10
-    // won't use JoinScan because one "side" of the outer join is itself a join result.
-    //
-    // Supporting this would require:
-    // 1. Recursive analysis of join trees to find the relation with search predicate
-    // 2. Propagating search predicates through the join tree
-    // 3. Handling parameterized paths for inner relations
-    let mut rti_iter = bms_iter(relids);
-    let rti = rti_iter.next()?;
+    let num_relids = pg_sys::bms_num_members(relids);
 
-    if rti_iter.next().is_some() {
-        return None;
-    }
+    if num_relids == 1 {
+        let mut rti_iter = bms_iter(relids);
+        let rti = rti_iter.next()?;
 
-    // Get the RTE and verify it's a plain relation
-    let rtable = (*(*root).parse).rtable;
-    if rtable.is_null() {
-        return None;
-    }
+        let rtable = (*(*root).parse).rtable;
+        if rtable.is_null() {
+            return None;
+        }
 
-    let rte = pg_sys::rt_fetch(rti, rtable);
-    let relid = get_plain_relation_relid(rte)?;
+        let rte = pg_sys::rt_fetch(rti, rtable);
+        let relid = get_plain_relation_relid(rte)?;
 
-    let mut side_info = ScanInfo::new().with_heap_rti(rti).with_heaprelid(relid);
+        let mut side_info = ScanInfo::new().with_heap_rti(rti).with_heaprelid(relid);
 
-    // Extract the alias from the RTE if present
-    // The eref->aliasname contains the alias (or table name if no alias was specified)
-    if !(*rte).eref.is_null() {
-        let eref = (*rte).eref;
-        if !(*eref).aliasname.is_null() {
-            let alias_cstr = std::ffi::CStr::from_ptr((*eref).aliasname);
-            if let Ok(alias) = alias_cstr.to_str() {
-                // Always set alias to the eref name, which is unique in the query context
-                side_info = side_info.with_alias(alias.to_string());
+        if !(*rte).eref.is_null() {
+            let eref = (*rte).eref;
+            if !(*eref).aliasname.is_null() {
+                let alias_cstr = std::ffi::CStr::from_ptr((*eref).aliasname);
+                if let Ok(alias) = alias_cstr.to_str() {
+                    side_info = side_info.with_alias(alias.to_string());
+                }
             }
         }
+
+        if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
+            side_info = side_info.with_indexrelid(bm25_index.oid());
+
+            let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+            if !baserestrictinfo.is_empty() {
+                let context = PlannerContext::from_planner(root);
+                let mut state = QualExtractState::default();
+
+                if let Some(qual) = extract_quals(
+                    &context,
+                    rti,
+                    baserestrictinfo.as_ptr().cast(),
+                    anyelement_query_input_opoid(),
+                    crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
+                    &bm25_index,
+                    false,
+                    &mut state,
+                    true,
+                ) {
+                    if state.uses_our_operator {
+                        let query = SearchQueryInput::from(&qual);
+                        side_info = side_info.with_query(query);
+                    }
+                }
+            }
+        }
+
+        return Some(JoinSource::Base(side_info));
     }
 
-    // Check if this relation has a BM25 index
-    if let Some((_, bm25_index)) = rel_get_bm25_index(relid) {
-        side_info = side_info.with_indexrelid(bm25_index.oid());
+    // Case 2: Join Relation (multiple relids)
+    let pathlist = PgList::<pg_sys::Path>::from_pg((*rel).pathlist);
 
-        // Try to extract quals for this relation
-        let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
-        if !baserestrictinfo.is_empty() {
-            let context = PlannerContext::from_planner(root);
-            let mut state = QualExtractState::default();
+    for path in pathlist.iter_ptr() {
+        if !path.is_null() && (*path).type_ == pg_sys::NodeTag::T_CustomPath {
+            let custom_path = path as *mut pg_sys::CustomPath;
+            let methods = (*custom_path).methods;
 
-            if let Some(qual) = extract_quals(
-                &context,
-                rti,
-                baserestrictinfo.as_ptr().cast(),
-                anyelement_query_input_opoid(),
-                crate::postgres::customscan::builders::custom_path::RestrictInfoType::BaseRelation,
-                &bm25_index,
-                false, // Don't convert external to special qual
-                &mut state,
-                true, // Attempt pushdown
-            ) {
-                if state.uses_our_operator {
-                    let query = SearchQueryInput::from(&qual);
-                    side_info = side_info.with_query(query);
+            // Check if this is a JoinScan
+            let name_ptr = (*methods).CustomName;
+            if !name_ptr.is_null() {
+                let name_cstr = std::ffi::CStr::from_ptr(name_ptr);
+                if name_cstr.to_bytes() == b"ParadeDB Join Scan" {
+                    // Deserialize PrivateData to get the child clause
+                    let private_list =
+                        PgList::<pg_sys::Node>::from_pg((*custom_path).custom_private);
+                    if !private_list.is_empty() {
+                        let private_data = PrivateData::from((*custom_path).custom_private);
+
+                        // Extract projection from path target
+                        let pathtarget = (*path).pathtarget;
+                        let exprs = PgList::<pg_sys::Node>::from_pg((*pathtarget).exprs);
+                        let mut projection = Vec::with_capacity(exprs.len());
+
+                        for expr in exprs.iter_ptr() {
+                            if let Some(var) = nodecast!(Var, T_Var, expr) {
+                                projection.push(ChildProjection {
+                                    rti: (*var).varno as pg_sys::Index,
+                                    attno: (*var).varattno,
+                                    is_score: false,
+                                });
+                            } else if let Some(rti) = get_score_func_rti(expr.cast()) {
+                                projection.push(ChildProjection {
+                                    rti,
+                                    attno: 0,
+                                    is_score: true,
+                                });
+                            } else {
+                                projection.push(ChildProjection {
+                                    rti: 0,
+                                    attno: 0,
+                                    is_score: false,
+                                });
+                            }
+                        }
+                        // Clone clause and add projection
+                        let mut child_clause = private_data.join_clause.clone();
+                        child_clause.output_projection = Some(projection.clone());
+
+                        return Some(JoinSource::Join(child_clause, projection, None));
+                    }
                 }
             }
         }
     }
 
-    Some(side_info)
+    None
+}
+
+/// Collect all required fields for execution.
+///
+/// This iterates over various parts of the query plan to ensure that all necessary
+/// columns are available during execution:
+/// 1. CTID: Always required for fetching results.
+/// 2. Join Keys: Required for the join condition.
+/// 3. Filters: Columns used in join-level filters (custom_exprs).
+/// 4. Order By: Columns used for sorting.
+///
+/// It recursively propagates these requirements down to the base relations.
+pub(super) unsafe fn collect_required_fields(
+    join_clause: &mut JoinCSClause,
+    output_columns: &[OutputColumnInfo],
+    custom_exprs: *mut pg_sys::List,
+) {
+    for source in &mut join_clause.sources {
+        ensure_ctid_recursive(source);
+    }
+
+    if join_clause.sources.len() >= 2 {
+        for jk in &join_clause.join_keys {
+            ensure_field_recursive(&mut join_clause.sources[0], jk.outer_attno, None);
+            ensure_field_recursive(&mut join_clause.sources[1], jk.inner_attno, None);
+        }
+    }
+
+    let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
+    for expr_node in expr_list.iter_ptr() {
+        let vars = expr_collect_vars(expr_node, true);
+        for var in vars {
+            if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
+                let idx = (var.attno - 1) as usize;
+                if let Some(info) = output_columns.get(idx) {
+                    if info.original_attno > 0 {
+                        for source in &mut join_clause.sources {
+                            if source.contains_rti(info.rti) {
+                                ensure_field_recursive(source, info.original_attno, Some(info.rti));
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                for source in &mut join_clause.sources {
+                    if source.contains_rti(var.rti) {
+                        ensure_column_recursive(source, var.rti, var.attno);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    for info in &join_clause.order_by {
+        match &info.feature {
+            OrderByFeature::Var { rti, attno, .. } => {
+                for source in &mut join_clause.sources {
+                    if source.contains_rti(*rti) {
+                        ensure_column_recursive(source, *rti, *attno);
+                        break;
+                    }
+                }
+            }
+            OrderByFeature::Field(name_wrapper) => {
+                let name = name_wrapper.as_ref();
+                if let Some((alias, col_name)) = name.split_once('.') {
+                    let raw_col_name = col_name.trim_matches('"');
+                    for source in &mut join_clause.sources {
+                        if source.alias().as_deref() == Some(alias) {
+                            if let Some(attno) = get_attno_by_name_recursive(source, raw_col_name) {
+                                ensure_field_recursive(source, attno, None);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Recursively collect internal requirements (join keys) for nested joins
+    for source in &mut join_clause.sources {
+        collect_internal_fields(source);
+    }
+}
+
+/// Recursively ensure that a specific column is available from a join source.
+///
+/// If the source is a base relation, it adds the field to the scan requirements.
+/// If the source is a nested join, it adds the field to the projection and recurses.
+unsafe fn ensure_column_recursive(
+    source: &mut JoinSource,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) {
+    match source {
+        JoinSource::Base(info) => {
+            if info.heap_rti == Some(rti) {
+                ensure_field(info, attno);
+            }
+        }
+        JoinSource::Join(clause, projection, _) => {
+            // Find if this base column is already projected
+            let found = projection.iter().any(|p| p.rti == rti && p.attno == attno);
+            if !found {
+                // Add to projection
+                let proj = ChildProjection {
+                    rti,
+                    attno,
+                    is_score: false,
+                };
+                projection.push(proj.clone());
+                if let Some(op) = &mut clause.output_projection {
+                    op.push(proj);
+                }
+            }
+
+            // Recurse to ensure it is available from child
+            for s in &mut clause.sources {
+                if s.contains_rti(rti) {
+                    ensure_column_recursive(s, rti, attno);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Recursively collect fields required internally by the join structure itself.
+///
+/// This mainly ensures that:
+/// 1. Join keys are available for all join levels.
+/// 2. CTID is available for all base relations (always needed).
+unsafe fn collect_internal_fields(source: &mut JoinSource) {
+    if let JoinSource::Join(clause, _, _) = source {
+        // Recurse first
+        for s in &mut clause.sources {
+            collect_internal_fields(s);
+            ensure_ctid_recursive(s);
+        }
+
+        // Ensure Join Keys
+        if clause.sources.len() >= 2 {
+            for jk in &clause.join_keys {
+                ensure_field_recursive(&mut clause.sources[0], jk.outer_attno, None);
+                ensure_field_recursive(&mut clause.sources[1], jk.inner_attno, None);
+            }
+        }
+    }
+}
+
+/// Recursively ensure that CTID is fetched for all base relations in the source tree.
+unsafe fn ensure_ctid_recursive(source: &mut JoinSource) {
+    match source {
+        JoinSource::Base(info) => {
+            info.add_field(
+                pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
+                WhichFastField::Ctid,
+            );
+        }
+        JoinSource::Join(clause, _, _) => {
+            for s in &mut clause.sources {
+                ensure_ctid_recursive(s);
+            }
+        }
+    }
+}
+
+/// Recursively ensure a specific field from a base relation is available.
+///
+/// This traverses down the join tree to find the base relation with the matching RTI,
+/// ensures the field is added to its scan requirements, and ensures it is projected
+/// up through any intermediate joins.
+unsafe fn ensure_field_recursive(
+    source: &mut JoinSource,
+    attno: pg_sys::AttrNumber,
+    rti: Option<pg_sys::Index>,
+) {
+    match source {
+        JoinSource::Base(info) => {
+            if let Some(req_rti) = rti {
+                if info.heap_rti != Some(req_rti) {
+                    return;
+                }
+            }
+            ensure_field(info, attno);
+        }
+        JoinSource::Join(clause, projection, _) => {
+            if attno > 0 && (attno as usize) <= projection.len() {
+                let proj = &projection[(attno - 1) as usize];
+                if proj.rti > 0 && proj.attno != 0 {
+                    for s in &mut clause.sources {
+                        if s.contains_rti(proj.rti) {
+                            ensure_field_recursive(s, proj.attno, Some(proj.rti));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+unsafe fn ensure_field(side: &mut ScanInfo, attno: pg_sys::AttrNumber) {
+    if side.fields.iter().any(|f| f.attno == attno) {
+        return;
+    }
+
+    if let Some(heaprelid) = side.heaprelid {
+        if let Some(indexrelid) = side.indexrelid {
+            let heaprel = PgSearchRelation::open(heaprelid);
+            let indexrel = PgSearchRelation::open(indexrelid);
+            let tupdesc = heaprel.tuple_desc();
+
+            if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
+                side.add_field(attno, field);
+                return;
+            }
+        }
+    }
+
+    pgrx::warning!(
+        "ensure_field: failed for attno {} in relation {:?}",
+        attno,
+        side.alias
+    );
+}
+
+unsafe fn get_attno_by_name(side: &ScanInfo, name: &str) -> Option<pg_sys::AttrNumber> {
+    let heaprelid = side.heaprelid?;
+    let rel = PgSearchRelation::open(heaprelid);
+    let tupdesc = rel.tuple_desc();
+    for (i, att) in tupdesc.iter().enumerate() {
+        if att.name() == name {
+            return Some((i + 1) as pg_sys::AttrNumber);
+        }
+    }
+    None
+}
+
+unsafe fn get_attno_by_name_recursive(
+    source: &JoinSource,
+    name: &str,
+) -> Option<pg_sys::AttrNumber> {
+    match source {
+        JoinSource::Base(info) => get_attno_by_name(info, name),
+        JoinSource::Join(clause, _, _) => {
+            for s in &clause.sources {
+                if let Some(attno) = get_attno_by_name_recursive(s, name) {
+                    return Some(attno);
+                }
+            }
+            None
+        }
+    }
+}
+
+pub(super) unsafe fn is_source_column_fast_field(
+    source: &JoinSource,
+    attno: pg_sys::AttrNumber,
+) -> bool {
+    use super::predicate::is_column_fast_field;
+    match source {
+        JoinSource::Base(info) => is_column_fast_field(info, attno),
+        JoinSource::Join(clause, projection, _) => {
+            if attno > 0 && (attno as usize) <= projection.len() {
+                let proj = &projection[(attno - 1) as usize];
+                if proj.rti > 0 && proj.attno != 0 {
+                    for s in &clause.sources {
+                        if s.contains_rti(proj.rti) {
+                            return is_source_column_fast_field(s, proj.attno);
+                        }
+                    }
+                }
+            }
+            false
+        }
+    }
 }
 
 /// Check if all ORDER BY columns are fast fields.
@@ -284,84 +666,86 @@ pub(super) unsafe fn extract_join_side_info(
 /// - All ORDER BY columns are fast fields or score functions
 ///
 /// Returns false if any ORDER BY column is not a fast field.
-pub(super) unsafe fn order_by_columns_are_fast_fields(
+pub(super) unsafe fn order_by_columns_are_fast_fields_recursive(
     root: *mut pg_sys::PlannerInfo,
-    outer_side: &ScanInfo,
-    inner_side: &ScanInfo,
+    outer_side: &JoinSource,
+    inner_side: &JoinSource,
 ) -> bool {
-    use super::predicate::is_column_fast_field;
-
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return true; // No ORDER BY, nothing to check
+        return true;
     }
 
-    let outer_rti = outer_side.heap_rti.unwrap_or(0);
-    let inner_rti = inner_side.heap_rti.unwrap_or(0);
+    let sources = [outer_side, inner_side];
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
-        // Check each member of the equivalence class
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            // Skip if this is a score function (handled separately)
             if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
                 if !phv.is_null() && !(*phv).phexpr.is_null() {
-                    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                        if is_score_func(funcexpr.cast(), outer_rti)
-                            || is_score_func(funcexpr.cast(), inner_rti)
-                        {
-                            continue; // Score function, skip fast field check
-                        }
+                    if let Some(_funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
+                        continue;
                     }
                 }
             }
-            if is_score_func(expr.cast(), outer_rti) || is_score_func(expr.cast(), inner_rti) {
-                continue; // Score function, skip fast field check
-            }
 
-            // Check if this is a Var (column reference)
             if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
-                // Determine which side this column belongs to
-                let side = if varno == outer_rti {
-                    outer_side
-                } else if varno == inner_rti {
-                    inner_side
-                } else {
-                    // Unknown relation - can't verify, reject
-                    pgrx::debug1!(
-                        "JoinScan: ORDER BY column (varno={}) not from join sides, rejecting",
-                        varno
-                    );
-                    return false;
-                };
-
-                // Check if the column is a fast field
-                if !is_column_fast_field(side, varattno) {
-                    pgrx::debug1!(
-                        "JoinScan: ORDER BY column (varno={}, attno={}) is not a fast field, rejecting",
-                        varno,
-                        varattno
-                    );
+                let mut found = false;
+                for source in sources {
+                    if source.contains_rti(varno) {
+                        if !is_column_fast_field_recursive(source, varno, varattno) {
+                            return false;
+                        }
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
                     return false;
                 }
             }
         }
     }
 
-    true // All ORDER BY columns are fast fields
+    true
 }
 
-/// Extract ORDER BY score pathkey for the driving side.
+unsafe fn is_column_fast_field_recursive(
+    source: &JoinSource,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> bool {
+    use super::predicate::is_column_fast_field;
+    match source {
+        JoinSource::Base(info) => {
+            if info.heap_rti == Some(rti) {
+                is_column_fast_field(info, attno)
+            } else {
+                false
+            }
+        }
+        JoinSource::Join(clause, _, _) => {
+            for s in &clause.sources {
+                if s.contains_rti(rti) {
+                    return is_column_fast_field_recursive(s, rti, attno);
+                }
+            }
+            false
+        }
+    }
+}
+
+/// Extract ORDER BY score pathkey for the ordering side.
 ///
 /// This checks if the query has an ORDER BY clause with paradedb.score()
-/// referencing the driving side relation. If found, returns the OrderByStyle
+/// referencing the ordering side relation. If found, returns the OrderByStyle
 /// that can be used to declare pathkeys on the CustomPath, eliminating the
 /// need for PostgreSQL to add a separate Sort node.
 ///
@@ -371,15 +755,13 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 /// - Score function references a different relation
 pub(super) unsafe fn extract_score_pathkey(
     root: *mut pg_sys::PlannerInfo,
-    driving_side_rti: pg_sys::Index,
+    ordering_side: &JoinSource,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
         return None;
     }
 
-    // We only support a single score-based ORDER BY for now
-    // (first pathkey must be score for the driving side)
     let pathkey_ptr = pathkeys.iter_ptr().next()?;
     let pathkey = pathkey_ptr;
     let equivclass = (*pathkey).pk_eclass;
@@ -388,18 +770,15 @@ pub(super) unsafe fn extract_score_pathkey(
     for member in members.iter_ptr() {
         let expr = (*member).em_expr;
 
-        // Check if this is a PlaceHolderVar containing a score function
         if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
             if !phv.is_null() && !(*phv).phexpr.is_null() {
                 if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                    if is_score_func(funcexpr.cast(), driving_side_rti) {
+                    if is_score_func_recursive(funcexpr.cast(), ordering_side) {
                         return Some(OrderByStyle::Score(pathkey));
                     }
                 }
             }
-        }
-        // Check if this is a direct score function call
-        else if is_score_func(expr.cast(), driving_side_rti) {
+        } else if is_score_func_recursive(expr.cast(), ordering_side) {
             return Some(OrderByStyle::Score(pathkey));
         }
     }
@@ -407,49 +786,132 @@ pub(super) unsafe fn extract_score_pathkey(
     None
 }
 
-/// Quote an identifier only if it contains non-lowercase characters or special characters.
-///
-/// This ensures that mixed-case identifiers are preserved when parsed by DataFusion's `col()`
-/// while avoiding unnecessary quotes for standard lowercase identifiers.
-fn quote_identifier_if_needed(name: &str) -> String {
-    let needs_quoting = name.is_empty()
-        || name.starts_with(|c: char| !c.is_ascii_lowercase() && c != '_')
-        || name
-            .chars()
-            .any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_');
+/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
+unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
 
-    if needs_quoting {
-        format!(r#""{}""#, name)
-    } else {
-        name.to_string()
+/// Extracts the RTI of the variable passed to a `paradedb.score(var)` function call.
+/// Handles implicit casts and placeholder wrappers.
+pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sys::Index> {
+    if expr.is_null() {
+        return None;
+    }
+    let stripped_expr = strip_wrappers(expr.cast());
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, stripped_expr) {
+        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+        if !args.is_empty() {
+            if let Some(arg) = args.get_ptr(0) {
+                let stripped_arg = strip_wrappers(arg);
+                if let Some(var) = nodecast!(Var, T_Var, stripped_arg) {
+                    let varno = (*var).varno as pg_sys::Index;
+                    if is_score_func(stripped_expr.cast(), varno) {
+                        return Some(varno);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Recursively sets `score_needed` on the ordering base relation and updates intermediate join projections
+/// to ensure the score column bubbles up to the top level.
+/// Returns the RTI of the ordering base relation if found.
+pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
+    match source {
+        JoinSource::Base(info) => {
+            info.score_needed = true;
+            info.add_field(0, WhichFastField::Score);
+            info.heap_rti
+        }
+        JoinSource::Join(clause, projection, _) => {
+            let rti = if clause.ordering_side_is_outer() {
+                ensure_score_bubbling(&mut clause.sources[0])
+            } else {
+                ensure_score_bubbling(&mut clause.sources[1])
+            }?;
+
+            let found = projection.iter().any(|p| p.rti == rti && p.is_score);
+            if !found {
+                let proj = ChildProjection {
+                    rti,
+                    attno: 0,
+                    is_score: true,
+                };
+                projection.push(proj.clone());
+                if let Some(op) = &mut clause.output_projection {
+                    op.push(proj);
+                }
+            }
+            Some(rti)
+        }
     }
 }
 
+/// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.
+unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) -> bool {
+    if expr.is_null() {
+        return false;
+    }
+    if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
+        let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+        if !args.is_empty() {
+            if let Some(arg) = args.get_ptr(0) {
+                if let Some(var) = nodecast!(Var, T_Var, arg) {
+                    let varno = (*var).varno as pg_sys::Index;
+                    if source.contains_rti(varno) {
+                        return is_score_func(expr.cast(), varno);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Extract ORDER BY information for DataFusion execution.
-// TODO: Audit this to see whether any of it can be shared with TopN.
-// It mostly can't because the implementation of the sort is so different, but should still try to unify a bit.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
-    outer_side: &ScanInfo,
-    inner_side: &ScanInfo,
-    driving_side_is_outer: bool,
+    sources: &[JoinSource],
+    ordering_side_is_outer: bool,
 ) -> Vec<OrderByInfo> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
 
-    if pathkeys.is_empty() {
+    if pathkeys.is_empty() || sources.is_empty() {
         return result;
     }
 
-    let outer_rti = outer_side.heap_rti.unwrap_or(0);
-    let inner_rti = inner_side.heap_rti.unwrap_or(0);
+    let outer_side = &sources[0];
+    let inner_side = if sources.len() > 1 {
+        Some(&sources[1])
+    } else {
+        None
+    };
+
+    let outer_alias = outer_side.alias();
+    let inner_alias = inner_side.and_then(|s| s.alias());
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
-        // Determine direction
         let nulls_first = (*pathkey).pk_nulls_first;
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         let is_asc = match (*pathkey).pk_strategy as u32 {
@@ -471,11 +933,9 @@ pub(super) unsafe fn extract_orderby(
             (false, false) => SortDirection::DescNullsLast,
         };
 
-        // Find the expression that matches one of our relations
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            // Handle PlaceHolderVar (common for score functions in joins)
             let mut check_expr = expr;
             if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
                 if !phv.is_null() && !(*phv).phexpr.is_null() {
@@ -483,18 +943,14 @@ pub(super) unsafe fn extract_orderby(
                 }
             }
 
-            // Check score
-            if is_score_func(check_expr.cast(), outer_rti) {
-                if driving_side_is_outer {
+            if is_score_func_recursive(check_expr.cast(), outer_side) {
+                if ordering_side_is_outer {
                     result.push(OrderByInfo {
                         feature: OrderByFeature::Score,
                         direction,
                     });
                 } else {
-                    let alias = outer_side
-                        .alias
-                        .as_ref()
-                        .expect("outer alias should be set");
+                    let alias = outer_alias.as_deref().unwrap_or("outer");
                     result.push(OrderByInfo {
                         feature: OrderByFeature::Field(
                             format!("{}.{}", alias, OUTER_SCORE_ALIAS).into(),
@@ -504,64 +960,45 @@ pub(super) unsafe fn extract_orderby(
                 }
                 break;
             }
-            if is_score_func(check_expr.cast(), inner_rti) {
-                if !driving_side_is_outer {
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Score,
-                        direction,
-                    });
-                } else {
-                    let alias = inner_side
-                        .alias
-                        .as_ref()
-                        .expect("inner alias should be set");
-                    result.push(OrderByInfo {
-                        feature: OrderByFeature::Field(
-                            format!("{}.{}", alias, INNER_SCORE_ALIAS).into(),
-                        ),
-                        direction,
-                    });
+            if let Some(inner) = inner_side {
+                if is_score_func_recursive(check_expr.cast(), inner) {
+                    if !ordering_side_is_outer {
+                        result.push(OrderByInfo {
+                            feature: OrderByFeature::Score,
+                            direction,
+                        });
+                    } else {
+                        let alias = inner_alias.as_deref().unwrap_or("inner");
+                        result.push(OrderByInfo {
+                            feature: OrderByFeature::Field(
+                                format!("{}.{}", alias, INNER_SCORE_ALIAS).into(),
+                            ),
+                            direction,
+                        });
+                    }
+                    break;
                 }
-                break;
             }
 
-            // Check Var
             if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
-                if varno == outer_rti {
-                    if let Some(relid) = outer_side.heaprelid {
-                        let fieldname = fieldname_from_var(relid, var, varattno)
-                            .map(|f| f.to_string())
-                            .unwrap_or_else(|| "?".to_string());
-                        let alias = outer_side
-                            .alias
-                            .as_ref()
-                            .expect("outer alias should be set");
-                        let quoted_fieldname = quote_identifier_if_needed(&fieldname);
-                        result.push(OrderByInfo {
-                            feature: OrderByFeature::Field(
-                                format!("{}.{}", alias, quoted_fieldname).into(),
-                            ),
-                            direction,
+                for source in sources {
+                    if source.contains_rti(varno) {
+                        // Try to find a display name (optional)
+                        let name = find_base_info_recursive(source, varno).and_then(|info| {
+                            info.heaprelid.and_then(|relid| {
+                                fieldname_from_var(relid, var, varattno).map(|f| f.to_string())
+                            })
                         });
-                        break;
-                    }
-                } else if varno == inner_rti {
-                    if let Some(relid) = inner_side.heaprelid {
-                        let fieldname = fieldname_from_var(relid, var, varattno)
-                            .map(|f| f.to_string())
-                            .unwrap_or_else(|| "?".to_string());
-                        let alias = inner_side
-                            .alias
-                            .as_ref()
-                            .expect("inner alias should be set");
-                        let quoted_fieldname = quote_identifier_if_needed(&fieldname);
+
                         result.push(OrderByInfo {
-                            feature: OrderByFeature::Field(
-                                format!("{}.{}", alias, quoted_fieldname).into(),
-                            ),
+                            feature: OrderByFeature::Var {
+                                rti: varno,
+                                attno: varattno,
+                                name,
+                            },
                             direction,
                         });
                         break;
@@ -572,155 +1009,4 @@ pub(super) unsafe fn extract_orderby(
     }
 
     result
-}
-
-/// Collect all required fields for both sides of the join.
-pub(super) unsafe fn collect_required_fields(
-    join_clause: &mut JoinCSClause,
-    output_columns: &[OutputColumnInfo],
-    custom_exprs: *mut pg_sys::List,
-) {
-    let outer_rti = join_clause.outer_side.heap_rti.unwrap_or(0);
-    let inner_rti = join_clause.inner_side.heap_rti.unwrap_or(0);
-    let outer_alias = join_clause
-        .outer_side
-        .alias
-        .clone()
-        .expect("outer alias set");
-    let inner_alias = join_clause
-        .inner_side
-        .alias
-        .clone()
-        .expect("inner alias set");
-
-    // Add Ctid by default to both sides (needed for join/filters/output)
-    join_clause.outer_side.add_field(
-        pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
-        WhichFastField::Ctid,
-    );
-    join_clause.inner_side.add_field(
-        pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
-        WhichFastField::Ctid,
-    );
-
-    // 1. Join Keys
-    for jk in &join_clause.join_keys {
-        ensure_field(&mut join_clause.outer_side, jk.outer_attno);
-        ensure_field(&mut join_clause.inner_side, jk.inner_attno);
-    }
-
-    // 2. Filters (custom_exprs)
-    let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
-    for expr_node in expr_list.iter_ptr() {
-        let vars = expr_collect_vars(expr_node, true);
-        for var in vars {
-            if var.rti == pg_sys::INDEX_VAR as pg_sys::Index {
-                // Resolve INDEX_VAR to original table column
-                let idx = (var.attno - 1) as usize;
-                if let Some(info) = output_columns.get(idx) {
-                    if info.original_attno > 0 {
-                        let rti = if info.is_outer { outer_rti } else { inner_rti };
-                        if rti == outer_rti {
-                            ensure_field(&mut join_clause.outer_side, info.original_attno);
-                        } else if rti == inner_rti {
-                            ensure_field(&mut join_clause.inner_side, info.original_attno);
-                        }
-                    }
-                }
-            } else if var.rti == outer_rti {
-                ensure_field(&mut join_clause.outer_side, var.attno);
-            } else if var.rti == inner_rti {
-                ensure_field(&mut join_clause.inner_side, var.attno);
-            }
-        }
-    }
-
-    // 3. Order By
-    for info in &join_clause.order_by {
-        if let OrderByFeature::Field(name_wrapper) = &info.feature {
-            let name = name_wrapper.as_ref();
-            if let Some((alias, col_name)) = name.split_once('.') {
-                let raw_col_name = col_name.trim_matches('"');
-                if alias == outer_alias {
-                    if let Some(attno) = get_attno_by_name(&join_clause.outer_side, raw_col_name) {
-                        ensure_field(&mut join_clause.outer_side, attno);
-                    }
-                } else if alias == inner_alias {
-                    if let Some(attno) = get_attno_by_name(&join_clause.inner_side, raw_col_name) {
-                        ensure_field(&mut join_clause.inner_side, attno);
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Scores
-    if join_clause.outer_side.score_needed {
-        join_clause.outer_side.add_field(0, WhichFastField::Score);
-    }
-
-    if join_clause.inner_side.score_needed {
-        join_clause.inner_side.add_field(0, WhichFastField::Score);
-    }
-}
-
-/// Ensure a specific field is present in the ScanInfo's required fields list.
-unsafe fn ensure_field(side: &mut ScanInfo, attno: pg_sys::AttrNumber) {
-    if side.fields.iter().any(|f| f.attno == attno) {
-        return;
-    }
-    if let Some(field) = get_fast_field(side, attno) {
-        side.add_field(attno, field);
-    }
-}
-
-/// Check if an attribute is a fast field and return its type/info.
-unsafe fn get_fast_field(side: &ScanInfo, attno: pg_sys::AttrNumber) -> Option<WhichFastField> {
-    if attno == 0 {
-        return None;
-    }
-    // Handle system columns: for now only ctid is handled by default addition.
-    if attno <= 0 {
-        return None;
-    }
-
-    let heaprelid = side.heaprelid?;
-    let heaprel = PgSearchRelation::open(heaprelid);
-    let tupdesc = heaprel.tuple_desc();
-
-    // attno is 1-based
-    if attno as usize > tupdesc.len() {
-        return None;
-    }
-
-    let att = tupdesc.get((attno - 1) as usize)?;
-    let att_name = att.name();
-
-    let indexrelid = side.indexrelid?;
-    let indexrel = PgSearchRelation::open(indexrelid);
-    let schema = indexrel.schema().ok()?;
-
-    if let Some(search_field) = schema.search_field(att_name) {
-        Some(WhichFastField::Named(
-            att_name.to_string(),
-            FastFieldType::from(search_field.field_type()),
-        ))
-    } else {
-        Some(WhichFastField::Named(
-            att_name.to_string(),
-            FastFieldType::Int64,
-        ))
-    }
-}
-
-unsafe fn get_attno_by_name(side: &ScanInfo, name: &str) -> Option<pg_sys::AttrNumber> {
-    let heaprelid = side.heaprelid?;
-    let rel = PgSearchRelation::open(heaprelid);
-    let tupdesc = rel.tuple_desc();
-    for (i, att) in tupdesc.iter().enumerate() {
-        if att.name() == name {
-            return Some((i + 1) as pg_sys::AttrNumber);
-        }
-    }
-    None
 }

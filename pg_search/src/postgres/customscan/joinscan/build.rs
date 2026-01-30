@@ -84,11 +84,142 @@ pub struct JoinLevelSearchPredicate {
     pub query: SearchQueryInput,
 }
 
-/// Which side of the join a predicate references (serializable version).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum JoinSide {
-    Outer,
-    Inner,
+/// Projection information for a child join.
+/// Maps an output attribute (by index in the vector) to the source column.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildProjection {
+    pub rti: pg_sys::Index,
+    pub attno: pg_sys::AttrNumber,
+    #[serde(default)]
+    pub is_score: bool,
+}
+
+/// Represents the source of data for a join side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum JoinSource {
+    Base(ScanInfo),
+    /// A child join, including the clause, projection mapping, and an optional alias.
+    Join(JoinCSClause, Vec<ChildProjection>, Option<String>),
+}
+
+impl Default for JoinSource {
+    fn default() -> Self {
+        JoinSource::Base(ScanInfo::default())
+    }
+}
+
+impl JoinSource {
+    pub fn as_base(&self) -> Option<&ScanInfo> {
+        match self {
+            JoinSource::Base(info) => Some(info),
+            JoinSource::Join(_, _, _) => None,
+        }
+    }
+
+    pub fn as_base_mut(&mut self) -> Option<&mut ScanInfo> {
+        match self {
+            JoinSource::Base(info) => Some(info),
+            JoinSource::Join(_, _, _) => None,
+        }
+    }
+
+    /// Check if this source contains the given RTI (recursively).
+    pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        match self {
+            JoinSource::Base(info) => info.heap_rti == Some(rti),
+            JoinSource::Join(clause, _, _) => clause.sources.iter().any(|s| s.contains_rti(rti)),
+        }
+    }
+
+    /// Check if this source has a search predicate (recursively).
+    pub fn has_search_predicate(&self) -> bool {
+        match self {
+            JoinSource::Base(info) => info.has_search_predicate,
+            JoinSource::Join(clause, _, _) => {
+                clause.sources.iter().any(|s| s.has_search_predicate())
+            }
+        }
+    }
+
+    /// Check if this source has a BM25 index (recursively).
+    pub fn has_bm25_index(&self) -> bool {
+        match self {
+            JoinSource::Base(info) => info.has_bm25_index(),
+            JoinSource::Join(clause, _, _) => clause.sources.iter().any(|s| s.has_bm25_index()),
+        }
+    }
+
+    pub fn alias(&self) -> Option<String> {
+        match self {
+            JoinSource::Base(info) => info.alias.clone(),
+            JoinSource::Join(_, _, alias) => alias.clone(),
+        }
+    }
+
+    /// Map a base relation variable to its position in this source's output.
+    /// Returns 1-based attribute number if found.
+    pub fn map_var(
+        &self,
+        varno: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<pg_sys::AttrNumber> {
+        match self {
+            JoinSource::Base(info) => {
+                if info.heap_rti == Some(varno) {
+                    Some(attno)
+                } else {
+                    None
+                }
+            }
+            JoinSource::Join(_, projection, _) => projection
+                .iter()
+                .position(|p| p.rti == varno && p.attno == attno)
+                .map(|pos| (pos + 1) as pg_sys::AttrNumber),
+        }
+    }
+
+    /// Recursively collect all base relations in this source.
+    pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
+        match self {
+            JoinSource::Base(info) => acc.push(info.clone()),
+            JoinSource::Join(clause, _, _) => {
+                for source in &clause.sources {
+                    source.collect_base_relations(acc);
+                }
+            }
+        }
+    }
+
+    /// Recursively find the ordering RTI of this source.
+    pub fn ordering_rti(&self) -> Option<pg_sys::Index> {
+        match self {
+            JoinSource::Base(info) => info.heap_rti,
+            JoinSource::Join(clause, _, _) => clause.ordering_side().ordering_rti(),
+        }
+    }
+
+    /// Resolve an attribute number to its DataFusion column name.
+    ///
+    /// For Base sources, this returns the field name (excluding Score).
+    /// For Join sources, this returns "col_N" corresponding to the projection index.
+    pub(super) fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        match self {
+            JoinSource::Base(info) => info.fields.iter().find(|f| f.attno == attno).and_then(|f| {
+                if matches!(
+                    f.field,
+                    crate::index::fast_fields_helper::WhichFastField::Score
+                ) {
+                    None
+                } else {
+                    Some(f.field.name())
+                }
+            }),
+            JoinSource::Join(_, _, _) => {
+                // For nested joins, we use "col_N" as assigned in build_clause_df
+                Some(format!("col_{}", attno))
+            }
+        }
+    }
 }
 
 /// A multi-table predicate - a condition that references columns from multiple
@@ -117,8 +248,8 @@ pub struct MultiTablePredicateInfo {
 pub enum JoinLevelExpr {
     /// Leaf: single-table predicate, check if ctid is in the Tantivy result set.
     SingleTablePredicate {
-        /// Which side of the join this predicate references.
-        side: JoinSide,
+        /// Index of the source in `JoinCSClause.sources` this predicate references.
+        source_idx: usize,
         /// Index into the `join_level_predicates` vector.
         predicate_idx: usize,
     },
@@ -138,10 +269,9 @@ pub enum JoinLevelExpr {
 /// The clause information for a Join Custom Scan.
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct JoinCSClause {
-    /// Information about the outer (left) side of the join.
-    pub outer_side: ScanInfo,
-    /// Information about the inner (right) side of the join.
-    pub inner_side: ScanInfo,
+    /// Information about the sources involved in the join.
+    /// For binary joins, index 0 is left/outer, index 1 is right/inner.
+    pub sources: Vec<JoinSource>,
     /// The type of join.
     pub join_type: JoinType,
     /// The join key column pairs (for equi-joins).
@@ -159,6 +289,10 @@ pub struct JoinCSClause {
     pub join_level_expr: Option<JoinLevelExpr>,
     /// ORDER BY clause to be applied to the DataFusion plan.
     pub order_by: Vec<OrderByInfo>,
+    /// Projection of output columns for this join (if it is a nested join).
+    /// Maps output column position (index) to (rti, attno) in the join's context.
+    /// If None, no specific projection is enforced (used for top-level).
+    pub output_projection: Option<Vec<ChildProjection>>,
 }
 
 impl JoinCSClause {
@@ -166,13 +300,20 @@ impl JoinCSClause {
         Self::default()
     }
 
-    pub fn with_outer_side(mut self, side: ScanInfo) -> Self {
-        self.outer_side = side;
+    pub fn with_outer_side(mut self, side: JoinSource) -> Self {
+        if self.sources.is_empty() {
+            self.sources.push(side);
+        } else {
+            self.sources[0] = side;
+        }
         self
     }
 
-    pub fn with_inner_side(mut self, side: ScanInfo) -> Self {
-        self.inner_side = side;
+    pub fn with_inner_side(mut self, side: JoinSource) -> Self {
+        if self.sources.len() < 2 {
+            self.sources.resize_with(2, JoinSource::default);
+        }
+        self.sources[1] = side;
         self
     }
 
@@ -188,6 +329,11 @@ impl JoinCSClause {
 
     pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
         self.order_by = order_by;
+        self
+    }
+
+    pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {
+        self.output_projection = Some(projection);
         self
     }
 
@@ -250,48 +396,30 @@ impl JoinCSClause {
         self
     }
 
-    /// Returns true if at least one side has a BM25 index with a search predicate.
-    pub fn has_driving_side(&self) -> bool {
-        (self.outer_side.has_bm25_index() && self.outer_side.has_search_predicate)
-            || (self.inner_side.has_bm25_index() && self.inner_side.has_search_predicate)
-    }
-
-    /// Returns true if this is a valid join for M1 (Single Feature with LIMIT).
-    pub fn is_valid_for_single_feature(&self) -> bool {
-        self.limit.is_some() && self.has_driving_side()
-    }
-
-    /// Returns true if this join has INNER join type (the only type we support in M1).
-    pub fn is_inner_join(&self) -> bool {
-        self.join_type == JoinType::Inner
-    }
-
-    /// Returns which side (outer=true, inner=false) is the driving side (has search predicate).
+    /// Returns which side (outer=true, inner=false) is the ordering side (has search predicate).
     /// Prefers outer if both have predicates.
-    pub fn driving_side_is_outer(&self) -> bool {
-        // If outer has predicate, use it as driving side
-        if self.outer_side.has_search_predicate {
+    pub fn ordering_side_is_outer(&self) -> bool {
+        // If outer has predicate, use it as ordering side
+        if !self.sources.is_empty() && self.sources[0].has_search_predicate() {
             return true;
         }
         // Otherwise, inner must have it
         false
     }
 
-    /// Get the driving side info (side with search predicate).
-    pub fn driving_side(&self) -> &ScanInfo {
-        if self.driving_side_is_outer() {
-            &self.outer_side
+    /// Get the ordering side source (side with search predicate).
+    pub fn ordering_side(&self) -> &JoinSource {
+        if self.ordering_side_is_outer() {
+            &self.sources[0]
         } else {
-            &self.inner_side
+            &self.sources[1]
         }
     }
 
-    /// Get the build side info (side without search predicate, used for join).
-    pub fn build_side(&self) -> &ScanInfo {
-        if self.driving_side_is_outer() {
-            &self.inner_side
-        } else {
-            &self.outer_side
+    /// Recursively collect all base relations in this join tree.
+    pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
+        for source in &self.sources {
+            source.collect_base_relations(acc);
         }
     }
 }

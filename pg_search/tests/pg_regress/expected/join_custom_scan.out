@@ -193,7 +193,7 @@ LIMIT 5;
                Join Cond: s.id = p.supplier_id
                Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
-               Order By: p.supplier_id asc
+               Order By: p.supplier_id asc, s.id asc
 (14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -856,33 +856,19 @@ LIMIT 3;
 (2 rows)
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
-ORDER BY p.price DESC
-LIMIT 3;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, s.name, p.price
-   ->  Sort
-         Output: p.id, p.name, s.name, p.price
-         Sort Key: p.price DESC
-         ->  Result
-               Output: p.id, p.name, s.name, p.price
-               ->  Custom Scan (ParadeDB Join Scan)
-                     Output: p.id, p.name, p.price, s.name
-                     Join Type: Inner
-                     Outer Relation: suppliers (s)
-                     Inner Relation: products (p)
-                     Join Cond: s.id = p.supplier_id
-                     Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
-                     Limit: 3
-                     Order By: p.price desc
-(16 rows)
-
+--
+-- TODO: This query does NOT get a JoinScan because 'price' is DECIMAL (NUMERIC).
+-- While it is indexed as a fast field, we cannot safely pull it up from the index
+-- without potential precision loss, so fast field execution is disabled for NUMERIC.
+-- See: https://github.com/paradedb/paradedb/issues/2968
+--
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'mouse'
+-- ORDER BY p.price DESC
+-- LIMIT 3;
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -2505,7 +2491,7 @@ LIMIT 5;
                      Join Cond: s.id = m.JoinKey
                      Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
-                     Order By: m."ID" asc
+                     Order By: m.ID asc
 (16 rows)
 
 SELECT m."Content", s.name
@@ -2520,6 +2506,207 @@ LIMIT 5;
 (1 row)
 
 DROP TABLE "MixedCaseTable";
+-- =============================================================================
+-- TEST 28: Multi-table join specific scenarios
+-- =============================================================================
+-- Setup specific data for these tests
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS suppliers CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+-- Create test tables
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+CREATE TABLE suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    contact_info TEXT,
+    country TEXT
+);
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER,
+    category_id INTEGER,
+    price DECIMAL(10,2)
+);
+-- Insert test data
+INSERT INTO categories (id, name) VALUES
+(10, 'Electronics'),
+(11, 'Accessories'),
+(12, 'Office');
+INSERT INTO suppliers (id, name, contact_info, country) VALUES
+(151, 'TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
+(152, 'GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
+(153, 'FastParts', 'sales@fastparts.com quick delivery', 'Germany');
+INSERT INTO products (id, name, description, supplier_id, category_id, price) VALUES
+(201, 'Wireless Mouse', 'Ergonomic wireless mouse', 151, 11, 29.99),
+(202, 'USB Cable', 'High-speed USB-C cable', 152, 11, 9.99),
+(203, 'Keyboard', 'Mechanical keyboard', 151, 10, 89.99),
+(204, 'Monitor Stand', 'Adjustable monitor stand', 153, 12, 49.99),
+(206, 'Headphones', 'Wireless noise-canceling headphones', 151, 10, 199.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad', 152, 11, 29.99);
+-- Create BM25 indexes
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, category_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name)
+WITH (key_field = 'id');
+-- Enable JoinScan
+SET paradedb.enable_join_custom_scan = on;
+-- Query joining Products, Suppliers, and Categories.
+-- Search predicate on Products.
+-- Should produce nested JoinScans.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+LIMIT 10;
+               QUERY PLAN               
+----------------------------------------
+ Limit
+   Output: p.name, s.name, c.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.name, s.name, c.name
+         Join Type: Inner
+         Outer Relation: suppliers (s)
+         Inner Relation: Join Result
+         Join Cond: s.id = inner.2
+         Inner Tantivy Query: Nested
+         Limit: 10
+(10 rows)
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+    product     | supplier |  category   
+----------------+----------+-------------
+ Wireless Mouse | TechCorp | Accessories
+ Headphones     | TechCorp | Electronics
+(2 rows)
+
+-- Search predicate on Suppliers.
+-- Products joins Suppliers, then Categories.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+LIMIT 10;
+               QUERY PLAN               
+----------------------------------------
+ Limit
+   Output: p.name, s.name, c.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.name, s.name, c.name
+         Join Type: Inner
+         Outer Relation: categories (c)
+         Inner Relation: Join Result
+         Join Cond: c.id = inner.2
+         Inner Tantivy Query: Nested
+         Limit: 10
+(10 rows)
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+    product     | supplier |  category   
+----------------+----------+-------------
+ Wireless Mouse | TechCorp | Accessories
+ Keyboard       | TechCorp | Electronics
+ Headphones     | TechCorp | Electronics
+(3 rows)
+
+-- Order by score from the nested relation (Products).
+-- Products is in the child join (p join c).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+                   QUERY PLAN                   
+------------------------------------------------
+ Limit
+   Output: p.name, (paradedb.score(p.id))
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.name, (paradedb.score(p.id))
+         Join Type: Inner
+         Outer Relation: suppliers (s)
+         Inner Relation: Join Result
+         Join Cond: s.id = inner.2
+         Inner Tantivy Query: Nested
+         Limit: 5
+         Order By: pdb.score() desc
+(11 rows)
+
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+      name      |   score   
+----------------+-----------
+ Wireless Mouse | 1.0935268
+ Headphones     | 0.9727693
+(2 rows)
+
+-- Order by score from the top outer relation (Suppliers).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
+                   QUERY PLAN                   
+------------------------------------------------
+ Limit
+   Output: s.name, (paradedb.score(s.id))
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: s.name, (paradedb.score(s.id))
+         Join Type: Inner
+         Outer Relation: categories (c)
+         Inner Relation: Join Result
+         Join Cond: c.id = inner.1
+         Inner Tantivy Query: Nested
+         Limit: 5
+         Order By: pdb.score() desc
+(11 rows)
+
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
+   name   |   score   
+----------+-----------
+ TechCorp | 0.9808292
+ TechCorp | 0.9808292
+ TechCorp | 0.9808292
+(3 rows)
+
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

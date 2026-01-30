@@ -22,9 +22,7 @@ use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
-use crate::postgres::customscan::aggregatescan::descale::{
-    descale_f64, descale_numeric_values_in_json,
-};
+use crate::postgres::customscan::aggregatescan::descale::{descale_json_result, descale_metric};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -181,51 +179,23 @@ pub fn aggregate_result_to_datum(
 ) -> Option<pg_sys::Datum> {
     match agg_result {
         Some(AggregateResult::Json(json_value)) => {
-            // Custom aggregate - return as JSONB
-            // If there are Numeric64 fields, descale their values in the JSON
-            let descaled_json = if let Some(scales) = agg_type.numeric_field_scales() {
-                if scales.is_empty() {
-                    json_value
-                } else {
-                    descale_numeric_values_in_json(json_value, scales)
-                }
-            } else {
-                json_value
-            };
-            JsonB(descaled_json).into_datum()
+            let descaled = descale_json_result(json_value, agg_type.numeric_field_scales());
+            JsonB(descaled).into_datum()
         }
         Some(AggregateResult::Metric(metric)) => {
-            // Standard metric - convert f64 to appropriate type
-            // If expected type is JSONB (for pdb.agg() custom aggregates),
-            // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
-                // Serialize the metric result to JSON, descaling if needed
-                let descaled_metric = if let Some(scales) = agg_type.numeric_field_scales() {
-                    // For custom aggregates on Numeric64 fields, descale the value
-                    if let Some(&scale) = scales.get("__top_level__") {
-                        TantivySingleMetricResult {
-                            value: metric.value.map(|v| descale_f64(v, scale)),
-                        }
-                    } else {
-                        metric
-                    }
-                } else if let Some(scale) = agg_type.numeric_scale() {
-                    // For standard aggregates (SUM, AVG, etc.) on Numeric64 fields
-                    TantivySingleMetricResult {
-                        value: metric.value.map(|v| descale_f64(v, scale)),
-                    }
-                } else {
-                    metric
+                // JSONB output - serialize metric to JSON with descaling
+                let descaled_metric = TantivySingleMetricResult {
+                    value: metric.value.map(|v| {
+                        descale_metric(v, agg_type.numeric_field_scales(), agg_type.numeric_scale())
+                    }),
                 };
                 let json_value = serde_json::to_value(&descaled_metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
-                // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
-                // since UNIX epoch. The f64 value from MIN/MAX aggregates represents this nanosecond
-                // timestamp. We need to convert it back to a DateTime before converting to the
-                // expected PostgreSQL type.
+                // DateTime - convert nanoseconds timestamp back to DateTime
                 metric.value.and_then(|value| unsafe {
                     let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
                     TantivyValue(OwnedValue::Date(datetime))
@@ -233,14 +203,10 @@ pub fn aggregate_result_to_datum(
                         .unwrap()
                 })
             } else {
+                // Scalar output - descale and convert to expected type
                 metric.value.and_then(|value| unsafe {
-                    // For Numeric64 fields, descale the result by dividing by 10^scale.
-                    // Tantivy stores these as scaled integers, but aggregates return f64.
-                    let descaled_value = match agg_type.numeric_scale() {
-                        Some(scale) => descale_f64(value, scale),
-                        None => value,
-                    };
-                    TantivyValue(OwnedValue::F64(descaled_value))
+                    let descaled = descale_metric(value, None, agg_type.numeric_scale());
+                    TantivyValue(OwnedValue::F64(descaled))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })

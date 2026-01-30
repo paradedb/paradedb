@@ -247,6 +247,43 @@ pub fn descale_aggregate_result(
     }
 }
 
+/// Descale a JSON aggregate result if needed.
+///
+/// For custom aggregates returning JSON, this applies descaling to any
+/// Numeric64 field values based on the provided scales map.
+pub fn descale_json_result(
+    json: serde_json::Value,
+    scales: Option<&HashMap<String, i16>>,
+) -> serde_json::Value {
+    match scales {
+        Some(s) if !s.is_empty() => descale_numeric_values_in_json(json, s),
+        _ => json,
+    }
+}
+
+/// Descale a metric value (f64) for Numeric64 fields.
+///
+/// Determines the appropriate scale from:
+/// 1. `numeric_field_scales["__top_level__"]` (for custom aggregates)
+/// 2. `numeric_scale` (for standard aggregates like SUM, AVG)
+pub fn descale_metric(
+    value: f64,
+    numeric_field_scales: Option<&HashMap<String, i16>>,
+    numeric_scale: Option<i16>,
+) -> f64 {
+    // First check for top-level scale in custom aggregates
+    if let Some(scales) = numeric_field_scales {
+        if let Some(&scale) = scales.get("__top_level__") {
+            return descale_f64(value, scale);
+        }
+    }
+    // Then check for standard aggregate scale
+    if let Some(scale) = numeric_scale {
+        return descale_f64(value, scale);
+    }
+    value
+}
+
 /// Descale numeric values in custom aggregate JSON results.
 ///
 /// This function traverses the JSON and divides "value" fields by 10^scale

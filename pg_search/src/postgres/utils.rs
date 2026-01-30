@@ -1076,6 +1076,44 @@ impl Drop for TempPgList {
     }
 }
 
+/// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
+///
+/// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
+/// the index only contains rows that satisfy the predicate. If the query's WHERE clause
+/// includes the same predicate, we don't need to create a heap filter for it since the
+/// partial index already guarantees it.
+///
+/// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
+/// implies each query clause. If so, that clause is filtered out.
+pub unsafe fn filter_implied_predicates(
+    index_predicate: *mut pg_sys::List,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> PgList<pg_sys::RestrictInfo> {
+    // If there's no partial index predicate, return the original list unchanged
+    if index_predicate.is_null() {
+        return PgList::from_pg(restrict_info.as_ptr());
+    }
+
+    // Build a new list with only the predicates that are NOT implied by the index predicate
+    let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
+
+    for ri in restrict_info.iter_ptr() {
+        let clause = (*ri).clause;
+        let mut clause_list = TempPgList::new();
+        clause_list.push(clause as *mut std::ffi::c_void);
+
+        // Check if the index predicate implies this clause
+        // predicate_implied_by(A, B, false) returns true if B => A
+        let is_implied = pg_sys::predicate_implied_by(clause_list.as_ptr(), index_predicate, false);
+
+        if !is_implied {
+            filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
+        }
+    }
+
+    PgList::from_pg(filtered_list)
+}
+
 #[macro_export]
 macro_rules! debug1 {
     ($($arg:tt)*) => {{

@@ -23,10 +23,10 @@ use crate::postgres::customscan::qual_inspect::{
     contains_exec_param, extract_quals, PlannerContext, QualExtractState,
 };
 use crate::postgres::customscan::CustomScan;
-use crate::postgres::utils::TempPgList;
+use crate::postgres::utils::filter_implied_predicates;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use pgrx::{pg_sys, PgList};
+use pgrx::pg_sys;
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQueryClause {
@@ -45,41 +45,6 @@ impl SearchQueryClause {
 
     pub fn uses_our_operator(&self) -> bool {
         self.uses_our_operator
-    }
-
-    /// Filter out RestrictInfo entries whose clauses are implied by the partial index predicate.
-    ///
-    /// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
-    /// the index only contains rows that satisfy the predicate. If the query's WHERE clause
-    /// includes the same predicate, we don't need to create a heap filter for it since the
-    /// partial index already guarantees it.
-    unsafe fn filter_implied_predicates(
-        indexrel: &PgSearchRelation,
-        restrict_info: &PgList<pg_sys::RestrictInfo>,
-    ) -> PgList<pg_sys::RestrictInfo> {
-        // If this is not a partial index, return the original list unchanged
-        if indexrel.rd_indpred.is_null() {
-            return PgList::from_pg(restrict_info.as_ptr());
-        }
-
-        // Build a new list with only the predicates that are NOT implied by the index predicate
-        let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
-
-        for ri in restrict_info.iter_ptr() {
-            let clause = (*ri).clause;
-            let mut clause_list = TempPgList::new();
-            clause_list.push(clause as *mut std::ffi::c_void);
-
-            // Check if the index predicate implies this clause
-            let is_implied =
-                pg_sys::predicate_implied_by(clause_list.as_ptr(), indexrel.rd_indpred, false);
-
-            if !is_implied {
-                filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
-            }
-        }
-
-        PgList::from_pg(filtered_list)
     }
 }
 
@@ -138,7 +103,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
 
         // Filter out predicates implied by the partial index predicate
         let filtered_restrict_info =
-            unsafe { Self::filter_implied_predicates(index, &restrict_info) };
+            unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
 
         let quals = unsafe {
             extract_quals(

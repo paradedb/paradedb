@@ -276,3 +276,55 @@ ORDER BY rating LIMIT 20;
 
 -- Cleanup
 DROP TABLE paradedb.test_partial_index CASCADE;
+-- ============================================================
+-- Test case for partial index with IS NULL predicate
+-- This tests the original bug report where deleted_at IS NULL
+-- in a partial index was still generating a heap filter
+-- ============================================================
+CREATE TABLE profiles (
+    id BIGINT PRIMARY KEY,
+    headline TEXT,
+    deleted_at TIMESTAMPTZ
+);
+INSERT INTO profiles (id, headline, deleted_at) VALUES
+(1, 'Software Engineer', NULL),
+(2, 'Data Scientist', NULL),
+(3, 'Product Manager', NULL),
+(4, 'Deleted Profile', '2024-01-01 00:00:00'),
+(5, 'DevOps Engineer', NULL);
+-- Create partial index with WHERE deleted_at IS NULL
+CREATE INDEX profiles_search_idx ON profiles
+USING bm25 (id, headline)
+WITH (key_field = 'id')
+WHERE deleted_at IS NULL;
+-- Test: Query with deleted_at IS NULL should NOT have heap_filter for this predicate
+-- The partial index already guarantees deleted_at IS NULL, so no heap filter needed
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, headline, pdb.score(id) as score
+FROM profiles
+WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
+ORDER BY score DESC;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (pdb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on profiles
+         Table: profiles
+         Index: profiles_search_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"headline","query_string":"Engineer","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT id, headline, pdb.score(id) as score
+FROM profiles
+WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
+ORDER BY score DESC;
+ id |     headline      |   score   
+----+-------------------+-----------
+  1 | Software Engineer | 0.6931472
+  5 | DevOps Engineer   | 0.6931472
+(2 rows)
+
+-- Cleanup
+DROP TABLE profiles CASCADE;

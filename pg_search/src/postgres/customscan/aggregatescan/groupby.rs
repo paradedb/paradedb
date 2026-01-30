@@ -27,8 +27,6 @@ use pgrx::PgList;
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
-    /// Scale for Numeric64 fields - used to descale GROUP BY values
-    pub numeric_scale: Option<i16>,
 }
 
 #[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -109,20 +107,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                     // Check if this field exists in the index schema as a fast field
                     if let Some(search_field) = schema.search_field(&field_name) {
                         if search_field.is_fast() {
-                            // Get numeric scale for Numeric64 fields
-                            let numeric_scale =
-                                if let crate::schema::SearchFieldType::Numeric64(_, scale) =
-                                    search_field.field_type()
-                                {
-                                    Some(scale)
-                                } else {
-                                    None
-                                };
-                            grouping_columns.push(GroupingColumn {
-                                field_name,
-                                attno,
-                                numeric_scale,
-                            });
+                            grouping_columns.push(GroupingColumn { field_name, attno });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
                         }

@@ -29,7 +29,6 @@ use std::str::FromStr;
 
 use super::value_to_term;
 use crate::api::FieldName;
-use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
 use crate::schema::SearchField;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
@@ -54,6 +53,56 @@ pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
         OwnedValue::U64(u) => Some(u.to_string()),
         _ => None,
     }
+}
+
+// ============================================================================
+// Numeric64 Scaling (I64 Fixed-Point)
+// ============================================================================
+
+/// Scale a numeric string to I64 fixed-point representation.
+///
+/// Multiplies the value by 10^scale to convert to integer.
+/// Uses `decimal_bytes::Decimal64NoScale` for precise conversion.
+///
+/// # Example
+/// ```ignore
+/// scale_i64("123.45", 2) // Returns Ok(12345)
+/// ```
+pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
+    use decimal_bytes::Decimal64NoScale;
+
+    let decimal = Decimal64NoScale::new(numeric_str, scale as i32).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to scale '{}' with scale {}: {:?}. This may occur if the value exceeds i64 range after scaling.",
+            numeric_str,
+            scale,
+            e
+        )
+    })?;
+
+    Ok(decimal.value())
+}
+
+/// Scale an OwnedValue to I64 fixed-point representation.
+///
+/// Handles Str, I64, U64, and F64 values, converting to scaled I64.
+/// Used for query value scaling where the input type may vary.
+///
+/// # Example
+/// ```ignore
+/// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
+/// ```
+pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
+    let numeric_str = match &value {
+        OwnedValue::Str(s) => s.clone(),
+        OwnedValue::F64(f) => f.to_string(),
+        OwnedValue::I64(i) => i.to_string(),
+        OwnedValue::U64(u) => u.to_string(),
+        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    };
+
+    let scaled = scale_i64(&numeric_str, scale)?;
+    Ok(OwnedValue::I64(scaled))
 }
 
 // ============================================================================
@@ -402,6 +451,37 @@ pub fn try_numeric_term_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_scale_i64() {
+        assert_eq!(scale_i64("123.45", 2).unwrap(), 12345);
+        assert_eq!(scale_i64("0.999", 3).unwrap(), 999);
+        assert_eq!(scale_i64("-50.5", 1).unwrap(), -505);
+    }
+
+    #[test]
+    fn test_scale_owned_value() {
+        // String input
+        assert_eq!(
+            scale_owned_value(OwnedValue::Str("123.45".to_string()), 2).unwrap(),
+            OwnedValue::I64(12345)
+        );
+        // F64 input
+        assert_eq!(
+            scale_owned_value(OwnedValue::F64(0.999), 3).unwrap(),
+            OwnedValue::I64(999)
+        );
+        // I64 input (already integer, but scales)
+        assert_eq!(
+            scale_owned_value(OwnedValue::I64(50), 1).unwrap(),
+            OwnedValue::I64(500)
+        );
+        // Negative value
+        assert_eq!(
+            scale_owned_value(OwnedValue::Str("-50.5".to_string()), 1).unwrap(),
+            OwnedValue::I64(-505)
+        );
+    }
 
     #[test]
     fn test_extract_numeric_string() {

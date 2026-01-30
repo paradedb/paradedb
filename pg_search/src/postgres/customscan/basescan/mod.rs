@@ -44,8 +44,8 @@ use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::basescan::projections::window_agg::{
-    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
-    resolve_window_aggregate_numeric_scales, WindowAggregateInfo,
+    check_window_aggregates_no_numeric, deserialize_window_agg_placeholders,
+    resolve_window_aggregate_filters_at_plan_time, WindowAggregateInfo,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
@@ -811,17 +811,14 @@ impl CustomScan for BaseScan {
                             rti,
                         );
 
-                        // Resolve numeric field scales for Numeric64 fields in window aggregates
-                        // Returns Err if any aggregate uses NumericBytes (unbounded NUMERIC)
-                        if let Err(field) = resolve_window_aggregate_numeric_scales(
-                            &mut window_aggregates,
-                            &bm25_index,
-                        ) {
+                        // Check that no window aggregates use NUMERIC fields
+                        // NUMERIC columns do not support aggregate pushdown
+                        if let Err(field) =
+                            check_window_aggregates_no_numeric(&window_aggregates, &bm25_index)
+                        {
                             panic!(
                                 "Window aggregate on field '{}' cannot be pushed down: \
-                                 NUMERIC columns without precision (or precision > 18) use byte storage \
-                                 which cannot be aggregated by the search index. \
-                                 Consider using NUMERIC(p,s) where p <= 18.",
+                                 NUMERIC columns do not support aggregate pushdown.",
                                 field
                             );
                         }

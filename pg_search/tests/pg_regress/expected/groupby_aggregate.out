@@ -72,16 +72,22 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('SUM'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, sum(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, SUM(price) AS total_price
 FROM products
@@ -101,26 +107,32 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: AVG(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, avg(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, AVG(price) AS avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-  category   | avg_price 
--------------+-----------
- Electronics |    632.49
- Toys        |    499.99
+  category   |      avg_price       
+-------------+----------------------
+ Electronics | 632.4900000000000000
+ Toys        | 499.9900000000000000
 (2 rows)
 
 -- Test 1.4: GROUP BY with MIN and MAX
@@ -130,16 +142,22 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: MIN(price), MAX(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}},"1":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, min(price), max(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
 FROM products
@@ -164,16 +182,22 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                         QUERY PLAN                                                                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"price","missing":null}},"2":{"min":{"field":"price","missing":null}},"3":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price), avg(price), min(price), max(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category,
        COUNT(*) AS count,
@@ -185,10 +209,10 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-  category   | count |  total  |  avg   | min_price | max_price 
--------------+-------+---------+--------+-----------+-----------
- Electronics |     4 | 2529.96 | 632.49 |     79.99 |   1299.99
- Toys        |     1 |  499.99 | 499.99 |    499.99 |    499.99
+  category   | count |  total  |         avg          | min_price | max_price 
+-------------+-------+---------+----------------------+-----------+-----------
+ Electronics |     4 | 2529.96 | 632.4900000000000000 |     79.99 |   1299.99
+ Toys        |     1 |  499.99 | 499.9900000000000000 |    499.99 |    499.99
 (2 rows)
 
 -- Test 1.6: GROUP BY with numeric field
@@ -198,26 +222,32 @@ FROM products
 WHERE description @@@ 'laptop'
 GROUP BY rating
 ORDER BY rating;
-                                                                                                           QUERY PLAN                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), SUM(price), AVG(price)
-     Group By: rating
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: rating, count(*), sum(price), avg(price)
+   Group Key: products.rating
+   ->  Sort
+         Output: rating, price
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT rating, COUNT(*), SUM(price), AVG(price)
 FROM products
 WHERE description @@@ 'laptop'
 GROUP BY rating
 ORDER BY rating;
- rating | count |   sum   |   avg   
---------+-------+---------+---------
-      3 |     1 |  499.99 |  499.99
-      5 |     2 | 2299.98 | 1149.99
+ rating | count |   sum   |          avg          
+--------+-------+---------+-----------------------
+      3 |     1 |  499.99 |  499.9900000000000000
+      5 |     2 | 2299.98 | 1149.9900000000000000
 (2 rows)
 
 -- =====================================================================
@@ -230,27 +260,33 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), AVG(price)
-     Group By: category, rating
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, rating, count(*), avg(price)
+   Group Key: products.category, products.rating
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category, products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, rating, COUNT(*), AVG(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-  category   | rating | count |       avg        
--------------+--------+-------+------------------
- Electronics |      4 |     1 |            79.99
- Electronics |      5 |     3 | 816.656666666667
- Toys        |      3 |     1 |           499.99
+  category   | rating | count |         avg          
+-------------+--------+-------+----------------------
+ Electronics |      4 |     1 |  79.9900000000000000
+ Electronics |      5 |     3 | 816.6566666666666667
+ Toys        |      3 |     1 | 499.9900000000000000
 (3 rows)
 
 -- Test 2.2: GROUP BY with different column orders
@@ -303,16 +339,22 @@ SELECT category, COUNT(*), SUM(price), AVG(price)
 FROM products
 WHERE description @@@ 'nonexistent'
 GROUP BY category;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), SUM(price), AVG(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price), avg(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(price)
 FROM products
@@ -329,27 +371,33 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: pdb.agg_fn('COUNT(*)'::text), category, pdb.agg_fn('AVG'::text), rating, pdb.agg_fn('SUM'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), AVG(price), SUM(price)
-     Group By: category, rating
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}},"1":{"sum":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: count(*), category, avg(price), rating, sum(price)
+   Group Key: products.category, products.rating
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category, products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
- count |  category   |       avg        | rating |   sum   
--------+-------------+------------------+--------+---------
-     1 | Electronics |            79.99 |      4 |   79.99
-     3 | Electronics | 816.656666666667 |      5 | 2449.97
-     1 | Toys        |           499.99 |      3 |  499.99
+ count |  category   |         avg          | rating |   sum   
+-------+-------------+----------------------+--------+---------
+     1 | Electronics |  79.9900000000000000 |      4 |   79.99
+     3 | Electronics | 816.6566666666666667 |      5 | 2449.97
+     1 | Toys        | 499.9900000000000000 |      3 |  499.99
 (3 rows)
 
 -- Test 3.3: GROUP BY with contradictory WHERE clauses
@@ -358,16 +406,22 @@ SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
 WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
 GROUP BY category;
-                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
-     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price), avg(rating)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price, rating
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+(13 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
@@ -385,28 +439,34 @@ SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
 WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
 GROUP BY category;
-                                                                                                                                                                          QUERY PLAN                                                                                                                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
-     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price), avg(rating)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price, rating
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+(13 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products
 WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
 GROUP BY category
 ORDER BY category;
-  category   | count |   sum   | avg  
--------------+-------+---------+------
- Clothing    |     2 |  189.98 |  3.5
- Electronics |     4 | 2529.96 | 4.75
- Sports      |     1 |   89.99 |    5
- Toys        |     1 |  499.99 |    3
+  category   | count |   sum   |        avg         
+-------------+-------+---------+--------------------
+ Clothing    |     2 |  189.98 | 3.5000000000000000
+ Electronics |     4 | 2529.96 | 4.7500000000000000
+ Sports      |     1 |   89.99 | 5.0000000000000000
+ Toys        |     1 |  499.99 | 3.0000000000000000
 (4 rows)
 
 -- =====================================================================
@@ -448,27 +508,33 @@ FROM type_test
 WHERE text_val @@@ 'test1 OR test2 OR test3'
 GROUP BY text_val
 ORDER BY text_val;
-                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: text_val, pdb.agg_fn('SUM'::text), pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_val","query_string":"test1 OR test2 OR test3","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
-     Group By: text_val
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"int_val","missing":null}},"1":{"avg":{"field":"numeric_val","missing":null}},"2":{"min":{"field":"float_val","missing":null}},"3":{"max":{"field":"bigint_val","missing":null}}},"terms":{"field":"text_val","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: text_val, sum(int_val), avg(numeric_val), min(float_val), max(bigint_val)
+   Group Key: type_test.text_val
+   ->  Sort
+         Output: text_val, int_val, numeric_val, float_val, bigint_val
+         Sort Key: type_test.text_val
+         ->  Custom Scan (ParadeDB Scan) on public.type_test
+               Output: text_val, int_val, numeric_val, float_val, bigint_val
+               Table: type_test
+               Index: type_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_val","query_string":"test1 OR test2 OR test3","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
 FROM type_test
 WHERE text_val @@@ 'test1 OR test2 OR test3'
 GROUP BY text_val
 ORDER BY text_val;
- text_val | sum |  avg   | min |   max   
-----------+-----+--------+-----+---------
- test1    | 100 |  99.99 | 1.5 | 1000000
- test2    | 200 | 199.99 | 2.5 | 2000000
- test3    | 300 | 299.99 | 3.5 | 3000000
+ text_val | sum |         avg          | min |   max   
+----------+-----+----------------------+-----+---------
+ test1    | 100 |  99.9900000000000000 | 1.5 | 1000000
+ test2    | 200 | 199.9900000000000000 | 2.5 | 2000000
+ test3    | 300 | 299.9900000000000000 | 3.5 | 3000000
 (3 rows)
 
 -- =====================================================================
@@ -515,16 +581,22 @@ SELECT rating, SUM(price), MAX(rating)
 FROM products
 WHERE description @@@ 'keyboard'
 GROUP BY rating;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(price), MAX(rating)
-     Group By: rating
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"rating","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: rating, sum(price), max(rating)
+   Group Key: products.rating
+   ->  Sort
+         Output: rating, price
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT rating, SUM(price), MAX(rating)
 FROM products
@@ -544,16 +616,22 @@ SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products
 WHERE category @@@ 'Electronics'
 GROUP BY category;
-                                                                                                                        QUERY PLAN                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('SUM'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: MIN(rating), MAX(rating), SUM(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"rating","missing":null}},"1":{"max":{"field":"rating","missing":null}},"2":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, min(rating), max(rating), sum(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products
@@ -575,16 +653,22 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('SUM'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(price)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, sum(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, SUM(price) as total_price
 FROM products
@@ -604,27 +688,33 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category;
-                                                                                                                              QUERY PLAN                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), AVG(price)
-     Group By: category, rating
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, rating, count(*), avg(price)
+   Group Key: products.category, products.rating
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category, products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-  category   | rating | cnt |    avg_price     
--------------+--------+-----+------------------
- Electronics |      4 |   1 |            79.99
- Electronics |      5 |   3 | 816.656666666667
- Toys        |      3 |   1 |           499.99
+  category   | rating | cnt |      avg_price       
+-------------+--------+-----+----------------------
+ Electronics |      4 |   1 |  79.9900000000000000
+ Electronics |      5 |   3 | 816.6566666666666667
+ Toys        |      3 |   1 | 499.9900000000000000
 (3 rows)
 
 -- =====================================================================
@@ -638,16 +728,22 @@ WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
   AND (rating >= 4 OR category @@@ 'Electronics')
 GROUP BY rating
 ORDER BY rating;
-                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
-     Applies to Aggregates: SUM(price), COUNT(*)
-     Group By: rating
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: rating, sum(price), count(*)
+   Group Key: products.rating
+   ->  Sort
+         Output: rating, price
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
+(13 rows)
 
 SELECT rating, SUM(price), COUNT(*)
 FROM products
@@ -668,25 +764,31 @@ FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
-                                                                                                                                                           QUERY PLAN                                                                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, pdb.agg_fn('AVG'::text), pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}]}}
-     Applies to Aggregates: AVG(price), MIN(rating), MAX(rating)
-     Group By: category
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}},"1":{"min":{"field":"rating","missing":null}},"2":{"max":{"field":"rating","missing":null}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, avg(price), min(rating), max(rating)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price, rating
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+(13 rows)
 
 SELECT category, AVG(price), MIN(rating), MAX(rating)
 FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
-  category   |  avg   | min | max 
--------------+--------+-----+-----
- Electronics | 632.49 |   4 |   5
+  category   |         avg          | min | max 
+-------------+----------------------+-----+-----
+ Electronics | 632.4900000000000000 |   4 |   5
 (1 row)
 
 -- =====================================================================
@@ -768,19 +870,25 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('SUM'::text))
-   Sort Key: (pdb.agg_fn('SUM'::text)) DESC
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('SUM'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: SUM(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (sum(price))
+   Sort Key: (sum(products.price)) DESC
+   ->  GroupAggregate
+         Output: category, sum(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, SUM(price) as total_price
 FROM products
@@ -800,29 +908,35 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY AVG(price) ASC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('AVG'::text))
-   Sort Key: (pdb.agg_fn('AVG'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('AVG'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: AVG(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (avg(price))
+   Sort Key: (avg(products.price))
+   ->  GroupAggregate
+         Output: category, avg(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, AVG(price) as avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY AVG(price) ASC;
-  category   | avg_price 
--------------+-----------
- Toys        |    499.99
- Electronics |    632.49
+  category   |      avg_price       
+-------------+----------------------
+ Toys        | 499.9900000000000000
+ Electronics | 632.4900000000000000
 (2 rows)
 
 -- Test 8.5: ORDER BY MIN() and MAX()
@@ -832,19 +946,25 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY MIN(price) DESC;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('MIN'::text)), (pdb.agg_fn('MAX'::text))
-   Sort Key: (pdb.agg_fn('MIN'::text)) DESC
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: MIN(price), MAX(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"min":{"field":"price","missing":null}},"1":{"max":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (min(price)), (max(price))
+   Sort Key: (min(products.price)) DESC
+   ->  GroupAggregate
+         Output: category, min(price), max(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
 FROM products
@@ -864,19 +984,25 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('SUM'::text))
-   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC, products.category
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: COUNT(*), SUM(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (count(*)), (sum(price))
+   Sort Key: (count(*)) DESC, products.category
+   ->  GroupAggregate
+         Output: category, count(*), sum(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, COUNT(*) as cnt, SUM(price) as total
 FROM products
@@ -1005,19 +1131,25 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('SUM'::text))
-   Sort Key: (pdb.agg_fn('SUM'::text)) DESC
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('SUM'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: SUM(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (sum(price))
+   Sort Key: (sum(products.price)) DESC
+   ->  GroupAggregate
+         Output: category, sum(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, SUM(price) as total_price
 FROM products
@@ -1101,29 +1233,35 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Output: category, (pdb.agg_fn('COUNT(*)'::text)), (pdb.agg_fn('AVG'::text))
-   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC, (pdb.agg_fn('AVG'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
-         Output: category, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
-         Index: products_idx
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-           Applies to Aggregates: COUNT(*), AVG(price)
-           Group By: category
-           Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
-(10 rows)
+   Output: category, (count(*)), (avg(price))
+   Sort Key: (count(*)) DESC, (avg(products.price))
+   ->  GroupAggregate
+         Output: category, count(*), avg(price)
+         Group Key: products.category
+         ->  Sort
+               Output: category, price
+               Sort Key: products.category
+               ->  Custom Scan (ParadeDB Scan) on public.products
+                     Output: category, price
+                     Table: products
+                     Index: products_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
-  category   | cnt | avg_price 
--------------+-----+-----------
- Electronics |   4 |    632.49
- Toys        |   1 |    499.99
+  category   | cnt |      avg_price       
+-------------+-----+----------------------
+ Electronics |   4 | 632.4900000000000000
+ Toys        |   1 | 499.9900000000000000
 (2 rows)
 
 -- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
@@ -1219,27 +1357,33 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating ASC;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, rating, pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: AVG(price)
-     Group By: category, rating
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, rating, avg(price)
+   Group Key: products.category, products.rating
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category, products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, rating, avg(price) as avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating ASC;
-  category   | rating |    avg_price     
--------------+--------+------------------
- Electronics |      4 |            79.99
- Electronics |      5 | 816.656666666667
- Toys        |      3 |           499.99
+  category   | rating |      avg_price       
+-------------+--------+----------------------
+ Electronics |      4 |  79.9900000000000000
+ Electronics |      5 | 816.6566666666666667
+ Toys        |      3 | 499.9900000000000000
 (3 rows)
 
 -- Test 8.8: Multiple ORDER BY expressions (aggregate + field)

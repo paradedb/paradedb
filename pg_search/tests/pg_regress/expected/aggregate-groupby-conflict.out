@@ -81,16 +81,22 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY price
 ORDER BY price;
-                                                                                    QUERY PLAN                                                                                    
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
-   Output: price, pdb.agg_fn('SUM'::text), pdb.agg_fn('COUNT(*)'::text)
-   Index: groupby_conflict_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(price), COUNT(*)
-     Group By: price
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}}},"terms":{"field":"price","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: price, sum(price), count(*)
+   Group Key: groupby_conflict_test.price
+   ->  Sort
+         Output: price
+         Sort Key: groupby_conflict_test.price
+         ->  Custom Scan (ParadeDB Scan) on public.groupby_conflict_test
+               Output: price
+               Table: groupby_conflict_test
+               Index: groupby_conflict_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Execute the query
 SELECT price, SUM(price) as total_price, COUNT(*) as count
@@ -100,16 +106,16 @@ GROUP BY price
 ORDER BY price;
  price  | total_price | count 
 --------+-------------+-------
-     30 |          30 |     1
-     40 |          40 |     1
-     50 |          50 |     1
-     60 |          60 |     1
-     80 |          80 |     1
-     90 |          90 |     1
-    100 |         100 |     1
-    150 |         150 |     1
-    200 |         200 |     1
-    250 |         250 |     1
+  30.00 |       30.00 |     1
+  40.00 |       40.00 |     1
+  50.00 |       50.00 |     1
+  60.00 |       60.00 |     1
+  80.00 |       80.00 |     1
+  90.00 |       90.00 |     1
+ 100.00 |      100.00 |     1
+ 150.00 |      150.00 |     1
+ 200.00 |      200.00 |     1
+ 250.00 |      250.00 |     1
  299.99 |     1199.96 |     4
 (11 rows)
 

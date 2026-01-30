@@ -17,7 +17,6 @@
 
 pub mod aggregate_type;
 pub mod build;
-pub mod descale;
 pub mod exec;
 pub mod filterquery;
 pub mod groupby;
@@ -31,7 +30,6 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::extract_agg_name_to_field;
 pub use aggregate_type::AggregateType;
-pub use descale::descale_aggregate_result;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
@@ -269,17 +267,7 @@ impl CustomScan for AggregateScan {
                         if is_null_sentinel {
                             None
                         } else {
-                            // For Numeric64 fields, descale the group key value
-                            let grouping_columns =
-                                state.custom_state().aggregate_clause.grouping_columns();
-                            let descaled_key =
-                                if let Some(scale) = grouping_columns[*gc_idx].numeric_scale {
-                                    TantivyValue(descale::descale_owned_value(&key.0, scale))
-                                } else {
-                                    key
-                                };
-                            descaled_key
-                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")
                         }
                     }

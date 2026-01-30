@@ -381,7 +381,6 @@ unsafe fn convert_window_func_to_aggregate_type(
             filter,
             indexrelid: pg_sys::InvalidOid, // Will be filled in during planning
             mvcc_visibility,
-            numeric_field_scales: HashMap::default(), // Will be filled in during planning
         });
     }
 
@@ -409,7 +408,6 @@ unsafe fn convert_window_func_to_aggregate_type(
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
-        None,               // numeric_scale: filled in by resolve_window_aggregate_numeric_scales
     )?;
     Some(agg_type)
 }
@@ -562,75 +560,44 @@ unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_s
     !order_list.is_empty()
 }
 
-/// Resolve numeric field scales for window aggregates at custom plan creation time
+/// Check that window aggregates don't use NUMERIC fields.
 ///
-/// For Custom aggregates (pdb.agg), extracts field names from the aggregate JSON and
-/// looks up their scales in the schema. This is necessary for descaling Numeric64 fields
-/// in aggregate results.
+/// NUMERIC fields do not support aggregate pushdown. This function checks all
+/// window aggregates and returns an error if any aggregate uses a NUMERIC field.
 ///
-/// For standard aggregates (SUM, AVG, etc.), checks if the field is Numeric64 and sets
-/// the scale.
-///
-/// Returns `Err` with field name if any aggregate uses NumericBytes (unbounded NUMERIC),
-/// which cannot be aggregated by the search index.
-///
-/// This is called at plan_custom_path time when we have access to the schema.
-pub fn resolve_window_aggregate_numeric_scales(
-    window_aggregates: &mut [WindowAggregateInfo],
+/// Returns `Err` with field name if any aggregate uses a NUMERIC field.
+pub fn check_window_aggregates_no_numeric(
+    window_aggregates: &[WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
 ) -> Result<(), String> {
-    use crate::postgres::customscan::aggregatescan::descale::build_numeric_field_scales;
     use crate::postgres::customscan::aggregatescan::extract_agg_name_to_field;
-    use crate::schema::SearchFieldType;
 
     let schema = match bm25_index.schema() {
         Ok(s) => s,
         Err(_) => return Ok(()),
     };
 
-    for window_agg in window_aggregates.iter_mut() {
-        for agg_type in window_agg.targetlist.aggregates_mut() {
+    for window_agg in window_aggregates.iter() {
+        for agg_type in window_agg.targetlist.aggregates() {
             match agg_type {
-                AggregateType::Custom {
-                    agg_json,
-                    numeric_field_scales,
-                    ..
-                } => {
-                    // Build scales for Numeric64 fields to descale aggregate results
+                AggregateType::Custom { agg_json, .. } => {
+                    // Check all fields referenced in custom aggregates
                     let agg_name_to_field = extract_agg_name_to_field(agg_json);
-                    *numeric_field_scales = build_numeric_field_scales(&schema, &agg_name_to_field);
+                    for (_agg_name, field_name) in agg_name_to_field {
+                        if let Some(search_field) = schema.search_field(&field_name) {
+                            if search_field.field_type().is_numeric() {
+                                return Err(field_name);
+                            }
+                        }
+                    }
                 }
-                AggregateType::Sum {
-                    field,
-                    numeric_scale,
-                    ..
-                }
-                | AggregateType::Avg {
-                    field,
-                    numeric_scale,
-                    ..
-                }
-                | AggregateType::Min {
-                    field,
-                    numeric_scale,
-                    ..
-                }
-                | AggregateType::Max {
-                    field,
-                    numeric_scale,
-                    ..
-                } => {
-                    // Check field type
+                AggregateType::Sum { field, .. }
+                | AggregateType::Avg { field, .. }
+                | AggregateType::Min { field, .. }
+                | AggregateType::Max { field, .. } => {
                     if let Some(search_field) = schema.search_field(field.as_str()) {
-                        match search_field.field_type() {
-                            SearchFieldType::NumericBytes(_) => {
-                                // NumericBytes cannot be aggregated - reject the plan
-                                return Err(field.clone());
-                            }
-                            SearchFieldType::Numeric64(_, scale) => {
-                                *numeric_scale = Some(scale);
-                            }
-                            _ => {}
+                        if search_field.field_type().is_numeric() {
+                            return Err(field.clone());
                         }
                     }
                 }

@@ -13,9 +13,11 @@ CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating, (cate
 CREATE TABLE allowed_categories (
     category TEXT PRIMARY KEY
 );
+ERROR:  relation "allowed_categories" already exists
 INSERT INTO allowed_categories (category) VALUES
     ('Electronics'),
     ('Clothing');
+ERROR:  duplicate key value violates unique constraint "allowed_categories_pkey"
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM mock_items WHERE category @@@ paradedb.term_set(terms => ARRAY(SELECT paradedb.term('category', category) FROM allowed_categories LIMIT 5));
                                                               QUERY PLAN                                                              

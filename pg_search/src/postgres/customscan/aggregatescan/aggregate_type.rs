@@ -45,6 +45,34 @@ use tantivy::aggregation::metric::{
 };
 use tantivy::schema::OwnedValue;
 
+use crate::postgres::PgSearchRelation;
+
+/// Check if aggregate pushdown is supported for a field.
+///
+/// Returns:
+/// - `Some(())` for aggregatable field types (non-NUMERIC)
+/// - `None` if the field is a NUMERIC type (aggregate pushdown not supported)
+///
+/// NUMERIC columns do not support aggregate pushdown because:
+/// - Special values (NaN, Infinity) would produce incorrect results
+/// - Filter pushdown (equality/range) is still fully supported
+fn check_field_supports_aggregate(bm25_index: &PgSearchRelation, field: &str) -> Option<()> {
+    let schema = bm25_index.schema().ok()?;
+    let search_field = schema.search_field(field)?;
+
+    if search_field.field_type().is_numeric() {
+        pgrx::debug1!(
+            "Aggregate pushdown disabled for NUMERIC field '{}': \
+             NUMERIC columns do not support aggregate pushdown. \
+             The query will fall back to PostgreSQL for aggregation.",
+            field
+        );
+        None
+    } else {
+        Some(())
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     CountAny {
@@ -62,41 +90,30 @@ pub enum AggregateType {
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
-        /// Scale for Numeric64 fields - used to descale results
-        numeric_scale: Option<i16>,
     },
     Avg {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
-        /// Scale for Numeric64 fields - used to descale results
-        numeric_scale: Option<i16>,
     },
     Min {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
-        /// Scale for Numeric64 fields - used to descale results
-        numeric_scale: Option<i16>,
     },
     Max {
         field: String,
         missing: Option<f64>,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
-        /// Scale for Numeric64 fields - used to descale results
-        numeric_scale: Option<i16>,
     },
     Custom {
         agg_json: serde_json::Value,
         filter: Option<SearchQueryInput>,
         indexrelid: pg_sys::Oid,
         mvcc_visibility: MvccVisibility,
-        /// Map of field names to their numeric scales for Numeric64 fields.
-        /// Used to descale aggregate results in custom aggregates.
-        numeric_field_scales: HashMap<String, i16>,
     },
 }
 
@@ -188,21 +205,28 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
-            // Build scales for Numeric64 fields to descale aggregate results
+            // Check if any fields in the custom aggregate are NUMERIC
+            // NUMERIC fields do not support aggregate pushdown
             let agg_name_to_field = extract_agg_name_to_field(&json_value);
-            let numeric_field_scales = bm25_index
-                .schema()
-                .map(|schema| {
-                    super::descale::build_numeric_field_scales(&schema, &agg_name_to_field)
-                })
-                .unwrap_or_default();
+            if let Ok(schema) = bm25_index.schema() {
+                for field_name in agg_name_to_field.values() {
+                    if let Some(search_field) = schema.search_field(field_name) {
+                        if search_field.field_type().is_numeric() {
+                            pgrx::debug1!(
+                                "Custom aggregate on NUMERIC field '{}' cannot be pushed down",
+                                field_name
+                            );
+                            return None;
+                        }
+                    }
+                }
+            }
 
             return Some(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
                 indexrelid: bm25_index.oid(),
                 mvcc_visibility,
-                numeric_field_scales,
             });
         }
 
@@ -221,16 +245,11 @@ impl AggregateType {
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
 
         // Check if aggregate pushdown is supported for this field type
-        let numeric_scale = super::descale::get_numeric_scale_for_field(bm25_index, &field)?;
+        // NUMERIC fields are not supported - they fall back to PostgreSQL
+        check_field_supports_aggregate(bm25_index, &field)?;
 
-        let agg_type = create_aggregate_from_oid(
-            aggfnoid,
-            field,
-            missing,
-            filter_query,
-            bm25_index.oid(),
-            numeric_scale,
-        )?;
+        let agg_type =
+            create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
 
         Some(agg_type)
     }
@@ -261,28 +280,6 @@ impl AggregateType {
             AggregateType::Min { indexrelid, .. } => *indexrelid,
             AggregateType::Max { indexrelid, .. } => *indexrelid,
             AggregateType::Custom { indexrelid, .. } => *indexrelid,
-        }
-    }
-
-    /// Get the numeric scale for Numeric64 fields (used for descaling aggregate results)
-    pub fn numeric_scale(&self) -> Option<i16> {
-        match self {
-            AggregateType::Sum { numeric_scale, .. } => *numeric_scale,
-            AggregateType::Avg { numeric_scale, .. } => *numeric_scale,
-            AggregateType::Min { numeric_scale, .. } => *numeric_scale,
-            AggregateType::Max { numeric_scale, .. } => *numeric_scale,
-            _ => None,
-        }
-    }
-
-    /// Get the numeric field scales for Custom aggregates (used for descaling results)
-    pub fn numeric_field_scales(&self) -> Option<&crate::api::HashMap<String, i16>> {
-        match self {
-            AggregateType::Custom {
-                numeric_field_scales,
-                ..
-            } => Some(numeric_field_scales),
-            _ => None,
         }
     }
 
@@ -649,7 +646,6 @@ pub fn create_aggregate_from_oid(
     missing: Option<f64>,
     filter: Option<SearchQueryInput>,
     indexrelid: pg_sys::Oid,
-    numeric_scale: Option<i16>,
 ) -> Option<AggregateType> {
     match aggfnoid {
         F_COUNT_ANY => Some(AggregateType::Count {
@@ -664,7 +660,6 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
-                numeric_scale,
             })
         }
         F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
@@ -673,7 +668,6 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
-                numeric_scale,
             })
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
@@ -683,7 +677,6 @@ pub fn create_aggregate_from_oid(
                 missing,
                 filter,
                 indexrelid,
-                numeric_scale,
             })
         }
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
@@ -693,7 +686,6 @@ pub fn create_aggregate_from_oid(
             missing,
             filter,
             indexrelid,
-            numeric_scale,
         }),
         _ => {
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);

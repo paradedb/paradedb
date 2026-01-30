@@ -2,68 +2,25 @@ CREATE INDEX IF NOT EXISTS idxregress_mock_items
 ON regress.mock_items
     USING bm25 (id, sku, description, (lower(description)::pdb.simple('alias=description_lower')), rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range)
 WITH (key_field='id');
+ERROR:  schema "regress" does not exist
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2);
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":2}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2);
-                                                        QUERY PLAN                                                        
---------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":2}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.slop(2)::pdb.boost(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::pdb.slop(2)::pdb.boost(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
- id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
-----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
-  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(0);
- id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range | sku 
-----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------+-----
-(0 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 SELECT * FROM regress.mock_items WHERE description ### ARRAY['shoes', 'running']::pdb.slop(1);
- id | description | rating | category | in_stock | metadata | created_at | last_updated_date | latest_available_time | weight_range | sku 
-----+-------------+--------+----------+----------+----------+------------+-------------------+-----------------------+--------------+-----
-(0 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 15
 --
 -- validate json representation
 --
@@ -77,17 +34,17 @@ SELECT 'running shoes'::pdb.slop(2);
 -- error conditions
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.boost(2)::pdb.slop(2);
-ERROR:  cannot cast type pdb.boost to pdb.slop at character 130
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.slop(2);
-ERROR:  query type is not compatible with slop
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.slop(2);
-ERROR:  operator is not unique: text &&& pdb.slop at character 97
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.slop(2);
-ERROR:  operator is not unique: text ||| pdb.slop at character 97
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'running shoes'::pdb.slop(2);
-ERROR:  operator is not unique: text === pdb.slop at character 97
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('running shoes')::pdb.slop(2);
-ERROR:  query type is not compatible with slop
+ERROR:  relation "regress.mock_items" does not exist at character 60
 -- test for JIEBA tokenizer
 CREATE TABLE IF NOT EXISTS content_segment_text (
 id VARCHAR, -- 唯一标识（fileid_chunkid）
@@ -141,6 +98,7 @@ INSERT INTO content_segment_text (
 ('doc7_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10007, '2024年计划.docx', 5001, 1704067200000, 1704067200000, 2024, 202401, 20240101, 'docx', 25600, 104, '{100, 101, 104}', 'document', 1, 1704067200000, 'office', '2024年的工作规划...'),
 -- 文档8: 路径为 /docs/report (parent_id=101)
 ('doc8_001', 'user_1000', 1, 'text', 1000, 1000, 1000, 10008, '季度报告.docx', 5001, 1678003200000, 1678003200000, 2023, 202303, 20230305, 'docx', 18432, 101, '{100, 101}', 'document', 1, 1678003200000, 'office', '第一季度报告...');
+ERROR:  duplicate key value violates unique constraint "content_segment_text_pkey"
 CREATE INDEX content_segment_text_bm25 ON content_segment_text 
 USING bm25(id, routing_id, group_id, parent_id, ext_group,  filename, content) 
 WITH (

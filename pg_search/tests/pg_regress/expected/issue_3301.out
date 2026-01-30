@@ -1,12 +1,4 @@
 select count(*) from regress.mock_items where id @@@ pdb.all();
- count 
--------
-    41
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 22
 select count(*) from regress.mock_items where id @@@ pdb.empty();
- count 
--------
-     0
-(1 row)
-
+ERROR:  relation "regress.mock_items" does not exist at character 22

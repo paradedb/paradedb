@@ -387,21 +387,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT 
     id,
     name,
@@ -414,13 +400,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |  price  | total_count | total_price | avg_rating 
-----+-------------+--------+---------+-------------+-------------+------------
-  1 | MacBook Pro |   4.80 | 2499.00 |           4 |        7396 |        4.6
-  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |        7396 |        4.6
-  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |        7396 |        4.6
-(3 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Test 4: Window aggregate with PARTITION BY (not supported yet, but should extract)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -579,21 +559,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"Min":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Max":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT 
     id,
     name,
@@ -605,13 +571,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |  price  | min_price | max_price 
-----+-------------+--------+---------+-----------+-----------
-  1 | MacBook Pro |   4.80 | 2499.00 |      1399 |      2499
-  5 | ASUS ROG    |   4.70 | 1899.00 |      1399 |      2499
-  3 | ThinkPad X1 |   4.50 | 1599.00 |      1399 |      2499
-(3 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Test 8: Window aggregate with FILTER clause
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -2040,21 +2000,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Count":{"field":"brand","missing":null,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT 
     id,
     name,
@@ -2067,13 +2013,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |  price  | total_count | total_price | brand_count 
-----+-------------+--------+---------+-------------+-------------+-------------
-  1 | MacBook Pro |   4.80 | 2499.00 |           4 |        7396 |           4
-  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |        7396 |           4
-  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |        7396 |           4
-(3 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Test 33: Only supported window functions (should use custom scan)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
@@ -2256,21 +2196,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 3
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT 
     id,
     name,
@@ -2283,13 +2209,7 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |  price  | total_count | total_price_with_default | avg_rating_with_default 
-----+-------------+--------+---------+-------------+--------------------------+-------------------------
-  1 | MacBook Pro |   4.80 | 2499.00 |           4 |                     7396 |                     4.6
-  5 | ASUS ROG    |   4.70 | 1899.00 |           4 |                     7396 |                     4.6
-  3 | ThinkPad X1 |   4.50 | 1599.00 |           4 |                     7396 |                     4.6
-(3 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
 -- Verify this produces TopN execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -2370,34 +2290,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, description, category, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, description, category, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"avg":{"field":"rating"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 10
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT id, name, description, category, brand, pdb.agg('{"avg": {"field": "rating"}}'::jsonb) OVER ()
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 10;
- id |    name     |                description                | category | brand  |      agg       
-----+-------------+-------------------------------------------+----------+--------+----------------
-  1 | MacBook Pro | High-performance laptop for professionals | Laptops  | Apple  | {"value": 4.6}
-  5 | ASUS ROG    | Gaming laptop with RTX graphics           | Laptops  | ASUS   | {"value": 4.6}
-  3 | ThinkPad X1 | Business laptop with great keyboard       | Laptops  | Lenovo | {"value": 4.6}
-  4 | HP Spectre  | Stylish convertible laptop                | Laptops  | HP     | {"value": 4.6}
-(4 rows)
-
+ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Test 36: TopN with nested aggregations (window function)
 -- Verify that nested "aggs" work correctly in TopN/window context
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -2407,35 +2306,14 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name, brand, (pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), rating
-   ->  Custom Scan (ParadeDB Scan) on public.products
-         Output: id, name, brand, pdb.window_agg('{"entries":[{"Aggregate":{"Custom":{"agg_json":{"aggs":{"avg_rating":{"avg":{"field":"rating"}}},"terms":{"field":"brand"}},"filter":null,"indexrelid":0,"mvcc_visibility":"Enabled","numeric_field_scales":{}}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), rating
-         Table: products
-         Index: products_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: rating desc
-            TopN Limit: 5
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
+ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT id, name, brand,
        pdb.agg('{"terms": {"field": "brand"}, "aggs": {"avg_rating": {"avg": {"field": "rating"}}}}'::jsonb) OVER () AS brand_with_avg_rating
 FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
- id |    name     | brand  |                                                                                                                                                         brand_with_avg_rating                                                                                                                                                          
-----+-------------+--------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  1 | MacBook Pro | Apple  | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  5 | ASUS ROG    | ASUS   | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  3 | ThinkPad X1 | Lenovo | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-  4 | HP Spectre  | HP     | {"buckets": [{"key": "HP", "doc_count": 1, "avg_rating": {"value": 4.4}}, {"key": "Apple", "doc_count": 1, "avg_rating": {"value": 4.8}}, {"key": "Lenovo", "doc_count": 1, "avg_rating": {"value": 4.5}}, {"key": "ASUS", "doc_count": 1, "avg_rating": {"value": 4.7}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(4 rows)
-
+ERROR:  Window aggregate on field 'rating' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Cleanup
 DROP TABLE product_categories CASCADE;
 DROP TABLE products CASCADE;

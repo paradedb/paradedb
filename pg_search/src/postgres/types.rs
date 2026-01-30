@@ -715,12 +715,12 @@ impl TantivyValue {
     /// The value is scaled by 10^scale to convert to integer representation.
     /// For example, NUMERIC(10,2) value 123.45 with scale=2 becomes I64(12345).
     ///
-    /// Delegates to the centralized `scale_i64` in the descale module.
+    /// Delegates to the centralized `scale_i64` in the numeric module.
     pub unsafe fn try_from_numeric_i64(
         datum: Datum,
         scale: i16,
     ) -> Result<Self, TantivyValueError> {
-        use crate::postgres::customscan::aggregatescan::descale::scale_i64;
+        use crate::query::numeric::scale_i64;
 
         let numeric =
             pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
@@ -819,12 +819,12 @@ impl TantivyValue {
     /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with I64 fixed-point storage.
     /// Used for NUMERIC arrays with precision <= 18.
     ///
-    /// Delegates to the centralized `scale_i64` in the descale module.
+    /// Delegates to the centralized `scale_i64` in the numeric module.
     pub unsafe fn try_from_numeric_array_i64(
         datum: Datum,
         scale: i16,
     ) -> Result<Vec<Self>, TantivyValueError> {
-        use crate::postgres::customscan::aggregatescan::descale::scale_i64;
+        use crate::query::numeric::scale_i64;
 
         let array: pgrx::Array<Datum> =
             pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;

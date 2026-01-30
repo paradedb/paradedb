@@ -56,7 +56,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::aggregate::{execute_aggregate, AggregateRequest};
 use crate::gucs;
-use crate::postgres::customscan::aggregatescan::descale_aggregate_result;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{lookup_pdb_function, ExprContextGuard};
 use crate::query::SearchQueryInput;
@@ -97,11 +96,7 @@ fn aggregate_impl(
         Ok(JsonB(serde_json::Value::Null))
     } else {
         let json_value = serde_json::to_value(aggregate)?;
-        let result = match relation.schema() {
-            Ok(schema) => descale_aggregate_result(&agg.0, &schema, json_value),
-            Err(_) => json_value,
-        };
-        Ok(JsonB(result))
+        Ok(JsonB(json_value))
     }
 }
 

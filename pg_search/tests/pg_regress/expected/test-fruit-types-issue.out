@@ -46,16 +46,22 @@ SELECT name, SUM(price), MAX(rating), AVG(age)
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text), pdb.agg_fn('AVG'::text)
-   Index: idxusers
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: SUM(price), MAX(rating), AVG(age)
-     Group By: name
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}},"2":{"avg":{"field":"age","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: name, sum(price), max(rating), avg(age)
+   Group Key: users.name
+   ->  Sort
+         Output: name, price, rating, age
+         Sort Key: users.name
+         ->  Custom Scan (ParadeDB Scan) on public.users
+               Output: name, price, rating, age
+               Table: users
+               Index: idxusers
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- execute the failing query
 SELECT name, SUM(price), MAX(rating), AVG(age) 
@@ -63,11 +69,11 @@ FROM users
 WHERE color @@@ 'blue' 
 GROUP BY name
 ORDER BY name;
-  name   |  sum  | max |       avg        
----------+-------+-----+------------------
- alice   | 20130 |   5 | 32.8181818181818
- bob     | 20570 |   5 | 33.4411764705882
- charlie | 19800 |   5 | 34.5454545454545
+  name   |   sum    | max |         avg         
+---------+----------+-----+---------------------
+ alice   | 20130.00 |   5 | 32.8181818181818182
+ bob     | 20570.00 |   5 | 33.4411764705882353
+ charlie | 19800.00 |   5 | 34.5454545454545455
 (3 rows)
 
 -- =====================================================================
@@ -79,27 +85,33 @@ SELECT name, COUNT(*), SUM(price), MAX(rating)
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text), pdb.agg_fn('MAX'::text)
-   Index: idxusers
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), SUM(price), MAX(rating)
-     Group By: name
-     Aggregate Definition: {"grouped":{"aggs":{"0":{"sum":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"name","segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: name, count(*), sum(price), max(rating)
+   Group Key: users.name
+   ->  Sort
+         Output: name, price, rating
+         Sort Key: users.name
+         ->  Custom Scan (ParadeDB Scan) on public.users
+               Output: name, price, rating
+               Table: users
+               Index: idxusers
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT name, COUNT(*), SUM(price), MAX(rating) 
 FROM users 
 WHERE color @@@ 'blue' 
 GROUP BY name
 ORDER BY name;
-  name   | count |  sum  | max 
----------+-------+-------+-----
- alice   |    33 | 20130 |   5
- bob     |    34 | 20570 |   5
- charlie |    33 | 19800 |   5
+  name   | count |   sum    | max 
+---------+-------+----------+-----
+ alice   |    33 | 20130.00 |   5
+ bob     |    34 | 20570.00 |   5
+ charlie |    33 | 19800.00 |   5
 (3 rows)
 
 -- Test 5: COUNT + MAX + AVG (different combination)

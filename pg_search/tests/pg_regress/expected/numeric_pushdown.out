@@ -2918,38 +2918,14 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-                                                                                                                   QUERY PLAN                                                                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, category, price, (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
-   ->  Custom Scan (ParadeDB Scan) on public.window_agg_numeric64_test
-         Output: id, category, price, pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":null,"filter":null,"indexrelid":0,"numeric_scale":null}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
-         Table: window_agg_numeric64_test
-         Index: window_agg_numeric64_idx
-         Exec Method: TopNScanExecState
-         Scores: false
-            TopN Order By: id asc
-            TopN Limit: 10
-         Full Index Scan: true
-         Tantivy Query: {"with_index":{"query":"all"}}
-(12 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
- id |  category   | price  | total_price 
-----+-------------+--------+-------------
-  1 | electronics | 100.50 |      602.99
-  2 | electronics | 200.75 |      602.99
-  3 | electronics | 150.25 |      602.99
-  4 | clothing    |  50.00 |      602.99
-  5 | clothing    |  75.50 |      602.99
-  6 | books       |  25.99 |      602.99
-(6 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate AVG on Numeric64 field in TopN query
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
@@ -2957,16 +2933,7 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
- id |  category   | price  |     avg_price      
-----+-------------+--------+--------------------
-  1 | electronics | 100.50 | 100.49833333333333
-  2 | electronics | 200.75 | 100.49833333333333
-  3 | electronics | 150.25 | 100.49833333333333
-  4 | clothing    |  50.00 | 100.49833333333333
-  5 | clothing    |  75.50 | 100.49833333333333
-  6 | books       |  25.99 | 100.49833333333333
-(6 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate MIN/MAX on Numeric64 field in TopN query
 SELECT id, category, price,
        MIN(price) OVER () as min_price,
@@ -2975,16 +2942,7 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
- id |  category   | price  | min_price | max_price 
-----+-------------+--------+-----------+-----------
-  1 | electronics | 100.50 |     25.99 |    200.75
-  2 | electronics | 200.75 |     25.99 |    200.75
-  3 | electronics | 150.25 |     25.99 |    200.75
-  4 | clothing    |  50.00 |     25.99 |    200.75
-  5 | clothing    |  75.50 |     25.99 |    200.75
-  6 | books       |  25.99 |     25.99 |    200.75
-(6 rows)
-
+ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numeric64_test;
 -- ----------------------------------------------------------------------------
 -- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
@@ -3010,7 +2968,7 @@ FROM window_agg_numericbytes_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'amount' cannot be pushed down: NUMERIC columns without precision (or precision > 18) use byte storage which cannot be aggregated by the search index. Consider using NUMERIC(p,s) where p <= 18.
+ERROR:  Window aggregate on field 'amount' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numericbytes_test;
 -- ----------------------------------------------------------------------------
 -- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
@@ -3035,5 +2993,5 @@ FROM window_agg_highprec_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'value' cannot be pushed down: NUMERIC columns without precision (or precision > 18) use byte storage which cannot be aggregated by the search index. Consider using NUMERIC(p,s) where p <= 18.
+ERROR:  Window aggregate on field 'value' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_highprec_test;

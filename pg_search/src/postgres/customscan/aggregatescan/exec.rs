@@ -22,7 +22,6 @@ use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
 };
-use crate::postgres::customscan::aggregatescan::descale::{descale_json_result, descale_metric};
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -178,19 +177,11 @@ pub fn aggregate_result_to_datum(
     expected_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     match agg_result {
-        Some(AggregateResult::Json(json_value)) => {
-            let descaled = descale_json_result(json_value, agg_type.numeric_field_scales());
-            JsonB(descaled).into_datum()
-        }
+        Some(AggregateResult::Json(json_value)) => JsonB(json_value).into_datum(),
         Some(AggregateResult::Metric(metric)) => {
             if expected_typoid == pg_sys::JSONBOID {
-                // JSONB output - serialize metric to JSON with descaling
-                let descaled_metric = TantivySingleMetricResult {
-                    value: metric.value.map(|v| {
-                        descale_metric(v, agg_type.numeric_field_scales(), agg_type.numeric_scale())
-                    }),
-                };
-                let json_value = serde_json::to_value(&descaled_metric).unwrap_or_else(|e| {
+                // JSONB output - serialize metric to JSON
+                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
                 JsonB(json_value).into_datum()
@@ -206,10 +197,9 @@ pub fn aggregate_result_to_datum(
                         .unwrap()
                 })
             } else {
-                // Scalar output - descale and convert to expected type
+                // Scalar output - convert to expected type
                 metric.value.and_then(|value| unsafe {
-                    let descaled = descale_metric(value, None, agg_type.numeric_scale());
-                    TantivyValue(OwnedValue::F64(descaled))
+                    TantivyValue(OwnedValue::F64(value))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })

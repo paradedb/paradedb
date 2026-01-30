@@ -1563,30 +1563,36 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand
 ORDER BY category, brand;
-                                                                                                                                         QUERY PLAN                                                                                                                                          
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, brand, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), AVG(price)
-     Group By: category, brand
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, brand, count(*), avg(price)
+   Group Key: products.category, products.brand
+   ->  Sort
+         Output: category, brand, price
+         Sort Key: products.category, products.brand
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, brand, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, brand, COUNT(*), AVG(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand
 ORDER BY category, brand;
-  category   |    brand     | count |   avg   
--------------+--------------+-------+---------
- Electronics | Apple        |     1 | 1299.99
- Electronics | Corsair      |     1 |  149.99
- Electronics | Dell         |     1 | 1499.99
- Electronics | HP           |     1 |  499.99
- Electronics | Logitech     |     1 |   79.99
- Toys        | Fisher Price |     1 |   29.99
+  category   |    brand     | count |          avg          
+-------------+--------------+-------+-----------------------
+ Electronics | Apple        |     1 | 1299.9900000000000000
+ Electronics | Corsair      |     1 |  149.9900000000000000
+ Electronics | Dell         |     1 | 1499.9900000000000000
+ Electronics | HP           |     1 |  499.9900000000000000
+ Electronics | Logitech     |     1 |   79.9900000000000000
+ Toys        | Fisher Price |     1 |   29.9900000000000000
 (6 rows)
 
 -- Test 53: GROUP BY with three columns creates TRIPLE-NESTED terms aggregations
@@ -1596,30 +1602,36 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand, rating
 ORDER BY category, brand, rating;
-                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, brand, rating, pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('AVG'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*), AVG(price)
-     Group By: category, brand, rating
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}}},"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, brand, rating, count(*), avg(price)
+   Group Key: products.category, products.brand, products.rating
+   ->  Sort
+         Output: category, brand, rating, price
+         Sort Key: products.category, products.brand, products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, brand, rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, brand, rating, COUNT(*), AVG(price)
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand, rating
 ORDER BY category, brand, rating;
-  category   |    brand     | rating | count |   avg   
--------------+--------------+--------+-------+---------
- Electronics | Apple        |      5 |     1 | 1299.99
- Electronics | Corsair      |      5 |     1 |  149.99
- Electronics | Dell         |      5 |     1 | 1499.99
- Electronics | HP           |      3 |     1 |  499.99
- Electronics | Logitech     |      4 |     1 |   79.99
- Toys        | Fisher Price |      3 |     1 |   29.99
+  category   |    brand     | rating | count |          avg          
+-------------+--------------+--------+-------+-----------------------
+ Electronics | Apple        |      5 |     1 | 1299.9900000000000000
+ Electronics | Corsair      |      5 |     1 |  149.9900000000000000
+ Electronics | Dell         |      5 |     1 | 1499.9900000000000000
+ Electronics | HP           |      3 |     1 |  499.9900000000000000
+ Electronics | Logitech     |      4 |     1 |   79.9900000000000000
+ Toys        | Fisher Price |      3 |     1 |   29.9900000000000000
 (6 rows)
 
 -- Test 54: Using pdb.agg() with nested terms (equivalent to GROUP BY category, brand)
@@ -1706,15 +1718,17 @@ SELECT
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text), pdb.agg_fn('pdb.agg'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"terms":{"field":"category"}}), CUSTOM_AGG({"terms":{"field":"brand"}}), CUSTOM_AGG({"avg":{"field":"price"}})
-     Aggregate Definition: {"0":{"terms":{"field":"category"}},"1":{"terms":{"field":"brand"}},"2":{"avg":{"field":"price","missing":null}}}
-(6 rows)
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: pdb.agg('{"terms": {"field": "category"}}'::jsonb), pdb.agg('{"terms": {"field": "brand"}}'::jsonb), pdb.agg('{"avg": {"field": "price"}}'::jsonb)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Table: products
+         Index: products_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
 
 SELECT 
     pdb.agg('{"terms": {"field": "category"}}'::jsonb) AS category_breakdown,
@@ -1722,11 +1736,7 @@ SELECT
     pdb.agg('{"avg": {"field": "price"}}'::jsonb) AS avg_price
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                 category_breakdown                                                                 |                                                                                                                                        brand_breakdown                                                                                                                                        |          avg_price           
-----------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------
- {"buckets": [{"key": "Electronics", "doc_count": 5}, {"key": "Toys", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"buckets": [{"key": "HP", "doc_count": 1}, {"key": "Apple", "doc_count": 1}, {"key": "Corsair", "doc_count": 1}, {"key": "Fisher Price", "doc_count": 1}, {"key": "Logitech", "doc_count": 1}, {"key": "Dell", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0} | {"value": 593.3233333333334}
-(1 row)
-
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Test 58: One GROUP BY column with pdb.agg() for sub-aggregation
 -- This groups by category, and within each category, gets brand breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -1806,24 +1816,22 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: pdb.agg_fn('pdb.agg'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"category"}})
-     Aggregate Definition: {"0":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"category"}}}
-(6 rows)
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: pdb.agg('{"aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}, "terms": {"field": "category"}}'::jsonb)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Table: products
+         Index: products_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                                                                                      agg                                                                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "Electronics", "avg_price": {"value": 705.99}, "doc_count": 5, "max_rating": {"value": 5.0}}, {"key": "Toys", "avg_price": {"value": 29.99}, "doc_count": 1, "max_rating": {"value": 3.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
-
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Test 61: Comparing GROUP BY vs pdb.agg() with same nesting
 -- GROUP BY approach
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -1832,30 +1840,36 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand
 ORDER BY category, brand;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, brand, pdb.agg_fn('AVG'::text), pdb.agg_fn('MAX'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: AVG(price), MAX(rating)
-     Group By: category, brand
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"aggs":{"0":{"avg":{"field":"price","missing":null}},"1":{"max":{"field":"rating","missing":null}}},"terms":{"field":"brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, brand, avg(price), max(rating)
+   Group Key: products.category, products.brand
+   ->  Sort
+         Output: category, brand, price, rating
+         Sort Key: products.category, products.brand
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, brand, price, rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 SELECT category, brand, AVG(price) AS avg_price, MAX(rating) AS max_rating
 FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, brand
 ORDER BY category, brand;
-  category   |    brand     | avg_price | max_rating 
--------------+--------------+-----------+------------
- Electronics | Apple        |   1299.99 |          5
- Electronics | Corsair      |    149.99 |          5
- Electronics | Dell         |   1499.99 |          5
- Electronics | HP           |    499.99 |          3
- Electronics | Logitech     |     79.99 |          4
- Toys        | Fisher Price |     29.99 |          3
+  category   |    brand     |       avg_price       | max_rating 
+-------------+--------------+-----------------------+------------
+ Electronics | Apple        | 1299.9900000000000000 |          5
+ Electronics | Corsair      |  149.9900000000000000 |          5
+ Electronics | Dell         | 1499.9900000000000000 |          5
+ Electronics | HP           |  499.9900000000000000 |          3
+ Electronics | Logitech     |   79.9900000000000000 |          4
+ Toys        | Fisher Price |   29.9900000000000000 |          3
 (6 rows)
 
 -- pdb.agg() approach (returns JSON structure)
@@ -1863,24 +1877,22 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                                                                 QUERY PLAN                                                                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: pdb.agg_fn('pdb.agg'::text)
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: CUSTOM_AGG({"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price"}},"max_rating":{"max":{"field":"rating"}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}})
-     Aggregate Definition: {"0":{"aggs":{"brand_breakdown":{"aggs":{"avg_price":{"avg":{"field":"price","missing":null}},"max_rating":{"max":{"field":"rating","missing":null}}},"terms":{"field":"brand"}}},"terms":{"field":"category"}}}
-(6 rows)
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: pdb.agg('{"aggs": {"brand_breakdown": {"aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}, "terms": {"field": "brand"}}}, "terms": {"field": "category"}}'::jsonb)
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Table: products
+         Index: products_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
 
 SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"brand_breakdown": {"terms": {"field": "brand"}, "aggs": {"avg_price": {"avg": {"field": "price"}}, "max_rating": {"max": {"field": "rating"}}}}}}'::jsonb)
 FROM products
 WHERE description @@@ 'laptop OR keyboard';
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                          agg                                                                                                                                                                                                                                                                                                                                                                                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": [{"key": "Electronics", "doc_count": 5, "brand_breakdown": {"buckets": [{"key": "HP", "avg_price": {"value": 499.99}, "doc_count": 1, "max_rating": {"value": 3.0}}, {"key": "Apple", "avg_price": {"value": 1299.99}, "doc_count": 1, "max_rating": {"value": 5.0}}, {"key": "Corsair", "avg_price": {"value": 149.99}, "doc_count": 1, "max_rating": {"value": 5.0}}, {"key": "Logitech", "avg_price": {"value": 79.99}, "doc_count": 1, "max_rating": {"value": 4.0}}, {"key": "Dell", "avg_price": {"value": 1499.99}, "doc_count": 1, "max_rating": {"value": 5.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}, {"key": "Toys", "doc_count": 1, "brand_breakdown": {"buckets": [{"key": "Fisher Price", "avg_price": {"value": 29.99}, "doc_count": 1, "max_rating": {"value": 3.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
-(1 row)
-
+ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
 -- Test 62: Multiple independent terms vs nested terms - showing the difference
 -- Independent: Each field gets its own top-level breakdown
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

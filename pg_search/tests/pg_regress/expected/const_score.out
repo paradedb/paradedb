@@ -1,344 +1,65 @@
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.const(3);
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.const(3.14159);
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"score":{"Const":3.140625}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.const(0.5);
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"score":{"Const":0.5}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.const(0);
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"score":{"Const":0.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::pdb.const(-100);
-                                                                                                     QUERY PLAN                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"parse_with_field":{"query_string":"running shoes","lenient":null,"conjunction_mode":null}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.const(3);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.const(3.14159);
-                                                                                                                            QUERY PLAN                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":3.140625}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.const(0.5);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":0.5}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.const(0);
-                                                                                                                         QUERY PLAN                                                                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":0.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::pdb.const(-100);
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.const(3);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.const(3.14159);
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":3.140625}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.const(0.5);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":0.5}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.const(0);
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":0.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::pdb.const(-100);
-                                                                                                                           QUERY PLAN                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.const(3);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.const(3.14159);
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Const":3.140625}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.const(0.5);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Const":0.5}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.const(0);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Const":0.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::pdb.const(-100);
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"tokenized_phrase":{"phrase":"running shoes","slop":null}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(3);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(3.14159);
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":3.140625}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(0.5);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":0.5}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(0);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":0.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(-100);
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.const(-100);
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":-100.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.const(3);
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"proximity":{"left":{"term":"running"},"distance":{"any_order":3},"right":{"term":"shoes"}}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& ARRAY['running', 'shoes']::pdb.const(3);
-                                                                                                                      QUERY PLAN                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| ARRAY['running', 'shoes']::pdb.const(3);
-                                                                                                                       QUERY PLAN                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["running","shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### ARRAY['running', 'shoes']::pdb.const(3);
-                                                                                   QUERY PLAN                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"phrase_array":{"tokens":["running","shoes"],"slop":null}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['running', 'shoes']::pdb.const(3);
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items
-   Table: mock_items
-   Index: idxregress_mock_items
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term_set":{"terms":["running","shoes"]}},"score":{"Const":3.0}}}}}
-(6 rows)
-
+ERROR:  relation "regress.mock_items" does not exist at character 60
 --
 -- validate basic json representations
 --
@@ -391,4 +112,4 @@ ERROR:  assertion failed: typmod_parts.len() == 1 at character 15
 SELECT 'foo'::pdb.const(NaN);
 ERROR:  only 16 bit floats in the range [-2048..2048] are supported at character 15
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::pdb.const;
-ERROR:  score adjustment value should have been set
+ERROR:  relation "regress.mock_items" does not exist at character 60

@@ -516,7 +516,7 @@ pub unsafe fn extract_field_attributes(
                     if attname.is_none() && vars.len() == 1 {
                         let var = vars[0];
                         inner_typoid = pg_sys::exprType(var as *mut pg_sys::Node);
-                        if is_text_lower(var as *mut pg_sys::Node) {
+                        if is_text_lower(expression.cast()) {
                             normalizer = Some(SearchNormalizer::Lowercase);
                         } else if let Some(relabel) =
                             nodecast!(RelabelType, T_RelabelType, expression)

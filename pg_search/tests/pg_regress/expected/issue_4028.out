@@ -5,12 +5,7 @@ SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
 CREATE TABLE test (id serial PRIMARY KEY, description text);
-INSERT INTO test (description) VALUES
-	('Cloud Engagement Manager'),
-	('cloud engineer'),
-	('Clōüd engineer'),
-	('cloud Engineer'),
-	('Cloud engineer');
+INSERT INTO test (description) VALUES ('Cloud Engagement Manager'),('cloud engineer'), ('Clōüd engineer'),('cloud Engineer'), ('Cloud engineer');
 CREATE INDEX test_bm25 ON test
 USING bm25 (
 	id,

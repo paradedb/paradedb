@@ -757,6 +757,91 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
     }
 }
 
+/// RAII wrapper for `pg_sys::List` that automatically frees the list on drop.
+///
+/// This is useful when you need to create a temporary PostgreSQL list for use with
+/// PostgreSQL functions and want to ensure it's properly freed even if the code
+/// returns early or panics.
+///
+/// # Example
+/// ```ignore
+/// let temp_list = TempPgList::new();
+/// temp_list.push(some_node as *mut std::ffi::c_void);
+/// let result = pg_sys::some_function(temp_list.as_ptr());
+/// // temp_list is automatically freed when it goes out of scope
+/// ```
+#[derive(Default)]
+pub struct TempPgList(*mut pg_sys::List);
+
+impl TempPgList {
+    /// Create a new empty temporary list.
+    pub fn new() -> Self {
+        Self(std::ptr::null_mut())
+    }
+
+    /// Append a cell to the list.
+    ///
+    /// # Safety
+    /// The caller must ensure that `datum` is a valid pointer that can be
+    /// stored in a PostgreSQL list.
+    pub unsafe fn push(&mut self, datum: *mut std::ffi::c_void) {
+        self.0 = pg_sys::lappend(self.0, datum);
+    }
+
+    /// Get the raw pointer to the list.
+    pub fn as_ptr(&self) -> *mut pg_sys::List {
+        self.0
+    }
+}
+
+impl Drop for TempPgList {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.0.is_null() {
+                pg_sys::list_free(self.0);
+            }
+        }
+    }
+}
+
+/// Filter out RestrictInfo entries whose clauses are implied by a partial index predicate.
+///
+/// When using a partial index (e.g., `CREATE INDEX ... WHERE deleted_at IS NULL`),
+/// the index only contains rows that satisfy the predicate. If the query's WHERE clause
+/// includes the same predicate, we don't need to create a heap filter for it since the
+/// partial index already guarantees it.
+///
+/// This function uses PostgreSQL's `predicate_implied_by` to check if the index predicate
+/// implies each query clause. If so, that clause is filtered out.
+pub unsafe fn filter_implied_predicates(
+    index_predicate: *mut pg_sys::List,
+    restrict_info: &PgList<pg_sys::RestrictInfo>,
+) -> PgList<pg_sys::RestrictInfo> {
+    // If there's no partial index predicate, return the original list unchanged
+    if index_predicate.is_null() {
+        return PgList::from_pg(restrict_info.as_ptr());
+    }
+
+    // Build a new list with only the predicates that are NOT implied by the index predicate
+    let mut filtered_list: *mut pg_sys::List = std::ptr::null_mut();
+
+    for ri in restrict_info.iter_ptr() {
+        let clause = (*ri).clause;
+        let mut clause_list = TempPgList::new();
+        clause_list.push(clause as *mut std::ffi::c_void);
+
+        // Check if the index predicate implies this clause
+        // predicate_implied_by(A, B, false) returns true if B => A
+        let is_implied = pg_sys::predicate_implied_by(clause_list.as_ptr(), index_predicate, false);
+
+        if !is_implied {
+            filtered_list = pg_sys::lappend(filtered_list, ri as *mut std::ffi::c_void);
+        }
+    }
+
+    PgList::from_pg(filtered_list)
+}
+
 #[macro_export]
 macro_rules! debug1 {
     ($($arg:tt)*) => {{

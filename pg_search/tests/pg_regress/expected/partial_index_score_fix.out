@@ -31,8 +31,13 @@ SELECT id, description, category, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND category = 'Electronics'
 ORDER BY score DESC;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on partial_test
@@ -40,7 +45,11 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
+<<<<<<< HEAD
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (8 rows)
 
 SELECT id, description, category, pdb.score(id) as score
@@ -63,8 +72,13 @@ SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Sort
    Sort Key: (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on partial_test
@@ -72,7 +86,11 @@ ORDER BY score DESC;
          Index: partial_test_idx
          Exec Method: NormalScanExecState
          Scores: true
+<<<<<<< HEAD
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 4 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 525"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (8 rows)
 
 SELECT id, description, category, rating, pdb.score(id) as score
@@ -81,8 +99,8 @@ WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
  id | description  |  category   | rating |   score    
 ----+--------------+-------------+--------+------------
-  1 | Apple iPhone | Electronics |      5 | 0.94000727
-  4 | Apple Watch  | Electronics |      4 | 0.94000727
+  1 | Apple iPhone | Electronics |      5 | 0.47000363
+  4 | Apple Watch  | Electronics |      4 | 0.47000363
 (2 rows)
 
 -- ============================================================
@@ -95,8 +113,13 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Sort
    Sort Key: rating DESC
    ->  Custom Scan (ParadeDB Scan) on partial_test
@@ -105,7 +128,11 @@ ORDER BY rating DESC;
          Exec Method: NormalScanExecState
          Scores: false
          Full Index Scan: true
+<<<<<<< HEAD
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 4 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 525"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(rating >= 4)"}]}}]}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (9 rows)
 
 SELECT id, description, category, rating
@@ -146,8 +173,13 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Limit
    ->  Custom Scan (ParadeDB Scan) on test_partial_index
          Table: test_partial_index
@@ -156,7 +188,11 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopN Order By: rating asc
             TopN Limit: 20
+<<<<<<< HEAD
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (9 rows)
 
 SELECT description, rating, category
@@ -215,8 +251,13 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -227,7 +268,11 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
+<<<<<<< HEAD
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (11 rows)
 
 SELECT description, rating, category
@@ -251,8 +296,13 @@ SELECT description, category
 FROM paradedb.test_partial_index
 WHERE category = 'Electronics' AND test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
+<<<<<<< HEAD
                                                                                                                                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -263,7 +313,11 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
+<<<<<<< HEAD
                Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({RELABELTYPE :arg {VAR :varno 1 :varattno 4 :vartype 1043 :vartypmod 259 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+=======
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (11 rows)
 
 SELECT description, category
@@ -276,3 +330,48 @@ ORDER BY rating LIMIT 20;
 
 -- Cleanup
 DROP TABLE paradedb.test_partial_index CASCADE;
+-- ============================================================
+-- Test case for AGGREGATE scan with partial index
+-- This tests that the aggregate scan path also filters out
+-- predicates implied by the partial index predicate
+-- ============================================================
+CREATE TABLE profiles (
+    id BIGINT PRIMARY KEY,
+    headline TEXT,
+    deleted_at TIMESTAMPTZ
+);
+INSERT INTO profiles (id, headline, deleted_at) VALUES
+(1, 'Software Engineer', NULL),
+(2, 'Data Scientist', NULL),
+(3, 'Product Manager', NULL),
+(4, 'Deleted Profile', '2024-01-01 00:00:00'),
+(5, 'DevOps Engineer', NULL);
+-- Create partial index with WHERE deleted_at IS NULL
+CREATE INDEX profiles_search_idx ON profiles
+USING bm25 (id, headline)
+WITH (key_field = 'id')
+WHERE deleted_at IS NULL;
+-- Enable aggregate custom scan for this test
+SET paradedb.enable_aggregate_custom_scan = true;
+-- Test: COUNT(*) with partial index predicate should use Aggregate Scan
+-- and should NOT have heap_filter for deleted_at IS NULL
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.profiles
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: profiles_search_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"headline","query_string":"Engineer","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
+
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+ count 
+-------
+     2
+(1 row)
+
+-- Cleanup
+DROP TABLE profiles CASCADE;

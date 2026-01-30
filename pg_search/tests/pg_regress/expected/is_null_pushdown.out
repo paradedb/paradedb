@@ -109,15 +109,24 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
+<<<<<<< HEAD
                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+=======
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
  Custom Scan (ParadeDB Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25_partial
    Exec Method: NormalScanExecState
    Scores: false
+<<<<<<< HEAD
    Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}},"field_filters":[{"expr_node":"{NULLTEST :arg {VAR :varno 1 :varattno 3 :vartype 1114 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} :nulltesttype 0 :argisrow false :location -1}","description":"NULL test: field_3 IS NULL"}]}}]}}
+=======
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}}
+>>>>>>> 0e5d3100 (fix: redundant heap filters for partial index predicates (#4027))
 (7 rows)
 
 SELECT COUNT(*) FROM products 

@@ -160,3 +160,42 @@ ORDER BY rating LIMIT 20;
 
 -- Cleanup
 DROP TABLE paradedb.test_partial_index CASCADE;
+
+
+-- ============================================================
+-- Test case for AGGREGATE scan with partial index
+-- This tests that the aggregate scan path also filters out
+-- predicates implied by the partial index predicate
+-- ============================================================
+
+CREATE TABLE profiles (
+    id BIGINT PRIMARY KEY,
+    headline TEXT,
+    deleted_at TIMESTAMPTZ
+);
+
+INSERT INTO profiles (id, headline, deleted_at) VALUES
+(1, 'Software Engineer', NULL),
+(2, 'Data Scientist', NULL),
+(3, 'Product Manager', NULL),
+(4, 'Deleted Profile', '2024-01-01 00:00:00'),
+(5, 'DevOps Engineer', NULL);
+
+-- Create partial index with WHERE deleted_at IS NULL
+CREATE INDEX profiles_search_idx ON profiles
+USING bm25 (id, headline)
+WITH (key_field = 'id')
+WHERE deleted_at IS NULL;
+
+-- Enable aggregate custom scan for this test
+SET paradedb.enable_aggregate_custom_scan = true;
+
+-- Test: COUNT(*) with partial index predicate should use Aggregate Scan
+-- and should NOT have heap_filter for deleted_at IS NULL
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+
+-- Cleanup
+DROP TABLE profiles CASCADE;

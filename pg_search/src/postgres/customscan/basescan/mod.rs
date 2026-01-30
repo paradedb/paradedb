@@ -73,6 +73,7 @@ use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::filter_implied_predicates;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -203,10 +204,17 @@ impl BaseScan {
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
+
+        // Filter out predicates that are implied by the partial index predicate.
+        // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
+        // also has predicate P, we don't need to create a heap filter for P since the
+        // partial index already guarantees it.
+        let filtered_restrict_info = filter_implied_predicates(indexrel.rd_indpred, &restrict_info);
+
         let mut quals = extract_quals(
             &context,
             rti,
-            restrict_info.as_ptr().cast(),
+            filtered_restrict_info.as_ptr().cast(),
             anyelement_query_input_opoid(),
             ri_type,
             indexrel,

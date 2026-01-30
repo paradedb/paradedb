@@ -29,6 +29,7 @@ use std::str::FromStr;
 
 use super::value_to_term;
 use crate::api::FieldName;
+use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
 use crate::schema::SearchField;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
@@ -54,14 +55,6 @@ pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
         _ => None,
     }
 }
-
-// ============================================================================
-// Numeric64 (I64 Fixed-Point) Conversions
-// ============================================================================
-
-// Re-export scale_owned_value from the centralized descale module.
-// This provides the symmetric counterpart to descale_owned_value.
-pub use crate::postgres::customscan::aggregatescan::descale::scale_owned_value;
 
 // ============================================================================
 // NumericBytes Conversions

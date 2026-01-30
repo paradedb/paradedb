@@ -409,7 +409,7 @@ unsafe fn convert_window_func_to_aggregate_type(
         missing,
         filter,
         pg_sys::InvalidOid, // Will be filled in during planning
-        None,               // numeric_scale: window aggregates don't support Numeric64 yet
+        None,               // numeric_scale: filled in by resolve_window_aggregate_numeric_scales
     )?;
     Some(agg_type)
 }
@@ -568,17 +568,24 @@ unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_s
 /// looks up their scales in the schema. This is necessary for descaling Numeric64 fields
 /// in aggregate results.
 ///
+/// For standard aggregates (SUM, AVG, etc.), checks if the field is Numeric64 and sets
+/// the scale.
+///
+/// Returns `Err` with field name if any aggregate uses NumericBytes (unbounded NUMERIC),
+/// which cannot be aggregated by the search index.
+///
 /// This is called at plan_custom_path time when we have access to the schema.
 pub fn resolve_window_aggregate_numeric_scales(
     window_aggregates: &mut [WindowAggregateInfo],
     bm25_index: &PgSearchRelation,
-) {
+) -> Result<(), String> {
     use crate::postgres::customscan::aggregatescan::descale::build_numeric_field_scales;
     use crate::postgres::customscan::aggregatescan::extract_agg_name_to_field;
+    use crate::schema::SearchFieldType;
 
     let schema = match bm25_index.schema() {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
 
     for window_agg in window_aggregates.iter_mut() {
@@ -613,12 +620,17 @@ pub fn resolve_window_aggregate_numeric_scales(
                     numeric_scale,
                     ..
                 } => {
-                    // For standard aggregates, check if the field is Numeric64 and set scale
-                    if let Some(search_field) = schema.search_field(field) {
-                        if let crate::schema::SearchFieldType::Numeric64(_, scale) =
-                            search_field.field_type()
-                        {
-                            *numeric_scale = Some(scale);
+                    // Check field type
+                    if let Some(search_field) = schema.search_field(field.as_str()) {
+                        match search_field.field_type() {
+                            SearchFieldType::NumericBytes(_) => {
+                                // NumericBytes cannot be aggregated - reject the plan
+                                return Err(field.clone());
+                            }
+                            SearchFieldType::Numeric64(_, scale) => {
+                                *numeric_scale = Some(scale);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -626,6 +638,7 @@ pub fn resolve_window_aggregate_numeric_scales(
             }
         }
     }
+    Ok(())
 }
 
 /// Resolve window aggregate FILTER clauses at custom plan creation time

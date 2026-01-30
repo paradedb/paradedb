@@ -1743,3 +1743,130 @@ WHERE id @@@ paradedb.range('val', '[-1, 1]'::numrange)
 ORDER BY id;
 
 DROP TABLE empty_range_test;
+
+-- ============================================================================
+-- PART 8: Window Aggregate Tests for NUMERIC columns (TopN queries)
+-- ============================================================================
+-- Tests that window aggregates work correctly with Numeric64 fields
+-- and are properly rejected for NumericBytes fields.
+-- NOTE: Window aggregate pushdown only occurs for TopN queries (ORDER BY + LIMIT)
+
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on Numeric64 fields in TopN query (should work)
+-- ----------------------------------------------------------------------------
+-- NUMERIC(10,2) has precision 10, which is <= 18, so uses Numeric64 storage
+
+CREATE TABLE window_agg_numeric64_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    price NUMERIC(10, 2)
+);
+
+INSERT INTO window_agg_numeric64_test (category, price) VALUES
+    ('electronics', 100.50),
+    ('electronics', 200.75),
+    ('electronics', 150.25),
+    ('clothing', 50.00),
+    ('clothing', 75.50),
+    ('books', 25.99);
+
+CREATE INDEX window_agg_numeric64_idx ON window_agg_numeric64_test USING bm25 (
+    id, category, price
+) WITH (key_field = 'id');
+
+-- Window aggregate SUM on Numeric64 field in TopN query - should be pushed down
+-- Note: Must have ORDER BY and LIMIT for window aggregate pushdown
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, category, price,
+       SUM(price) OVER () as total_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+SELECT id, category, price,
+       SUM(price) OVER () as total_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+-- Window aggregate AVG on Numeric64 field in TopN query
+SELECT id, category, price,
+       AVG(price) OVER () as avg_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+-- Window aggregate MIN/MAX on Numeric64 field in TopN query
+SELECT id, category, price,
+       MIN(price) OVER () as min_price,
+       MAX(price) OVER () as max_price
+FROM window_agg_numeric64_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+DROP TABLE window_agg_numeric64_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
+-- ----------------------------------------------------------------------------
+-- Unbounded NUMERIC uses NumericBytes storage which cannot be aggregated
+
+CREATE TABLE window_agg_numericbytes_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    amount NUMERIC  -- unbounded NUMERIC -> NumericBytes storage
+);
+
+INSERT INTO window_agg_numericbytes_test (category, amount) VALUES
+    ('a', 100.50),
+    ('a', 200.75),
+    ('b', 50.00);
+
+CREATE INDEX window_agg_numericbytes_idx ON window_agg_numericbytes_test USING bm25 (
+    id, category, amount
+) WITH (key_field = 'id');
+
+-- Window aggregate on NumericBytes field in TopN query should error
+-- This query should fail with an error about NumericBytes not being aggregatable
+SELECT id, category, amount,
+        SUM(amount) OVER () as total
+FROM window_agg_numericbytes_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+DROP TABLE window_agg_numericbytes_test;
+
+-- ----------------------------------------------------------------------------
+-- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
+-- ----------------------------------------------------------------------------
+-- NUMERIC(30,10) has precision > 18, so uses NumericBytes storage
+
+CREATE TABLE window_agg_highprec_test (
+    id SERIAL PRIMARY KEY,
+    category TEXT,
+    value NUMERIC(30, 10)  -- precision > 18 -> NumericBytes storage
+);
+
+INSERT INTO window_agg_highprec_test (category, value) VALUES
+    ('x', 12345678901234567890.1234567890),
+    ('x', 98765432109876543210.9876543210),
+    ('y', 11111111111111111111.1111111111);
+
+CREATE INDEX window_agg_highprec_idx ON window_agg_highprec_test USING bm25 (
+    id, category, value
+) WITH (key_field = 'id');
+
+-- Window aggregate on high-precision NUMERIC in TopN query should error
+SELECT id, category, value,
+        AVG(value) OVER () as avg_val
+FROM window_agg_highprec_test
+WHERE id @@@ paradedb.all()
+ORDER BY id
+LIMIT 10;
+
+DROP TABLE window_agg_highprec_test;

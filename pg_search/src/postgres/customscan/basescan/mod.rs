@@ -804,10 +804,19 @@ impl CustomScan for BaseScan {
                         );
 
                         // Resolve numeric field scales for Numeric64 fields in window aggregates
-                        resolve_window_aggregate_numeric_scales(
+                        // Returns Err if any aggregate uses NumericBytes (unbounded NUMERIC)
+                        if let Err(field) = resolve_window_aggregate_numeric_scales(
                             &mut window_aggregates,
                             &bm25_index,
-                        );
+                        ) {
+                            panic!(
+                                "Window aggregate on field '{}' cannot be pushed down: \
+                                 NUMERIC columns without precision (or precision > 18) use byte storage \
+                                 which cannot be aggregated by the search index. \
+                                 Consider using NUMERIC(p,s) where p <= 18.",
+                                field
+                            );
+                        }
 
                         // Validate that all fields in window aggregates exist in the index schema
                         if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {

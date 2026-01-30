@@ -46,6 +46,9 @@ use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
 /// which is necessary for DataFusion operators like `SortPreservingMergeExec`
 /// that may buffer data across partitions.
 fn poll_next_sync<S: Stream + Unpin>(stream: &mut S) -> Option<S::Item> {
+    // Check for query cancellation before blocking
+    pgrx::check_for_interrupts!();
+
     // Use futures::executor::block_on to properly drive the stream.
     // This handles Poll::Pending correctly by spinning until the stream is ready.
     futures::executor::block_on(stream.next())
@@ -383,8 +386,6 @@ impl MixedFastFieldExecState {
         }
         self.inner.did_query = true;
 
-        pgrx::log!("SORTED STREAM: create_sorted_stream() called - using lazy segment checkout");
-
         let sort_order = self.sort_order.as_ref()?;
 
         let heaprel = self
@@ -428,12 +429,6 @@ impl MixedFastFieldExecState {
         // Create factory that checks out segment on demand (lazy checkout)
         // Uses make_checkout_factory to safely wrap the closure (which captures non-Send/Sync types)
         let checkout_factory = make_checkout_factory(move |partition: usize| {
-            pgrx::log!(
-                "LAZY CHECKOUT: partition {} of {} (segment_id: {:?})",
-                partition,
-                segment_ids.len(),
-                segment_ids[partition]
-            );
             let segment_id = segment_ids[partition];
             let results = search_reader.search_segments([segment_id].into_iter());
             let scanner = Scanner::new(results, batch_size, which_fast_fields.clone(), table_oid);

@@ -11,10 +11,6 @@ SET max_parallel_workers_per_gather = 0;
 -- Enable mixed fast field exec to use our lazy checkout code
 SET paradedb.enable_mixed_fast_field_exec = true;
 
--- Note: Debug logging is enabled in the code (SORTED STREAM, LAZY CHECKOUT messages)
--- but we don't capture it in test output for reproducibility
--- Check postgres logs to verify lazy checkout behavior
-
 -- Load the pg_search extension
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -115,7 +111,6 @@ WHERE content @@@ 'document'
 ORDER BY priority DESC NULLS LAST;
 
 -- Query with ORDER BY - triggers sorted path with lazy checkout for each segment
--- Check postgres logs for "SORTED STREAM" and "LAZY CHECKOUT" messages
 SELECT id, priority FROM lazy_checkout_test
 WHERE content @@@ 'document'
 ORDER BY priority DESC NULLS LAST

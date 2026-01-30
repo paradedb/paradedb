@@ -2026,8 +2026,6 @@ unsafe fn find_sort_by_pathkey(
     sort_by: &SortByField,
     table: &PgSearchRelation,
 ) -> Option<OrderByStyle> {
-    use crate::postgres::options::SortByDirection;
-
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
         return None;
@@ -2044,111 +2042,88 @@ unsafe fn find_sort_by_pathkey(
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            // Check if this is a Var (column reference) for our relation
-            if let Some(var) = nodecast!(Var, T_Var, expr) {
-                if (*var).varno as pg_sys::Index != rti {
-                    continue;
+            // Try to extract a Var from the expression (either directly or wrapped in RelabelType)
+            let var = if let Some(var) = nodecast!(Var, T_Var, expr) {
+                var
+            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+                // RelabelType wraps a Var for type coercions
+                match nodecast!(Var, T_Var, (*relabel).arg) {
+                    Some(var) => var,
+                    None => continue,
                 }
+            } else {
+                continue;
+            };
 
-                // Get the column name from the tuple descriptor
-                let tupdesc = table.tuple_desc();
-                let attno = (*var).varattno;
-                if attno <= 0 || attno as usize > tupdesc.len() {
-                    continue;
-                }
-
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    let col_name = att.name();
-                    if col_name == sort_field_name {
-                        // Check if the sort direction matches
-                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                        let is_desc = match (*pathkey).pk_strategy as u32 {
-                            pg_sys::BTLessStrategyNumber => false,
-                            pg_sys::BTGreaterStrategyNumber => true,
-                            _ => continue, // Unknown strategy
-                        };
-                        #[cfg(feature = "pg18")]
-                        let is_desc = match (*pathkey).pk_cmptype {
-                            pg_sys::CompareType::COMPARE_LT => false,
-                            pg_sys::CompareType::COMPARE_GT => true,
-                            _ => continue,
-                        };
-
-                        let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
-
-                        // Check NULLS ordering
-                        // Our index sort_by uses: ASC NULLS FIRST or DESC NULLS LAST
-                        // (these are the only valid combinations enforced at index creation)
-                        let pathkey_nulls_first = (*pathkey).pk_nulls_first;
-                        // For our index: ASC means NULLS FIRST, DESC means NULLS LAST
-                        let sort_by_nulls_first = !sort_by_is_desc;
-
-                        if is_desc == sort_by_is_desc && pathkey_nulls_first == sort_by_nulls_first
-                        {
-                            // TODO: Check ec_collation for text fields. Tantivy uses byte ordering
-                            // (like C/POSIX collation). If the query uses a different collation,
-                            // we should not match because sort order would differ.
-
-                            // Found a matching pathkey!
-                            return Some(OrderByStyle::Field(pathkey, sort_field_name.into()));
-                        }
-                    }
-                }
-            }
-
-            // Also check for RelabelType wrapping a Var (common for type coercions)
-            if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    if (*var).varno as pg_sys::Index != rti {
-                        continue;
-                    }
-
-                    let tupdesc = table.tuple_desc();
-                    let attno = (*var).varattno;
-                    if attno <= 0 || attno as usize > tupdesc.len() {
-                        continue;
-                    }
-
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        let col_name = att.name();
-                        if col_name == sort_field_name {
-                            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                            let is_desc = match (*pathkey).pk_strategy as u32 {
-                                pg_sys::BTLessStrategyNumber => false,
-                                pg_sys::BTGreaterStrategyNumber => true,
-                                _ => continue,
-                            };
-                            #[cfg(feature = "pg18")]
-                            let is_desc = match (*pathkey).pk_cmptype {
-                                pg_sys::CompareType::COMPARE_LT => false,
-                                pg_sys::CompareType::COMPARE_GT => true,
-                                _ => continue,
-                            };
-
-                            let sort_by_is_desc =
-                                matches!(sort_by.direction, SortByDirection::Desc);
-
-                            // Check NULLS ordering
-                            let pathkey_nulls_first = (*pathkey).pk_nulls_first;
-                            let sort_by_nulls_first = !sort_by_is_desc;
-
-                            if is_desc == sort_by_is_desc
-                                && pathkey_nulls_first == sort_by_nulls_first
-                            {
-                                // TODO: Check ec_collation for text fields. Tantivy uses byte ordering
-                                // (like C/POSIX collation). If the query uses a different collation,
-                                // we should not match because sort order would differ.
-
-                                return Some(OrderByStyle::Field(pathkey, sort_field_name.into()));
-                            }
-                        }
-                    }
-                }
+            // Check if this Var matches our sort_by field
+            if let Some(style) =
+                check_var_matches_sort_by(var, rti, pathkey, sort_by, sort_field_name, table)
+            {
+                return Some(style);
             }
         }
     }
 
     None
+}
+
+/// Check if a Var matches the sort_by field and return an OrderByStyle if it does.
+///
+/// This helper extracts the common logic for checking whether a column reference (Var)
+/// matches the index's sort_by configuration, including direction and NULLS ordering.
+unsafe fn check_var_matches_sort_by(
+    var: *mut pg_sys::Var,
+    rti: pg_sys::Index,
+    pathkey: *mut pg_sys::PathKey,
+    sort_by: &SortByField,
+    sort_field_name: &str,
+    table: &PgSearchRelation,
+) -> Option<OrderByStyle> {
+    use crate::postgres::options::SortByDirection;
+
+    // Check if this Var is for our relation
+    if (*var).varno as pg_sys::Index != rti {
+        return None;
+    }
+
+    // Get the column name from the tuple descriptor
+    let tupdesc = table.tuple_desc();
+    let attno = (*var).varattno;
+    if attno <= 0 || attno as usize > tupdesc.len() {
+        return None;
+    }
+
+    let att = tupdesc.get(attno as usize - 1)?;
+    let col_name = att.name();
+    if col_name != sort_field_name {
+        return None;
+    }
+
+    // Check if the sort direction matches
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    let is_desc = match (*pathkey).pk_strategy as u32 {
+        pg_sys::BTLessStrategyNumber => false,
+        pg_sys::BTGreaterStrategyNumber => true,
+        _ => return None, // Unknown strategy
+    };
+    #[cfg(feature = "pg18")]
+    let is_desc = match (*pathkey).pk_cmptype {
+        pg_sys::CompareType::COMPARE_LT => false,
+        pg_sys::CompareType::COMPARE_GT => true,
+        _ => return None,
+    };
+
+    let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
+    // Our index: ASC uses NULLS FIRST, DESC uses NULLS LAST
+    let sort_by_nulls_first = !sort_by_is_desc;
+
+    // Direction and NULLS ordering must both match
+    // TODO: Also check ec_collation for text fields (Tantivy uses byte/C ordering)
+    if is_desc != sort_by_is_desc || (*pathkey).pk_nulls_first != sort_by_nulls_first {
+        return None;
+    }
+
+    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

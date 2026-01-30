@@ -73,7 +73,7 @@ LIMIT 5;
 If a text field is present in the `ORDER BY` clause, it must be indexed with the [literal](/documentation/tokenizers/available-tokenizers/literal) or
 [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer.
 
-Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field)` must be indexed
+Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
 with either the literal or literal normalized tokenizer. See [indexing expressions](/documentation/indexing/indexing-expressions) for more information.
 
 ```sql

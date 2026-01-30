@@ -417,7 +417,7 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
             }
 
             // Recurse into all values
-            for (_key, value) in map {
+            for value in map.values() {
                 extract_fields_from_agg_json(value, fields);
             }
         }

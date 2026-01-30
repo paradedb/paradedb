@@ -277,9 +277,9 @@ ORDER BY rating LIMIT 20;
 -- Cleanup
 DROP TABLE paradedb.test_partial_index CASCADE;
 -- ============================================================
--- Test case for partial index with IS NULL predicate
--- This tests the original bug report where deleted_at IS NULL
--- in a partial index was still generating a heap filter
+-- Test case for AGGREGATE scan with partial index
+-- This tests that the aggregate scan path also filters out
+-- predicates implied by the partial index predicate
 -- ============================================================
 CREATE TABLE profiles (
     id BIGINT PRIMARY KEY,
@@ -297,34 +297,27 @@ CREATE INDEX profiles_search_idx ON profiles
 USING bm25 (id, headline)
 WITH (key_field = 'id')
 WHERE deleted_at IS NULL;
--- Test: Query with deleted_at IS NULL should NOT have heap_filter for this predicate
--- The partial index already guarantees deleted_at IS NULL, so no heap filter needed
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, headline, pdb.score(id) as score
-FROM profiles
-WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
-ORDER BY score DESC;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: (pdb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on profiles
-         Table: profiles
-         Index: profiles_search_idx
-         Exec Method: NormalScanExecState
-         Scores: true
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"headline","query_string":"Engineer","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+-- Enable aggregate custom scan for this test
+SET paradedb.enable_aggregate_custom_scan = true;
+-- Test: COUNT(*) with partial index predicate should use Aggregate Scan
+-- and should NOT have heap_filter for deleted_at IS NULL
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.profiles
+   Output: pdb.agg_fn('COUNT(*)'::text)
+   Index: profiles_search_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"headline","query_string":"Engineer","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(6 rows)
 
-SELECT id, headline, pdb.score(id) as score
-FROM profiles
-WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
-ORDER BY score DESC;
- id |     headline      |   score   
-----+-------------------+-----------
-  1 | Software Engineer | 0.6931472
-  5 | DevOps Engineer   | 0.6931472
-(2 rows)
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+ count 
+-------
+     2
+(1 row)
 
 -- Cleanup
 DROP TABLE profiles CASCADE;

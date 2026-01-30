@@ -161,10 +161,11 @@ ORDER BY rating LIMIT 20;
 -- Cleanup
 DROP TABLE paradedb.test_partial_index CASCADE;
 
+
 -- ============================================================
--- Test case for partial index with IS NULL predicate
--- This tests the original bug report where deleted_at IS NULL
--- in a partial index was still generating a heap filter
+-- Test case for AGGREGATE scan with partial index
+-- This tests that the aggregate scan path also filters out
+-- predicates implied by the partial index predicate
 -- ============================================================
 
 CREATE TABLE profiles (
@@ -186,18 +187,15 @@ USING bm25 (id, headline)
 WITH (key_field = 'id')
 WHERE deleted_at IS NULL;
 
--- Test: Query with deleted_at IS NULL should NOT have heap_filter for this predicate
--- The partial index already guarantees deleted_at IS NULL, so no heap filter needed
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, headline, pdb.score(id) as score
-FROM profiles
-WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
-ORDER BY score DESC;
+-- Enable aggregate custom scan for this test
+SET paradedb.enable_aggregate_custom_scan = true;
 
-SELECT id, headline, pdb.score(id) as score
-FROM profiles
-WHERE headline @@@ 'Engineer' AND deleted_at IS NULL
-ORDER BY score DESC;
+-- Test: COUNT(*) with partial index predicate should use Aggregate Scan
+-- and should NOT have heap_filter for deleted_at IS NULL
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
+
+SELECT COUNT(*) FROM profiles WHERE headline @@@ 'Engineer' AND deleted_at IS NULL;
 
 -- Cleanup
 DROP TABLE profiles CASCADE;

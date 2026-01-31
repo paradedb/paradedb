@@ -169,7 +169,7 @@ impl From<MetricResult> for AggregateResult {
 ///
 /// # Arguments
 /// * `agg_result` - The aggregate result to convert (Metric or Json)
-/// * `agg_type` - The aggregate type (for nullish fallback and numeric_scale)
+/// * `agg_type` - The aggregate type (for nullish fallback)
 /// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
 pub fn aggregate_result_to_datum(
     agg_result: Option<AggregateResult>,
@@ -177,10 +177,16 @@ pub fn aggregate_result_to_datum(
     expected_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     match agg_result {
-        Some(AggregateResult::Json(json_value)) => JsonB(json_value).into_datum(),
+        Some(AggregateResult::Json(json_value)) => {
+            // Custom aggregate - return as JSONB
+            JsonB(json_value).into_datum()
+        }
         Some(AggregateResult::Metric(metric)) => {
+            // Standard metric - convert f64 to appropriate type
+            // If expected type is JSONB (for pdb.agg() custom aggregates),
+            // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
-                // JSONB output - serialize metric to JSON
+                // Serialize the SingleMetricResult to JSON
                 let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
@@ -197,7 +203,6 @@ pub fn aggregate_result_to_datum(
                         .unwrap()
                 })
             } else {
-                // Scalar output - convert to expected type
                 metric.value.and_then(|value| unsafe {
                     TantivyValue(OwnedValue::F64(value))
                         .try_into_datum(expected_typoid.into())

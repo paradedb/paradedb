@@ -324,6 +324,9 @@ pub struct PgGucs {
     pub seqscan: bool,
     pub indexscan: bool,
     pub parallel_workers: bool,
+    /// Enable mixed fast field execution (MixedFastFieldExecState).
+    /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
+    pub mixed_fast_field_exec: bool,
 }
 
 impl Default for PgGucs {
@@ -337,6 +340,7 @@ impl Default for PgGucs {
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
+            mixed_fast_field_exec: false,
         }
     }
 }
@@ -352,6 +356,7 @@ impl PgGucs {
             seqscan,
             indexscan,
             parallel_workers,
+            mixed_fast_field_exec,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -382,6 +387,11 @@ impl PgGucs {
         writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
         writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_exec TO {mixed_fast_field_exec};"
+        )
+        .unwrap();
         gucs
     }
 }

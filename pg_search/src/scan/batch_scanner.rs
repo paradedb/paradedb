@@ -24,12 +24,12 @@ use arrow_array::builder::{
 };
 use arrow_array::{ArrayRef, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, SegmentOrdinal};
 
-use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField};
+use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
@@ -136,34 +136,7 @@ impl Scanner {
     /// Returns the Arrow schema for this scanner.
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {
-        let fields: Vec<Field> = self
-            .which_fast_fields
-            .iter()
-            .map(|wff| {
-                let data_type = match wff {
-                    WhichFastField::Ctid => DataType::UInt64,
-                    WhichFastField::TableOid => DataType::UInt32,
-                    WhichFastField::Score => DataType::Float32,
-                    WhichFastField::Named(_, ff_type) => match ff_type {
-                        crate::index::fast_fields_helper::FastFieldType::String => {
-                            DataType::Utf8View
-                        }
-                        crate::index::fast_fields_helper::FastFieldType::Int64 => DataType::Int64,
-                        crate::index::fast_fields_helper::FastFieldType::UInt64 => DataType::UInt64,
-                        crate::index::fast_fields_helper::FastFieldType::Float64 => {
-                            DataType::Float64
-                        }
-                        crate::index::fast_fields_helper::FastFieldType::Bool => DataType::Boolean,
-                        crate::index::fast_fields_helper::FastFieldType::Date => {
-                            DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
-                        }
-                    },
-                    WhichFastField::Junk(_) => DataType::Null,
-                };
-                Field::new(wff.name(), data_type, true)
-            })
-            .collect();
-        Arc::new(Schema::new(fields))
+        build_arrow_schema(&self.which_fast_fields)
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {

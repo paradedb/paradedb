@@ -40,7 +40,8 @@ use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
-pub struct UnsafeSendSync<T>(pub T);
+/// This is safe in pg_search because Postgres extensions run single-threaded.
+pub(crate) struct UnsafeSendSync<T>(pub T);
 
 unsafe impl<T> Send for UnsafeSendSync<T> {}
 unsafe impl<T> Sync for UnsafeSendSync<T> {}
@@ -54,7 +55,7 @@ pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
 ///
 /// Wrapped in UnsafeSendSync because the factory may capture Postgres state that is not
 /// Send/Sync (like VisibilityChecker), but pg_search operates in a single-threaded context.
-pub type CheckoutFactory = UnsafeSendSync<Arc<dyn Fn(usize) -> ScanState>>;
+pub(crate) type CheckoutFactory = UnsafeSendSync<Arc<dyn Fn(usize) -> ScanState>>;
 
 /// Creates a CheckoutFactory from a closure.
 ///
@@ -321,7 +322,7 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
 }
 
 // ============================================================================
-// Multi-partition SegmentScanPlan for sorted segment scanning
+// Multi-partition MultiSegmentPlan for sorted segment scanning
 // ============================================================================
 
 /// A DataFusion `ExecutionPlan` that scans multiple segments in parallel partitions.
@@ -334,7 +335,7 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
 /// is called, rather than upfront at plan creation time. This defers memory allocation
 /// until the partition is actually executed.
 #[allow(dead_code)]
-pub struct SegmentScanPlan {
+pub struct MultiSegmentPlan {
     /// Number of segments/partitions.
     segment_count: usize,
     /// Factory function that creates a ScanState for a given partition on demand.
@@ -344,16 +345,16 @@ pub struct SegmentScanPlan {
     properties: PlanProperties,
 }
 
-impl std::fmt::Debug for SegmentScanPlan {
+impl std::fmt::Debug for MultiSegmentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SegmentScanPlan")
+        f.debug_struct("MultiSegmentPlan")
             .field("properties", &self.properties)
             .finish()
     }
 }
 
-impl SegmentScanPlan {
-    /// Creates a new SegmentScanPlan with lazy segment checkout.
+impl MultiSegmentPlan {
+    /// Creates a new MultiSegmentPlan with lazy segment checkout.
     ///
     /// Instead of building all segment states upfront, this constructor accepts
     /// a factory function that creates states on-demand when `execute()` is called.
@@ -390,13 +391,13 @@ impl SegmentScanPlan {
     }
 }
 
-impl DisplayAs for SegmentScanPlan {
+impl DisplayAs for MultiSegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "PgSearchSegmentScan(segments={})", self.segment_count)
     }
 }
 
-impl ExecutionPlan for SegmentScanPlan {
+impl ExecutionPlan for MultiSegmentPlan {
     fn name(&self) -> &str {
         "PgSearchSegmentScan"
     }
@@ -433,7 +434,7 @@ impl ExecutionPlan for SegmentScanPlan {
         }
 
         let mut checked_out = self.checked_out.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock SegmentScanPlan state: {e}"))
+            DataFusionError::Internal(format!("Failed to lock MultiSegmentPlan state: {e}"))
         })?;
 
         if checked_out[partition] {
@@ -470,7 +471,7 @@ impl ExecutionPlan for SegmentScanPlan {
 /// Uses lazy segment checkout - segments are checked out on-demand when `execute()` is
 /// called, rather than upfront at plan creation time.
 ///
-/// When there is only one segment, returns the `SegmentScanPlan` directly without
+/// When there is only one segment, returns the `MultiSegmentPlan` directly without
 /// the merge layer (no merging needed for a single partition).
 ///
 /// Returns `None` if the sort field is not present in the schema (e.g., the sort column
@@ -501,7 +502,7 @@ pub fn create_sorted_scan(
         }
     };
 
-    let segment_scan = Arc::new(SegmentScanPlan::new(
+    let segment_scan = Arc::new(MultiSegmentPlan::new(
         segment_count,
         checkout_factory,
         schema.clone(),

@@ -804,14 +804,11 @@ impl CustomScan for BaseScan {
                 pklist.push(pathkey_style.pathkey());
                 sorted_path.path.pathkeys = pklist.into_pg();
 
-                // Disable parallel execution for the sorted path.
-                // The sorted path uses SortPreservingMergeExec which merges ALL segments internally.
-                // If parallel workers were enabled, each worker would scan all segments and
-                // Gather Merge would emit duplicates. Until we add checkout_segment coordination
-                // to create_sorted_stream(), we must disable parallelism for correctness.
-                sorted_path.path.parallel_aware = false;
-                sorted_path.path.parallel_safe = false;
-                sorted_path.path.parallel_workers = 0;
+                // Parallel execution is enabled for the sorted path.
+                // Each parallel worker uses checkout_segment() to claim a subset of segments,
+                // then creates a SortPreservingMergeExec for just those segments.
+                // PostgreSQL's Gather Merge combines the sorted outputs from all workers.
+                // The sorted path inherits parallel settings from the unsorted path (already set above).
 
                 // Copy to Postgres memory and add the sorted path
                 let sorted_path_ptr: *mut pg_sys::CustomPath =
@@ -1704,14 +1701,31 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,
-            sorted: _, // Ignore: computed before use_sorted_path was set
+            sorted,
             sort_order,
         } => {
-            // Compute sorted at execution time from PrivateData's use_sorted_path().
+            // Compute strategy at execution time from PrivateData's use_sorted_path().
             // The exec_method_type's sorted field is computed during choose_exec_method
             // which runs BEFORE we set use_sorted_path for the sorted/unsorted paths,
             // so it's always false. The correct value comes from use_sorted_path().
-            let sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
+            use exec_methods::fast_fields::mixed::ScanStrategy;
+            let runtime_sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
+
+            // Safety check: ensure we don't drop sorted output when we claimed it at planning time.
+            // This catches bugs where the planner was told output would be sorted but execution
+            // cannot provide it.
+            if sorted && !runtime_sorted {
+                panic!(
+                    "BUG: Claimed sorted output at planning time, but unable to provide it at \
+                    execution time. This indicates a planner/executor mismatch."
+                );
+            }
+
+            let strategy = if runtime_sorted {
+                ScanStrategy::Sorted(sort_order.unwrap())
+            } else {
+                ScanStrategy::Unsorted
+            };
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
@@ -1719,8 +1733,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
                         limit,
-                        sorted,
-                        sort_order,
+                        strategy,
                     ),
                     None,
                 )
@@ -2114,11 +2127,18 @@ unsafe fn check_var_matches_sort_by(
     };
 
     let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
-    // Our index: ASC uses NULLS FIRST, DESC uses NULLS LAST
+    // Tantivy's sort behavior is fixed:
+    //   - ASC: nulls sort first (smallest values)
+    //   - DESC: nulls sort last (after largest values)
+    // We cannot support other NULLS orderings (e.g., ASC NULLS LAST) because
+    // Tantivy physically sorts documents this way at index time.
     let sort_by_nulls_first = !sort_by_is_desc;
 
-    // Direction and NULLS ordering must both match
-    // TODO: Also check ec_collation for text fields (Tantivy uses byte/C ordering)
+    // Direction and NULLS ordering must both match for sorted path to apply.
+    // If query requests incompatible NULLS ordering, we return None and
+    // PostgreSQL will add a Sort node to achieve the requested ordering.
+    // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
+    // For text fields with non-C collation, sorted path may produce incorrect order.
     if is_desc != sort_by_is_desc || (*pathkey).pk_nulls_first != sort_by_nulls_first {
         return None;
     }

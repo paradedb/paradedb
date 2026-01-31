@@ -27,6 +27,7 @@ use crate::postgres::customscan::opexpr::{unwrap_expr, unwrap_var};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
+use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
@@ -45,8 +46,6 @@ use tantivy::aggregation::metric::{
     SumAggregation,
 };
 use tantivy::schema::OwnedValue;
-
-use crate::postgres::PgSearchRelation;
 
 /// Check if aggregate pushdown is supported for a field.
 ///
@@ -209,18 +208,8 @@ impl AggregateType {
             // Check if any fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
             let agg_name_to_field = extract_agg_name_to_field(&json_value);
-            if let Ok(schema) = bm25_index.schema() {
-                for field_name in agg_name_to_field.values() {
-                    if let Some(search_field) = schema.search_field(field_name) {
-                        if search_field.field_type().is_numeric() {
-                            pgrx::debug1!(
-                                "Custom aggregate on NUMERIC field '{}' cannot be pushed down",
-                                field_name
-                            );
-                            return None;
-                        }
-                    }
-                }
+            for field_name in agg_name_to_field.values() {
+                check_field_supports_aggregate(bm25_index, field_name)?;
             }
 
             return Some(AggregateType::Custom {

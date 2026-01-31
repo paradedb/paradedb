@@ -808,3 +808,147 @@ mod plan {
         npages as usize * pg_sys::BLCKSZ as usize
     }
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+
+    fn setup_parallel_build_large_table() {
+        Spi::run(
+            r#"
+            DROP TABLE IF EXISTS parallel_build_large;
+            CREATE TABLE parallel_build_large (
+                id SERIAL PRIMARY KEY,
+                name TEXT
+            );
+            INSERT INTO parallel_build_large (name)
+            SELECT 'lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
+            FROM generate_series(1, 35000);
+            "#,
+        )
+        .expect("failed to setup parallel_build_large table");
+    }
+
+    fn cleanup_parallel_build_large_table() {
+        Spi::run("DROP TABLE IF EXISTS parallel_build_large;")
+            .expect("failed to cleanup parallel_build_large table");
+    }
+
+    /// Tests that parallel index building fails with insufficient memory.
+    ///
+    /// This test is marked `#[ignore]` because it creates 35,000 rows and takes
+    /// a long time to run. Run it explicitly with:
+    /// `cargo pgrx test -- --ignored test_parallel_build_large_insufficient_memory`
+    #[pg_test]
+    #[ignore]
+    fn test_parallel_build_large_insufficient_memory() {
+        setup_parallel_build_large_table();
+
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+        Spi::run("SET maintenance_work_mem = '64MB';").unwrap();
+        Spi::run("SET max_parallel_maintenance_workers = 8;").unwrap();
+
+        let result = Spi::run(
+            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = 16);",
+        );
+
+        // This should fail with a "not enough memory" error
+        assert!(
+            result.is_err(),
+            "Expected CREATE INDEX to fail with insufficient memory"
+        );
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(
+            err_msg.contains("memory") || err_msg.contains("Memory"),
+            "Expected error message to mention memory, got: {}",
+            err_msg
+        );
+
+        cleanup_parallel_build_large_table();
+    }
+
+    /// Tests parallel index building with various configurations.
+    ///
+    /// This test is marked `#[ignore]` because it creates 35,000 rows and tests
+    /// 32 different configuration combinations, taking a long time to run.
+    /// Run it explicitly with:
+    /// `cargo pgrx test -- --ignored test_parallel_build_large_configurations`
+    #[pg_test]
+    #[ignore]
+    fn test_parallel_build_large_configurations() {
+        setup_parallel_build_large_table();
+
+        Spi::run("SET max_parallel_workers = 8;").unwrap();
+
+        let maintenance_work_mem = ["2GB", "128MB"];
+        let maintenance_workers = [6, 2];
+        let leader_participation = [true, false];
+        let target_segments = [4, 32];
+
+        for mwm in &maintenance_work_mem {
+            for mw in &maintenance_workers {
+                for lp in &leader_participation {
+                    for ts in &target_segments {
+                        // Set configuration
+                        Spi::run(&format!("SET max_parallel_maintenance_workers = {};", mw))
+                            .unwrap();
+                        Spi::run(&format!("SET parallel_leader_participation = {};", lp)).unwrap();
+                        Spi::run(&format!("SET maintenance_work_mem = '{}';", mwm)).unwrap();
+
+                        // Create index
+                        Spi::run(&format!(
+                            "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = {});",
+                            ts
+                        ))
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "CREATE INDEX failed with workers={}, leader={}, mem={}, segments={}: {:?}",
+                                mw, lp, mwm, ts, e
+                            )
+                        });
+
+                        // Verify segment count
+                        let count: i64 = Spi::get_one(
+                            "SELECT COUNT(*)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                        )
+                        .unwrap()
+                        .unwrap();
+
+                        if *ts == 4 {
+                            assert_eq!(
+                                count, 4,
+                                "Expected 4 segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                                mw, lp, mwm, ts, count
+                            );
+                        } else if *ts == 32 {
+                            assert!(
+                                (28..=32).contains(&count),
+                                "Expected 28-32 segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                                mw, lp, mwm, ts, count
+                            );
+                        }
+
+                        // Verify total document count
+                        let num_docs: i64 = Spi::get_one(
+                            "SELECT COALESCE(SUM(num_docs), 0)::bigint FROM paradedb.index_info('parallel_build_large_idx');",
+                        )
+                        .unwrap()
+                        .unwrap();
+
+                        assert_eq!(
+                            num_docs, 35000,
+                            "Expected 35000 docs with workers={}, leader={}, mem={}, segments={}, got {}",
+                            mw, lp, mwm, ts, num_docs
+                        );
+
+                        // Drop index for next iteration
+                        Spi::run("DROP INDEX parallel_build_large_idx;").unwrap();
+                    }
+                }
+            }
+        }
+
+        cleanup_parallel_build_large_table();
+    }
+}

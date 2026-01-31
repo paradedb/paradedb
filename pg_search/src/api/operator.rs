@@ -294,39 +294,8 @@ unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var
         && (*a).varcollid == (*b).varcollid
 }
 
-unsafe fn row_expr_from_indexed_expr(mut expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
-    loop {
-        if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
-            return Some(row_expr);
-        }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
-            expr = (*coerce).arg.cast();
-            continue;
-        }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            expr = (*relabel).arg.cast();
-            continue;
-        }
-        return None;
-    }
-}
-
-unsafe fn simple_var_from_expr(mut expr: *mut pg_sys::Expr) -> Option<*const pg_sys::Var> {
-    loop {
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            return Some(var);
-        }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
-            expr = (*coerce).arg.cast();
-            continue;
-        }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            expr = (*relabel).arg.cast();
-            continue;
-        }
-        return None;
-    }
-}
+// Type coercion unwrapping functions are in crate::postgres::customscan::opexpr
+use crate::postgres::customscan::opexpr::{unwrap_row_expr, unwrap_var_simple};
 
 unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys::Expr) -> bool {
     if !type_is_tokenizer(pg_sys::exprType(expr.cast())) {
@@ -706,7 +675,7 @@ pub unsafe fn field_name_from_node(
                 let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
                 if is_composite {
-                    if let Some(row_expr) = row_expr_from_indexed_expr(expression) {
+                    if let Some(row_expr) = unwrap_row_expr(expression) {
                         let composite_oid = pg_sys::exprType(expression.cast());
                         let Ok(fields) = get_composite_type_fields(composite_oid) else {
                             expr_no += 1;
@@ -720,7 +689,7 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
-                            if let Some(arg_var) = simple_var_from_expr(arg.cast()) {
+                            if let Some(arg_var) = unwrap_var_simple(arg.cast()) {
                                 if vars_equal_ignoring_varno(arg_var, var) {
                                     return Some(FieldName::from(
                                         fields[position].field_name.clone(),
@@ -770,7 +739,7 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
-                if let Some(row_expr) = row_expr_from_indexed_expr(indexed_expression) {
+                if let Some(row_expr) = unwrap_row_expr(indexed_expression) {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
                         continue;

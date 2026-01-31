@@ -35,7 +35,7 @@ pub mod explain;
 mod explainer;
 mod hook;
 pub mod joinscan;
-mod opexpr;
+pub mod opexpr;
 mod path;
 pub mod projections;
 mod pushdown;

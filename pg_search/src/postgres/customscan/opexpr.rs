@@ -219,9 +219,45 @@ where
     }
 }
 
-/// Unwrap a Var from potential type coercion wrappers.
+/// Unwrap an expression from basic type coercion wrappers (RelabelType, CoerceViaIO only).
+///
+/// Unlike `unwrap_expr`, this does NOT unwrap single-arg FuncExpr nodes.
+/// Use this when you only want to strip simple type relabeling, not function-based coercions.
+pub unsafe fn unwrap_expr_simple<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
+where
+    F: FnMut(*mut pg_sys::Expr) -> Option<T>,
+{
+    loop {
+        if let Some(result) = extract(expr) {
+            return Some(result);
+        }
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+            expr = (*coerce).arg.cast();
+            continue;
+        }
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+            expr = (*relabel).arg.cast();
+            continue;
+        }
+        return None;
+    }
+}
+
+/// Unwrap a Var from potential type coercion wrappers (including FuncExpr).
 ///
 /// Convenience function that uses `unwrap_expr` to find a Var node.
 pub unsafe fn unwrap_var(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::Var> {
     unwrap_expr(expr, |e| nodecast!(Var, T_Var, e))
+}
+
+/// Unwrap a Var from basic type coercion wrappers (CoerceViaIO, RelabelType only).
+///
+/// Unlike `unwrap_var`, this does NOT unwrap FuncExpr nodes.
+pub unsafe fn unwrap_var_simple(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::Var> {
+    unwrap_expr_simple(expr, |e| nodecast!(Var, T_Var, e))
+}
+
+/// Unwrap a RowExpr from type coercion wrappers.
+pub unsafe fn unwrap_row_expr(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
+    unwrap_expr_simple(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
 }

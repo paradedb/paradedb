@@ -2256,26 +2256,20 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                                     QUERY PLAN                                                                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
-   ->  Result
-         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
-         ->  Sort
-               Output: id, name, rating, price, (sum(COALESCE(price, '0'::double precision)) OVER w1), (avg(COALESCE(rating, '4'::double precision)) OVER w1)
-               Sort Key: products.rating DESC
-               ->  WindowAgg
-                     Output: id, name, rating, price, sum(COALESCE(price, '0'::double precision)) OVER w1, avg(COALESCE(rating, '4'::double precision)) OVER w1
-                     Window: w1 AS ()
-                     ->  Custom Scan (ParadeDB Scan) on public.products
-                           Output: id, name, rating, price
-                           Table: products
-                           Index: products_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+   Output: id, name, rating, price, (pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)), (pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.products
+         Output: id, name, rating, price, pdb.window_agg('{"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Sum":{"field":"price","missing":0.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text), pdb.window_agg('{"entries":[{"Aggregate":{"Avg":{"field":"rating","missing":4.0,"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}'::text)
+         Table: products
+         Index: products_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: rating desc
+            TopN Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 SELECT 
     id,
@@ -2289,7 +2283,13 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-ERROR:  window_agg placeholder should not be executed - custom scan should have intercepted this. JSON: {"entries":[{"Aggregate":{"CountAny":{"filter":null,"indexrelid":0}}}],"groupby":{"grouping_columns":[]},"uses_our_operator":false}
+ id |    name     | rating | price | total_count | total_price_with_default | avg_rating_with_default 
+----+-------------+--------+-------+-------------+--------------------------+-------------------------
+  1 | MacBook Pro |    4.8 |  2499 |           4 |                     7396 |                     4.6
+  5 | ASUS ROG    |    4.7 |  1899 |           4 |                     7396 |                     4.6
+  3 | ThinkPad X1 |    4.5 |  1599 |           4 |                     7396 |                     4.6
+(3 rows)
+
 -- Test 38: Benchmark query - TopN + COUNT(*) OVER ()
 -- Verify this produces TopN execution plan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

@@ -291,6 +291,10 @@ pub unsafe fn extract_and_convert_window_functions(
                     // so PostgreSQL handles ALL window functions in this query
                     return HashMap::new();
                 }
+            } else {
+                // Couldn't convert this window function - abort and return empty map
+                // so PostgreSQL handles ALL window functions in this query
+                return HashMap::new();
             }
         }
     }

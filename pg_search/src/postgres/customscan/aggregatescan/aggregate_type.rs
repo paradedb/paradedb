@@ -23,6 +23,7 @@ use crate::api::{
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
+use crate::postgres::customscan::opexpr::{unwrap_expr, unwrap_var};
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
@@ -624,8 +625,17 @@ pub unsafe fn parse_coalesce_expression(
         return None;
     }
 
-    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-    let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
+    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
+    let first_arg = args.get_ptr(0)?;
+    let var = unwrap_var(first_arg as *mut pg_sys::Expr)?;
+
+    // Second argument (the default value) might also be wrapped in type coercion
+    let second_arg = args.get_ptr(1)?;
+    let const_node = unwrap_expr(second_arg as *mut pg_sys::Expr, |e| {
+        ConstNode::try_from(e as *mut pg_sys::Node)
+    })?;
+
     let missing = match TantivyValue::try_from(const_node) {
         Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),

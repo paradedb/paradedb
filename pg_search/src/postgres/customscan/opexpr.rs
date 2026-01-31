@@ -166,3 +166,62 @@ impl OpExpr {
             .is_some()
     }
 }
+
+/// Unwrap an expression from type coercion wrappers (RelabelType, CoerceViaIO, single-arg FuncExpr).
+///
+/// PostgreSQL wraps expressions in type coercion nodes when implicit or explicit type
+/// conversion is needed. This function recursively unwraps these wrappers to find the
+/// underlying expression.
+///
+/// The `extract` closure is called at each level to attempt extraction of the desired type.
+/// Returns `Some(T)` when extraction succeeds, `None` if the expression can't be unwrapped further.
+///
+/// # Example
+/// ```ignore
+/// // Extract a Var from a potentially wrapped expression
+/// let var = unwrap_expr(expr, |e| nodecast!(Var, T_Var, e));
+///
+/// // Extract a Const from a potentially wrapped expression  
+/// let const_node = unwrap_expr(expr, |e| ConstNode::try_from(e as *mut pg_sys::Node));
+/// ```
+pub unsafe fn unwrap_expr<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
+where
+    F: FnMut(*mut pg_sys::Expr) -> Option<T>,
+{
+    loop {
+        // Try to extract the target type at this level
+        if let Some(result) = extract(expr) {
+            return Some(result);
+        }
+
+        // Try to unwrap type coercion wrappers
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+            expr = (*coerce).arg.cast();
+            continue;
+        }
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+            expr = (*relabel).arg.cast();
+            continue;
+        }
+        // Handle type coercion via single-arg function call (e.g., float4 -> float8)
+        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, expr) {
+            let args = PgList::<pg_sys::Node>::from_pg((*func).args);
+            if args.len() == 1 {
+                if let Some(arg) = args.get_ptr(0) {
+                    expr = arg.cast();
+                    continue;
+                }
+            }
+        }
+
+        // Can't unwrap further
+        return None;
+    }
+}
+
+/// Unwrap a Var from potential type coercion wrappers.
+///
+/// Convenience function that uses `unwrap_expr` to find a Var node.
+pub unsafe fn unwrap_var(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::Var> {
+    unwrap_expr(expr, |e| nodecast!(Var, T_Var, e))
+}

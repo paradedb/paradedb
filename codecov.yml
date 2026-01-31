@@ -1,0 +1,23 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0%
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 0%
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+
+ignore:
+  - "node_modules/**/*"
+  - "docs/**/*"
+  - "benchmarks/**/*"
+  - "**/*_test.rs"
+  - "**/tests/**"

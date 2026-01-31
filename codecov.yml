@@ -1,4 +1,8 @@
 coverage:
+  precision: 2
+  round: down
+  range: 70..100
+
   status:
     project:
       default:
@@ -14,6 +18,9 @@ coverage:
 comment:
   layout: "reach, diff, flags, files"
   behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
 
 ignore:
   - "node_modules/**/*"
@@ -21,3 +28,10 @@ ignore:
   - "benchmarks/**/*"
   - "**/*_test.rs"
   - "**/tests/**"
+  - "target/**/*"
+  - "**/.pgrx/**/*"
+  - "**/Makefile"
+  - "**/*.toml"
+  - "**/*.yml"
+  - "**/*.yaml"
+  - "**/*.md"

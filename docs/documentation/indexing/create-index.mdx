@@ -69,13 +69,3 @@ CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
 ```
-
-For multilingual content, multiple stemmers can be specified as a comma-separated list:
-
-```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.simple('stemmer=english,french')), category)
-WITH (key_field='id');
-```
-
-See the [stemming documentation](/documentation/token-filters/stemming) for more details.

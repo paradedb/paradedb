@@ -79,22 +79,18 @@ cargo clippy
 ### Repository Structure
 
 - **pg_search/**: Main Postgres extension implementing BM25 full-text search
-
   - Core modules: `postgres/`, `query/`, `schema/`, `index/`, `api/`
   - ~95 Rust source files organized into subsystems
 
 - **tokenizers/**: Standalone tokenization library
-
   - Multi-language support: Jieba (Chinese), Lindera (Japanese/Korean), ICU, n-gram
   - Integrates with Tantivy's tokenizer API
 
 - **macros/**: Procedural macros for code generation
-
   - Builder functions for search queries
   - SQL generation for tokenizers
 
 - **tests/**: Integration test suite
-
   - Uses sqlx for Postgres integration
   - Tests cover BM25 search, joins, aggregations, mutations, sorting
 

@@ -1,0 +1,143 @@
+-- Regression test for pdb.score() with NOT EXISTS (anti-join) and EXISTS (semi-join).
+--
+-- Previously, placeholder_support() only wrapped pdb.score() in a PlaceHolderVar
+-- when hasJoinRTEs was true. But NOT EXISTS -> anti-join conversions (via
+-- pull_up_sublinks) create JoinExpr nodes without RTE_JOIN range table entries,
+-- so hasJoinRTEs remained false. Without the PHV, the planner could re-evaluate
+-- pdb.score() above the Custom Scan, causing a panic.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS score_aj_entries CASCADE;
+DROP TABLE IF EXISTS score_aj_items CASCADE;
+CREATE TABLE score_aj_items (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    state TEXT
+);
+CREATE TABLE score_aj_entries (
+    id SERIAL PRIMARY KEY,
+    item_id INT NOT NULL REFERENCES score_aj_items(id),
+    user_id TEXT NOT NULL
+);
+CREATE INDEX score_aj_entries_item_id_idx ON score_aj_entries(item_id);
+INSERT INTO score_aj_items (title, state)
+SELECT 'Item ' || i, 'active'
+FROM generate_series(1, 10000) i;
+INSERT INTO score_aj_entries (item_id, user_id)
+SELECT i, 'user1'
+FROM generate_series(1, 500) i;
+CREATE INDEX score_aj_items_idx ON score_aj_items
+USING bm25 (id, title, state)
+WITH (key_field = 'id');
+SET max_parallel_workers_per_gather = 4;
+SET enable_hashjoin = off;
+SET enable_mergejoin = off;
+-- Verify the plan uses an Anti Join
+EXPLAIN (COSTS OFF)
+SELECT id
+FROM score_aj_items AS s
+WHERE s.id @@@ paradedb.term('state', 'active')
+AND NOT EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(s.id)) DESC, s.id
+         ->  Nested Loop Anti Join
+               Join Filter: (score_aj_entries.item_id = s.id)
+               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+                     Table: score_aj_items
+                     Index: score_aj_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active","is_datetime":false}}}}
+               ->  Materialize
+                     ->  Seq Scan on score_aj_entries
+                           Filter: (user_id = 'user1'::text)
+(14 rows)
+
+-- Test 1: NOT EXISTS + ORDER BY pdb.score() + LIMIT
+-- IDs 1-500 have entries for user1, so NOT EXISTS should return IDs >= 501
+SELECT id, title, pdb.score(s.id) AS score
+FROM score_aj_items AS s
+WHERE s.id @@@ paradedb.term('state', 'active')
+AND NOT EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+ id  |  title   |     score
+-----+----------+---------------
+ 501 | Item 501 | 4.9947444e-05
+ 502 | Item 502 | 4.9947444e-05
+ 503 | Item 503 | 4.9947444e-05
+ 504 | Item 504 | 4.9947444e-05
+ 505 | Item 505 | 4.9947444e-05
+(5 rows)
+
+-- Test 2: EXISTS (semi-join) + ORDER BY pdb.score() + LIMIT
+-- IDs 1-500 have entries for user1, so EXISTS should return IDs <= 500
+SELECT id, title, pdb.score(s.id) AS score
+FROM score_aj_items AS s
+WHERE s.id @@@ paradedb.term('state', 'active')
+AND EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+ id | title  |     score
+----+--------+---------------
+  1 | Item 1 | 4.9947444e-05
+  2 | Item 2 | 4.9947444e-05
+  3 | Item 3 | 4.9947444e-05
+  4 | Item 4 | 4.9947444e-05
+  5 | Item 5 | 4.9947444e-05
+(5 rows)
+
+-- Test 3: NOT EXISTS with multiple @@@ predicates
+SELECT id, title, pdb.score(s.id) AS score
+FROM score_aj_items AS s
+WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
+AND s.id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.disjunction_max(
+            tie_breaker => 0.75,
+            disjuncts => ARRAY[
+                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
+            ]
+        )
+    ]
+)
+AND NOT EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+ id  |  title   |   score
+-----+----------+-----------
+ 501 | Item 501 | 2.0000873
+ 502 | Item 502 | 2.0000873
+ 503 | Item 503 | 2.0000873
+ 504 | Item 504 | 2.0000873
+ 505 | Item 505 | 2.0000873
+(5 rows)
+
+-- Reset GUCs
+RESET max_parallel_workers_per_gather;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+-- Cleanup
+DROP TABLE IF EXISTS score_aj_entries CASCADE;
+DROP TABLE IF EXISTS score_aj_items CASCADE;

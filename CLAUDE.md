@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-ParadeDB is a Postgres extension that enables full-text search using the BM25 algorithm. It's built on top of Tantivy (the Rust alternative to Apache Lucene) using pgrx. ParadeDB implements custom Postgres index access methods and custom scan providers to integrate search capabilities seamlessly with SQL.
+ParadeDB is a Postgres extension that enables full-text search using the BM25 algorithm. It's built on top of Tantivy (the Rust alternative to Apache Lucene) using pgrx. ParadeDB implements a custom Postgres index access method and custom scan providers to integrate search and analytics capabilities seamlessly with SQL.
 
 ## Common Development Commands
 
@@ -21,16 +21,12 @@ cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
 cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
 
 # Build and package the extension
-make package
-# Or using cargo directly
 cargo pgrx package --package pg_search --pg-config <path-to-pg_config>
 
 # Install into Postgres
-make install
-# Or using cargo directly
 cargo pgrx install --package pg_search --release --pg-config <path-to-pg_config>
 
-# Run development Postgres with extension
+# Run development Postgres with the current commit of the extension installed
 cargo pgrx run
 ```
 
@@ -113,7 +109,7 @@ cargo clippy
 Three custom scan types:
 
 - **BaseScan**: Low-level index scans against BM25 indexes
-- **AggregateScan**: Query-level aggregations pushed down to index
+- **AggregateScan**: Query-level aggregations pushed down to the index
 - **JoinScan**: Join operations optimized for search indexes
 
 ##### Storage Subsystem (`postgres/storage/`)
@@ -241,7 +237,7 @@ RUST_BACKTRACE=1
 1. Add tokenizer implementation in `tokenizers/src/`
 2. Register in `tokenizers/src/manager.rs`
 3. Add SQL generation macro in `macros/src/`
-4. Update `SearchFieldConfig` to support new tokenizer
+4. Update `SearchFieldConfig` to support the new tokenizer
 5. Add tests in `tests/src/`
 
 ### Adding a New Query Type

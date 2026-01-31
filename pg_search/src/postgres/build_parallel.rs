@@ -841,7 +841,6 @@ mod tests {
     /// a long time to run. Run it explicitly with:
     /// `cargo pgrx test -- --ignored test_parallel_build_large_insufficient_memory`
     #[pg_test]
-    #[ignore]
     fn test_parallel_build_large_insufficient_memory() {
         setup_parallel_build_large_table();
 
@@ -875,7 +874,6 @@ mod tests {
     /// Run it explicitly with:
     /// `cargo pgrx test -- --ignored test_parallel_build_large_configurations`
     #[pg_test]
-    #[ignore]
     fn test_parallel_build_large_configurations() {
         setup_parallel_build_large_table();
 

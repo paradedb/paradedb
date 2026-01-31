@@ -50,4 +50,4 @@ node_modules/
 
 # Claude
 .claude/
-CLAUDE.md
+CLAUDE.local.md

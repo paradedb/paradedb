@@ -19,7 +19,7 @@ To enable columnar indexing for text and JSON fields, cast the field to a [token
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description::pdb.unicode_words('columnar=true'), rating)
+USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
 WITH (key_field = 'id');
 ```
 
@@ -34,4 +34,5 @@ The columnar field stores the raw text value regardless of the tokenizer. For ex
 split into tokens `hello` and `world`, the columnar value remains `Hello world`.
 
 This is important because operations like filtering and sorting require the original field value, not the tokens.
+
 </Note>

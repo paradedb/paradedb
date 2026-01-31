@@ -84,7 +84,7 @@ fn aggregate_impl(
     let aggregate = execute_aggregate(
         &relation,
         query,
-        AggregateRequest::Json(serde_json::from_value(agg.0.clone())?),
+        AggregateRequest::Json(serde_json::from_value(agg.0)?),
         solve_mvcc,
         memory_limit.try_into()?,
         bucket_limit_u32,
@@ -95,8 +95,7 @@ fn aggregate_impl(
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
     } else {
-        let json_value = serde_json::to_value(aggregate)?;
-        Ok(JsonB(json_value))
+        Ok(JsonB(serde_json::to_value(aggregate)?))
     }
 }
 

@@ -205,7 +205,6 @@ jobs:
       # ---------- Tests ----------
       - name: Run pg_search Integration Tests (system)
         if: matrix.pg_impl == 'system'
-        working-directory: .
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
@@ -227,15 +226,10 @@ jobs:
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
-          if ! LLVM_PROFILE_FILE="regression-%p-%m.profraw" cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then
+          if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then
             git diff
             exit 1
           fi
-
-      - name: Generate Coverage for Regression Tests (pgrx-managed)
-        if: matrix.pg_impl == 'pgrx'
-        run: |
-          cargo llvm-cov report --lcov --output-path coverage-regression-${{ matrix.pg_version }}.lcov
 
       - name: Upload Coverage Artifact
         if: always()

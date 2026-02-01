@@ -531,7 +531,10 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.cnt += 1;
     unsafe {
         #[cfg(any(feature = "pg15", feature = "pg16"))]
-        pg_sys::pgstat_progress_incr_param(pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32, 1);
+        pg_sys::pgstat_progress_update_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+            build_state.cnt as i64,
+        );
         #[cfg(not(any(feature = "pg15", feature = "pg16")))]
         pg_sys::pgstat_progress_parallel_incr_param(
             pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,

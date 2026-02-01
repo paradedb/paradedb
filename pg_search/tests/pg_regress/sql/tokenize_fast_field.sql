@@ -54,7 +54,6 @@ WHERE id @@@ pdb.all()
 ORDER BY lower(description)
 LIMIT 5;
 
-
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT description, COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all()

@@ -529,6 +529,12 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.per_row_context.reset();
 
     build_state.cnt += 1;
+    unsafe {
+        pg_sys::pgstat_progress_parallel_incr_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+            1,
+        );
+    }
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);
@@ -581,6 +587,13 @@ pub(super) fn build_index(
     );
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
+
+    unsafe {
+        pg_sys::pgstat_progress_update_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_TOTAL as i32,
+            plan::estimate_heap_reltuples(&heaprel) as i64,
+        );
+    }
 
     let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,

@@ -530,13 +530,13 @@ unsafe extern "C-unwind" fn build_callback(
 
     build_state.cnt += 1;
     unsafe {
-        #[cfg(any(feature = "pg17", feature = "pg18"))]
+        #[cfg(any(feature = "pg15", feature = "pg16"))]
+        pg_sys::pgstat_progress_incr_param(pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32, 1);
+        #[cfg(not(any(feature = "pg15", feature = "pg16")))]
         pg_sys::pgstat_progress_parallel_incr_param(
             pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
             1,
         );
-        #[cfg(not(any(feature = "pg17", feature = "pg18")))]
-        pg_sys::pgstat_progress_incr_param(pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32, 1);
     }
 
     if let Some(segment_meta) = segment_meta {

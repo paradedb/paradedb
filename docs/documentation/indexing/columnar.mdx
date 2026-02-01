@@ -5,8 +5,8 @@ canonical: https://docs.paradedb.com/documentation/indexing/columnar
 ---
 
 By default, all non-text and non-JSON fields are indexed using ParadeDB's columnar format.
-This enables fast [filtering](), [Top N ordering](), and [aggregates]() over these fields.
-For example, in the following index definition, `rating` and `id` are columnar indexed
+This enables fast [filtering pushdown](documentation/filtering#filter-pushdown), [Top N ordering](/documentation/sorting/topn), and
+[aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
 because they are integers, whereas `description` is not because it is text.
 
 ```sql
@@ -15,7 +15,7 @@ USING bm25 (id, description, rating)
 WITH (key_field = 'id');
 ```
 
-To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer]() with `columnar` set to `true`.
+To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -23,11 +23,12 @@ USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
 WITH (key_field = 'id');
 ```
 
-Columnar defaults to `false` for all tokenizers besides [literal]() and [literal normalized](), which default to
+Columnar defaults to `false` for all tokenizers besides [literal](/documentation/tokenizers/available-tokenizers/literal) and
+[literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized), which default to
 `true` and do not require an explicit setting.
 
-The reasoning is that tokenized fields can represent large documents and would be expensive to store column-wise,
-whereas literal and literal normalized fields are single-value and typically much more compact.
+The reason is that tokenized fields can represent large documents and would be expensive to store column-wise,
+whereas literal and literal normalized fields are typically single-value and much more compact.
 
 <Note>
 The columnar field stores the raw text value regardless of the tokenizer. For example, if `Hello world` is

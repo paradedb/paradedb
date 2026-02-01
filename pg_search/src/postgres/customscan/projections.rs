@@ -265,6 +265,7 @@ unsafe fn make_placeholder_const_from_funcexpr(
 
 /// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
 /// when it encounters a [`pg_sys::JoinExpr`] node.
+#[pg_guard]
 unsafe extern "C-unwind" fn find_join_expr_walker(
     node: *mut pg_sys::Node,
     _context: *mut std::ffi::c_void,

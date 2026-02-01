@@ -73,7 +73,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
- id  |  title   |     score
+ id  |  title   |     score     
 -----+----------+---------------
  501 | Item 501 | 4.9947444e-05
  502 | Item 502 | 4.9947444e-05
@@ -94,7 +94,7 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
- id | title  |     score
+ id | title  |     score     
 ----+--------+---------------
   1 | Item 1 | 4.9947444e-05
   2 | Item 2 | 4.9947444e-05
@@ -125,7 +125,7 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
- id  |  title   |   score
+ id  |  title   |   score   
 -----+----------+-----------
  501 | Item 501 | 2.0000873
  502 | Item 502 | 2.0000873

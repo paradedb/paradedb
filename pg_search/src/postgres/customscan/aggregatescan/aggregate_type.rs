@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,7 +17,8 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
+    MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
@@ -26,6 +27,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
     F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
@@ -317,6 +319,62 @@ impl AggregateType {
             AggregateType::Custom { .. } => pg_sys::JSONBOID,
         }
     }
+
+    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
+    /// Returns an error if any field is invalid.
+    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// https://github.com/quickwit-oss/tantivy/issues/2767
+    pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
+        if let AggregateType::Custom { agg_json, .. } = self {
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(agg_json, &mut fields);
+            let indexed_fields: HashSet<String> = schema
+                .fields()
+                .map(|(_, entry)| entry.name().to_string())
+                .collect();
+
+            for field in &fields {
+                if !indexed_fields.contains(field) {
+                    // Build a sorted list of available fields for the error message
+                    let mut available: Vec<_> = indexed_fields
+                        .iter()
+                        .filter(|f| *f != "ctid") // Don't show internal ctid field
+                        .cloned()
+                        .collect();
+                    available.sort();
+                    return Err(format!(
+                        "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
+                        field,
+                        available.join(", ")
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {
+    match json {
+        serde_json::Value::Object(map) => {
+            // Check for a "field" key at this level
+            if let Some(serde_json::Value::String(f)) = map.get("field") {
+                let field_name = FieldName::from(f);
+                fields.insert(field_name.root());
+            }
+
+            // Recurse into all values
+            for (key, value) in map {
+                extract_fields_from_agg_json(value, fields);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                extract_fields_from_agg_json(item, fields);
+            }
+        }
+        _ => {}
+    }
 }
 
 impl std::fmt::Display for AggregateType {
@@ -356,18 +414,7 @@ impl From<AggregateType> for AggregationVariants {
                 AggregationVariants::Max(MaxAggregation { field, missing })
             }
             AggregateType::Custom { agg_json, .. } => {
-                // NOTE: This conversion extracts only the top-level aggregation variant.
-                //
-                // This trait returns AggregationVariants (just the aggregation type),
-                // not Aggregation (which includes sub_aggregation field).
-                //
-                // Example:
-                //   Input:  {"terms": {"field": "category", "aggs": {"brand": {...}}}}
-                //   Output: TermsAggregation { field: "category" }  // "aggs" is extracted separately
-                //
-                // Nested "aggs" are handled by serde_json::from_value::<Aggregation>().
-                //
-                // This trait is only used when the caller will handle sub_aggregations separately.
+                // For Custom aggregates, deserialize the JSON directly into AggregationVariants
                 serde_json::from_value(agg_json)
                     .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
             }

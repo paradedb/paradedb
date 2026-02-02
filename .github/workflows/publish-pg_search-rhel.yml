@@ -4,9 +4,6 @@
 # Build and publish the pg_search extension as .rpm to GitHub Releases. This
 # workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
 # out by the `if` condition of the job.
-#
-# Note: Prebuilt binaries for RHEL do not support the ICU tokenizer due to the lack of the
-# required ICU library versions on RHEL.
 
 name: Publish pg_search (Red Hat)
 
@@ -27,6 +24,7 @@ concurrency:
 
 # Used by actions/attest-build-provenance to sign the builds
 permissions:
+  contents: write
   id-token: write
   attestations: write
 

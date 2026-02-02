@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -43,9 +43,9 @@ pub unsafe fn jsonb_datum_to_serde_json_value(
     if datum.is_null() {
         return None;
     }
-    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    #[cfg(feature = "pg15")]
     let jsonb = pg_sys::pg_detoast_datum(datum.cast_mut_ptr()).cast::<pg_sys::Jsonb>();
-    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+    #[cfg(not(feature = "pg15"))]
     let jsonb = pg_sys::DatumGetJsonbP(datum);
     let container = &mut (*jsonb).root;
     let result = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {

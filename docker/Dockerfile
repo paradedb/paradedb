@@ -1,6 +1,10 @@
 # The default Postgres major version ParadeDB ships with. In CI, this gets updated to ship builds for all official PGDG versions.
 ARG PG_VERSION_MAJOR=18
 
+# Antithesis is a deterministic simulation testing tool requiring instrumentation at compile-time and runtime. We only enable it
+# when building ParadeDB images specifically for use with Antithesis.
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
+
 ###############################################
 # First Stage: Builder
 ###############################################
@@ -39,16 +43,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --defau
 ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Copy project because we need to extract the pgrx version
-COPY . /tmp/
-
-# Install the pgrx version of pg_search
+# Copy only Cargo.toml to extract pgrx version without invalidating cache on source changes
+COPY Cargo.toml /tmp/
 WORKDIR /tmp/
-RUN PGRX_VERSION=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/') && \
+
+# Extract version from Cargo.toml (handles 'pgrx = "=0.16.1"')
+# This replaces `cargo tree` to avoid needing the full source tree
+RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
-    rm -rf /tmp/Cargo.toml
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_search
@@ -58,30 +62,24 @@ FROM builder AS builder-pg_search
 
 ARG COMMIT_SHA
 ARG PARADEDB_VERSION
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare compile-time environment variables
 ENV COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION}
+    PARADEDB_VERSION=${PARADEDB_VERSION} \
+    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
+# Copy the full project. This layer will invalidate if any project file changes.
 COPY . /tmp/
 
-# Download the ICU 76.1 library source. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
-WORKDIR /tmp
-RUN curl -L -o icu4c-76_1-src.tgz https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz
-
-# Compile and install the ICU library
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    ldconfig && ldconfig # Yes, running it twice
-
 # Build the extension in release mode, but with debug symbols (which will be split out later)
-WORKDIR /tmp/pg_search
-RUN cargo pgrx package --features icu --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
+RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+    curl -L -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so; \
+    export RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id  -L/usr/lib/libvoidstar.so -lvoidstar" ; \
+  fi; \
+  cd /tmp/pg_search && \
+  cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Strip debug symbols from the extension and add a debug link
 RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so" && \
@@ -152,9 +150,11 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 ARG PG_VERSION_MAJOR
+ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare runtime environment variables
-ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -168,10 +168,6 @@ COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSIO
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-
-# Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
@@ -209,41 +205,30 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     grep "shared_preload_libraries = 'pg_search,pg_cron'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample
 
-# The pg_search extension requires the ICU library binaries to be installed at runtime. Therefore, we download
-# and install the ICU library binaries in the final stage as well.
-#
-# Download the ICU 76.1 library source and required build tools. The version we use must be compatible with
-# https://github.com/google/rust_icu?tab=readme-ov-file#compatibility
+
 WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    make \
-    gcc && \
-    wget -q https://github.com/unicode-org/icu/releases/download/release-76-1/icu4c-76_1-src.tgz && \
-    tar xzvf icu4c-76_1-src.tgz && \
-    rm -rf icu4c-76_1-src.tgz && \
+RUN apt-get update && apt-get install -y --no-install-recommends wget && \
     rm -rf /var/lib/apt/lists/*
 
-# Compile and install the ICU library and remove the source code to minimize the image size.
-WORKDIR /tmp/icu/source/
-RUN ./runConfigureICU Linux --prefix=/usr/local && \
-    make "-j$(nproc)" && \
-    make install && \
-    rm -rf /tmp/icu && \
-    ldconfig && ldconfig # Yes, running it twice
+# Copy the ParadeDB extension from its builder stage
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+
+# Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
+RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+   wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+   mkdir /symbols && \
+   ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
+ fi
 
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
 # To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
 # downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
 # extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
-#
-# We also uninstall `wget` and the build tools used for compiling `icu` after adding the PostgreSQL APT repository to the list of sources to
-# minimize the surface area for potential security risks.
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bookworm-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
     wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
-    apt-get purge -y build-essential wget make gcc && \
+    apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 

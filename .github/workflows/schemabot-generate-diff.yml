@@ -13,14 +13,10 @@ on:
       - 0.*.x # Release branches
     paths:
       - ".github/workflows/schemabot-generate-diff.yml"
+      - ".github/scripts/check_migration_diff.py"
       - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
-
-# Required to post a comment to the PR
-permissions:
-  pull-requests: write
-  issues: write
 
 concurrency:
   group: schemabot-generate-diff-${{ github.head_ref || github.ref }}
@@ -29,23 +25,21 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    # TODO: See https://github.com/paradedb/paradedb/issues/3613
-    runs-on: ubicloud-standard-8-ubuntu-2204
+    runs-on: ubicloud-standard-8-ubuntu-2404
     defaults:
       run:
         shell: bash -eo pipefail {0}
     strategy:
       matrix:
-        pg_version: [14] # pg_search's minimum supported Postgres version
+        pg_version: [15] # pg_search's minimum supported Postgres version
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Fetch the entire history
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: Extract pgrx Version
         id: pgrx
@@ -75,7 +69,7 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
+          cargo install --git https://github.com/paradedb/pg-schema-diff.git --debug --force
 
       - name: Install cargo-pgrx
         run: |
@@ -109,78 +103,79 @@ jobs:
 
       - name: Generate Schema Diffs
         run: |
-          (pg-schema-diff diff ~/old.sql ~/this.sql | grep -v "^$" > ~/diff.sql 2>&1) || true
-          (diff ~/old.sql ~/this.sql > ~/diff.patch) || true
-          cat ~/diff.sql
+          # Run pg-schema-diff and capture its exit code
+          # Note: Only capture stdout (the actual diff), stderr goes to terminal for debugging
+          set +e  # Temporarily disable exit on error
+          pg-schema-diff diff ~/old.sql ~/this.sql > ~/diff.sql 2>&1
+          PG_SCHEMA_DIFF_EXIT=$?
+          set -e  # Re-enable exit on error
 
-      - name: Generate Commit Message
-        id: generate_commit_message
-        run: |
-          if test -s ~/diff.sql; then
-            echo "Generating GitHub comment message"
-            {
-              echo 'A schema difference was detected.'
-              echo
-              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
-              echo
-              echo '```sql'
-              cat ~/diff.sql
-              echo '```'
-
-              #
-              # Include the full schema diff, for informational purposes
-              #
-
-              echo
-              echo '<details>'
-              echo '<summary>The full diff between both schemas is:</summary>'
-              echo
-              echo '```diff'
-              cat ~/diff.patch
-              echo '```'
-              echo '</details>'
-            } >> commit-message.md
-
-            # Set a flag to indicate a schema difference was detected
-            echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
-          else
-            echo "No schema difference detected"
-            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          # Check if pg-schema-diff crashed or had an error
+          if [ $PG_SCHEMA_DIFF_EXIT -ne 0 ]; then
+            echo "❌ ERROR: pg-schema-diff failed with exit code $PG_SCHEMA_DIFF_EXIT"
+            echo "Output:"
+            cat ~/diff.sql
+            exit 1
           fi
 
-      - name: Attach Schema Diff to PR
-        uses: actions/github-script@v8
-        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
-        with:
-          script: |
-            const fs = require('fs');
-            const commit_message = fs.readFileSync('commit-message.md', 'utf8');
+          # Show the schema diff
+          echo "Schema diff generated successfully:"
+          cat ~/diff.sql
 
-            const comments = await github.rest.issues.listComments({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo
-            });
+          # Remove trailing newlines from diff for comparison
+          perl -i -pe 'chomp if eof' ~/diff.sql
 
-            const botComment = comments.data.find(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('A schema difference was detected.')
-            );
+      - name: Switch Back to PR Branch
+        run: |
+          # Switch back to the PR branch to check the migration file
+          git checkout ${{ github.event.pull_request.head.ref || github.ref }}
 
-            const body = `${commit_message}`;
+      - name: Check Schema Diff and Validate Migration
+        id: check_schema_diff
+        run: |
+          if test -s ~/diff.sql; then
+            echo "=========================================="
+            echo "SCHEMA DIFFERENCE DETECTED"
+            echo "=========================================="
+            echo
+            echo "A suggested upgrade.sql script follows. Please review it carefully as SchemaBot is not infallible."
+            echo
+            echo "--- BEGIN SUGGESTED UPGRADE SCRIPT ---"
+            cat ~/diff.sql
+            echo "--- END SUGGESTED UPGRADE SCRIPT ---"
+            echo
+            echo "=========================================="
 
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                comment_id: botComment.id,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body
-              });
-            }
+            # Extract the version from Cargo.toml
+            CURRENT_VERSION=$(grep -m 1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            echo "Current version from Cargo.toml: $CURRENT_VERSION"
+
+            # Find the migration file ending with the current version
+            MIGRATION_FILE=$(ls pg_search/sql/pg_search--*--${CURRENT_VERSION}.sql 2>/dev/null | head -n 1)
+
+            if [ -z "$MIGRATION_FILE" ]; then
+              echo "❌ ERROR: Schema changed but no migration file found ending with version $CURRENT_VERSION"
+              echo "Expected file: pg_search/sql/pg_search--<prev_version>--${CURRENT_VERSION}.sql"
+              echo "Please create a migration file with the schema changes."
+              exit 1
+            fi
+
+            echo "Found migration file: $MIGRATION_FILE"
+            echo
+            echo "Checking if migration file contains all schema changes (order-independent)..."
+
+            # Compare schema changes independent of order, since pg-schema-diff output order is non-deterministic
+            if ! python3 .github/scripts/check_migration_diff.py ~/diff.sql "$MIGRATION_FILE" --debug; then
+              echo
+              echo "The migration file at $MIGRATION_FILE needs to be updated."
+              echo "Please ensure all the schema changes shown above are in your migration file."
+              echo
+              echo "ℹ️  NOTE: If you need to modify the SchemaBot-generated diff because it's incorrect,"
+              echo "   please update the schema diff generation logic at:"
+              echo "   https://github.com/paradedb/pg-schema-diff"
+              exit 1
+            fi
+          else
+            echo "✅ No schema difference detected"
+            echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi

@@ -24,6 +24,7 @@ concurrency:
 
 # Used by actions/attest-build-provenance to sign the builds
 permissions:
+  contents: write
   id-token: write
   attestations: write
 
@@ -65,9 +66,9 @@ jobs:
             pg_version: 18
 
     steps:
-      # We force reinstall icu4c and git to make sure it is in PATH
+      # We force reinstall git to make sure it is in PATH
       - name: Install Dependencies
-        run: brew reinstall icu4c git
+        run: brew reinstall git
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6
@@ -130,9 +131,8 @@ jobs:
         working-directory: pg_search/
         run: |
           PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
-          export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
           export PATH="/opt/homebrew/bin:$PATH"
-          cargo pgrx package --features icu --pg-config $PG_CONFIG_PATH
+          cargo pgrx package --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
           PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
@@ -158,10 +158,10 @@ jobs:
           mkdir -p ${package_dir}/${share_path}
 
           # Copy files into the directory structure. In PostgreSQL 16 onwards, the extension is a .dylib file
-          if [[ "${{ matrix.pg_version }}" == "16" || "${{ matrix.pg_version }}" == "17" ]]; then
-            cp archive/*.dylib ${package_dir}/${lib_path}
-          else
+          if [[ "${{ matrix.pg_version }}" == "15" ]]; then
             cp archive/*.so ${package_dir}/${lib_path}
+          else
+            cp archive/*.dylib ${package_dir}/${lib_path}
           fi
           cp archive/*.control ${package_dir}/${share_path}
           cp archive/*.sql ${package_dir}/${share_path}

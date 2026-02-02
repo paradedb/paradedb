@@ -8,10 +8,10 @@ CREATE TABLE public.key_field_text_raw
 CREATE INDEX idx_key_field_raw on public.key_field_text_raw USING bm25 (id, data)
 WITH (key_field = id, text_fields = '{"id": { "tokenizer": { "type": "keyword" } } }');
 SELECT * FROM paradedb.schema('idx_key_field_raw') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                          |          | 
- data | Str        | f      | t       | f    | t          |             | remove_emojis:false      | position | 
- id   | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | position | raw
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
+ data | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ id   | Str        | f      | t       | t    | t          |             | keyword[lowercase=false]         | position | raw
 (3 rows)
 

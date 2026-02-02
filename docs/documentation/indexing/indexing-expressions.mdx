@@ -5,7 +5,10 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-expressions
 ---
 
 In addition to indexing columns, Postgres expressions can also be indexed.
-For instance, the following statement indexes an expression which concatenates `description` and `category`:
+
+## Indexing Text/JSON Expressions
+
+The following statement indexes an expression which concatenates `description` and `category`, which are both text fields:
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -13,7 +16,7 @@ USING bm25 (id, ((description || ' ' || category)::pdb.simple('alias=description
 WITH (key_field='id');
 ```
 
-To index an expression:
+To index a text/JSON expression:
 
 1. Add the expression to the column list. In this example, the expression is `description || ' ' || category`.
 2. Cast it to a [tokenizer](/documentation/tokenizers/overview), in this example `pdb.simple`.
@@ -33,3 +36,23 @@ WHERE (description || ' ' || category) &&& 'running shoes';
   The expression on the left-hand side of the operator must exactly match the
   expression that was indexed.
 </Note>
+
+## Indexing Non-Text Expressions
+
+To index a non-text expression, cast the expression to `pdb.alias`. For example, the following statement indexes
+the expression `rating + 1`, which returns an integer:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, ((rating + 1)::pdb.alias('rating')))
+WITH (key_field='id');
+```
+
+With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes'
+AND rating + 1 > 3;
+```

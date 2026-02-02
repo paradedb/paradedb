@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::ParallelScanState;
 use pgrx::{pg_guard, pg_sys};
@@ -24,16 +23,20 @@ use tantivy::index::SegmentId;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_void) {
     let state = target.cast::<ParallelScanState>();
-    (*state).init_mutex();
+    (*state).create();
 }
 
 #[pg_guard]
-pub unsafe extern "C-unwind" fn amparallelrescan(_scan: pg_sys::IndexScanDesc) {
-    // Note: PostgreSQL doesn't actually call this function for index scans for our custom scan.
-    // Rescanning is handled in amrescan itself, which is called by both leader and workers.
+pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
+    // PostgreSQL calls this before a rescan to reset the parallel scan state.
+    // Mark as uninitialized so workers wait for leader to re-populate.
+    if let Some(state) = get_bm25_scan_state(&mut (scan as *mut _)) {
+        let _mutex = state.acquire_mutex();
+        state.mark_uninitialized();
+    }
 }
 
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+#[cfg(any(feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amestimateparallelscan() -> pg_sys::Size {
     ParallelScanState::size_of(u16::MAX as usize, &[], false)
@@ -77,7 +80,7 @@ unsafe fn bm25_shared_state(
         scan.parallel_scan
             .cast::<std::ffi::c_void>()
             .add({
-                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
                 {
                     (*scan.parallel_scan).ps_offset
                 }
@@ -91,9 +94,11 @@ unsafe fn bm25_shared_state(
     }
 }
 
-/// Initialize parallel scan state for index scans.
-///
-/// This function is called by amrescan, which is invoked by both the leader and all parallel workers.
+/// Initialize parallel scan state if not already done.
+/// Only the leader calls this function to populate the segment pool with its
+/// snapshot-visible segments. Workers wait for this initialization and then
+/// use ParallelWorker visibility to see the same segments.
+/// Segments are NOT claimed here - they're claimed lazily in amgettuple/amgetbitmap.
 pub unsafe fn maybe_init_parallel_scan(
     mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
@@ -104,29 +109,20 @@ pub unsafe fn maybe_init_parallel_scan(
     }
 
     let state = get_bm25_scan_state(&mut scan)?;
-    let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+
     let _mutex = state.acquire_mutex();
-    if worker_number == -1 {
-        // ParallelWorkerNumber -1 is the main backend, which is where we'll set up
-        // our shared memory information.  The mutex was already initialized, directly, in
-        // `aminitparallelscan()`
-        state.init_without_mutex(searcher.segment_readers(), &[], false);
+
+    if !state.is_initialized() {
+        state.populate(searcher.segment_readers(), &[], false);
     }
-    Some(worker_number)
+    Some(unsafe { pg_sys::ParallelWorkerNumber })
 }
 
+/// Claim a segment from the shared pool.
+/// Both leader and workers use this to get work.
+/// All participants wait for initialization before attempting to claim.
 pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
     get_bm25_scan_state(&mut scan)?.checkout_segment()
-}
-
-pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
-    Some(
-        get_bm25_scan_state(&mut scan)?
-            .segments()
-            .keys()
-            .cloned()
-            .collect(),
-    )
 }
 
 fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {

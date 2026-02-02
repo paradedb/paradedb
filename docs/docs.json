@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.20.1",
+        "version": "v0.21.6",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -52,7 +52,8 @@
                           "documentation/indexing/indexing-expressions",
                           "documentation/indexing/indexing-json",
                           "documentation/indexing/indexing-arrays",
-                          "documentation/indexing/reindexing"
+                          "documentation/indexing/reindexing",
+                          "documentation/indexing/verify-index"
                         ]
                       },
                       {
@@ -154,7 +155,8 @@
                           "documentation/query-builder/phrase/phrase-prefix",
                           "documentation/query-builder/compound/query-parser",
                           "documentation/query-builder/term/range-term",
-                          "documentation/query-builder/term/regex"
+                          "documentation/query-builder/term/regex",
+                          "documentation/query-builder/phrase/regex-phrase"
                         ]
                       },
                       {
@@ -169,6 +171,7 @@
                       }
                     ]
                   },
+                  "welcome/ai-agents",
                   "welcome/support"
                 ]
               }
@@ -290,7 +293,8 @@
                         "group": "Logical Replication",
                         "pages": [
                           "deploy/self-hosted/logical-replication/getting-started",
-                          "deploy/self-hosted/logical-replication/configuration"
+                          "deploy/self-hosted/logical-replication/configuration",
+                          "deploy/self-hosted/logical-replication/multi-database"
                         ]
                       },
                       {
@@ -305,6 +309,7 @@
                   "deploy/enterprise",
                   "deploy/upgrading",
                   "deploy/third-party-extensions",
+                  "deploy/citus",
                   {
                     "group": "Continuous Integration",
                     "pages": ["deploy/ci/github-actions", "deploy/ci/gitlab-ci"]
@@ -320,6 +325,22 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.6",
+                  "changelog/0.21.5",
+                  "changelog/0.21.4",
+                  "changelog/0.21.3",
+                  "changelog/0.21.2",
+                  "changelog/0.21.1",
+                  "changelog/0.21.0",
+                  "changelog/0.20.10",
+                  "changelog/0.20.9",
+                  "changelog/0.20.8",
+                  "changelog/0.20.7",
+                  "changelog/0.20.6",
+                  "changelog/0.20.5",
+                  "changelog/0.20.4",
+                  "changelog/0.20.3",
+                  "changelog/0.20.2",
                   "changelog/0.20.1",
                   "changelog/0.20.0",
                   "changelog/0.19.11",
@@ -437,6 +458,36 @@
       "href": "https://github.com/paradedb/paradedb"
     }
   },
+  "contextual": {
+    "options": [
+      "copy",
+      "mcp",
+      "cursor",
+      "vscode",
+      "perplexity",
+      "chatgpt",
+      "claude",
+      {
+        "title": "Share on X",
+        "description": "Share this page on X",
+        "icon": "x",
+        "iconType": "brands",
+        "href": {
+          "base": "https://x.com/intent/tweet",
+          "query": [
+            {
+              "key": "text",
+              "value": "Check out this ParadeDB doc!"
+            },
+            {
+              "key": "url",
+              "value": "https://docs.paradedb.com$path"
+            }
+          ]
+        }
+      }
+    ]
+  },
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
@@ -486,9 +537,9 @@
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres.",
+      "twitter:description": "Developer docs for ParadeDB: Simple, Elastic-Quality Search for Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
-      "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
+      "twitter:image:alt": "ParadeDB: Simple, Elastic-Quality Search for Postgres."
     },
     "indexing": "navigable"
   }

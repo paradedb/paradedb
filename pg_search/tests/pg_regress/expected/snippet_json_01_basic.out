@@ -38,7 +38,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
-  1 | A <b>test</b> author | {"{2,6}"}
+  1 | A <b>test</b> author | {{2,6}}
 (1 row)
 
 SELECT id,
@@ -48,7 +48,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
-  1 | A <b>test</b> author | {"{2,6}"}
+  1 | A <b>test</b> author | {{2,6}}
 (1 row)
 
 SELECT id,
@@ -58,7 +58,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_jsonb.details.author.description:test');
  id |       snippet        | snippet_positions 
 ----+----------------------+-------------------
-  1 | A <b>test</b> author | {"{2,6}"}
+  1 | A <b>test</b> author | {{2,6}}
 (1 row)
 
 SELECT id,
@@ -68,7 +68,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
-  1 | test <b>snippet</b> | {"{5,12}"}
+  1 | test <b>snippet</b> | {{5,12}}
 (1 row)
 
 SELECT id,
@@ -78,7 +78,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
-  1 | test <b>snippet</b> | {"{5,12}"}
+  1 | test <b>snippet</b> | {{5,12}}
 (1 row)
 
 SELECT id,
@@ -88,7 +88,7 @@ FROM snippet_test
 WHERE id @@@ paradedb.parse('metadata_json.tags:snippet');
  id |       snippet       | snippet_positions 
 ----+---------------------+-------------------
-  1 | test <b>snippet</b> | {"{5,12}"}
+  1 | test <b>snippet</b> | {{5,12}}
 (1 row)
 
 \i common/snippet_json_basic_cleanup.sql

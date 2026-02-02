@@ -1,0 +1,33 @@
+\i common/common_setup.sql
+
+CREATE TABLE data_docstore (
+    id SERIAL PRIMARY KEY,
+    doc_text VARCHAR
+);
+
+CREATE INDEX data_docstore_text_search_idx ON data_docstore
+USING bm25 (id, doc_text)
+WITH (key_field=id, mutable_segment_rows=2, background_layer_sizes='0', layer_sizes='1kb, 100kb, 1mb, 10mb', target_segment_count = 4);
+
+INSERT INTO data_docstore (doc_text)
+VALUES (repeat('BigData_ ', 200000));
+
+SELECT id
+FROM data_docstore
+WHERE doc_text ||| 'BigData_';
+
+UPDATE data_docstore SET doc_text = repeat('BigData_ ', 200000) WHERE id = 1;
+SELECT mutable, num_docs FROM paradedb.index_info('data_docstore_text_search_idx');
+
+-- Reading a deleted toasted tuple in a mutable segment works
+SELECT id
+FROM data_docstore
+WHERE doc_text ||| 'BigData_';
+
+-- Now make sure merging mutable segments works
+DO $$
+BEGIN
+  FOR i IN 1..20 LOOP
+    UPDATE data_docstore SET doc_text = repeat('BigData_ ', 200000) WHERE id = 1;
+  END LOOP;
+END$$;

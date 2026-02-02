@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS index_json;
 CREATE TABLE index_json(
     id serial8 not null primary key,
@@ -7,12 +8,12 @@ CREATE TABLE index_json(
 INSERT INTO index_json (j, jb) VALUES ('{"key1": "value1"}', '{"key2": "value2"}');
 CREATE INDEX idxindex_json ON index_json USING bm25 (id, j, jb) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxindex_json') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |      tokenizer      |  record  | normalizer 
-------+------------+--------+---------+------+------------+-------------+---------------------+----------+------------
- ctid | U64        | f      | t       | t    | f          |             |                     |          | 
- id   | I64        | f      | t       | t    | f          |             |                     |          | 
- j    | JsonObject | f      | t       | f    | f          | t           | remove_emojis:false | position | 
- jb   | JsonObject | f      | t       | f    | f          | t           | remove_emojis:false | position | 
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
+------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
+ id   | I64        | f      | t       | t    | f          |             |                                  |          | 
+ j    | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
+ jb   | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
 (4 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' @@@ 'value1';
@@ -78,9 +79,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'
 (6 rows)
 
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                                  QUERY PLAN                                                 
@@ -162,9 +164,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  
@@ -246,21 +249,9 @@ SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on index_json
-   Table: index_json
-   Index: idxindex_json
-   Exec Method: NormalScanExecState
-   Scores: false
-   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"j.key1","phrase":"value1","slop":null}}}}
-(6 rows)
-
+ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
- id | j | jb 
-----+---+----
-(0 rows)
-
+ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                                  QUERY PLAN                                                 
 ------------------------------------------------------------------------------------------------------------
@@ -340,9 +331,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
- id | j | jb 
-----+---+----
-(0 rows)
+ id |         j          |         jb         
+----+--------------------+--------------------
+  1 | {"key1": "value1"} | {"key2": "value2"}
+(1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
                                                  QUERY PLAN                                                  

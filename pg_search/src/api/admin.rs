@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,6 +17,7 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
+use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -25,11 +26,12 @@ use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::item_pointer_to_u64;
-use crate::query::pdb_query::pdb;
+use crate::postgres::utils::{item_pointer_to_u64, u64_to_item_pointer};
+use crate::query::pdb_query::pdb as pdb_query;
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
+use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
@@ -368,7 +370,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     let ctid_u64 = item_pointer_to_u64(ctid);
     let query = SearchQueryInput::FieldedQuery {
         field: "ctid".into(),
-        query: pdb::Query::Term {
+        query: pdb_query::Query::Term {
             value: ctid_u64.into(),
             is_datetime: false,
         },
@@ -395,8 +397,16 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     }
 }
 
+/// Deprecated: Use `pdb.verify_index` instead, which includes checksum validation
+/// along with additional integrity checks.
 #[pg_extern]
 fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>> {
+    pgrx::warning!(
+        "validate_checksum is deprecated. Use pdb.verify_index('{}') instead, \
+         which includes checksum validation along with additional integrity checks.",
+        index.name()
+    );
+
     // # Safety
     //
     // Lock the index relation until the end of this function so it is not dropped or
@@ -414,6 +424,234 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     Ok(SetOfIterator::new(
         failed.into_iter().map(|path| path.display().to_string()),
     ))
+}
+
+/// Result of heap reference check: (total_checked, total_docs, missing_ctids)
+/// - total_checked: number of documents successfully checked
+/// - total_docs: number of documents attempted (after sampling)
+/// - missing_ctids: list of (block, offset) pairs for ctids not found in heap
+///
+/// Note: if total_checked < total_docs, then (total_docs - total_checked) documents
+/// had missing ctid fields, indicating index corruption.
+type HeapCheckResult = Result<(usize, usize, Vec<(u32, u16)>)>;
+
+/// Helper function to verify that all indexed ctids exist in the heap.
+/// Returns (total_checked, total_docs, missing_ctids, docs_without_ctid)
+fn verify_heap_references(
+    index_rel: &PgSearchRelation,
+    search_reader: &SearchIndexReader,
+    sample_rate: Option<f64>,
+    report_progress: bool,
+    verbose: bool,
+    segment_filter: &Option<HashSet<usize>>,
+) -> HeapCheckResult {
+    // Get the heap relation OID from the index
+    let heap_oid = index_rel
+        .rel_oid()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine heap relation for index"))?;
+
+    // Open the heap relation
+    let heap_rel = PgSearchRelation::with_lock(heap_oid, pg_sys::AccessShareLock as _);
+
+    // Set up heap fetch state
+    let scan = unsafe { pg_sys::table_index_fetch_begin(heap_rel.as_ptr()) };
+    let slot = unsafe {
+        pg_sys::MakeTupleTableSlot(
+            pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
+            &pg_sys::TTSOpsBufferHeapTuple,
+        )
+    };
+    let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+
+    let mut total_checked = 0usize;
+    let mut total_docs = 0usize;
+    let mut missing_ctids = Vec::new();
+
+    // For sampling, we use a simple deterministic approach based on doc_id
+    // This ensures reproducible results for the same sample_rate
+    // None means check all (no sampling)
+    let sample_threshold = sample_rate.map(|r| (r * u32::MAX as f64) as u32);
+
+    // Calculate total docs for progress reporting (only for segments we'll check)
+    let total_alive_docs: usize = search_reader
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .is_none_or(|filter| filter.contains(idx))
+        })
+        .map(|(_, r)| r.num_docs() as usize)
+        .sum();
+
+    // Progress reporting interval (report every ~5% or every 100k docs, whichever is larger)
+    let progress_interval = (total_alive_docs / 20).max(100_000);
+    let mut last_progress_report = 0usize;
+
+    // Build list of segments to process for progress logging
+    let segments_to_check: Vec<usize> = search_reader
+        .segment_readers()
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| {
+            segment_filter
+                .as_ref()
+                .is_none_or(|filter| filter.contains(idx))
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+    let mut segments_completed = 0usize;
+
+    // Iterate through all segments and all documents
+    for (seg_idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
+        // Skip segments not in the filter (if filter is specified)
+        if let Some(ref filter) = segment_filter {
+            if !filter.contains(&seg_idx) {
+                continue;
+            }
+        }
+
+        let segment_id = segment_reader.segment_id().short_uuid_string();
+        let fast_fields = segment_reader.fast_fields();
+        let ctid_column = FFType::new_ctid(fast_fields);
+        let alive_bitset = segment_reader.alive_bitset();
+
+        if verbose {
+            pgrx::warning!(
+                "verify_index: Heap check - starting segment {}/{} (index={}, id={}, {} docs)",
+                segments_completed + 1,
+                segments_to_check.len(),
+                seg_idx,
+                segment_id,
+                segment_reader.num_docs()
+            );
+        }
+
+        // Iterate through all document IDs in this segment
+        for doc_id in 0..segment_reader.max_doc() {
+            // Skip deleted documents
+            if let Some(bitset) = &alive_bitset {
+                if !bitset.is_alive(doc_id) {
+                    continue;
+                }
+            }
+
+            // Apply sampling: use a hash of the doc_id for deterministic sampling
+            // None means check all (no sampling)
+            if let Some(threshold) = sample_threshold {
+                // Simple hash: multiply by a prime and take modulo
+                let hash = doc_id.wrapping_mul(2654435761);
+                if hash > threshold {
+                    continue;
+                }
+            }
+
+            // Count documents we're attempting to check (after sampling)
+            total_docs += 1;
+
+            // Get the ctid for this document
+            // Every indexed document MUST have a ctid - if missing, the index is corrupted
+            let ctid_u64 = match ctid_column.as_u64(doc_id) {
+                Some(val) => val,
+                None => continue, // Will be detected as total_docs > total_checked
+            };
+
+            total_checked += 1;
+
+            // Report progress periodically
+            if report_progress && total_checked - last_progress_report >= progress_interval {
+                let pct = (total_docs as f64 / total_alive_docs as f64 * 100.0).min(100.0);
+                pgrx::warning!(
+                    "verify_index: Progress {:.1}% ({} docs checked, {} missing so far)",
+                    pct,
+                    total_checked,
+                    missing_ctids.len()
+                );
+                last_progress_report = total_checked;
+            }
+
+            // Convert u64 to ItemPointerData
+            let mut tid = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(ctid_u64, &mut tid);
+
+            // Check if the tuple exists in the heap
+            let mut call_again = false;
+            let mut all_dead = false;
+            let found = unsafe {
+                pg_sys::ExecClearTuple(slot);
+                pg_sys::table_index_fetch_tuple(
+                    scan,
+                    &mut tid,
+                    snapshot,
+                    slot,
+                    &mut call_again,
+                    &mut all_dead,
+                )
+            };
+
+            if !found {
+                let (block, offset) = pgrx::itemptr::item_pointer_get_both(tid);
+                missing_ctids.push((block, offset));
+            }
+
+            // Check for interrupts periodically (every 10k docs)
+            if total_checked.is_multiple_of(10_000) {
+                pgrx::check_for_interrupts!();
+            }
+        }
+
+        // Log segment completion with resume hint (verbose mode only)
+        segments_completed += 1;
+        if verbose {
+            let remaining: Vec<String> = segments_to_check
+                .iter()
+                .filter(|&&i| i > seg_idx)
+                .map(|i| i.to_string())
+                .collect();
+            if remaining.is_empty() {
+                pgrx::warning!(
+                    "verify_index: Heap check - completed segment {}/{} (index={}, id={}). All segments done.",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id
+                );
+            } else {
+                pgrx::warning!(
+                    "verify_index: Heap check - completed segment {}/{} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                    segments_completed,
+                    segments_to_check.len(),
+                    seg_idx,
+                    segment_id,
+                    remaining.join(", ")
+                );
+            }
+        }
+    }
+
+    // Clean up
+    unsafe {
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+        pg_sys::table_index_fetch_end(scan);
+    }
+
+    if report_progress {
+        let without_ctid = total_docs - total_checked;
+        pgrx::warning!(
+            "verify_index: Heap check complete. Checked {} of {} docs, {} missing{}",
+            total_checked,
+            total_docs,
+            missing_ctids.len(),
+            if without_ctid > 0 {
+                format!(", {} without ctid (corruption)", without_ctid)
+            } else {
+                String::new()
+            }
+        );
+    }
+
+    Ok((total_checked, total_docs, missing_ctids))
 }
 
 #[pg_extern(sql = "")]
@@ -653,3 +891,935 @@ GRANT SELECT ON pdb.index_layer_info TO PUBLIC;
     name = "pdb_index_layer_info",
     requires = [index_info, combined_layer_sizes]
 );
+
+// =============================================================================
+// pdb schema functions for index verification
+// =============================================================================
+
+#[pgrx::pg_schema]
+pub mod pdb {
+    use super::*;
+
+    /// Verify the integrity of a BM25 index, similar to PostgreSQL's amcheck extension.
+    ///
+    /// This function performs various verification checks on the index:
+    /// - Schema validation: Ensures the index schema can be loaded
+    /// - Index readability: Verifies the index can be opened for reading
+    /// - Segment checksum validation: Uses Tantivy's built-in checksums to detect corruption
+    /// - Segment metadata consistency: Checks that segment metadata is internally consistent
+    /// - Heap reference validation (optional): Verifies all indexed ctids exist in the heap table
+    ///
+    /// # Arguments
+    /// * `index` - The BM25 index to verify (name or OID)
+    /// * `heapallindexed` - If true, verify that all indexed ctids exist in the heap table.
+    ///   This is expensive but thorough. Default: false
+    /// * `sample_rate` - For large indexes, check only this fraction of documents (0.0-1.0).
+    ///   Default: NULL (100%). Use lower values for quick spot checks.
+    /// * `report_progress` - If true, emit progress messages via WARNING. Default: false
+    /// * `verbose` - If true, show detailed segment-by-segment progress and resume hints.
+    ///   Useful for resuming after connection drops. Default: false
+    /// * `on_error_stop` - If true, stop verification on first error found (like pg_amcheck
+    ///   --on-error-stop). Default: false
+    /// * `segment_ids` - Optional array of segment indices to verify (0-based). If NULL,
+    ///   verify all segments. Use for manual parallelization across database connections.
+    ///
+    /// # Returns
+    /// A table with columns:
+    /// - `check_name`: Name of the verification check (e.g., "my_index: schema_valid")
+    /// - `passed`: Whether the check passed (true/false)
+    /// - `details`: Additional details about the check result
+    ///
+    /// # Example
+    /// ```sql
+    /// -- Basic verification
+    /// SELECT * FROM pdb.verify_index('my_index');
+    ///
+    /// -- With heap reference validation (thorough but slower)
+    /// SELECT * FROM pdb.verify_index('my_index', heapallindexed := true);
+    ///
+    /// -- For large indexes: sample 10% of documents with progress reporting
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     sample_rate := 0.1,
+    ///     report_progress := true);
+    ///
+    /// -- Verbose mode: show segment list and resume hints
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     report_progress := true,
+    ///     verbose := true);
+    ///
+    /// -- Manual parallelization: run from separate database connections
+    /// -- First, list all segments:
+    /// SELECT * FROM pdb.index_segments('my_index');
+    /// -- Then split verification across connections:
+    /// -- Connection 1:
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     segment_ids := ARRAY[0,1,2]);
+    /// -- Connection 2:
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     segment_ids := ARRAY[3,4,5]);
+    ///
+    /// -- Stop on first error (like pg_amcheck --on-error-stop)
+    /// SELECT * FROM pdb.verify_index('my_index', on_error_stop := true);
+    /// ```
+    #[allow(clippy::type_complexity)]
+    #[pg_extern]
+    pub fn verify_index(
+        index: PgRelation,
+        heapallindexed: default!(bool, false),
+        sample_rate: default!(Option<f64>, "NULL"),
+        report_progress: default!(bool, false),
+        verbose: default!(bool, false),
+        on_error_stop: default!(bool, false),
+        segment_ids: default!(Option<Vec<i32>>, "NULL"),
+    ) -> Result<
+        TableIterator<
+            'static,
+            (
+                name!(check_name, String),
+                name!(passed, bool),
+                name!(details, Option<String>),
+            ),
+        >,
+    > {
+        // Validate sample_rate (None means check all)
+        let sample_rate = sample_rate.map(|r| r.clamp(0.0, 1.0));
+
+        // Convert segment_ids to a HashSet for O(1) lookup
+        let segment_filter: Option<HashSet<usize>> = segment_ids.map(|ids| {
+            ids.into_iter()
+                .filter(|&id| id >= 0)
+                .map(|id| id as usize)
+                .collect()
+        });
+
+        let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+        let index_kind = IndexKind::for_index(index_rel.clone())?;
+
+        let mut results = Vec::new();
+
+        // We process each partition of the index
+        for partition in index_kind.partitions() {
+            let partition_name = partition.name().to_owned();
+
+            if report_progress {
+                pgrx::warning!("verify_index: Starting verification of {}", partition_name);
+            }
+
+            // Check 1: Schema validation
+            let schema_result = partition.schema();
+            match &schema_result {
+                Ok(_schema) => {
+                    results.push((
+                        format!("{}: schema_valid", partition_name),
+                        true,
+                        Some("Index schema loaded successfully".to_string()),
+                    ));
+                }
+                Err(e) => {
+                    results.push((
+                        format!("{}: schema_valid", partition_name),
+                        false,
+                        Some(format!("Failed to load index schema: {}", e)),
+                    ));
+                    // If schema fails, we can't do much more for this partition
+                    if on_error_stop {
+                        return Ok(TableIterator::new(results));
+                    }
+                    continue;
+                }
+            }
+
+            // Check 2: Open index reader
+            let reader_result = SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot);
+            let search_reader = match reader_result {
+                Ok(reader) => {
+                    results.push((
+                        format!("{}: index_readable", partition_name),
+                        true,
+                        Some("Index reader opened successfully".to_string()),
+                    ));
+                    reader
+                }
+                Err(e) => {
+                    results.push((
+                        format!("{}: index_readable", partition_name),
+                        false,
+                        Some(format!("Failed to open index reader: {}", e)),
+                    ));
+                    if on_error_stop {
+                        return Ok(TableIterator::new(results));
+                    }
+                    continue;
+                }
+            };
+
+            // Check 3: Segment checksum validation
+            if report_progress {
+                pgrx::warning!("verify_index: Validating checksums for {}", partition_name);
+            }
+            let checksum_result = search_reader.validate_checksum();
+            let mut checksum_failed = false;
+            match checksum_result {
+                Ok(failed_checksums) => {
+                    if failed_checksums.is_empty() {
+                        results.push((
+                            format!("{}: checksums_valid", partition_name),
+                            true,
+                            Some("All segment checksums validated successfully".to_string()),
+                        ));
+                    } else {
+                        checksum_failed = true;
+                        let failed_files: Vec<_> = failed_checksums
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect();
+                        results.push((
+                            format!("{}: checksums_valid", partition_name),
+                            false,
+                            Some(format!(
+                                "Checksum validation failed for {} files: {}",
+                                failed_files.len(),
+                                failed_files.join(", ")
+                            )),
+                        ));
+                    }
+                }
+                Err(e) => {
+                    checksum_failed = true;
+                    results.push((
+                        format!("{}: checksums_valid", partition_name),
+                        false,
+                        Some(format!("Checksum validation error: {}", e)),
+                    ));
+                }
+            }
+            if on_error_stop && checksum_failed {
+                return Ok(TableIterator::new(results));
+            }
+
+            // Check 4: Segment metadata consistency
+            let segment_readers = search_reader.segment_readers();
+            let num_segments = segment_readers.len();
+            let mut segment_issues = Vec::new();
+            let mut segments_checked = 0usize;
+
+            // Build list of all segments with their IDs for progress reporting
+            let all_segments: Vec<(usize, String)> = segment_readers
+                .iter()
+                .enumerate()
+                .map(|(idx, r)| (idx, r.segment_id().short_uuid_string()))
+                .collect();
+
+            // Determine which segments will be processed
+            let segments_to_process: Vec<(usize, String)> = all_segments
+                .iter()
+                .filter(|(idx, _)| {
+                    segment_filter
+                        .as_ref()
+                        .is_none_or(|filter| filter.contains(idx))
+                })
+                .cloned()
+                .collect();
+
+            // Log segment list at the start for resumability (only in verbose mode)
+            if verbose {
+                let all_segment_list: Vec<String> = all_segments
+                    .iter()
+                    .map(|(idx, id)| format!("{}:{}", idx, id))
+                    .collect();
+                pgrx::warning!(
+                    "verify_index: {} has {} segments: [{}]",
+                    partition_name,
+                    num_segments,
+                    all_segment_list.join(", ")
+                );
+
+                if segment_filter.is_some() {
+                    let to_process_list: Vec<String> = segments_to_process
+                        .iter()
+                        .map(|(idx, id)| format!("{}:{}", idx, id))
+                        .collect();
+                    pgrx::warning!(
+                        "verify_index: Will process {} of {} segments: [{}]",
+                        segments_to_process.len(),
+                        num_segments,
+                        to_process_list.join(", ")
+                    );
+
+                    // Log which segments to use for resuming if connection drops
+                    let remaining_indices: Vec<String> = segments_to_process
+                        .iter()
+                        .map(|(idx, _)| idx.to_string())
+                        .collect();
+                    pgrx::warning!(
+                        "verify_index: To resume from start, use: segment_ids := ARRAY[{}]",
+                        remaining_indices.join(", ")
+                    );
+                }
+            } else if report_progress {
+                // Basic progress: just show segment count
+                if segment_filter.is_some() {
+                    pgrx::warning!(
+                        "verify_index: Verifying {} of {} segments",
+                        segments_to_process.len(),
+                        num_segments
+                    );
+                } else {
+                    pgrx::warning!("verify_index: Verifying {} segments", num_segments);
+                }
+            }
+
+            for (idx, segment_reader) in segment_readers.iter().enumerate() {
+                // Skip segments not in the filter (if filter is specified)
+                if let Some(ref filter) = segment_filter {
+                    if !filter.contains(&idx) {
+                        continue;
+                    }
+                }
+
+                segments_checked += 1;
+                let segment_id = segment_reader.segment_id().short_uuid_string();
+                let num_docs = segment_reader.num_docs();
+                let max_doc = segment_reader.max_doc();
+
+                // Log progress for each segment
+                if verbose {
+                    pgrx::warning!(
+                        "verify_index: Processing segment {}/{} (index={}, id={}, docs={})",
+                        segments_checked,
+                        segments_to_process.len(),
+                        idx,
+                        segment_id,
+                        num_docs
+                    );
+                }
+
+                // Basic sanity check: num_docs should not exceed max_doc
+                if num_docs > max_doc {
+                    segment_issues.push(format!(
+                        "Segment {} ({}): num_docs ({}) exceeds max_doc ({})",
+                        idx, segment_id, num_docs, max_doc
+                    ));
+                }
+
+                // Check if fast fields are accessible (specifically ctid)
+                let fast_fields = segment_reader.fast_fields();
+                if fast_fields.u64("ctid").is_err() {
+                    segment_issues.push(format!(
+                        "Segment {} ({}): ctid fast field not accessible",
+                        idx, segment_id
+                    ));
+                }
+
+                // Log completion and resume hint after each segment (verbose mode only)
+                if verbose {
+                    let remaining: Vec<String> = segments_to_process
+                        .iter()
+                        .filter(|(i, _)| *i > idx)
+                        .map(|(i, _)| i.to_string())
+                        .collect();
+                    if remaining.is_empty() {
+                        pgrx::warning!(
+                            "verify_index: Completed segment {} (index={}, id={}). All segments done.",
+                            segments_checked,
+                            idx,
+                            segment_id
+                        );
+                    } else {
+                        pgrx::warning!(
+                            "verify_index: Completed segment {} (index={}, id={}). To resume: segment_ids := ARRAY[{}]",
+                            segments_checked,
+                            idx,
+                            segment_id,
+                            remaining.join(", ")
+                        );
+                    }
+                }
+            }
+
+            let segment_info = if segment_filter.is_some() {
+                format!(
+                    "{} of {} segments validated successfully",
+                    segments_checked, num_segments
+                )
+            } else {
+                format!("{} segments validated successfully", num_segments)
+            };
+
+            if segment_issues.is_empty() {
+                results.push((
+                    format!("{}: segment_metadata_valid", partition_name),
+                    true,
+                    Some(segment_info),
+                ));
+            } else {
+                results.push((
+                    format!("{}: segment_metadata_valid", partition_name),
+                    false,
+                    Some(segment_issues.join("; ")),
+                ));
+                if on_error_stop {
+                    return Ok(TableIterator::new(results));
+                }
+            }
+
+            // Check 5: Heap reference validation (optional, expensive)
+            if heapallindexed {
+                if report_progress {
+                    let segment_info = if segment_filter.is_some() {
+                        format!(" for {} selected segments", segments_checked)
+                    } else {
+                        String::new()
+                    };
+                    let sample_pct = sample_rate.map(|r| r * 100.0).unwrap_or(100.0);
+                    pgrx::warning!(
+                        "verify_index: Starting heap reference check for {} (sample_rate: {:.0}%){}",
+                        partition_name,
+                        sample_pct,
+                        segment_info
+                    );
+                }
+                let heap_check_result = super::verify_heap_references(
+                    &partition,
+                    &search_reader,
+                    sample_rate,
+                    report_progress,
+                    verbose,
+                    &segment_filter,
+                );
+                match heap_check_result {
+                    Ok((total_checked, total_docs, missing_ctids)) => {
+                        let sample_info = if sample_rate.is_some_and(|r| r < 1.0) {
+                            format!(" (sampled {} of {} docs)", total_checked, total_docs)
+                        } else {
+                            String::new()
+                        };
+
+                        // Check for documents without ctid (indicates index corruption)
+                        // This is detected when total_checked < total_docs
+                        let docs_without_ctid = total_docs - total_checked;
+                        if docs_without_ctid > 0 {
+                            results.push((
+                                format!("{}: ctid_field_valid", partition_name),
+                                false,
+                                Some(format!(
+                                    "{} documents missing ctid in index (corruption detected)",
+                                    docs_without_ctid
+                                )),
+                            ));
+                            if on_error_stop {
+                                return Ok(TableIterator::new(results));
+                            }
+                        } else {
+                            results.push((
+                                format!("{}: ctid_field_valid", partition_name),
+                                true,
+                                Some(format!(
+                                    "All {} documents have valid ctid{}",
+                                    total_checked, sample_info
+                                )),
+                            ));
+                        }
+
+                        if missing_ctids.is_empty() {
+                            results.push((
+                                format!("{}: heap_references_valid", partition_name),
+                                true,
+                                Some(format!(
+                                    "All {} indexed ctids exist in heap{}",
+                                    total_checked, sample_info
+                                )),
+                            ));
+                        } else {
+                            // Limit the number of reported missing ctids
+                            let sample: Vec<_> = missing_ctids
+                                .iter()
+                                .take(10)
+                                .map(|ctid| format!("{:?}", ctid))
+                                .collect();
+                            let more = if missing_ctids.len() > 10 {
+                                format!(" (and {} more)", missing_ctids.len() - 10)
+                            } else {
+                                String::new()
+                            };
+                            results.push((
+                                format!("{}: heap_references_valid", partition_name),
+                                false,
+                                Some(format!(
+                                    "{} of {} indexed ctids missing from heap{}: {}{}",
+                                    missing_ctids.len(),
+                                    total_checked,
+                                    sample_info,
+                                    sample.join(", "),
+                                    more
+                                )),
+                            ));
+                            if on_error_stop {
+                                return Ok(TableIterator::new(results));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        results.push((
+                            format!("{}: heap_references_valid", partition_name),
+                            false,
+                            Some(format!("Heap reference check failed: {}", e)),
+                        ));
+                        if on_error_stop {
+                            return Ok(TableIterator::new(results));
+                        }
+                    }
+                }
+            }
+
+            if report_progress {
+                pgrx::warning!("verify_index: Completed verification of {}", partition_name);
+            }
+        }
+
+        Ok(TableIterator::new(results))
+    }
+
+    /// List all segments in a BM25 index.
+    ///
+    /// Returns information about each Tantivy segment in the index. This is useful for:
+    /// - Understanding index structure and segment distribution
+    /// - Planning parallel verification with `pdb.verify_index(..., segment_ids := ...)`
+    /// - Automating multi-client index checks
+    /// - Monitoring segment merging and index health
+    ///
+    /// # Arguments
+    /// * `index` - The BM25 index to inspect (name or OID)
+    ///
+    /// # Returns
+    /// A table with columns:
+    /// - `partition_name`: Name of the index partition
+    /// - `segment_idx`: Segment index (0-based, use with `segment_ids` parameter)
+    /// - `segment_id`: Tantivy segment UUID (short form)
+    /// - `num_docs`: Number of live documents in the segment
+    /// - `num_deleted`: Number of deleted (but not yet purged) documents
+    /// - `max_doc`: Maximum document ID in the segment
+    ///
+    /// # Example
+    /// ```sql
+    /// -- List all segments
+    /// SELECT * FROM pdb.index_segments('my_index');
+    ///
+    /// -- Get segment count
+    /// SELECT COUNT(*) FROM pdb.index_segments('my_index');
+    ///
+    /// -- Find segments with deleted documents
+    /// SELECT * FROM pdb.index_segments('my_index') WHERE num_deleted > 0;
+    ///
+    /// -- Automate parallel verification: split segments across N workers
+    /// -- Worker 1 (even segments):
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     segment_ids := (SELECT array_agg(segment_idx)
+    ///                     FROM pdb.index_segments('my_index')
+    ///                     WHERE segment_idx % 2 = 0));
+    /// -- Worker 2 (odd segments):
+    /// SELECT * FROM pdb.verify_index('my_index',
+    ///     heapallindexed := true,
+    ///     segment_ids := (SELECT array_agg(segment_idx)
+    ///                     FROM pdb.index_segments('my_index')
+    ///                     WHERE segment_idx % 2 = 1));
+    /// ```
+    #[allow(clippy::type_complexity)]
+    #[pg_extern]
+    pub fn index_segments(
+        index: PgRelation,
+    ) -> Result<
+        TableIterator<
+            'static,
+            (
+                name!(partition_name, String),
+                name!(segment_idx, i32),
+                name!(segment_id, String),
+                name!(num_docs, i64),
+                name!(num_deleted, i64),
+                name!(max_doc, i64),
+            ),
+        >,
+    > {
+        let index_rel = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+        let index_kind = IndexKind::for_index(index_rel.clone())?;
+
+        let mut results = Vec::new();
+
+        for partition in index_kind.partitions() {
+            let partition_name = partition.name().to_owned();
+
+            // Try to open the index reader
+            let search_reader = match SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot)
+            {
+                Ok(reader) => reader,
+                Err(_) => continue,
+            };
+
+            // Collect segment information
+            for (idx, segment_reader) in search_reader.segment_readers().iter().enumerate() {
+                let segment_id = segment_reader.segment_id().short_uuid_string();
+                let num_docs = segment_reader.num_docs() as i64;
+                let max_doc = segment_reader.max_doc() as i64;
+                let num_deleted = segment_reader.num_deleted_docs() as i64;
+
+                results.push((
+                    partition_name.clone(),
+                    idx as i32,
+                    segment_id,
+                    num_docs,
+                    num_deleted,
+                    max_doc,
+                ));
+            }
+        }
+
+        Ok(TableIterator::new(results))
+    }
+
+    /// List all BM25 indexes in the current database.
+    ///
+    /// Similar to pg_amcheck's index discovery, this function finds all BM25 indexes
+    /// so they can be verified or inspected. Useful for automation and monitoring.
+    ///
+    /// # Returns
+    /// A table with columns:
+    /// - `schemaname`: Schema containing the index
+    /// - `tablename`: Table the index is on
+    /// - `indexname`: Name of the index
+    /// - `indexrelid`: OID of the index (can be passed to verify_index)
+    /// - `num_segments`: Number of Tantivy segments in the index
+    /// - `total_docs`: Total documents across all segments
+    ///
+    /// # Example
+    /// ```sql
+    /// -- List all BM25 indexes
+    /// SELECT * FROM pdb.indexes();
+    ///
+    /// -- Find large indexes (by document count)
+    /// SELECT * FROM pdb.indexes() ORDER BY total_docs DESC;
+    ///
+    /// -- Find indexes with many segments (may benefit from optimization)
+    /// SELECT * FROM pdb.indexes() WHERE num_segments > 10;
+    ///
+    /// -- Verify all BM25 indexes in a specific schema
+    /// SELECT v.* FROM pdb.indexes() i
+    /// CROSS JOIN LATERAL pdb.verify_index(i.indexrelid) v
+    /// WHERE i.schemaname = 'public';
+    /// ```
+    #[allow(clippy::type_complexity)]
+    #[pg_extern]
+    pub fn indexes() -> Result<
+        TableIterator<
+            'static,
+            (
+                name!(schemaname, String),
+                name!(tablename, String),
+                name!(indexname, String),
+                name!(indexrelid, pg_sys::Oid),
+                name!(num_segments, i32),
+                name!(total_docs, i64),
+            ),
+        >,
+    > {
+        let mut results = Vec::new();
+
+        // Query pg_index joined with pg_class to find all BM25 indexes
+        let query = r#"
+        SELECT 
+            n.nspname::text AS schemaname,
+            t.relname::text AS tablename,
+            i.relname::text AS indexname,
+            i.oid AS indexrelid
+        FROM pg_index idx
+        JOIN pg_class i ON idx.indexrelid = i.oid
+        JOIN pg_class t ON idx.indrelid = t.oid
+        JOIN pg_namespace n ON i.relnamespace = n.oid
+        JOIN pg_am am ON i.relam = am.oid
+        WHERE am.amname = 'bm25'
+        ORDER BY n.nspname, t.relname, i.relname
+    "#;
+
+        Spi::connect(|client| {
+            let args: [DatumWithOid; 0] = [];
+            let result = client.select(query, None, &args)?;
+
+            for row in result {
+                let schemaname: String = row.get_by_name("schemaname")?.unwrap_or_default();
+                let tablename: String = row.get_by_name("tablename")?.unwrap_or_default();
+                let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
+                let indexrelid: pg_sys::Oid =
+                    row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
+
+                // Open the index to get segment information
+                let index_rel =
+                    PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+                let index_kind = match IndexKind::for_index(index_rel.clone()) {
+                    Ok(k) => k,
+                    Err(_) => continue,
+                };
+
+                let mut num_segments = 0i32;
+                let mut total_docs = 0i64;
+
+                for partition in index_kind.partitions() {
+                    if let Ok(search_reader) =
+                        SearchIndexReader::empty(&partition, MvccSatisfies::Snapshot)
+                    {
+                        for segment_reader in search_reader.segment_readers().iter() {
+                            num_segments += 1;
+                            total_docs += segment_reader.num_docs() as i64;
+                        }
+                    }
+                }
+
+                results.push((
+                    schemaname,
+                    tablename,
+                    indexname,
+                    indexrelid,
+                    num_segments,
+                    total_docs,
+                ));
+            }
+
+            Ok::<_, pgrx::spi::Error>(())
+        })?;
+
+        Ok(TableIterator::new(results))
+    }
+
+    /// Verify all BM25 indexes in the current database.
+    ///
+    /// Similar to pg_amcheck's `--all` option, this function discovers and verifies
+    /// all BM25 indexes in the database. Useful for scheduled health checks and
+    /// post-upgrade validation.
+    ///
+    /// # Arguments
+    /// * `schema_pattern` - Optional schema pattern to filter indexes (SQL LIKE pattern).
+    ///   Example: 'public' or 'app_%'
+    /// * `index_pattern` - Optional index name pattern to filter indexes (SQL LIKE pattern).
+    ///   Example: 'search_%' or '%_idx'
+    /// * `heapallindexed` - If true, verify all indexed ctids exist in the heap.
+    ///   Default: false
+    /// * `sample_rate` - Fraction of documents to check (0.0-1.0). Default: NULL (100%)
+    /// * `report_progress` - Emit progress messages. Default: false
+    /// * `on_error_stop` - Stop on first error found. Default: false
+    ///
+    /// # Returns
+    /// A table with columns:
+    /// - `schemaname`: Schema containing the index
+    /// - `indexname`: Name of the index
+    /// - `check_name`: Name of the verification check
+    /// - `passed`: Whether the check passed
+    /// - `details`: Additional details about the check result
+    ///
+    /// # Example
+    /// ```sql
+    /// -- Verify all BM25 indexes
+    /// SELECT * FROM pdb.verify_all_indexes();
+    ///
+    /// -- Verify only indexes in 'public' schema with full heap check
+    /// SELECT * FROM pdb.verify_all_indexes(
+    ///     schema_pattern := 'public',
+    ///     heapallindexed := true);
+    ///
+    /// -- Quick spot check with 10% sampling
+    /// SELECT * FROM pdb.verify_all_indexes(
+    ///     sample_rate := 0.1,
+    ///     report_progress := true);
+    ///
+    /// -- Verify indexes matching a name pattern
+    /// SELECT * FROM pdb.verify_all_indexes(index_pattern := 'search_%');
+    ///
+    /// -- Stop on first corrupted index
+    /// SELECT * FROM pdb.verify_all_indexes(
+    ///     heapallindexed := true,
+    ///     on_error_stop := true);
+    ///
+    /// -- Get summary of verification results
+    /// SELECT indexname,
+    ///        bool_and(passed) as all_passed,
+    ///        count(*) filter (where not passed) as failed_checks
+    /// FROM pdb.verify_all_indexes(heapallindexed := true)
+    /// GROUP BY indexname;
+    /// ```
+    #[allow(clippy::type_complexity)]
+    #[pg_extern]
+    pub fn verify_all_indexes(
+        schema_pattern: default!(Option<String>, "NULL"),
+        index_pattern: default!(Option<String>, "NULL"),
+        heapallindexed: default!(bool, false),
+        sample_rate: default!(Option<f64>, "NULL"),
+        report_progress: default!(bool, false),
+        on_error_stop: default!(bool, false),
+    ) -> Result<
+        TableIterator<
+            'static,
+            (
+                name!(schemaname, String),
+                name!(indexname, String),
+                name!(check_name, String),
+                name!(passed, bool),
+                name!(details, Option<String>),
+            ),
+        >,
+    > {
+        // Validate sample_rate (None means check all)
+        let sample_rate = sample_rate.map(|r| r.clamp(0.0, 1.0));
+        let mut results = Vec::new();
+
+        // Build query with optional pattern filters
+        let mut query = String::from(
+            r#"
+        SELECT 
+            n.nspname::text AS schemaname,
+            i.relname::text AS indexname,
+            i.oid AS indexrelid
+        FROM pg_index idx
+        JOIN pg_class i ON idx.indexrelid = i.oid
+        JOIN pg_class t ON idx.indrelid = t.oid
+        JOIN pg_namespace n ON i.relnamespace = n.oid
+        JOIN pg_am am ON i.relam = am.oid
+        WHERE am.amname = 'bm25'
+    "#,
+        );
+
+        if schema_pattern.is_some() {
+            query.push_str(" AND n.nspname LIKE $1");
+        }
+        if index_pattern.is_some() {
+            query.push_str(if schema_pattern.is_some() {
+                " AND i.relname LIKE $2"
+            } else {
+                " AND i.relname LIKE $1"
+            });
+        }
+        query.push_str(" ORDER BY n.nspname, i.relname");
+
+        // Collect indexes to verify
+        let indexes: Vec<(String, String, pg_sys::Oid)> = Spi::connect(|client| {
+            let mut indexes = Vec::new();
+
+            let result = match (&schema_pattern, &index_pattern) {
+                (Some(sp), Some(ip)) => {
+                    let args = unsafe {
+                        [
+                            DatumWithOid::new(sp.clone().into_datum(), pg_sys::TEXTOID),
+                            DatumWithOid::new(ip.clone().into_datum(), pg_sys::TEXTOID),
+                        ]
+                    };
+                    client.select(&query, None, &args)?
+                }
+                (Some(sp), None) => {
+                    let args =
+                        unsafe { [DatumWithOid::new(sp.clone().into_datum(), pg_sys::TEXTOID)] };
+                    client.select(&query, None, &args)?
+                }
+                (None, Some(ip)) => {
+                    let args =
+                        unsafe { [DatumWithOid::new(ip.clone().into_datum(), pg_sys::TEXTOID)] };
+                    client.select(&query, None, &args)?
+                }
+                (None, None) => {
+                    let args: [DatumWithOid; 0] = [];
+                    client.select(&query, None, &args)?
+                }
+            };
+
+            for row in result {
+                let schemaname: String = row.get_by_name("schemaname")?.unwrap_or_default();
+                let indexname: String = row.get_by_name("indexname")?.unwrap_or_default();
+                let indexrelid: pg_sys::Oid =
+                    row.get_by_name("indexrelid")?.unwrap_or(pg_sys::InvalidOid);
+                indexes.push((schemaname, indexname, indexrelid));
+            }
+
+            Ok::<_, pgrx::spi::Error>(indexes)
+        })?;
+
+        let total_indexes = indexes.len();
+        if report_progress {
+            pgrx::warning!(
+                "verify_all_indexes: Found {} BM25 indexes to verify",
+                total_indexes
+            );
+        }
+
+        // Verify each index
+        for (idx_num, (schemaname, indexname, indexrelid)) in indexes.into_iter().enumerate() {
+            if report_progress {
+                pgrx::warning!(
+                    "verify_all_indexes: Verifying {}/{}: {}.{}",
+                    idx_num + 1,
+                    total_indexes,
+                    schemaname,
+                    indexname
+                );
+            }
+
+            // Call verify_index for this index
+            let index_rel =
+                unsafe { PgRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _) };
+            let verification = verify_index(
+                index_rel,
+                heapallindexed,
+                sample_rate,
+                false, // Don't double-report progress
+                false, // Not verbose for bulk checks
+                on_error_stop,
+                None, // Check all segments
+            );
+
+            match verification {
+                Ok(iter) => {
+                    let mut had_error = false;
+                    for (check_name, passed, details) in iter {
+                        if !passed {
+                            had_error = true;
+                        }
+                        results.push((
+                            schemaname.clone(),
+                            indexname.clone(),
+                            check_name,
+                            passed,
+                            details,
+                        ));
+                    }
+                    if on_error_stop && had_error {
+                        return Ok(TableIterator::new(results));
+                    }
+                }
+                Err(e) => {
+                    results.push((
+                        schemaname.clone(),
+                        indexname.clone(),
+                        "verification_error".to_string(),
+                        false,
+                        Some(format!("Failed to verify index: {}", e)),
+                    ));
+                    if on_error_stop {
+                        return Ok(TableIterator::new(results));
+                    }
+                }
+            }
+        }
+
+        if report_progress {
+            let passed_count = results.iter().filter(|(_, _, _, p, _)| *p).count();
+            let failed_count = results.len() - passed_count;
+            pgrx::warning!(
+                "verify_all_indexes: Complete. {} checks passed, {} failed",
+                passed_count,
+                failed_count
+            );
+        }
+
+        Ok(TableIterator::new(results))
+    }
+}

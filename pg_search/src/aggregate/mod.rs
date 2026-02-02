@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,7 +19,6 @@ use std::error::Error;
 use std::ptr::NonNull;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::HashSet;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -29,11 +28,13 @@ use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use tantivy::aggregation::agg_req::Aggregations;
@@ -41,7 +42,9 @@ use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::Key;
-use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
+use tantivy::aggregation::{
+    AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
+};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
 
@@ -255,19 +258,29 @@ impl<'a> ParallelAggregationWorker<'a> {
             planstate.and_then(NonNull::new),
         )?;
 
+        let use_min_sentinel_fields = match self.aggregation.as_ref() {
+            Some(AggregateRequest::Sql(clause)) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let from_sql = matches!(self.aggregation.as_ref(), Some(AggregateRequest::Sql(_)));
         let mut aggregations: Aggregations = self.aggregation.take().unwrap().try_into()?;
         if from_sql {
             // ensure GROUP BY includes a bucket for documents missing the group-by value
-            set_missing_on_terms(&mut aggregations);
+            let schema = indexrel.schema()?;
+            set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
         }
 
         let nworkers = self.state.launched_workers();
+        // Get the tokenizer manager from the index (has all custom tokenizers registered)
+        let tokenizer_manager = reader.searcher().index().tokenizers().clone();
         let base_collector = DistributedAggregationCollector::from_aggs(
             aggregations,
-            AggregationLimitsGuard::new(
-                Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
-                Some(self.config.bucket_limit),
+            AggContextParams::new(
+                AggregationLimitsGuard::new(
+                    Some(self.config.memory_limit / std::cmp::max(nworkers as u64, 1)),
+                    Some(self.config.bucket_limit),
+                ),
+                tokenizer_manager,
             ),
         );
 
@@ -278,7 +291,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 .expect("index should belong to a heap relation");
             let mvcc_collector = MVCCFilterCollector::new(
                 base_collector,
-                TSVisibilityChecker::with_rel_and_snap(heaprel.as_ptr(), unsafe {
+                VisibilityChecker::with_rel_and_snap(&heaprel, unsafe {
                     pg_sys::GetActiveSnapshot()
                 }),
             );
@@ -368,6 +381,11 @@ pub fn execute_aggregate(
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));
+        // Extract fields needing min sentinel before agg_req is moved
+        let use_min_sentinel_fields = match &agg_req {
+            AggregateRequest::Sql(clause) => clause.use_min_sentinel_fields(),
+            _ => HashSet::default(),
+        };
         let reader = SearchIndexReader::open_with_context(
             index,
             query.clone(),
@@ -455,11 +473,17 @@ pub fn execute_aggregate(
             let mut aggregations: Aggregations = agg_req.try_into()?;
             // normalize missing on terms here too before merge, but only for SQL-originated requests
             if agg_from_sql {
-                set_missing_on_terms(&mut aggregations);
+                let schema = index.schema()?;
+                set_missing_on_terms(&mut aggregations, &schema, &use_min_sentinel_fields);
             }
+            // Get the tokenizer manager from the index (has all custom tokenizers registered)
+            let tokenizer_manager = reader.searcher().index().tokenizers().clone();
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                AggContextParams::new(
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+                    tokenizer_manager,
+                ),
             );
             Ok(collector.merge_fruits(agg_results)?.into_final_result(
                 aggregations,
@@ -497,7 +521,12 @@ pub fn execute_aggregate(
                     {
                         let mut aggregations: Aggregations = agg_req.try_into()?;
                         if agg_from_sql {
-                            set_missing_on_terms(&mut aggregations);
+                            let schema = index.schema()?;
+                            set_missing_on_terms(
+                                &mut aggregations,
+                                &schema,
+                                &use_min_sentinel_fields,
+                            );
                         }
                         aggregations
                     },
@@ -510,9 +539,19 @@ pub fn execute_aggregate(
     }
 }
 
+// Sentinel strings for NULL values in terms aggregations (used for text/json columns).
+// Using longer prefixes and extreme Unicode codepoints to minimize collision risk.
+pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
+pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
+
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
-fn set_missing_on_terms(aggs: &mut Aggregations) {
-    use crate::postgres::customscan::aggregatescan::build::NULL_GROUP_KEY_SENTINEL;
+fn set_missing_on_terms(
+    aggs: &mut Aggregations,
+    schema: &SearchIndexSchema,
+    use_min_sentinel_fields: &HashSet<String>,
+) {
+    use crate::schema::SearchFieldType;
+
     for (
         _name,
         Aggregation {
@@ -523,10 +562,59 @@ fn set_missing_on_terms(aggs: &mut Aggregations) {
     {
         if let AggregationVariants::Terms(terms) = agg {
             if terms.missing.is_none() {
-                terms.missing = Some(Key::Str(NULL_GROUP_KEY_SENTINEL.to_string()));
+                // use_min determines if we use MIN sentinels (sort first) or MAX sentinels (sort last)
+                let use_min = use_min_sentinel_fields.contains(&terms.field);
+                // NOTE: We must use type-appropriate sentinels because Tantivy's terms aggregation
+                // sorts buckets by their key type. Using mismatched types (e.g., string sentinel
+                // for numeric column) would break the sort order.
+                //
+                // WARNING: Numeric sentinels (i64::MIN/MAX, u64::MAX, f64::MIN/MAX) could
+                // theoretically collide with valid data values, though this is unlikely in practice.
+                // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
+                let sentinel = match schema.get_field_type(&terms.field) {
+                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
+                        if use_min {
+                            Key::I64(i64::MIN)
+                        } else {
+                            Key::I64(i64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::U64(_)) => {
+                        // For U64, 0 is a common value so we use string for MIN
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(u64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::F64(_)) => {
+                        if use_min {
+                            Key::F64(f64::MIN)
+                        } else {
+                            Key::F64(f64::MAX)
+                        }
+                    }
+                    Some(SearchFieldType::Bool(_)) => {
+                        // For bool: 0=false, 1=true. Use string for MIN to avoid conflicts
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::U64(2) // sorts after true (1)
+                        }
+                    }
+                    _ => {
+                        // Default for text/json/etc - string sentinels are safe here
+                        if use_min {
+                            Key::Str(NULL_SENTINEL_MIN.to_string())
+                        } else {
+                            Key::Str(NULL_SENTINEL_MAX.to_string())
+                        }
+                    }
+                };
+                terms.missing = Some(sentinel);
             }
         }
-        set_missing_on_terms(sub_aggregation);
+        set_missing_on_terms(sub_aggregation, schema, use_min_sentinel_fields);
     }
 }
 
@@ -535,13 +623,13 @@ pub mod mvcc_collector {
     use std::sync::Arc;
     use tantivy::collector::{Collector, SegmentCollector};
 
-    use crate::aggregate::vischeck::TSVisibilityChecker;
     use crate::index::fast_fields_helper::FFType;
+    use crate::postgres::heap::VisibilityChecker;
     use tantivy::{DocId, Score, SegmentOrdinal, SegmentReader};
 
     pub struct MVCCFilterCollector<C: Collector> {
         inner: C,
-        lock: Arc<Mutex<TSVisibilityChecker>>,
+        lock: Arc<Mutex<VisibilityChecker>>,
     }
 
     unsafe impl<C: Collector> Send for MVCCFilterCollector<C> {}
@@ -579,7 +667,7 @@ pub mod mvcc_collector {
 
     #[allow(clippy::arc_with_non_send_sync)]
     impl<C: Collector> MVCCFilterCollector<C> {
-        pub fn new(wrapped: C, vischeck: TSVisibilityChecker) -> Self {
+        pub fn new(wrapped: C, vischeck: VisibilityChecker) -> Self {
             Self {
                 inner: wrapped,
                 lock: Arc::new(Mutex::new(vischeck)),
@@ -589,7 +677,7 @@ pub mod mvcc_collector {
 
     pub struct MVCCFilterSegmentCollector<SC: SegmentCollector> {
         inner: SC,
-        lock: Arc<Mutex<TSVisibilityChecker>>,
+        lock: Arc<Mutex<VisibilityChecker>>,
         ctid_ff: FFType,
         ctids_buffer: Vec<Option<u64>>,
         filtered_buffer: Vec<u32>,
@@ -602,7 +690,7 @@ pub mod mvcc_collector {
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
-            if self.lock.lock().is_visible(ctid) {
+            if self.lock.lock().check(ctid).is_some() {
                 self.inner.collect(doc, score);
             }
         }
@@ -620,7 +708,7 @@ pub mod mvcc_collector {
             let mut vischeck = self.lock.lock();
             for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
                 let ctid = ctid.expect("ctid should be present");
-                if vischeck.is_visible(ctid) {
+                if vischeck.check(ctid).is_some() {
                     self.filtered_buffer.push(*doc);
                 }
             }
@@ -631,91 +719,6 @@ pub mod mvcc_collector {
 
         fn harvest(self) -> Self::Fruit {
             self.inner.harvest()
-        }
-    }
-}
-
-pub mod vischeck {
-    use crate::postgres::utils;
-    use pgrx::itemptr::item_pointer_get_block_number;
-    use pgrx::pg_sys;
-
-    pub struct TSVisibilityChecker {
-        scan: *mut pg_sys::IndexFetchTableData,
-        slot: *mut pg_sys::TupleTableSlot,
-        snapshot: pg_sys::Snapshot,
-        tid: pg_sys::ItemPointerData,
-        vmbuf: pg_sys::Buffer,
-    }
-
-    impl Clone for TSVisibilityChecker {
-        fn clone(&self) -> Self {
-            unsafe { Self::with_rel_and_snap((*self.scan).rel, self.snapshot) }
-        }
-    }
-
-    impl Drop for TSVisibilityChecker {
-        fn drop(&mut self) {
-            unsafe {
-                if !pg_sys::IsTransactionState() || std::thread::panicking() {
-                    // TODO: None of the below operations care about the transaction state: in
-                    // particular, `ReleaseBuffer` is only dropping a pin, rather than releasing a
-                    // lock. Consider removing this guard.
-                    return;
-                }
-
-                pg_sys::table_index_fetch_end(self.scan);
-                pg_sys::ExecClearTuple(self.slot);
-                if self.vmbuf != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                    pg_sys::ReleaseBuffer(self.vmbuf);
-                }
-            }
-        }
-    }
-
-    impl TSVisibilityChecker {
-        /// Construct a new [`VisibilityChecker`] that can validate ctid visibility against the specified
-        /// `relation` and `snapshot`
-        pub fn with_rel_and_snap(heaprel: pg_sys::Relation, snapshot: pg_sys::Snapshot) -> Self {
-            unsafe {
-                Self {
-                    scan: pg_sys::table_index_fetch_begin(heaprel),
-                    slot: pg_sys::MakeTupleTableSlot(
-                        pg_sys::CreateTupleDesc(0, std::ptr::null_mut()),
-                        &pg_sys::TTSOpsBufferHeapTuple,
-                    ),
-                    snapshot,
-                    tid: pg_sys::ItemPointerData::default(),
-                    vmbuf: pg_sys::InvalidBuffer as _,
-                }
-            }
-        }
-
-        pub fn is_visible(&mut self, ctid: u64) -> bool {
-            unsafe {
-                utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-                if pg_sys::visibilitymap_get_status(
-                    (*self.scan).rel,
-                    item_pointer_get_block_number(&self.tid),
-                    &mut self.vmbuf,
-                ) != 0
-                {
-                    return true;
-                }
-
-                let mut call_again = false;
-                let mut all_dead = false;
-                pg_sys::ExecClearTuple(self.slot);
-                pg_sys::table_index_fetch_tuple(
-                    self.scan,
-                    &mut self.tid,
-                    self.snapshot,
-                    self.slot,
-                    &mut call_again,
-                    &mut all_dead,
-                )
-            }
         }
     }
 }

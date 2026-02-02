@@ -1,0 +1,17 @@
+# This manifest is exclusively intended for usage within the Antithesis platform, as
+# it hardcodes the Antithesis registry for the image source.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: stressgres-runner
+  labels:
+    app: stressgres-runner
+spec:
+  restartPolicy: Never
+  containers:
+    - name: stressgres
+      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
+      imagePullPolicy: IfNotPresent
+      command:
+        - sleep
+        - infinity

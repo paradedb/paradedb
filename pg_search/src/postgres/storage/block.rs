@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -326,11 +326,6 @@ impl SegmentMetaEntryImmutable {
                     .map(|fe| (fe, SegmentComponent::FieldNorms)),
             )
             .chain(self.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
-            .chain(
-                self.temp_store
-                    .iter()
-                    .map(|fe| (fe, SegmentComponent::TempStore)),
-            )
             .chain(
                 self.delete
                     .as_ref()

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,13 +19,14 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
     SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
 };
-use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use crate::schema::FieldSource;
@@ -605,7 +606,13 @@ pub fn index_memory_segment(
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
-    use pgrx::{pg_sys::heap_deform_tuple, PgTupleDesc};
+    use pgrx::{
+        pg_sys::{
+            heap_deform_tuple, GetOldestNonRemovableTransactionId, HTSV_Result,
+            HeapTupleSatisfiesVacuum,
+        },
+        PgTupleDesc,
+    };
 
     let directory = RamDirectory::create();
     let ctids = segment
@@ -626,81 +633,146 @@ pub fn index_memory_segment(
     let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
     let search_schema = indexrel.schema()?;
     let categorized_fields = search_schema.categorized_fields();
+    let oldest_xmin = unsafe { GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
 
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
     let mut isnull = vec![false; heaptupdesc.len()];
 
-    for ctid in ctids {
+    'next_ctid: for ctid in ctids {
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 
         unsafe {
-            // NOTE: We fetch using SnapshotAny, and then allow heap visibility to be applied iff
-            // something matches during a search. This allows us to load and merge mutable segments
-            // even before all of their data is necessarily visible in the current transaction.
+            // NOTE: We fetch using SnapshotAny, and then filter out tuples that are not visible
+            // to any transaction using `HeapTupleSatisfiesVacuum`. This allows us to load and
+            // merge mutable segments even before all of their data is necessarily visible in the
+            // current transaction, but excludes tuples that are fully "dead".
             //
             // TODO: We could potentially actually apply the MvccSatisfies setting here, which
             // would avoid a small amount of indexing for MvccSatisfies::Snapshot (any future
             // txns, essentially).
             let mut call_again = false;
-            let mut all_dead = false;
-            let fetched = pg_sys::table_index_fetch_tuple(
-                heap_fetch_state.scan,
-                &mut ipd,
-                &raw mut pg_sys::SnapshotAnyData,
-                heap_fetch_state.slot,
-                &mut call_again,
-                &mut all_dead,
-            );
-
-            if fetched {
-                let mut should_free = false;
-                let htup =
-                    pg_sys::ExecFetchSlotHeapTuple(heap_fetch_state.slot, true, &mut should_free);
-
-                heap_deform_tuple(
-                    htup,
-                    heaptupdesc.as_ptr(),
-                    values.as_mut_ptr(),
-                    isnull.as_mut_ptr(),
+            'next_hot_chain: loop {
+                let fetched = pg_sys::table_index_fetch_tuple(
+                    heap_fetch_state.scan,
+                    &mut ipd,
+                    &raw mut pg_sys::SnapshotAnyData,
+                    heap_fetch_state.slot(),
+                    // call_again: This parameter will be set to true if this `ctid` points to multiple
+                    // tuples as part of a HOT chain. We must attempt to find one live version of the
+                    // tuple, and it may not be the first one in the chain.
+                    &mut call_again,
+                    // all_dead: Can hypothetically signal that a `ctid` is dead in all
+                    // transactions: in practice, never actually seems to be anything but false
+                    // when used with `SnapshotAnyData`.
+                    &mut false,
                 );
 
-                let expr_results = expression_state.evaluate(heap_fetch_state.slot);
-
-                let mut doc = tantivy::TantivyDocument::new();
-                row_to_search_document(
-                    categorized_fields.iter().map(|(field, categorized)| {
-                        match categorized.source {
-                            FieldSource::Heap { attno } => {
-                                (values[attno], isnull[attno], field, categorized)
-                            }
-                            FieldSource::Expression { att_idx } => {
-                                let (datum, is_null) = expr_results[att_idx];
-                                (datum, is_null, field, categorized)
-                            }
-                        }
-                    }),
-                    &mut doc,
-                )
-                .unwrap_or_else(|e| {
-                    panic!("Failed to create document from row: {e}");
-                });
-
-                // Creating a Document clones all necessary heap data, so we can free the tuple
-                // before indexing.
-                if should_free {
-                    pg_sys::heap_freetuple(htup);
+                if !fetched {
+                    // Due to heap page pruning, some tuples might no longer exist (regardless of our
+                    // SnapshotAny setting), so we can skip indexing their content.
+                    writer.insert(tantivy::TantivyDocument::new(), ctid, || {
+                        unreachable!("No limits configured: should not finalize.")
+                    })?;
+                    continue 'next_ctid;
                 }
 
-                writer.insert(doc, ctid, || {
-                    unreachable!("No limits configured: should not finalize.")
-                })?;
-            } else {
-                // Due to heap page pruning, some tuples might no longer exist (regardless of our
-                // SnapshotAny setting).
-                writer.insert(tantivy::TantivyDocument::new(), ctid, || {
-                    unreachable!("No limits configured: should not finalize.")
-                })?;
+                let htsv_result = {
+                    let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                    let _lock = BorrowedBuffer::from_pg(buffer);
+                    HeapTupleSatisfiesVacuum(
+                        (*heap_fetch_state.buffer_slot()).base.tuple,
+                        oldest_xmin,
+                        buffer,
+                    )
+                };
+                if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
+                    // This copy of the tuple is no longer visible to any transaction. Are there
+                    // more in the HOT chain?
+                    if call_again {
+                        // There are more entries in the hot chain: find the first one that is
+                        // visible.
+                        continue 'next_hot_chain;
+                    } else {
+                        // There are no more entries in the HOT chain, so no copy of the tuple is
+                        // visible in any transaction.
+                        writer.insert(tantivy::TantivyDocument::new(), ctid, || {
+                            unreachable!("No limits configured: should not finalize.")
+                        })?;
+                        continue 'next_ctid;
+                    }
+                }
+
+                // We successfully fetched a tuple. Break out to fetch and deform it.
+                break;
+            }
+
+            // We have a completely valid tuple to index: fetch and deform it.
+            let mut should_free = false;
+            let htup =
+                pg_sys::ExecFetchSlotHeapTuple(heap_fetch_state.slot(), true, &mut should_free);
+
+            heap_deform_tuple(
+                htup,
+                heaptupdesc.as_ptr(),
+                values.as_mut_ptr(),
+                isnull.as_mut_ptr(),
+            );
+
+            let expr_results = expression_state.evaluate(heap_fetch_state.slot());
+
+            let mut doc = tantivy::TantivyDocument::new();
+
+            // Unpack all composites upfront from expr_results
+            let unpacked_composites = CompositeSlotValues::from_composites(
+                categorized_fields.iter().filter_map(|(_, cat)| {
+                    if let FieldSource::CompositeField {
+                        expression_idx,
+                        composite_type_oid,
+                        ..
+                    } = cat.source
+                    {
+                        let (datum, is_null) = expr_results[expression_idx];
+                        Some((expression_idx, datum, is_null, composite_type_oid))
+                    } else {
+                        None
+                    }
+                }),
+            );
+
+            row_to_search_document(
+                categorized_fields
+                    .iter()
+                    .map(|(field, categorized)| match categorized.source {
+                        FieldSource::Heap { attno } => {
+                            (values[attno], isnull[attno], field, categorized)
+                        }
+                        FieldSource::Expression { att_idx } => {
+                            let (datum, is_null) = expr_results[att_idx];
+                            (datum, is_null, field, categorized)
+                        }
+                        FieldSource::CompositeField {
+                            expression_idx,
+                            field_idx,
+                            ..
+                        } => {
+                            let (datum, is_null) =
+                                unpacked_composites.get(expression_idx, field_idx);
+                            (datum, is_null, field, categorized)
+                        }
+                    }),
+                &mut doc,
+            )
+            .unwrap_or_else(|e| {
+                panic!("Failed to create document from row: {e}");
+            });
+
+            writer.insert(doc, ctid, || {
+                unreachable!("No limits configured: should not finalize.")
+            })?;
+
+            if should_free {
+                pg_sys::heap_freetuple(htup);
             }
         }
     }
@@ -739,7 +811,6 @@ mod tests {
         let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
             todo!("test_list_meta_entries");
         };
-        assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());

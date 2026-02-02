@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -61,98 +61,94 @@ fn extract_methods(node: &Value, methods: &mut Vec<String>) {
 }
 
 // Setup for complex aggregation with mixed fast fields
-struct TestComplexAggregation;
+fn complex_aggregation_setup() -> &'static str {
+    r#"
+        DROP TABLE IF EXISTS expected_payments;
+        CREATE TABLE expected_payments (
+          id                  SERIAL PRIMARY KEY,
+          organization_id     UUID     NOT NULL,
+          live_mode           BOOLEAN  NOT NULL,
+          status              TEXT     NOT NULL,
+          internal_account_id UUID     NOT NULL,
+          amount_range        NUMRANGE NOT NULL,
+          amount_reconciled   NUMERIC  NOT NULL,
+          direction           TEXT     NOT NULL CHECK (direction IN ('credit','debit')),
+          currency            TEXT     NOT NULL,
+          discarded_at        TIMESTAMP NULL
+        );
 
-impl TestComplexAggregation {
-    fn setup() -> impl Query {
-        r#"
-            DROP TABLE IF EXISTS expected_payments;
-            CREATE TABLE expected_payments (
-              id                  SERIAL PRIMARY KEY,
-              organization_id     UUID     NOT NULL,
-              live_mode           BOOLEAN  NOT NULL,
-              status              TEXT     NOT NULL,
-              internal_account_id UUID     NOT NULL,
-              amount_range        NUMRANGE NOT NULL,
-              amount_reconciled   NUMERIC  NOT NULL,
-              direction           TEXT     NOT NULL CHECK (direction IN ('credit','debit')),
-              currency            TEXT     NOT NULL,
-              discarded_at        TIMESTAMP NULL
-            );
-            
-            INSERT INTO expected_payments (
-              organization_id,
-              live_mode,
-              status,
-              internal_account_id,
-              amount_range,
-              amount_reconciled,
-              direction,
-              currency,
-              discarded_at
-            )
-            SELECT
-              organization_id,
-              live_mode,
-              status,
-              internal_account_id,
-              numrange(lower_val, lower_val + offset_val)         AS amount_range,
-              amount_reconciled,
-              direction,
-              currency,
-              discarded_at
-            FROM (
-              SELECT
-                -- random UUID
-                (md5(random()::text))::uuid                        AS organization_id,
-                -- 50/50 live_mode
-                (random() < 0.5)                                    AS live_mode,
-                -- status pick
-                (ARRAY['unreconciled','partially_reconciled'])
-                  [floor(random()*2 + 1)::int]                      AS status,
-                -- another random UUID
-                (md5(random()::text))::uuid                        AS internal_account_id,
-                -- ensure lower ≤ upper by generating an offset
-                floor(random()*1000)::int                           AS lower_val,
-                floor(random()*100)::int + 1                        AS offset_val,
-                -- reconciled amount between –500 and +500
-                (random()*1000 - 500)::numeric                      AS amount_reconciled,
-                -- direction pick
-                (ARRAY['credit','debit'])[floor(random()*2 + 1)::int] AS direction,
-                -- currency pick
-                (ARRAY['USD','EUR','GBP','JPY','AUD'])[floor(random()*5 + 1)::int] AS currency,
-                -- 10% NULL, else random timestamp in last year
-                CASE
-                  WHEN random() < 0.10 THEN NULL
-                  ELSE now() - (random() * INTERVAL '365 days')
-                END                                                 AS discarded_at
-              FROM generate_series(1, 1000)
-            ) sub;
-            
-            create index expected_payments_idx on expected_payments using bm25 (
-                id, 
-                organization_id, 
-                live_mode, 
-                status, 
-                internal_account_id, 
-                amount_range, 
-                amount_reconciled, 
-                direction, 
-                currency, 
-                discarded_at
-            ) with (
-                key_field = 'id', 
-                text_fields = '{"organization_id": {"fast":true}, "status": {"fast": true, "tokenizer": {"type": "keyword"}}, "direction": {"fast": true}, "currency": {"fast": true}}',
-                boolean_fields = '{"live_mode": {"fast": true}}'
-            );
-        "#
-    }
+        INSERT INTO expected_payments (
+          organization_id,
+          live_mode,
+          status,
+          internal_account_id,
+          amount_range,
+          amount_reconciled,
+          direction,
+          currency,
+          discarded_at
+        )
+        SELECT
+          organization_id,
+          live_mode,
+          status,
+          internal_account_id,
+          numrange(lower_val, lower_val + offset_val)         AS amount_range,
+          amount_reconciled,
+          direction,
+          currency,
+          discarded_at
+        FROM (
+          SELECT
+            -- random UUID
+            (md5(random()::text))::uuid                        AS organization_id,
+            -- 50/50 live_mode
+            (random() < 0.5)                                    AS live_mode,
+            -- status pick
+            (ARRAY['unreconciled','partially_reconciled'])
+              [floor(random()*2 + 1)::int]                      AS status,
+            -- another random UUID
+            (md5(random()::text))::uuid                        AS internal_account_id,
+            -- ensure lower ≤ upper by generating an offset
+            floor(random()*1000)::int                           AS lower_val,
+            floor(random()*100)::int + 1                        AS offset_val,
+            -- reconciled amount between –500 and +500
+            (random()*1000 - 500)::numeric                      AS amount_reconciled,
+            -- direction pick
+            (ARRAY['credit','debit'])[floor(random()*2 + 1)::int] AS direction,
+            -- currency pick
+            (ARRAY['USD','EUR','GBP','JPY','AUD'])[floor(random()*5 + 1)::int] AS currency,
+            -- 10% NULL, else random timestamp in last year
+            CASE
+              WHEN random() < 0.10 THEN NULL
+              ELSE now() - (random() * INTERVAL '365 days')
+            END                                                 AS discarded_at
+          FROM generate_series(1, 1000)
+        ) sub;
+
+        create index expected_payments_idx on expected_payments using bm25 (
+            id,
+            organization_id,
+            live_mode,
+            status,
+            internal_account_id,
+            amount_range,
+            amount_reconciled,
+            direction,
+            currency,
+            discarded_at
+        ) with (
+            key_field = 'id',
+            text_fields = '{"organization_id": {"fast":true}, "status": {"fast": true, "tokenizer": {"type": "keyword"}}, "direction": {"fast": true}, "currency": {"fast": true}}',
+            boolean_fields = '{"live_mode": {"fast": true}}'
+        );
+    "#
 }
 
 #[ignore]
 #[rstest]
 fn test_complex_aggregation_with_mixed_fast_fields(mut conn: PgConnection) {
-    TestComplexAggregation::setup().execute(&mut conn);
+    complex_aggregation_setup().execute(&mut conn);
 
     // Force disable regular index scans to ensure BM25 index is used
     "SET enable_indexscan = off;".execute(&mut conn);
@@ -255,4 +251,96 @@ fn test_complex_aggregation_with_mixed_fast_fields(mut conn: PgConnection) {
 
     // Reset setting
     "SET enable_indexscan = on;".execute(&mut conn);
+}
+
+fn fast_fields_setup() -> &'static str {
+    r#"
+        DROP TABLE IF EXISTS mixed_ff_v2;
+        CREATE TABLE mixed_ff_v2 (
+          id SERIAL PRIMARY KEY,
+          title TEXT,
+          category TEXT,
+          rating INT,
+          description TEXT,
+          content TEXT,
+          price NUMERIC,
+          tags TEXT[]
+        );
+
+        INSERT INTO mixed_ff_v2 (title, category, rating, description, content, price, tags)
+        SELECT
+            'Title ' || i,
+            'Category ' || (i % 5),
+            i,
+            'Description ' || i,
+            'Content ' || i,
+            (i * 1.5)::numeric,
+            ARRAY['tag' || (i % 3), 'tag' || (i % 5)]
+        FROM generate_series(1, 100) i;
+
+        CREATE INDEX mixed_ff_v2_idx ON mixed_ff_v2 USING bm25 (
+            id,
+            title,
+            content,
+            price,
+            tags,
+            (category::pdb.literal('alias=cat_lit')),
+            (rating::pdb.alias('rating_alias')),
+            (description::pdb.literal),
+            ((title || ' ' || category)::pdb.literal('alias=concat_expr')),
+            ((rating + 1)::pdb.alias('rating_plus_one'))
+        ) WITH (key_field = 'id');
+    "#
+}
+
+#[rstest]
+#[case::aliased_literal(r#"SELECT category FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
+#[case::unaliased_literal(r#"SELECT description FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
+#[case::simple_expression_id(r#"SELECT (id) FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
+#[case::aliased_integer(r#"SELECT rating FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
+#[case::output_cast(
+    r#"SELECT rating::text FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    false
+)]
+#[case::default_tokenizer(r#"SELECT content FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::expression_mismatch(
+    r#"SELECT lower(title) FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    false
+)]
+#[case::expression_concat(
+    r#"SELECT title || ' ' || category FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    true
+)]
+#[case::expression_arithmetic(
+    r#"SELECT rating + 1 FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
+    true
+)]
+#[case::numeric_column(r#"SELECT price FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::array_column(r#"SELECT tags FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+fn test_fast_fields_cases(
+    mut conn: PgConnection,
+    #[case] query: &str,
+    #[case] expect_fast_field: bool,
+) {
+    fast_fields_setup().execute(&mut conn);
+    "SET enable_indexscan = off;".execute(&mut conn);
+    "SET paradedb.enable_aggregate_custom_scan = on;".execute(&mut conn);
+    "SET paradedb.enable_mixed_fast_field_exec = on;".execute(&mut conn);
+    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
+
+    let explain_query = format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", query);
+    let (plan,) = explain_query.fetch_one::<(Value,)>(&mut conn);
+    let methods = get_all_exec_methods(&plan);
+
+    let has_fast_field = methods.iter().any(|m| m.contains("FastFieldExecState"));
+
+    assert_eq!(
+        has_fast_field, expect_fast_field,
+        "FastField usage mismatch for query: '{}'. Methods: {:?}",
+        query, methods
+    );
+
+    // Execute query to check match count (should be non-empty)
+    let rows = query.to_string().fetch_dynamic(&mut conn);
+    assert!(!rows.is_empty(), "Query should return results: {}", query);
 }

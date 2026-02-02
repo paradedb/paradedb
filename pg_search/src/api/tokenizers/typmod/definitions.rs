@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -18,6 +18,7 @@
 use crate::api::tokenizers::typmod;
 use crate::api::tokenizers::typmod::validation::{rule, PropertyRule, ValueConstraint};
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
+use tokenizers::chinese_convert::ConvertMode;
 use tokenizers::manager::{LinderaLanguage, SearchTokenizerFilters};
 use tokenizers::SearchNormalizer;
 
@@ -35,11 +36,18 @@ pub struct GenericTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.jieba
+pub struct JiebaTypmod {
+    pub chinese_convert: Option<ConvertMode>,
+    pub filters: SearchTokenizerFilters,
+}
+
 // for pdb.ngram
 pub struct NgramTypmod {
     pub min_gram: usize,
     pub max_gram: usize,
     pub prefix_only: bool,
+    pub positions: bool,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -79,6 +87,15 @@ impl TypmodRules for GenericTypmod {
     }
 }
 
+impl TypmodRules for JiebaTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![rule!(
+            "chinese_convert",
+            ValueConstraint::StringChoice(vec!["t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"])
+        )]
+    }
+}
+
 impl TypmodRules for NgramTypmod {
     fn rules() -> Vec<PropertyRule> {
         vec![
@@ -101,6 +118,7 @@ impl TypmodRules for NgramTypmod {
                 positional = 1
             ),
             rule!("prefix_only", ValueConstraint::Boolean),
+            rule!("positions", ValueConstraint::Boolean),
         ]
     }
 }
@@ -158,6 +176,34 @@ impl TryFrom<i32> for GenericTypmod {
     }
 }
 
+impl TryFrom<i32> for JiebaTypmod {
+    type Error = typmod::Error;
+
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        let chinese_convert = parsed
+            .get("chinese_convert")
+            .and_then(|p| p.as_str())
+            .map(|s| {
+                let lcase: String = s.to_lowercase();
+                match lcase.as_str() {
+                    "t2s" => ConvertMode::T2S,
+                    "s2t" => ConvertMode::S2T,
+                    "tw2s" => ConvertMode::TW2S,
+                    "tw2sp" => ConvertMode::TW2SP,
+                    "s2tw" => ConvertMode::S2TW,
+                    "s2twp" => ConvertMode::S2TWP,
+                    other => panic!("unknown chinese convert mode: {other}"),
+                }
+            });
+        Ok(JiebaTypmod {
+            chinese_convert,
+            filters,
+        })
+    }
+}
+
 impl TryFrom<i32> for NgramTypmod {
     type Error = typmod::Error;
 
@@ -176,11 +222,16 @@ impl TryFrom<i32> for NgramTypmod {
             .get("prefix_only")
             .and_then(|p| p.as_bool())
             .unwrap_or(false);
+        let positions = parsed
+            .get("positions")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
 
         Ok(NgramTypmod {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         })
     }

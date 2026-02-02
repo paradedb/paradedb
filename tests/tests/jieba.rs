@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -33,16 +33,17 @@ fn get_tokens(conn: &mut PgConnection, tokenizer_type: &str, text: &str) -> Vec<
 #[rstest]
 fn test_jieba_tokenizer_basic(mut conn: PgConnection) {
     // Test the paradedb.tokenize function directly
+    // Positions should be sequential token ordinals (0, 1, 2, ...), not character offsets
     let tokens = get_tokens(&mut conn, "jieba", "我们都有光明的前途");
     assert_eq!(
         tokens,
         vec![
             ("我们".to_string(), 0),
-            ("都".to_string(), 2),
-            ("有".to_string(), 3),
-            ("光明".to_string(), 4),
-            ("的".to_string(), 6),
-            ("前途".to_string(), 7),
+            ("都".to_string(), 1),
+            ("有".to_string(), 2),
+            ("光明".to_string(), 3),
+            ("的".to_string(), 4),
+            ("前途".to_string(), 5),
         ],
         "Failed on '我们都有光明的前途'"
     );
@@ -56,7 +57,7 @@ fn test_jieba_tokenizer_basic(mut conn: PgConnection) {
     let tokens = get_tokens(&mut conn, "jieba", "转移就业");
     assert_eq!(
         tokens,
-        vec![("转移".to_string(), 0), ("就业".to_string(), 2),],
+        vec![("转移".to_string(), 0), ("就业".to_string(), 1),],
         "Failed on '转移就业'"
     );
 }

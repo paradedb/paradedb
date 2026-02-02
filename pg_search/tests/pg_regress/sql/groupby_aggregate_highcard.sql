@@ -59,7 +59,9 @@ GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
 
--- Ordering on a non-grouping column
+-- Ordering on a non-grouping column (need more buckets to sort correctly)
+SET paradedb.max_term_agg_buckets TO 65000;
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
@@ -72,6 +74,9 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
+
+-- Reset for remaining tests
+SET paradedb.max_term_agg_buckets TO 10;
 
 -- Limit 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -87,7 +92,9 @@ GROUP BY rating
 ORDER BY rating
 LIMIT 0;
 
--- High limit
+-- High limit (increase max_term_agg_buckets to allow more results)
+SET paradedb.max_term_agg_buckets TO 65000;
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

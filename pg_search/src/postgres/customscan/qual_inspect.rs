@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -22,8 +22,8 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoids};
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -47,10 +47,23 @@ pub enum Qual {
         /// - None = regular OpExpr, not a ScalarArrayOpExpr
         scalar_array_use_or: Option<bool>,
     },
+    /// Represents an expression which can be evaluated after planning in BeginCustomScan.
+    ///
+    /// This happens when the expression involves parameters (e.g. `$1`), other columns, or
+    /// volatile functions which are "uncorrelated": i.e., which do not come from an outer
+    /// relation.
+    ///
+    /// It is converted to `SearchQueryInput::PostgresExpression` and then solved by
+    /// `solve_postgres_expressions` before the search query is executed.
     Expr {
         node: *mut pg_sys::Node,
         expr_state: *mut pg_sys::ExprState,
+        expr_desc: String,
     },
+    /// Represents an expression that can be evaluated at planning time.
+    /// This typically happens when the expression is effectively constant (no vars/params).
+    /// It is evaluated immediately during conversion to `SearchQueryInput` via
+    /// `SearchQueryInput::from`.
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
@@ -150,13 +163,13 @@ impl Qual {
         }
     }
 
-    pub unsafe fn contains_exec_param(&self) -> bool {
+    pub unsafe fn contains_correlated_param(&self, root: *mut pg_sys::PlannerInfo) -> bool {
         match self {
             Qual::All => false,
             Qual::ExternalVar => false,
             Qual::ExternalExpr => false,
             Qual::OpExpr { .. } => false,
-            Qual::Expr { node, .. } => contains_exec_param(*node),
+            Qual::Expr { node, .. } => contains_correlated_param(root, *node),
             Qual::PushdownExpr { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
@@ -164,10 +177,10 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
-            Qual::HeapExpr { expr_node, .. } => contains_exec_param(*expr_node),
-            Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
-            Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
-            Qual::Not(qual) => qual.contains_exec_param(),
+            Qual::HeapExpr { expr_node, .. } => contains_correlated_param(root, *expr_node),
+            Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Or(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
+            Qual::Not(qual) => qual.contains_correlated_param(root),
         }
     }
 
@@ -222,30 +235,6 @@ impl Qual {
             Qual::Not(qual) => qual.collect_exprs(exprs),
             _ => {}
         }
-    }
-
-    /// Check if a query can be satisfied by a partial index
-    ///
-    /// For a partial index with predicate like "WHERE category = 'Electronics'",
-    /// a query like "WHERE description = 'Product 3'" cannot be satisfied because
-    /// Product 3 might have category = 'Footwear' and thus wouldn't be in the index.
-    ///
-    /// This function implements a conservative approach: if the query contains any
-    /// non-indexed predicates that could filter out rows that match the partial index
-    /// predicate, we cannot use the partial index.
-    pub unsafe fn is_query_compatible_with_partial_index(&self) -> bool {
-        // For now, implement a simple heuristic:
-        // If the query contains HeapExpr (non-indexed predicates), and this is a partial index,
-        // we cannot guarantee the query can be satisfied by the partial index alone.
-        //
-        // TODO(@mdashti): A more sophisticated implementation would:
-        // 1. Parse the partial index predicate from bm25_index.rd_indpred
-        // 2. Check if the query predicates are compatible with the partial index predicate
-        // 3. Use PostgreSQL's constraint exclusion logic
-        //
-        // For now, we use a conservative approach to fix the immediate bug.
-
-        !self.contains_heap_expr()
     }
 
     /// Check if a Qual contains any HeapExpr (non-indexed predicates)
@@ -306,7 +295,14 @@ impl From<&Qual> for SearchQueryInput {
                         .expect("rhs of @@@ operator Qual must not be null")
                 }
             },
-            Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
+            // Convert to SearchQueryInput::PostgresExpression, which will be solved by
+            // `solve_postgres_expressions`.
+            Qual::Expr {
+                node,
+                expr_state,
+                expr_desc,
+            } => SearchQueryInput::postgres_expression(*node, expr_desc.clone()),
+            // Solve the expression immediately to produce a concrete SearchQueryInput
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
                 let expr_context = pg_sys::CreateStandaloneExprContext();
@@ -561,6 +557,27 @@ pub unsafe fn extract_quals(
     }
 
     match (*node).type_ {
+        pg_sys::NodeTag::T_FuncExpr => {
+            // Standalone FuncExprs in a WHERE clause must return boolean (e.g. ST_DWithin).
+            // This is distinct from FuncExprs used inside comparisons (e.g. pdb.score(id) > 0.5),
+            // which are handled within opexpr().
+            if contains_relation_reference(node, rti) {
+                if !gucs::enable_filter_pushdown() {
+                    return None;
+                }
+
+                state.uses_heap_expr = true;
+                state.uses_tantivy_to_query = true;
+                Some(Qual::HeapExpr {
+                    expr_node: node,
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                })
+            } else {
+                None
+            }
+        }
+
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
                 context,
@@ -674,7 +691,13 @@ pub unsafe fn extract_quals(
                 // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
                 // We need to handle both cases since they're semantically equivalent
                 let var_node = nodecast!(Var, T_Var, node)?;
-                try_create_heap_expr_from_var(root, var_node, rti, &mut state.uses_tantivy_to_query)
+                try_create_heap_expr_from_var(
+                    root,
+                    var_node,
+                    rti,
+                    indexrel,
+                    &mut state.uses_tantivy_to_query,
+                )
             } else {
                 // Query context: We can't do full pushdown analysis without PlannerInfo,
                 // but we can still create HeapExpr if filter_pushdown is enabled
@@ -695,7 +718,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "Var node (Query context)".to_string(),
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -726,6 +749,7 @@ pub unsafe fn extract_quals(
                     nulltest,
                     rti,
                     root,
+                    indexrel,
                     &mut state.uses_tantivy_to_query,
                 )
             } else {
@@ -742,7 +766,7 @@ pub unsafe fn extract_quals(
                 state.uses_tantivy_to_query = true;
                 Some(Qual::HeapExpr {
                     expr_node: node,
-                    expr_desc: "NullTest (Query context)".to_string(),
+                    expr_desc: deparse_expr(Some(context), indexrel, node),
                     search_query_input: Box::new(SearchQueryInput::All),
                 })
             }
@@ -887,6 +911,39 @@ unsafe fn opexpr(
                 value: rhs,
             })
         }
+        pg_sys::NodeTag::T_PlaceHolderVar => {
+            // PlaceHolderVar may wrap a score function when the query has joins or aggregates.
+            // We need to unwrap it to check if it's a score expression.
+            let phv = nodecast!(PlaceHolderVar, T_PlaceHolderVar, lhs)?;
+            let phexpr = (*phv).phexpr;
+            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, phexpr) {
+                if score_funcoids().contains(&(*funcexpr).funcid) {
+                    state.uses_our_operator = true;
+
+                    if is_complex(rhs) {
+                        return None;
+                    }
+
+                    return Some(Qual::ScoreExpr {
+                        opoid: opexpr.opno(),
+                        value: rhs,
+                    });
+                }
+            }
+            // Not a score function - fall through to pushdown
+            if attempt_pushdown {
+                try_pushdown(
+                    context,
+                    rti,
+                    opexpr,
+                    indexrel,
+                    state,
+                    convert_external_to_special_qual,
+                )
+            } else {
+                None
+            }
+        }
         pg_sys::NodeTag::T_OpExpr => node_opexpr(
             context,
             rti,
@@ -958,6 +1015,7 @@ unsafe fn node_opexpr(
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
+                    expr_desc: deparse_expr(Some(context), indexrel, rhs),
                 });
             }
         } else {
@@ -1071,6 +1129,7 @@ unsafe fn try_pushdown(
             return Some(Qual::Expr {
                 node: opexpr_node,
                 expr_state: std::ptr::null_mut(),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
             });
         }
         // Not our operator, can't pushdown in Query context
@@ -1094,7 +1153,7 @@ unsafe fn try_pushdown(
             // This is slower but necessary for non-indexed fields
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with operator OID {opno}"),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if contains_param(opexpr_node) {
@@ -1109,7 +1168,7 @@ unsafe fn try_pushdown(
             state.uses_tantivy_to_query = true;
             Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with PARAM nodes (OID {})", opno),
+                expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else if convert_external_to_special_qual {
@@ -1158,6 +1217,46 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
     }
 }
 
+/// Returns true if the expression contains a parameter that is correlated with an outer query.
+/// Correlated parameters are `PARAM_EXEC` parameters that are not provided by an init plan.
+pub unsafe fn contains_correlated_param(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        let root = context as *mut pg_sys::PlannerInfo;
+        if let Some(param) = nodecast!(Param, T_Param, node) {
+            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
+                let param_is_from_init_plan =
+                    PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                        .iter_ptr()
+                        .any(|subplan| {
+                            pg_sys::list_member_int((*subplan).setParam, (*param).paramid)
+                        });
+
+                if !param_is_from_init_plan {
+                    // If this PARAM_EXEC param is not from any init plan, then we have to assume
+                    // that it is correlated.
+                    return true;
+                }
+            }
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    if node.is_null() {
+        return false;
+    }
+
+    walker(node, root as *mut core::ffi::c_void)
+}
+
+/// Returns true if the expression contains any `PARAM_EXEC` parameter.
+/// `PARAM_EXEC` parameters are evaluated at execution time, often for subqueries.
 pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
@@ -1619,10 +1718,11 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
 /// This is a common pattern for expressions that reference fields in our relation
 /// but cannot be pushed down to the index
 unsafe fn create_heap_expr_for_field_ref(
+    root: *mut pg_sys::PlannerInfo,
     expr_node: *mut pg_sys::Node,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
-    expr_desc: String,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
@@ -1631,9 +1731,10 @@ unsafe fn create_heap_expr_for_field_ref(
             return None;
         }
         *uses_tantivy_to_query = true;
+        let context = PlannerContext::from_planner(root);
         Some(Qual::HeapExpr {
             expr_node,
-            expr_desc,
+            expr_desc: deparse_expr(Some(&context), indexrel, expr_node),
             search_query_input: Box::new(SearchQueryInput::All),
         })
     } else {
@@ -1646,6 +1747,7 @@ unsafe fn try_create_heap_expr_from_var(
     root: *mut pg_sys::PlannerInfo,
     var_node: *mut pg_sys::Var,
     rti: pg_sys::Index,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Check if root and parse are valid
@@ -1653,12 +1755,12 @@ unsafe fn try_create_heap_expr_from_var(
         return None;
     }
 
-    let attno = (*var_node).varattno;
     create_heap_expr_for_field_ref(
+        root,
         var_node as *mut pg_sys::Node,
         var_node,
         rti,
-        format!("Boolean field_{attno} = true"),
+        indexrel,
         uses_tantivy_to_query,
     )
 }
@@ -1668,25 +1770,19 @@ unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
     root: *mut pg_sys::PlannerInfo,
+    indexrel: &PgSearchRelation,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Extract the field being tested
     let arg = (*nulltest).arg;
-    if let Some((var, fieldname)) =
-        find_one_var_and_fieldname(VarContext::from_planner(root), arg as *mut pg_sys::Node)
-    {
-        let attno = (*var).varattno;
-        let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
-            "IS NULL"
-        } else {
-            "IS NOT NULL"
-        };
-
+    // Check if the arg is a Var referencing our relation
+    if let Some(var) = nodecast!(Var, T_Var, arg) {
         create_heap_expr_for_field_ref(
+            root,
             nulltest as *mut pg_sys::Node,
             var,
             rti,
-            format!("NULL test: field_{attno} {test_type}"),
+            indexrel,
             uses_tantivy_to_query,
         )
     } else {

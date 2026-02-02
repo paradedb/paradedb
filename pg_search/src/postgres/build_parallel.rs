@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -26,15 +26,18 @@ use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
     ParallelWorker, WorkerStyle,
 };
+use crate::postgres::composite::CompositeSlotValues;
+use crate::postgres::locks::Spinlock;
 use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
     GARBAGE_COLLECTING, INDEXING, MERGING,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::utils::row_to_search_document;
+use crate::postgres::utils::{
+    collect_composites_for_unpacking, get_field_value, row_to_search_document,
+};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
@@ -489,18 +492,28 @@ unsafe extern "C-unwind" fn build_callback(
 
     let segment_meta = build_state.per_row_context.switch_to(|_| {
         let mut doc = TantivyDocument::new();
+
+        // Unpack all composites upfront
+        let unpacked_composites =
+            CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                build_state.categorized_fields.iter().map(|(_, cat)| cat),
+                values,
+                isnull,
+            ));
+
         row_to_search_document(
             build_state
                 .categorized_fields
                 .iter()
                 .map(|(field, categorized)| {
-                    let index_attno = categorized.attno;
-                    (
-                        *values.add(index_attno),
-                        *isnull.add(index_attno),
-                        field,
-                        categorized,
-                    )
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        &unpacked_composites,
+                    );
+                    (datum, is_null, field, categorized)
                 }),
             &mut doc,
         )
@@ -536,19 +549,17 @@ pub(super) fn build_index(
     concurrent: bool,
 ) -> anyhow::Result<f64> {
     struct SnapshotDropper(pg_sys::Snapshot);
-    impl Drop for SnapshotDropper {
-        fn drop(&mut self) {
-            unsafe {
-                let snapshot = self.0;
-                // if it's an mvcc snapshot we must unregister it
-                if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
-                    || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
-                {
-                    pg_sys::UnregisterSnapshot(snapshot);
-                }
+    crate::impl_safe_drop!(SnapshotDropper, |self| {
+        unsafe {
+            let snapshot = self.0;
+            // if it's an mvcc snapshot we must unregister it
+            if (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_MVCC
+                || (*snapshot).snapshot_type == pg_sys::SnapshotType::SNAPSHOT_HISTORIC_MVCC
+            {
+                pg_sys::UnregisterSnapshot(snapshot);
             }
         }
-    }
+    });
 
     let snapshot = SnapshotDropper(unsafe {
         if concurrent {

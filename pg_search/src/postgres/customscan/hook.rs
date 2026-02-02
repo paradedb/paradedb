@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -21,12 +21,14 @@ use crate::api::window_aggregate::window_agg_oid;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
+use crate::postgres::customscan::basescan::projections::window_agg;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
-use crate::postgres::customscan::pdbscan::projections::window_agg;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
+use crate::postgres::customscan::{
+    CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
+};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
@@ -144,6 +146,85 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     }
 }
 
+pub fn register_join_pathlist<CS>(_: CS)
+where
+    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+{
+    unsafe {
+        static mut PREV_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
+        > = Lazy::new(Default::default);
+
+        #[pg_guard]
+        extern "C-unwind" fn __priv_callback<CS>(
+            root: *mut pg_sys::PlannerInfo,
+            joinrel: *mut pg_sys::RelOptInfo,
+            outerrel: *mut pg_sys::RelOptInfo,
+            innerrel: *mut pg_sys::RelOptInfo,
+            jointype: pg_sys::JoinType::Type,
+            extra: *mut pg_sys::JoinPathExtraData,
+        ) where
+            CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+        {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
+                }
+
+                paradedb_join_pathlist_callback::<CS>(
+                    root, joinrel, outerrel, innerrel, jointype, extra,
+                );
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+            Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
+        };
+
+        pg_sys::set_join_pathlist_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) where
+    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+{
+    unsafe {
+        if !gucs::enable_join_custom_scan() {
+            return;
+        }
+
+        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+            root,
+            joinrel,
+            JoinPathlistHookArgs {
+                root,
+                joinrel,
+                outerrel,
+                innerrel,
+                jointype,
+                extra,
+            },
+        )) else {
+            return;
+        };
+
+        add_path(joinrel, path)
+    }
+}
+
 pub fn register_upper_path<CS>(_: CS)
 where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
@@ -229,6 +310,11 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     }
 }
 
+/// Static variable to store the previous planner hook (e.g., from Citus or other extensions)
+/// This MUST be outside both register_window_aggregate_hook() and paradedb_planner_hook()
+/// so they both reference the same variable for proper hook chaining.
+static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+
 /// Register a global planner hook to intercept and modify queries before planning.
 /// This is called once during extension initialization and affects all queries.
 ///
@@ -254,8 +340,6 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ///    of the planning process sees our placeholder functions as regular function
 ///    calls that get projected through the plan tree.
 pub unsafe fn register_window_aggregate_hook() {
-    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
-
     PREV_PLANNER_HOOK = pg_sys::planner_hook;
     pg_sys::planner_hook = Some(paradedb_planner_hook);
 }
@@ -455,8 +539,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
         }
     }
 
-    // Call the previous planner hook or standard planner
-    static mut PREV_PLANNER_HOOK: pg_sys::planner_hook_type = None;
+    // Call the previous planner hook (e.g., Citus) or standard planner
+    // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
     if let Some(prev_hook) = PREV_PLANNER_HOOK {
         prev_hook(parse, query_string, cursor_options, bound_params)
     } else {

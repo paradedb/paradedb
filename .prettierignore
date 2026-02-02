@@ -8,6 +8,7 @@
 **/*.txt
 **/*.zip
 /docker/.docker_cache_dev/
+/docker/manifests/
 /docs/documentation/aggregates/overview.mdx
 /docs/documentation/aggregates/common.mdx
 /docs/documentation/getting-started/quickstart.mdx
@@ -18,7 +19,7 @@
 /docs/documentation/full-text/highlighting.mdx
 /docs/documentation/full-text/joins.mdx
 /docs/documentation/full-text/sorting.mdx
-/docs/legacy/full-text/sorting.mdx
+/docs/legacy/
 /docs/documentation/indexing/create_index.mdx
 /docs/documentation/guides/autocomplete.mdx
 /docs/documentation/guides/hybrid.mdx

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -27,15 +27,17 @@ use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
 pub mod aggregatescan;
+pub mod basescan;
 mod builders;
 mod dsm;
 mod exec;
 pub mod explain;
 mod explainer;
 mod hook;
+pub mod joinscan;
 mod opexpr;
 mod path;
-pub mod pdbscan;
+pub mod projections;
 mod pushdown;
 pub mod qual_inspect;
 mod range_table;
@@ -56,7 +58,10 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::{register_rel_pathlist, register_upper_path, register_window_aggregate_hook};
+pub use hook::{
+    register_join_pathlist, register_rel_pathlist, register_upper_path,
+    register_window_aggregate_hook,
+};
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
 // default/only implementation of `rescan_custom_scan`.
@@ -252,6 +257,55 @@ impl RelPathlistHookArgs {
 
     pub fn rte(&self) -> &pg_sys::RangeTblEntry {
         unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
+    }
+}
+
+#[derive(Debug)]
+pub struct JoinPathlistHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    #[allow(dead_code)]
+    pub joinrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub outerrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub innerrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub jointype: pg_sys::JoinType::Type,
+    #[allow(dead_code)]
+    pub extra: *mut pg_sys::JoinPathExtraData,
+}
+
+impl JoinPathlistHookArgs {
+    #[allow(dead_code)]
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    #[allow(dead_code)]
+    pub fn joinrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.joinrel
+                .as_ref()
+                .expect("Args::joinrel should not be null")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn outerrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.outerrel
+                .as_ref()
+                .expect("Args::outerrel should not be null")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn innerrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.innerrel
+                .as_ref()
+                .expect("Args::innerrel should not be null")
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -25,7 +25,7 @@ use crate::customscan::aggregatescan::build::{
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{is_datetime_type, TantivyValue};
 use pgrx::{pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
@@ -33,7 +33,7 @@ use tantivy::aggregation::agg_result::{
     BucketResult, MetricResult as TantivyMetricResult,
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
-use tantivy::aggregation::{Key, DEFAULT_BUCKET_LIMIT};
+use tantivy::aggregation::Key;
 use tantivy::schema::OwnedValue;
 
 /// Unified result type for aggregates
@@ -64,13 +64,16 @@ pub fn aggregation_results_iter(
     let aggregate_clause = state.custom_state().aggregate_clause.clone();
     let query = aggregate_clause.query().clone();
 
+    // Use the GUC for term aggregation bucket limits (single source of truth).
+    let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
+
     let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
         true,
         gucs::adjust_work_mem().get().try_into().unwrap(),
-        DEFAULT_BUCKET_LIMIT,
+        bucket_limit,
         expr_context,
         planstate,
     )
@@ -188,6 +191,17 @@ pub fn aggregate_result_to_datum(
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
                 JsonB(json_value).into_datum()
+            } else if is_datetime_type(expected_typoid) {
+                // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
+                // since UNIX epoch. The f64 value from MIN/MAX aggregates represents this nanosecond
+                // timestamp. We need to convert it back to a DateTime before converting to the
+                // expected PostgreSQL type.
+                metric.value.and_then(|value| unsafe {
+                    let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
+                    TantivyValue(OwnedValue::Date(datetime))
+                        .try_into_datum(expected_typoid.into())
+                        .unwrap()
+                })
             } else {
                 metric.value.and_then(|value| unsafe {
                     TantivyValue(OwnedValue::F64(value))

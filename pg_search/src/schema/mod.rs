@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::options::BM25IndexOptions;
+use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 pub use crate::postgres::utils::FieldSource;
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
@@ -30,10 +30,12 @@ pub use config::*;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use tantivy::index::{IndexSortByField, Order};
 
-use crate::api::tokenizers::{type_is_tokenizer, Typmod};
+use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
+use crate::query::QueryError;
 use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
@@ -120,8 +122,23 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             return Err(SearchIndexSchemaError::JsonArraysNotYetSupported);
         }
 
-        let (base_oid, _) = resolve_base_type(pg_oid)
+        let (mut base_oid, _) = resolve_base_type(pg_oid)
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
+
+        if matches!(base_oid, PgOid::Custom(alias_oid) if type_is_alias(alias_oid)) {
+            // For pdb.alias types, resolve the inner_typoid to get the base element type
+            // This strips array information (e.g., timestamptz[] -> timestamptz)
+            // which matches how non-alias array fields are handled
+            base_oid = resolve_base_type(PgOid::from_untagged(inner_typoid))
+                .unwrap_or_else(|| {
+                    pgrx::error!(
+                        "Failed to resolve base type for inner type {:?}",
+                        inner_typoid
+                    )
+                })
+                .0;
+        }
+
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
@@ -189,7 +206,8 @@ impl KeyField {
 pub struct CategorizedFieldData {
     pub attno: usize,
     pub source: FieldSource,
-    pub base_oid: PgOid,
+    pub pg_type: PgOid,  // Original PostgreSQL type OID (e.g., pdb.alias)
+    pub base_oid: PgOid, // Resolved base type OID (e.g., integer)
     pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
@@ -239,6 +257,55 @@ impl SearchIndexSchema {
 
     pub fn key_fields(&self) -> Vec<KeyField> {
         self.bm25_options.key_fields()
+    }
+
+    /// Convert sort_by configuration to Tantivy's IndexSortByField.
+    ///
+    /// Validates that the sort field exists in the schema and is a fast field.
+    /// Returns None if sort_by is empty (no segment sorting).
+    ///
+    /// This is an associated function (not a method) because it's also used during
+    /// index creation when only the Tantivy Schema is available.
+    pub fn build_sort_by_field(
+        sort_by: &[SortByField],
+        schema: &Schema,
+    ) -> Option<IndexSortByField> {
+        // Empty sort_by means no segment sorting
+        if sort_by.is_empty() {
+            return None;
+        }
+
+        // Multi-field validation is done in options.rs during parsing
+        let sort_field = &sort_by[0];
+        let field_name = sort_field.field_name.as_ref();
+
+        // Validate field exists in schema
+        let field = schema.get_field(field_name).unwrap_or_else(|_| {
+            panic!(
+                "sort_by field '{}' does not exist in the index schema",
+                field_name
+            )
+        });
+
+        // Validate field is a fast field
+        let field_entry = schema.get_field_entry(field);
+        if !field_entry.is_fast() {
+            panic!(
+                "sort_by field '{}' must be a fast field. Add it to the index with 'fast: true'",
+                field_name
+            );
+        }
+
+        // Convert direction
+        let order = match sort_field.direction {
+            SortByDirection::Asc => Order::Asc,
+            SortByDirection::Desc => Order::Desc,
+        };
+
+        Some(IndexSortByField {
+            field: field_name.to_string(),
+            order,
+        })
     }
 
     pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
@@ -305,6 +372,7 @@ impl SearchIndexSchema {
                 ExtractedFieldAttribute {
                     attno,
                     source,
+                    pg_type,
                     tantivy_type,
                     inner_typoid,
                     ..
@@ -340,6 +408,7 @@ impl SearchIndexSchema {
                         CategorizedFieldData {
                             attno: *attno,
                             source: *source,
+                            pg_type: *pg_type,
                             base_oid,
                             is_key_field,
                             is_array,
@@ -442,6 +511,7 @@ impl SearchField {
         // NOTE: This list of supported field types must be synced with the field types which are
         // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
+            #[allow(deprecated)]
             FieldType::Str(options) => {
                 options.is_fast()
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
@@ -469,15 +539,60 @@ impl SearchField {
         self.field_entry.field_type().is_str()
     }
 
-    pub fn is_tokenized_with_freqs_and_positions(&self) -> bool {
-        // NB:  'uses_raw_tokenizer()' might not be enough to ensure the field is tokenized
-        self.is_text()
-            && !self.uses_raw_tokenizer()
-            && matches!(&self.field_config, SearchFieldConfig::Text { record, .. } if *record == IndexRecordOption::WithFreqsAndPositions)
+    pub fn with_positions(self) -> Result<Self, QueryError> {
+        if self.supports_positions() {
+            Ok(self)
+        } else {
+            let tokenizer = self
+                .field_config()
+                .tokenizer()
+                .map(|t| t.name().to_string());
+
+            Err(QueryError::TokenizerDoesNotSupportQueryType {
+                field: self.field_name().clone(),
+                tokenizer,
+            })
+        }
+    }
+
+    fn supports_positions(&self) -> bool {
+        let tokenizer = self.field_config.tokenizer();
+
+        // these tokenizers only emit one token, so they implicitly "support" positions
+        #[allow(deprecated)]
+        if matches!(
+            tokenizer,
+            Some(SearchTokenizer::Keyword)
+                | Some(SearchTokenizer::KeywordDeprecated)
+                | Some(SearchTokenizer::Raw(..))
+                | Some(SearchTokenizer::LiteralNormalized(..))
+        ) {
+            return true;
+        }
+
+        let has_positions = self
+            .field_entry
+            .field_type()
+            .get_index_record_option()
+            .map(|opt| opt.has_positions())
+            .unwrap_or(false);
+
+        let ngram_supports_positions = match tokenizer {
+            Some(SearchTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                positions: true,
+                ..
+            }) => min_gram == max_gram,
+            Some(SearchTokenizer::Ngram { .. }) => false,
+            _ => true,
+        };
+
+        (self.is_text() || self.is_json()) && has_positions && ngram_supports_positions
     }
 
     pub fn is_json(&self) -> bool {
-        matches!(self.field_type, SearchFieldType::Json(_))
+        self.field_entry.field_type().is_json()
     }
 
     #[allow(deprecated)]

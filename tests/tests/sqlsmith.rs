@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -76,13 +76,8 @@ fn crash_in_subquery(mut conn: PgConnection) {
     "#
     .execute_result(&mut conn);
 
-    let pg_ver = pg_major_version(&mut conn);
-    if pg_ver == 14 {
-        assert!(result.is_ok());
-    } else {
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(format!("{err}")
-            .contains("unable to determine Var relation as it belongs to a NULL subquery"))
-    }
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(format!("{err}")
+        .contains("unable to determine Var relation as it belongs to a NULL subquery"))
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -40,10 +40,11 @@ impl ProximityScorer {
         right: Vec<Box<dyn Postings>>,
         fieldnorm_reader: FieldNormReader,
         weight_opt: Option<Bm25Weight>,
+        num_docs: u32,
     ) -> Self {
         let left = SimpleUnion::build(left);
         let right = SimpleUnion::build(right);
-        let intersection = Intersection::with_two_sets(left, right);
+        let intersection = Intersection::with_two_sets(left, right, num_docs);
         let mut scorer = Self {
             intersection,
             distance,

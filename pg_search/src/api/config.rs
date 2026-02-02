@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -69,6 +69,7 @@ pub fn tokenizer(
     pattern: default!(Option<String>, "NULL"),
     stemmer: default!(Option<String>, "NULL"),
     stopwords_language: default!(Option<String>, "NULL"),
+    stopwords_languages: default!(Option<Vec<String>>, "NULL"),
     stopwords: default!(Option<Vec<String>>, "NULL"),
     ascii_folding: default!(Option<bool>, "NULL"),
 ) -> JsonB {
@@ -80,7 +81,20 @@ pub fn tokenizer(
     remove_long.map(|v| config.insert("remove_long".to_string(), Value::Number(v.into())));
     lowercase.map(|v| config.insert("lowercase".to_string(), Value::Bool(v)));
     stemmer.map(|v| config.insert("stemmer".to_string(), Value::String(v)));
-    stopwords_language.map(|v| config.insert("stopwords_language".to_string(), Value::String(v)));
+    // Handle both single language (stopwords_language) and array (stopwords_languages)
+    // for backwards compatibility. Array takes precedence if both are specified.
+    if let Some(langs) = stopwords_languages {
+        config.insert(
+            "stopwords_language".to_string(),
+            Value::Array(langs.into_iter().map(Value::String).collect()),
+        );
+    } else if let Some(lang) = stopwords_language {
+        // Single language - still store as array for internal consistency
+        config.insert(
+            "stopwords_language".to_string(),
+            Value::Array(vec![Value::String(lang)]),
+        );
+    }
     stopwords.map(|v| {
         config.insert(
             "stopwords".to_string(),

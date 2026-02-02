@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -47,7 +47,7 @@ impl PendingSegment {
 
     fn with_id(index: &Index, memory_budget: NonZeroUsize, segment_id: SegmentId) -> Result<Self> {
         let segment = index.new_segment_with_id(segment_id);
-        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
+        let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone(), true)?;
         Ok(Self {
             segment,
             writer,
@@ -167,7 +167,17 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let mut index = Index::create(directory, schema.clone().into(), IndexSettings::default())?;
+        let tantivy_schema: tantivy::schema::Schema = schema.clone().into();
+
+        // Build IndexSettings from rd_options (same source as build.rs:create_index)
+        let options = index_relation.options();
+        let sort_by_field =
+            SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
+        let settings = IndexSettings {
+            sort_by_field,
+            ..IndexSettings::default()
+        };
+        let mut index = Index::create(directory, tantivy_schema, settings)?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.
@@ -506,7 +516,7 @@ mod tests {
             max_docs_per_segment: None,
         };
         let segment_ids = simulate_index_writer(config, relation_oid, 75000);
-        assert_eq!(segment_ids.len(), 6);
+        assert_eq!(segment_ids.len(), 5);
     }
 
     #[pg_test]

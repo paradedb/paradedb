@@ -1,0 +1,62 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+DROP TABLE IF EXISTS "inventory_items";
+CREATE TABLE "inventory_items" (
+    "id" INT PRIMARY KEY,
+    "supplier_id" INT,
+    "condition" TEXT,
+    "availability" TEXT,
+    "customer_rating" FLOAT,
+    "sales_rank" INT,
+    "is_certified" BOOLEAN,
+    "location_count" INT
+);
+SELECT setseed(0.42);
+ setseed 
+---------
+ 
+(1 row)
+
+INSERT INTO "inventory_items" (
+    "id", "supplier_id", "condition", "availability", "customer_rating", "sales_rank", "is_certified", "location_count"
+)
+SELECT
+    g,
+    CASE WHEN (random() < 0.1) THEN 115 ELSE (random() * 100)::int END,
+    CASE WHEN (random() < 0.5) THEN 'new' WHEN (random() < 0.8) THEN 'used' ELSE 'refurbished' END,
+    CASE WHEN (random() < 0.8) THEN 'available' ELSE 'out_of_stock' END,
+    (random() * 100)::float,
+    (random() * 100000)::int,
+    (random() < 0.5),
+    (floor(random() * 5) + 1)::int
+FROM generate_series(1, 10000) AS g;
+CREATE INDEX inventory_items_idx ON "inventory_items" USING bm25 (
+    id, supplier_id, condition, availability, customer_rating, sales_rank, is_certified, location_count
+) WITH (key_field='id');
+SELECT "id"
+FROM "inventory_items" AS "InventoryItems"
+WHERE "InventoryItems"."id" @@@ '{"boolean":{"must":[{"term":{"field":"supplier_id","value":115}},{"boolean":{"should":[{"term":{"field":"condition","value":"new"}},{"term":{"field":"condition","value":"used"}}]}},{"term":{"field":"availability","value":"available"}}]}}'::jsonb
+ORDER BY pdb.score("InventoryItems"."id") DESC
+LIMIT 12
+OFFSET 0;
+ id  
+-----
+   3
+  58
+  77
+ 107
+ 110
+ 127
+ 213
+ 225
+ 238
+ 248
+ 277
+ 307
+(12 rows)
+
+DROP TABLE "inventory_items";

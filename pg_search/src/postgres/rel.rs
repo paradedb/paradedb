@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -96,24 +96,22 @@ impl Debug for PgSearchRelation {
     }
 }
 
-impl Drop for PgSearchRelation {
-    fn drop(&mut self) {
-        let Some(rc) = self.0.take() else {
-            return;
-        };
-        let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
-            return;
-        };
-        unsafe {
-            if need_close && pg_sys::IsTransactionState() {
-                match lockmode {
-                    Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
-                    None => pg_sys::RelationClose(relation.as_ptr()),
-                }
+crate::impl_safe_drop!(PgSearchRelation, |self| {
+    let Some(rc) = self.0.take() else {
+        return;
+    };
+    let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
+        return;
+    };
+    unsafe {
+        if need_close && pg_sys::IsTransactionState() {
+            match lockmode {
+                Some(lockmode) => pg_sys::relation_close(relation.as_ptr(), lockmode),
+                None => pg_sys::RelationClose(relation.as_ptr()),
             }
         }
     }
-}
+});
 
 impl Deref for PgSearchRelation {
     type Target = pg_sys::RelationData;
@@ -210,6 +208,12 @@ impl PgSearchRelation {
 
     pub fn is_create_index(&self) -> bool {
         self.0.as_ref().unwrap().5.get()
+    }
+
+    /// Returns false if in the middle of a `REINDEX CONCURRENTLY`
+    /// and the index is not yet ready to serve queries
+    pub fn is_valid(&self) -> bool {
+        unsafe { (*(*self.as_ptr()).rd_index).indisvalid }
     }
 
     pub fn lockmode(&self) -> Option<pg_sys::LOCKMODE> {

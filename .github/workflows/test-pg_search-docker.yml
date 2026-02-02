@@ -1,9 +1,9 @@
 # workflows/test-pg_search-docker.yml
 #
-# Test pg_search Docker
+# Test pg_search (Docker)
 # Test building and running the ParadeDB Docker Image using Docker Compose.
 
-name: Test pg_search Docker
+name: Test pg_search (Docker)
 
 on:
   pull_request:
@@ -14,6 +14,7 @@ on:
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
+      - "!docker/Dockerfile.stressgres"
       - "pg_search/**"
       - "tokenizers/**"
   workflow_dispatch:
@@ -25,8 +26,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image
-    # TODO: See https://github.com/paradedb/paradedb/issues/3613
-    runs-on: ubicloud-standard-8-ubuntu-2204
+    runs-on: ubicloud-standard-8-ubuntu-2404
 
     steps:
       - name: Checkout Git Repository

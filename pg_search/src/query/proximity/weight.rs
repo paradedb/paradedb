@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -79,6 +79,7 @@ impl ProximityWeight {
             right_postings,
             fieldnorm_reader,
             weight_opt,
+            reader.max_doc(),
         )))
     }
 
@@ -107,6 +108,7 @@ impl ProximityWeight {
                 right_postings,
                 self.fieldnorm_reader(segment_reader)?,
                 self.weight_opt.clone(),
+                segment_reader.max_doc(),
             );
 
             let mut doc_ids = Vec::new();

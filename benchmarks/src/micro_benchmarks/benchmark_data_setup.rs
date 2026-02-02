@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -387,7 +387,7 @@ async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Re
         json_data TEXT NOT NULL,
         numeric_field1 INTEGER NOT NULL,
         numeric_field2 FLOAT NOT NULL,
-        numeric_field3 NUMERIC(10,2) NOT NULL
+        numeric_field3 BIGINT NOT NULL
     )"
     );
 

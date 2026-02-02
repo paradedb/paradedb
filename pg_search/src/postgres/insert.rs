@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -21,13 +21,16 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexError, IndexWriterConfig, SerialIndexWriter};
+use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
+use crate::postgres::utils::{
+    collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
+};
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
@@ -246,7 +249,7 @@ unsafe fn aminsert_internal(
     ctid: pg_sys::ItemPointer,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
     {
         // Postgres 17 introduced the `aminsertcleanup()` function, which is critical for logical
         // replication to work.  As such, if this isn't v17+ and we're being called from a logical
@@ -285,15 +288,24 @@ unsafe fn insert(
         InsertMode::Immutable(mode) => state.per_row_context.switch_to(|cxt| {
             let mut search_document = TantivyDocument::new();
 
+            // Unpack all composites upfront
+            let unpacked_composites =
+                CompositeSlotValues::from_composites(collect_composites_for_unpacking(
+                    mode.categorized_fields.iter().map(|(_, cat)| cat),
+                    values,
+                    isnull,
+                ));
+
             row_to_search_document(
                 mode.categorized_fields.iter().map(|(field, categorized)| {
-                    let index_attno = categorized.attno;
-                    (
-                        *values.add(index_attno),
-                        *isnull.add(index_attno),
-                        field,
-                        categorized,
-                    )
+                    let (datum, is_null) = get_field_value(
+                        &categorized.source,
+                        categorized.attno,
+                        values,
+                        isnull,
+                        &unpacked_composites,
+                    );
+                    (datum, is_null, field, categorized)
                 }),
                 &mut search_document,
             )

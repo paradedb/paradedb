@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,8 +17,9 @@
 
 mod fixtures;
 
+use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use crate::fixtures::querygen::groupbygen::arb_group_by;
-use crate::fixtures::querygen::joingen::JoinType;
+use crate::fixtures::querygen::joingen::{arb_joins, JoinType};
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 use crate::fixtures::querygen::{
@@ -31,6 +32,7 @@ use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
+use serde_json::Value;
 use sqlx::{PgConnection, Row};
 
 const COLUMNS: &[Column] = &[
@@ -93,6 +95,17 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
+    Column::new("literal_normalized", "TEXT", "'Hello World'")
+        .whereable({
+            // literal_normalized lowercases text, so BM25 @@@ would match case-insensitively
+            // while PostgreSQL = does exact matching. This causes test failures when comparing
+            // results, so we exclude it from WHERE clause testing.
+            false
+        })
+        .bm25_v2_expression("(literal_normalized::pdb.literal_normalized)")
+        .random_generator_sql(
+            "(ARRAY ['Hello World', 'HELLO WORLD', 'hello world', 'HeLLo WoRLD', 'GOODBYE WORLD', 'goodbye world']::text[])[(floor(random() * 6) + 1)::int]"
+        ),
 ];
 
 fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
@@ -376,9 +389,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        // TODO: Compound top-n occasionally flakes, so we only use tiebreaker columns.
-        // See https://github.com/paradedb/paradedb/issues/3266.
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -461,9 +472,7 @@ async fn generated_subquery(database: Db) {
             COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        // TODO: Compound top-n occasionally flakes, so we only use tiebreaker columns.
-        // See https://github.com/paradedb/paradedb/issues/3266.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         let pg = format!(
@@ -490,6 +499,189 @@ async fn generated_subquery(database: Db) {
             &mut pool.pull(),
             &setup_sql,
             |query, conn| query.fetch_one::<(i64,)>(conn),
+        )?;
+    });
+}
+
+///
+/// Tests JoinScan custom scan implementation with comprehensive variations.
+///
+/// JoinScan requires:
+/// 1. enable_join_custom_scan = on
+/// 2. At least one side with a BM25 predicate
+/// 3. A LIMIT clause
+///
+/// This test randomly combines:
+/// - 2 or 3 table joins
+/// - BM25 predicates on outer table only, or on both outer and inner tables
+/// - Optional HeapConditions (cross-relation predicates like a.price > b.price)
+/// - Score-based ordering vs regular column ordering
+///
+/// This verifies that JoinScan produces the same results as PostgreSQL's
+/// native join implementation across all these variations.
+#[rstest]
+#[tokio::test]
+async fn generated_joinscan(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    // Three tables for 2-way and 3-way join testing
+    let tables_and_sizes = [("users", 100), ("products", 100), ("orders", 100)];
+    let all_tables: Vec<&str> = tables_and_sizes.iter().map(|(table, _)| *table).collect();
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
+
+    // Text columns for BM25 WHERE clauses
+    let text_columns = columns_named(vec!["name"]);
+    // Numeric columns for join keys and cross-relation predicates
+    let join_key_columns = vec!["id", "age", "uuid"];
+    // Columns for cross relation expressions.
+    let numeric_columns = [
+        "age",
+        // TODO: We cannot pull up `NUMERIC` columns as fast fields until
+        // https://github.com/paradedb/paradedb/issues/2968 is resolved.
+        // "price"
+    ];
+
+    proptest!(|(
+        // Test 2-table joins only (JoinScan doesn't support 3+ table joins yet)
+        num_tables in 2..=2usize,
+        // Outer table BM25 predicate (always present)
+        outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
+        // Inner table BM25 predicate (optional)
+        include_inner_bm25 in proptest::bool::ANY,
+        inner_bm25 in arb_wheres(vec![all_tables[1]], &text_columns),
+        // HeapCondition (cross-relation predicate)
+        include_heap_condition in proptest::bool::ANY,
+        heap_condition in arb_cross_rel_expr(all_tables[0], all_tables[1], numeric_columns.to_vec()),
+        // Result limit
+        limit in 1..=50usize,
+    )| {
+        // Build join with selected number of tables
+        let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
+
+        // Generate join expression
+        let join = arb_joins(
+            Just(JoinType::Inner),
+            tables_for_join.clone(),
+            join_key_columns.clone(),
+        );
+
+        // We need to sample from the strategy - use a fixed seed approach
+        let join_expr = {
+            use proptest::strategy::ValueTree;
+            use proptest::test_runner::TestRunner;
+            let mut runner = TestRunner::default();
+            join.new_tree(&mut runner).unwrap().current()
+        };
+
+        let join_clause = join_expr.to_sql();
+        let used_tables = join_expr.used_tables();
+
+        // Select columns from the first table
+        // When HeapCondition is used, include the referenced columns in target list
+        // (JoinScan requires columns to be projected to evaluate HeapConditions)
+        let target_list = if include_heap_condition {
+            format!(
+                "{}.id, {}.name, {}.{}, {}.{}",
+                used_tables[0], used_tables[0],
+                used_tables[0], heap_condition.left_col,
+                used_tables[1], heap_condition.right_col
+            )
+        } else {
+            format!("{}.id, {}.name", used_tables[0], used_tables[0])
+        };
+        let from = format!("SELECT {target_list} {join_clause}");
+
+        // Build WHERE clause parts for BM25 query
+        let mut bm25_where_parts = vec![outer_bm25.to_sql("@@@")];
+        let mut pg_where_parts = vec![outer_bm25.to_sql(" = ")];
+
+        // Optionally add inner table BM25 predicate
+        if include_inner_bm25 && num_tables >= 2 {
+            bm25_where_parts.push(inner_bm25.to_sql("@@@"));
+            pg_where_parts.push(inner_bm25.to_sql(" = "));
+        }
+
+        // Optionally add HeapCondition (same for both queries since it's a regular comparison)
+        if include_heap_condition {
+            let heap_sql = heap_condition.to_sql();
+            bm25_where_parts.push(heap_sql.clone());
+            pg_where_parts.push(heap_sql);
+        }
+
+        let bm25_where = bm25_where_parts.join(" AND ");
+        let pg_where = pg_where_parts.join(" AND ");
+
+        // Build deterministic ORDER BY with tie-breaker columns
+        // When joins produce multiple matching rows, we need to include columns from both sides
+        // to ensure deterministic results when LIMIT is applied
+        let mut order_parts = vec![format!("{}.id", used_tables[0])];
+        for table in &used_tables[1..] {
+            order_parts.push(format!("{}.id", table));
+        }
+        let order_by = order_parts.join(", ");
+
+        // GUCs with JoinScan enabled
+        let gucs = PgGucs {
+            join_custom_scan: true,
+            ..PgGucs::default()
+        };
+
+        // PostgreSQL native join query
+        let pg_query = format!(
+            "{from} WHERE {pg_where} ORDER BY {order_by} LIMIT {limit}"
+        );
+
+        // BM25 query with JoinScan enabled
+        let bm25_query = format!(
+            "{from} WHERE {bm25_where} ORDER BY {order_by} LIMIT {limit}"
+        );
+
+        // Verify JoinScan is actually used
+        {
+            let conn = &mut pool.pull();
+            gucs.set().execute(conn);
+            let explain_query = format!("EXPLAIN (FORMAT JSON) {bm25_query}");
+            let (plan,): (Value,) = explain_query.fetch_one(conn);
+            let plan_str = format!("{:?}", plan);
+            prop_assert!(
+                plan_str.contains("ParadeDB Join Scan"),
+                "Query should use ParadeDB Join Scan but got plan: {}\nQuery: {}",
+                plan_str,
+                bm25_query
+            );
+        }
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                // Use dynamic fetch since column count varies with HeapCondition
+                let rows = query.fetch_dynamic(conn);
+                // Convert to sorted string representation for comparison
+                let mut row_strings: Vec<String> = rows
+                    .into_iter()
+                    .map(|row| {
+                        use sqlx::Row;
+                        // Get id as i64 for consistent sorting
+                        let id: i64 = row.try_get(0).unwrap_or(0);
+                        format!("{:020}|{:?}", id, row)
+                    })
+                    .collect();
+                row_strings.sort();
+                row_strings
+            },
         )?;
     });
 }

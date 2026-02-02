@@ -26,8 +26,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout target repository
-      uses: actions/checkout@v4
+    - name: Checkout Target Repository
+      uses: actions/checkout@v6
       with:
         repository: ${{ inputs.repository }}
         token: ${{ inputs.push-token || github.token }}
@@ -66,27 +66,42 @@ runs:
       working-directory: "${{ inputs.repo-path }}"
       run: |
         set -euo pipefail
-        max_attempts=5
+        max_attempts=3
 
         for attempt in $(seq 1 $max_attempts); do
           echo "Attempt $attempt to push changes..."
+
           if git push origin HEAD:${{ inputs.branch }}; then
             echo "Push succeeded"
-            break
-          else
-            echo "Push failed (attempt $attempt)."
-            if [ $attempt -lt $max_attempts ]; then
-              echo "Fetching and rebasing before retry..."
-              git fetch origin "${{ inputs.branch }}"
-              git rebase "origin/${{ inputs.branch }}" || git rebase --abort
+            exit 0
+          fi
 
-              delay=$(( (RANDOM % 60) + 1 ))
-              echo "Retrying in $delay seconds..."
-              sleep $delay
-            else
-              echo "All $max_attempts attempts to retry the push failed."
-              exit 1
+          echo "Push failed (attempt $attempt)."
+
+          if [ "$attempt" -lt "$max_attempts" ]; then
+            echo "Fetching latest and rebuilding commit..."
+            git fetch origin "${{ inputs.branch }}"
+
+            # Make sure we're exactly on top of origin/<branch>
+            git reset --hard "origin/${{ inputs.branch }}"
+
+            # Re-copy the file because reset --hard may have blown it away
+            cp ../${{ inputs.file-name }} ./
+            git add "${{ inputs.file-name }}"
+
+            if git diff --cached --quiet; then
+              echo "No changes to commit after reset; maybe someone already pushed the same file."
+              exit 0
             fi
+
+            git commit -m "${{ inputs.commit-message }}"
+
+            delay=$(( (RANDOM % 20) + 5 ))
+            echo "Retrying in $delay seconds..."
+            sleep $delay
+          else
+            echo "All $max_attempts attempts to retry the push failed."
+            exit 1
           fi
         done
 

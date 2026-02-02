@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -21,13 +21,11 @@ use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
-    check_range_bounds, coerce_bound_to_field_type, expand_json_numeric_to_terms, value_to_term,
-    QueryError, SearchQueryInput,
+    check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
-use smallvec::smallvec;
 use std::collections::Bound;
 use std::ffi::CStr;
 use tantivy::query::{
@@ -582,7 +580,7 @@ impl pdb::Query {
                 right,
             } => proximity(&field, schema, left, distance, right)?,
             pdb::Query::TokenizedPhrase { phrase, slop } => {
-                tokenized_phrase(&field, schema, searcher, &phrase, slop)
+                tokenized_phrase(&field, schema, searcher, &phrase, slop)?
             }
             pdb::Query::Range {
                 lower_bound,
@@ -674,77 +672,25 @@ fn proximity(
 
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized_with_freqs_and_positions() {
-        return Err(QueryError::InvalidTokenizer.into());
-    }
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
 
     let prox = ProximityQuery::new(search_field.field(), left, distance, right);
     Ok(Box::new(prox))
 }
 
-/// Creates TermSetQuery for pdb::Query::TermSet (used by === operator for TEXT, not for numeric IN pushdown).
-/// For JSON numeric fields, expands each value into I64/U64/F64 variants for cross-type matching.
-/// Numeric IN clauses use query/mod.rs::SearchQueryInput::TermSet instead.
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
     terms: Vec<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
-    // For JSON paths like "data.amount", we must look up the root field "data" in the schema
-    // to correctly identify it as a JSON field type. Using the full path would fail the lookup
-    // since only the root column exists in the schema as a JsonObject field.
     let search_field = schema
-        .search_field(field.root())
+        .search_field(&field)
         .expect("field should exist in schema");
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
 
-    // Check if this is a JSON numeric field requiring multi-type matching
-    let is_json_field = search_field.is_json();
-    let has_nested_path = field.path().is_some();
-    let is_json_numeric_field = is_json_field && has_nested_path;
-
-    let has_numeric_terms = terms.iter().any(|v| {
-        matches!(
-            v,
-            OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-        )
-    });
-
-    if is_json_numeric_field && has_numeric_terms && !is_date_time {
-        // For JSON numeric fields, each term may expand to multiple type variants
-        // Pass iterator directly to avoid allocating an intermediate Vec
-        return Ok(Box::new(TermSetQuery::new(terms.into_iter().flat_map(
-            |term_value| {
-                if matches!(
-                    term_value,
-                    OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-                ) {
-                    // Expand numeric value to all possible type variants
-                    expand_json_numeric_to_terms(
-                        tantivy_field,
-                        &term_value,
-                        field.path().as_deref(),
-                    )
-                    .expect("could not expand JSON numeric to terms")
-                } else {
-                    // Non-numeric values use standard term creation
-                    smallvec![value_to_term(
-                        tantivy_field,
-                        &term_value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_date_time,
-                    )
-                    .expect("could not convert argument to search term")]
-                }
-            },
-        ))));
-    }
-
-    // Standard term set for non-JSON or non-numeric fields
     Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
         value_to_term(
             tantivy_field,
@@ -769,49 +715,6 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
-
-    // For JSON numeric fields, create multi-type query to handle I64/F64 matching
-    // Check if the root field is JSON AND if we have a nested path (indicating JSON field access)
-    let is_json_field = search_field.is_json();
-    let has_nested_path = field.path().is_some(); // If path exists, we're accessing a nested field
-    let is_json_numeric_field = is_json_field && has_nested_path;
-
-    let is_numeric_value = matches!(
-        value,
-        OwnedValue::F64(_) | OwnedValue::I64(_) | OwnedValue::U64(_)
-    );
-
-    if is_json_numeric_field && is_numeric_value && !is_datetime {
-        // Use the shared helper function to expand numeric values to multiple type variants
-        let expanded_terms =
-            expand_json_numeric_to_terms(search_field.field(), value, field.path().as_deref())?;
-
-        // Convert record_option once to avoid ownership issues in closure
-        let index_record_option = record_option.into();
-
-        // If only one term variant, return a simple TermQuery (optimization)
-        if expanded_terms.len() == 1 {
-            return Ok(Box::new(TermQuery::new(
-                expanded_terms.into_iter().next().unwrap(),
-                index_record_option,
-            )));
-        }
-
-        // Multiple term variants: create BooleanQuery with OR logic (should)
-        let term_queries: Vec<(Occur, Box<dyn TantivyQuery>)> = expanded_terms
-            .into_iter()
-            .map(|term| {
-                (
-                    Occur::Should,
-                    Box::new(TermQuery::new(term, index_record_option)) as Box<dyn TantivyQuery>,
-                )
-            })
-            .collect();
-
-        return Ok(Box::new(BooleanQuery::new(term_queries)));
-    }
-
-    // Standard single-term query for non-JSON or non-numeric fields
     let term = value_to_term(
         search_field.field(),
         value,
@@ -832,7 +735,9 @@ fn regex_phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
 
     if let Some(slop) = slop {
@@ -1494,31 +1399,41 @@ fn tokenized_phrase(
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
-) -> Box<dyn TantivyQuery> {
-    let tantivy_field = schema
-        .search_field(field)
-        .unwrap_or_else(|| core::panic!("Field `{field}` not found in tantivy schema"))
-        .field();
-    let mut tokenizer = searcher
-        .index()
-        .tokenizer_for_field(tantivy_field)
-        .unwrap_or_else(|e| core::panic!("{e}"));
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
+    let field_type = search_field.field_entry().field_type();
+    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
     let mut stream = tokenizer.token_stream(phrase);
+    let path = field.path();
 
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
-        tokens.push(Term::from_field_text(tantivy_field, &token.text));
+        let value = OwnedValue::Str(token.text.clone());
+        let term = value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            path.as_deref(),
+            false,
+        )?;
+        tokens.push(term);
     }
-    if tokens.is_empty() {
+    Ok(if tokens.is_empty() {
         Box::new(EmptyQuery)
     } else if tokens.len() == 1 {
-        let query = TermQuery::new(tokens.remove(0), IndexRecordOption::WithFreqs.into());
-        Box::new(query)
+        Box::new(TermQuery::new(
+            tokens.remove(0),
+            IndexRecordOption::WithFreqs.into(),
+        ))
     } else {
         let mut query = PhraseQuery::new(tokens);
         query.set_slop(slop.unwrap_or(0));
         Box::new(query)
-    }
+    })
 }
 
 fn phrase_prefix(
@@ -1529,7 +1444,9 @@ fn phrase_prefix(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
+
     let field_type = search_field.field_entry().field_type();
     let terms = phrases.clone().into_iter().map(|phrase| {
         value_to_term(
@@ -1557,7 +1474,8 @@ fn phrase(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
@@ -1609,7 +1527,8 @@ fn phrase_array(
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
-        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+        .ok_or(QueryError::NonIndexedField(field.clone()))?
+        .with_positions()?;
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::with_capacity(tokens.len());
@@ -1734,13 +1653,9 @@ fn match_query(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let mut analyzer = match tokenizer {
-        Some(tokenizer) => {
-            let tokenizer = SearchTokenizer::from_json_value(&tokenizer)
-                .map_err(|_| QueryError::InvalidTokenizer)?;
-            tokenizer
-                .to_tantivy_tokenizer()
-                .ok_or(QueryError::InvalidTokenizer)?
-        }
+        Some(tokenizer) => SearchTokenizer::from_json_value(&tokenizer)?
+            .to_tantivy_tokenizer()
+            .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => searcher.index().tokenizer_for_field(search_field.field())?,
     };
     let mut stream = analyzer.token_stream(value);

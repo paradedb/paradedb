@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -2437,22 +2437,20 @@ fn available_tokenizers(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    if cfg!(feature = "icu") {
-        r#"
-        CREATE INDEX search_idx ON mock_items
-        USING bm25 (id, description)
-        WITH (
-            key_field = 'id',
-            text_fields = '{
-                "description": {
-                "tokenizer": {"type": "icu"}
-                }
-            }'
-        );
-        DROP INDEX search_idx;
-        "#
-        .execute(&mut conn);
-    }
+    r#"
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (
+        key_field = 'id',
+        text_fields = '{
+            "description": {
+            "tokenizer": {"type": "icu"}
+            }
+        }'
+    );
+    DROP INDEX search_idx;
+    "#
+    .execute(&mut conn);
 
     r#"
     SELECT * FROM paradedb.tokenizers();

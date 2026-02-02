@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -226,7 +226,7 @@ unsafe fn extend_by_one_buffer(
     rel: pg_sys::Relation,
     strategy: pg_sys::BufferAccessStrategy,
 ) -> pg_sys::Buffer {
-    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    #[cfg(feature = "pg15")]
     {
         pg_sys::ReadBufferExtended(
             rel,

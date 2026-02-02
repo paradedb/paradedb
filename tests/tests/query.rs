@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -1003,23 +1003,26 @@ fn match_query(mut conn: PgConnection) {
 fn parse_lenient(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    // Default lenient should be false
-    let result = r#"
+    // With Tantivy's new behavior (commit e7c8c331), queries succeed if any default field
+    // matches, even if others fail. Test that lenient mode still provides additional tolerance.
+    // A query with valid terms should work in both modes
+    let rows_strict: Vec<(i32,)> = r#"
     SELECT id FROM paradedb.bm25_search
-    WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard')
+    WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes')
     ORDER BY id;
     "#
-    .execute_result(&mut conn);
-    assert!(result.is_err());
+    .fetch(&mut conn);
+    assert!(!rows_strict.is_empty());
 
-    // With lenient enabled
-    let rows: Vec<(i32,)> = r#"
+    // With lenient enabled, mixed valid/invalid terms should also work
+    let rows_lenient: Vec<(i32,)> = r#"
     SELECT id FROM paradedb.bm25_search
     WHERE paradedb.bm25_search.id @@@ paradedb.parse('shoes keyboard', lenient => true)
     ORDER BY id;
     "#
     .fetch(&mut conn);
-    assert_eq!(rows, vec![(1,), (2,), (3,), (4,), (5,)]);
+    // Should return results matching "shoes" (keyboard is ignored as non-existent)
+    assert_eq!(rows_lenient, vec![(1,), (2,), (3,), (4,), (5,)]);
 }
 
 #[rstest]

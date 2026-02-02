@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -23,6 +23,7 @@ use crate::postgres::customscan::qual_inspect::{
     contains_exec_param, extract_quals, PlannerContext, QualExtractState,
 };
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::utils::filter_implied_predicates;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
@@ -99,11 +100,16 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
         }
 
         let mut where_qual_state = QualExtractState::default();
+
+        // Filter out predicates implied by the partial index predicate
+        let filtered_restrict_info =
+            unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
+
         let quals = unsafe {
             extract_quals(
                 &PlannerContext::from_planner(args.root),
                 heap_rti,
-                restrict_info.as_ptr().cast(),
+                filtered_restrict_info.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 ri_type,
                 index,

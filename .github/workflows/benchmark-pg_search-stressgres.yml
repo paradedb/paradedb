@@ -2,7 +2,7 @@
 #
 # Benchmark pg_search - Stressgres
 # Run our Stressgres stress testing tool against pg_search on the
-# testing suites specificed in .github/stressgres.
+# testing suites specificed in stressgres/suites/.
 
 name: Benchmark pg_search - Stressgres
 
@@ -13,7 +13,7 @@ on:
       - main
       - 0.*.x # Release branches
     paths:
-      - ".github/stressgres/**"
+      - "stressgres/suites/**"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Derive Short Commit
         id: commit_info
@@ -211,20 +211,11 @@ jobs:
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }} --no-default-features
 
-      - name: Checkout Stressgres Repo
-        uses: actions/checkout@v6
-        with:
-          repository: paradedb/stressgres
-          path: stressgres
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-
-      - name: Install the stressgres CLI tool
-        run: cd stressgres && CARGO_TARGET_DIR=../target/ cargo install --path .
-
-      - name: Remove stressgres repo
-        run: rm -rf stressgres
+      - name: Install the Stressgres CLI tool
+        working-directory: stressgres/
+        run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -48,7 +48,15 @@ fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
 #[pg_extern(immutable, parallel_safe)]
 pub fn generic_typmod_out(typmod: i32) -> CString {
     let parsed = load_typmod(typmod).expect("should not fail to load typmod");
-    CString::new(format!("({parsed})")).unwrap()
+
+    // make sure the typmods are string-quoted literals
+    let mut parts = Vec::with_capacity(parsed.len());
+    for prop in parsed.properties.iter() {
+        let s = prop.to_string();
+        parts.push(format!("'{}'", s));
+    }
+
+    CString::new(format!("({})", parts.join(", "))).unwrap()
 }
 
 pub type Typmod = i32;
@@ -249,6 +257,44 @@ impl Property {
             _ => Err(Error::InvalidProperty(self.clone())),
         }
     }
+
+    /// Parse comma-separated languages (e.g., "English,French")
+    pub fn as_languages(&self) -> Result<Vec<Language>> {
+        match self {
+            Property::String(_, value) => {
+                let languages: std::result::Result<Vec<_>, _> = value
+                    .split(',')
+                    .map(|s| {
+                        let lcase = s.trim().to_lowercase();
+                        match lcase.as_str() {
+                            "arabic" => Ok(Language::Arabic),
+                            "danish" => Ok(Language::Danish),
+                            "dutch" => Ok(Language::Dutch),
+                            "english" => Ok(Language::English),
+                            "finnish" => Ok(Language::Finnish),
+                            "french" => Ok(Language::French),
+                            "german" => Ok(Language::German),
+                            "greek" => Ok(Language::Greek),
+                            "hungarian" => Ok(Language::Hungarian),
+                            "italian" => Ok(Language::Italian),
+                            "norwegian" => Ok(Language::Norwegian),
+                            "polish" => Ok(Language::Polish),
+                            "portuguese" => Ok(Language::Portuguese),
+                            "romanian" => Ok(Language::Romanian),
+                            "russian" => Ok(Language::Russian),
+                            "spanish" => Ok(Language::Spanish),
+                            "swedish" => Ok(Language::Swedish),
+                            "tamil" => Ok(Language::Tamil),
+                            "turkish" => Ok(Language::Turkish),
+                            other => Err(Error::InvalidLanguage(other.to_string())),
+                        }
+                    })
+                    .collect();
+                languages
+            }
+            _ => Err(Error::InvalidProperty(self.clone())),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -337,7 +383,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                 }),
             stopwords_language: value
                 .get("stopwords_language")
-                .and_then(|p| p.as_language().ok()),
+                .and_then(|p| p.as_languages().ok()),
             stopwords: None, // TODO: handle stopwords list in a new way we haven't done up to this point
             alpha_num_only: value.get("alpha_num_only").and_then(|p| p.as_bool()),
             ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),

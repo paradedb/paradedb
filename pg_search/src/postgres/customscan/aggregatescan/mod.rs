@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -33,9 +33,10 @@ pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
 use crate::api::agg_funcoid;
-use crate::nodecast;
+use crate::gucs;
 
-use crate::customscan::aggregatescan::build::{AggregateCSClause, NULL_GROUP_KEY_SENTINEL};
+use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
+use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
@@ -46,6 +47,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -54,7 +56,7 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
 
@@ -149,6 +151,14 @@ impl CustomScan for AggregateScan {
             .custom_state()
             .aggregate_clause
             .add_to_explainer(explainer);
+
+        // Add note about recursive cost estimation if GUC is enabled
+        if gucs::explain_recursive_estimates() && explainer.is_verbose() {
+            explainer.add_text(
+                "Recursive Query Estimates",
+                "(not yet implemented for aggregate scans)",
+            );
+        }
     }
 
     fn begin_custom_scan(
@@ -162,13 +172,32 @@ impl CustomScan for AggregateScan {
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
             let planstate = state.planstate();
             // TODO: Opening of the index could be deduped between custom scans: see
-            // `PdbScanState::open_relations`.
+            // `BaseScanState::open_relations`.
             state.custom_state_mut().open_relations(lockmode);
 
             state
                 .custom_state_mut()
                 .init_expr_context(estate, planstate);
             state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+
+            // Create a reusable tuple slot for aggregate results
+            // This avoids per-row MakeTupleTableSlot calls which leak memory
+            let scan_slot =
+                pg_sys::MakeTupleTableSlot((*planstate).ps_ResultTupleDesc, &pg_sys::TTSOpsVirtual);
+            state.custom_state_mut().scan_slot = Some(scan_slot);
+
+            // Set up placeholder targetlist for wrapped aggregate expression projection.
+            let plan_targetlist = (*(*planstate).plan).targetlist;
+            // This creates a copy of the plan's targetlist with FuncExpr placeholders replaced
+            // by Const nodes. The Const nodes will be mutated with actual aggregate values
+            // before each ExecBuildProjectionInfo call in exec_custom_scan (basescan pattern).
+            let (placeholder_tlist, const_nodes, needs_projection) =
+                create_placeholder_targetlist(plan_targetlist);
+            if needs_projection && !placeholder_tlist.is_null() {
+                state.custom_state_mut().placeholder_targetlist = Some(placeholder_tlist);
+                state.custom_state_mut().const_agg_nodes = const_nodes;
+                // Note: projection is built per-row in exec_custom_scan, not here
+            }
         }
     }
 
@@ -201,10 +230,11 @@ impl CustomScan for AggregateScan {
 
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
-            let slot = pg_sys::MakeTupleTableSlot(
-                (*state.planstate()).ps_ResultTupleDesc,
-                &pg_sys::TTSOpsVirtual,
-            );
+            // Use the reusable slot created in begin_custom_scan to avoid per-row memory leaks
+            let slot = state
+                .custom_state()
+                .scan_slot
+                .expect("scan_slot should be initialized in begin_custom_scan");
             pg_sys::ExecClearTuple(slot);
 
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
@@ -214,7 +244,7 @@ impl CustomScan for AggregateScan {
             let mut aggregates = row.aggregates.clone().into_iter();
             let mut natts_processed = 0;
 
-            // Fill in values according to the target list mapping
+            // Fill in values according to the target list
             for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
                 let attr = tupdesc.get(i).expect("missing attribute");
                 let expected_typoid = attr.type_oid().value();
@@ -222,11 +252,22 @@ impl CustomScan for AggregateScan {
                 let datum = match (entry, row.is_empty()) {
                     (TargetListEntry::GroupingColumn(gc_idx), false) => {
                         let key = row.group_keys[*gc_idx].clone();
-                        match &key.0 {
-                            OwnedValue::Str(s) if s == NULL_GROUP_KEY_SENTINEL => None,
-                            _ => key
-                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                .expect("should be able to convert to datum"),
+                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
+                        // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
+                        // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
+                        let is_bool_type = expected_typoid == pg_sys::BOOLOID;
+                        let is_null_sentinel = match &key.0 {
+                            OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+                            OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+                            OwnedValue::U64(v) => *v == u64::MAX || (is_bool_type && *v == 2),
+                            OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+                            _ => false,
+                        };
+                        if is_null_sentinel {
+                            None
+                        } else {
+                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                .expect("should be able to convert to datum")
                         }
                     }
                     (TargetListEntry::GroupingColumn(_), true) => None,
@@ -269,16 +310,122 @@ impl CustomScan for AggregateScan {
             assert_eq!(natts, natts_processed, "target list length mismatch",);
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
+            // Note: We don't set TTS_FLAG_SHOULDFREE since we're reusing this slot across rows
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
+
+            // If we have wrapped aggregates, project the expressions using basescan pattern:
+            // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
+            // 2. Build projection in per-tuple memory context (bakes Const values in)
+            // 3. ExecProject
+            if let Some(placeholder_tlist) = state.custom_state().placeholder_targetlist {
+                let planstate = state.planstate();
+                let expr_context = (*planstate).ps_ExprContext;
+
+                // Switch to per-tuple memory context and reset it to avoid memory leaks
+                // from ExecBuildProjectionInfo allocations and wrapper functions
+                let mut per_tuple_context =
+                    PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
+                per_tuple_context.reset();
+
+                // Mutate Const nodes with aggregate values directly from the row results.
+                // We DON'T use the slot's datums because those were converted using the
+                // output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
+                // but we need the native aggregate type (e.g., JSONB for pdb.agg).
+                // This matches basescan's approach of setting Const values directly.
+                let mut agg_iter = row.aggregates.iter();
+                for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
+                    let TargetListEntry::Aggregate(agg_type) = entry else {
+                        continue;
+                    };
+
+                    let Some(const_node) = state
+                        .custom_state()
+                        .const_agg_nodes
+                        .get(i)
+                        .copied()
+                        .flatten()
+                    else {
+                        // No Const node for this aggregate, skip the iterator
+                        agg_iter.next();
+                        continue;
+                    };
+
+                    // Get the next aggregate result
+                    let agg_result = agg_iter.next().and_then(|v| v.clone());
+
+                    // Convert to datum using the Const node's type (native aggregate type)
+                    // not the output tuple descriptor's type
+                    let (datum, is_null) = if row.is_empty() {
+                        // Empty result - use nullish value
+                        let nullish_datum = agg_type.nullish().value.and_then(|value| {
+                            TantivyValue(OwnedValue::F64(value))
+                                .try_into_datum((*const_node).consttype.into())
+                                .unwrap()
+                        });
+                        (
+                            nullish_datum.unwrap_or(pg_sys::Datum::null()),
+                            nullish_datum.is_none(),
+                        )
+                    } else if agg_type.can_use_doc_count()
+                        && !state.custom_state().aggregate_clause.has_filter()
+                        && state.custom_state().aggregate_clause.has_groupby()
+                    {
+                        let d = row
+                            .doc_count()
+                            .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
+                        match d {
+                            Ok(Some(datum)) => (datum, false),
+                            _ => (pg_sys::Datum::null(), true),
+                        }
+                    } else {
+                        // Use the native aggregate result type (from the Const node)
+                        let d = exec::aggregate_result_to_datum(
+                            agg_result,
+                            agg_type,
+                            (*const_node).consttype, // Use Const's type, not output type
+                        );
+                        match d {
+                            Some(datum) => (datum, false),
+                            None => (pg_sys::Datum::null(), true),
+                        }
+                    };
+
+                    (*const_node).constvalue = datum;
+                    (*const_node).constisnull = is_null;
+                }
+
+                // Set the scan tuple for expression evaluation context
+                (*expr_context).ecxt_scantuple = slot;
+
+                // Build projection and execute in per-tuple memory context (basescan pattern)
+                // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
+                return per_tuple_context.switch_to(|_| {
+                    let proj_info = pg_sys::ExecBuildProjectionInfo(
+                        placeholder_tlist,
+                        expr_context,
+                        (*planstate).ps_ResultTupleSlot,
+                        planstate,
+                        (*slot).tts_tupleDescriptor,
+                    );
+                    pg_sys::ExecProject(proj_info)
+                });
+            }
+
             slot
         }
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
-    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Clean up the reusable scan slot
+        if let Some(slot) = state.custom_state().scan_slot {
+            unsafe {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+            }
+        }
+    }
 }
 
 impl ExecMethod for AggregateScan {
@@ -324,51 +471,99 @@ pub trait CustomScanClause<CS: CustomScan> {
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+/// Uses expression_tree_mutator to handle nested Aggrefs (e.g., COALESCE(COUNT(*), 0))
 unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    use pgrx::pg_guard;
+
     if (*plan).targetlist.is_null() {
         return;
     }
 
-    let targetlist = (*plan).targetlist;
+    // Mutator function to replace Aggref nodes with placeholder FuncExpr
+    #[pg_guard]
+    unsafe extern "C-unwind" fn aggref_mutator(
+        node: *mut pg_sys::Node,
+        _context: *mut core::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
 
-    // First, check if there are any T_Aggref nodes in the target list using list_nth
-    // If not, we can skip the replacement (it's already been done or not needed)
-    let mut has_aggref = false;
-    let list_len = pg_sys::list_length(targetlist);
-    for i in 0..list_len {
-        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
-        if !te.is_null()
-            && !(*te).expr.is_null()
-            && (*(*te).expr).type_ == pg_sys::NodeTag::T_Aggref
+        // If this is an Aggref, replace it with a placeholder FuncExpr
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            let aggref = node as *mut pg_sys::Aggref;
+            return make_placeholder_func_expr(aggref) as *mut pg_sys::Node;
+        }
+
+        // For all other nodes, use the standard mutator to walk children
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            has_aggref = true;
-            break;
+            let fnptr = aggref_mutator as usize as *const ();
+            let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(mutator), std::ptr::null_mut())
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(aggref_mutator), std::ptr::null_mut())
         }
     }
+
+    let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
+
+    // Check if there are any Aggref nodes anywhere in the target list
+    let has_aggref = targetlist.iter_ptr().any(|te| {
+        !te.is_null()
+            && !(*te).expr.is_null()
+            && expr_contains_aggref((*te).expr as *mut pg_sys::Node)
+    });
 
     if !has_aggref {
         return;
     }
 
-    // Use list_nth to safely access list elements and build a new list using lappend
+    // Build a new target list with Aggrefs replaced by placeholders
     let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
-    for i in 0..list_len {
-        let te = pg_sys::list_nth(targetlist, i) as *mut pg_sys::TargetEntry;
-        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
-            // Create a flat copy of the target entry
-            let new_te = pg_sys::flatCopyTargetEntry(te);
-            // Replace the T_Aggref with a T_FuncExpr placeholder
-            let funcexpr = make_placeholder_func_expr(aggref);
-            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
-            new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
-        } else {
-            // For non-Aggref entries, just make a flat copy
-            let copied_te = pg_sys::flatCopyTargetEntry(te);
-            new_targetlist = pg_sys::lappend(new_targetlist, copied_te.cast());
-        }
+    for te in targetlist.iter_ptr() {
+        let new_te = pg_sys::flatCopyTargetEntry(te);
+
+        // Use the mutator to replace any Aggref nodes in the expression
+        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
+        (*new_te).expr = new_expr as *mut pg_sys::Expr;
+
+        new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
     }
 
     (*plan).targetlist = new_targetlist;
+}
+
+/// Check if an expression tree contains any Aggref nodes
+unsafe fn expr_contains_aggref(node: *mut pg_sys::Node) -> bool {
+    use pgrx::pg_guard;
+    use std::ptr::addr_of_mut;
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if (*node).type_ == pg_sys::NodeTag::T_Aggref {
+            let ctx = &mut *(context as *mut bool);
+            *ctx = true;
+            return true; // Stop walking
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    let mut found = false;
+    walker(node, addr_of_mut!(found).cast());
+    found
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
@@ -443,16 +638,4 @@ unsafe fn make_text_const(text: &str) -> *mut pg_sys::Const {
         false, // constisnull
         false, // constbyval (text is not passed by value)
     )
-}
-
-/// Get the Oid of a placeholder function to use in the target list of aggregate custom scans.
-unsafe fn placeholder_procid() -> pg_sys::Oid {
-    let agg_fn_oid = crate::api::agg_fn_oid();
-    if agg_fn_oid != pg_sys::InvalidOid {
-        agg_fn_oid
-    } else {
-        // Fallback to now() if pdb.agg_fn doesn't exist yet (e.g., during extension creation)
-        pgrx::direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[c"now()".into_datum()])
-            .expect("the `now()` function should exist")
-    }
 }

@@ -20,15 +20,17 @@ SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
  metadata | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
 (3 rows)
 
-EXPLAIN SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
+ Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+   Output: pdb.agg_fn('COUNT(*)'::text)
    Index: search_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata","query_string":"white","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
+(6 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE metadata->>'color' @@@ 'white';
  count 

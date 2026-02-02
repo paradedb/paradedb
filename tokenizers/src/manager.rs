@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -18,17 +18,19 @@
 
 use std::fmt::Write;
 
-#[cfg(feature = "icu")]
 use crate::icu::ICUTokenizer;
+use crate::ngram::NgramTokenizer;
 use crate::{
     cjk::ChineseTokenizer,
     code::CodeTokenizer,
+    jieba::JiebaTokenizer,
     lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer},
     token_length::TokenLengthFilter,
     token_trim::TokenTrimFilter,
     unicode_words::UnicodeWordsTokenizer,
 };
 
+use crate::chinese_convert::{ChineseConvertTokenizer, ConvertMode};
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::de::{self, Deserializer};
@@ -36,10 +38,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use strum::AsRefStr;
 use tantivy::tokenizer::{
-    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer,
-    RegexTokenizer, SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
+    AlphaNumOnlyFilter, AsciiFoldingFilter, Language, LowerCaser, RawTokenizer, RegexTokenizer,
+    SimpleTokenizer, Stemmer, StopWordFilter, TextAnalyzer, WhitespaceTokenizer,
 };
-use tantivy_jieba;
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct SearchTokenizerFilters {
@@ -47,7 +48,9 @@ pub struct SearchTokenizerFilters {
     pub remove_long: Option<usize>,
     pub lowercase: Option<bool>,
     pub stemmer: Option<Language>,
-    pub stopwords_language: Option<Language>,
+    /// Supports one or more languages for stopwords filtering.
+    /// Useful for documents containing multiple languages.
+    pub stopwords_language: Option<Vec<Language>>,
     pub stopwords: Option<Vec<String>>,
     pub alpha_num_only: Option<bool>,
     pub ascii_folding: Option<bool>,
@@ -91,6 +94,42 @@ impl SearchTokenizerFilters {
         }
     }
 
+    /// Parse stopwords_language from JSON - supports both a single string and an array of strings
+    fn parse_stopwords_language(
+        value: &serde_json::Value,
+    ) -> Result<Option<Vec<Language>>, anyhow::Error> {
+        match value {
+            serde_json::Value::Null => Ok(None),
+            serde_json::Value::String(s) => {
+                let lang: Language = serde_json::from_value(serde_json::Value::String(s.clone()))
+                    .map_err(|e| {
+                    anyhow::anyhow!("stopwords_language tokenizer requires a valid language: {e}")
+                })?;
+                Ok(Some(vec![lang]))
+            }
+            serde_json::Value::Array(arr) => {
+                let languages: Vec<Language> = arr
+                    .iter()
+                    .map(|v| {
+                        serde_json::from_value(v.clone()).map_err(|e| {
+                            anyhow::anyhow!(
+                                "stopwords_language tokenizer requires valid languages: {e}"
+                            )
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if languages.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(languages))
+                }
+            }
+            _ => Err(anyhow::anyhow!(
+                "stopwords_language must be a string or array of strings"
+            )),
+        }
+    }
+
     fn from_json_value(value: &serde_json::Value) -> Result<Self, anyhow::Error> {
         let mut filters = SearchTokenizerFilters::default();
 
@@ -124,13 +163,7 @@ impl SearchTokenizerFilters {
             })?);
         }
         if let Some(stopwords_language) = value.get("stopwords_language") {
-            filters.stopwords_language = Some(
-                serde_json::from_value(stopwords_language.clone()).map_err(|e| {
-                    anyhow::anyhow!(
-                        "stopwords_language tokenizer requires a valid 'stopwords_language' field: {e}"
-                    )
-                })?,
-            );
+            filters.stopwords_language = Self::parse_stopwords_language(stopwords_language)?;
         }
         if let Some(stopwords) = value.get("stopwords") {
             filters.stopwords = Some(serde_json::from_value(stopwords.clone()).map_err(|_| {
@@ -191,7 +224,11 @@ impl SearchTokenizerFilters {
             is_empty = false;
         }
         if let Some(value) = self.stopwords_language.as_ref() {
-            write!(buffer, "{}stopwords_language={value:?}", sep(is_empty)).unwrap();
+            if value.len() == 1 {
+                write!(buffer, "{}stopwords_language={:?}", sep(is_empty), value[0]).unwrap();
+            } else {
+                write!(buffer, "{}stopwords_language={value:?}", sep(is_empty)).unwrap();
+            }
             is_empty = false;
         }
 
@@ -233,11 +270,18 @@ impl SearchTokenizerFilters {
         self.stemmer.map(Stemmer::new)
     }
 
-    fn stopwords_language(&self) -> Option<StopWordFilter> {
-        match self.stopwords_language {
-            Some(language) => StopWordFilter::new(language),
-            None => None,
-        }
+    /// Returns StopWordFilters for all specified languages.
+    /// Uses Tantivy's built-in StopWordFilter::new() for each language.
+    fn stopwords_languages(&self) -> Vec<StopWordFilter> {
+        self.stopwords_language
+            .as_ref()
+            .map(|languages| {
+                languages
+                    .iter()
+                    .filter_map(|lang| StopWordFilter::new(*lang))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn stopwords(&self) -> Option<StopWordFilter> {
@@ -274,19 +318,25 @@ impl SearchTokenizerFilters {
 
 macro_rules! add_filters {
     ($tokenizer:expr, $filters:expr $(, $extra_filter:expr )* $(,)?) => {{
-        tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
+        // Build the analyzer with static filters first
+        let mut builder = tantivy::tokenizer::TextAnalyzer::builder($tokenizer)
             .filter($filters.token_length_filter())
             .filter($filters.trim_filter())
             .filter($filters.lower_caser())
             .filter($filters.stemmer())
-            .filter($filters.stopwords_language())
             .filter($filters.stopwords())
             .filter($filters.ascii_folding())
             $(
                 .filter($extra_filter)
             )*
             .filter($filters.alpha_num_only())
-            .build()
+            // Convert to type-erased builder for dynamic filter application
+            .dynamic();
+        // Apply stopword language filters dynamically in a for loop
+        for stopword_filter in $filters.stopwords_languages() {
+            builder = builder.filter_dynamic(stopword_filter);
+        }
+        builder.build()
     }};
 }
 
@@ -326,17 +376,24 @@ pub enum SearchTokenizer {
         min_gram: usize,
         max_gram: usize,
         prefix_only: bool,
+        #[serde(default)]
+        positions: bool,
         filters: SearchTokenizerFilters,
     },
     ChineseLindera(SearchTokenizerFilters),
     JapaneseLindera(SearchTokenizerFilters),
     KoreanLindera(SearchTokenizerFilters),
-    #[cfg(feature = "icu")]
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
-    Jieba(SearchTokenizerFilters),
-
+    Jieba {
+        chinese_convert: Option<ConvertMode>,
+        filters: SearchTokenizerFilters,
+    },
     Lindera(LinderaLanguage, SearchTokenizerFilters),
+    UnicodeWordsDeprecated {
+        remove_emojis: bool,
+        filters: SearchTokenizerFilters,
+    },
     UnicodeWords {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
@@ -402,19 +459,39 @@ impl SearchTokenizer {
                     .map_err(|_| {
                         anyhow::anyhow!("ngram tokenizer requires a boolean 'prefix_only' field")
                     })?;
+                let positions: bool = value
+                    .get("positions")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 Ok(SearchTokenizer::Ngram {
                     min_gram,
                     max_gram,
                     prefix_only,
+                    positions,
                     filters,
                 })
             }
             "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera(filters)),
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
-            #[cfg(feature = "icu")]
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
-            "jieba" => Ok(SearchTokenizer::Jieba(filters)),
+            "jieba" => {
+                let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
+                    None
+                } else {
+                    Some(
+                        serde_json::from_value(value["chinese_convert"].clone()).map_err(|_| {
+                            anyhow::anyhow!(
+                                "jieba tokenizer requires a string 'chinese_convert' field"
+                            )
+                        })?,
+                    )
+                };
+                Ok(SearchTokenizer::Jieba {
+                    chinese_convert,
+                    filters,
+                })
+            }
             "unicode_words" => {
                 let remove_emojis: bool = serde_json::from_value(value["remove_emojis"].clone())
                     .map_err(|_| {
@@ -468,10 +545,11 @@ impl SearchTokenizer {
                 min_gram,
                 max_gram,
                 prefix_only,
+                positions,
                 filters,
             } => add_filters!(
-                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only)
-                    .expect("Ngram parameters should be valid parameters for NgramTokenizer"),
+                NgramTokenizer::new(*min_gram, *max_gram, *prefix_only, *positions)
+                    .unwrap_or_else(|e| panic!("{}", e)),
                 filters
             ),
             SearchTokenizer::ChineseCompatible(filters) => {
@@ -498,17 +576,31 @@ impl SearchTokenizer {
             | SearchTokenizer::Lindera(LinderaLanguage::Korean, filters) => {
                 add_filters!(LinderaKoreanTokenizer::default(), filters)
             }
-            #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
             }
-            SearchTokenizer::Jieba(filters) => {
-                add_filters!(tantivy_jieba::JiebaTokenizer {}, filters)
+            SearchTokenizer::Jieba {
+                chinese_convert,
+                filters,
+            } => {
+                // If Chinese conversion is configured, perform the conversion before tokenization
+                if let Some(convert_mode) = chinese_convert {
+                    let base_tokenizer = JiebaTokenizer::new();
+                    let convert_tokenizer =
+                        ChineseConvertTokenizer::new(base_tokenizer, *convert_mode);
+                    add_filters!(convert_tokenizer, filters)
+                } else {
+                    add_filters!(JiebaTokenizer::new(), filters)
+                }
             }
             SearchTokenizer::Lindera(LinderaLanguage::Unspecified, _) => {
                 panic!("LinderaStyle::Unspecified is not supported")
             }
             SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters,
+            }
+            | SearchTokenizer::UnicodeWordsDeprecated {
                 remove_emojis,
                 filters,
             } => {
@@ -537,9 +629,9 @@ impl SearchTokenizer {
             SearchTokenizer::JapaneseLindera(filters) => filters,
             SearchTokenizer::KoreanLindera(filters) => filters,
             SearchTokenizer::Lindera(_, filters) => filters,
-            #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
-            SearchTokenizer::Jieba(filters) => filters,
+            SearchTokenizer::Jieba { filters, .. } => filters,
+            SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
             SearchTokenizer::UnicodeWords { filters, .. } => filters,
         }
     }
@@ -583,7 +675,9 @@ impl SearchTokenizer {
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
-            SearchTokenizer::LiteralNormalized(_filters) => format!("literal_normalized{filters_suffix}"),
+            SearchTokenizer::LiteralNormalized(_filters) => {
+                format!("literal_normalized{filters_suffix}")
+            }
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {
@@ -595,22 +689,45 @@ impl SearchTokenizer {
                 max_gram,
                 prefix_only,
                 filters: _,
-            } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{filters_suffix}"),
+                positions,
+            } => {
+                let positions_suffix = if *positions { "_positions:true" } else { "" };
+                format!(
+                    "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
+                )
+            }
             SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),
             SearchTokenizer::JapaneseLindera(_filters) => {
                 format!("japanese_lindera{filters_suffix}")
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             SearchTokenizer::Lindera(style, _filters) => match style {
-                LinderaLanguage::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaLanguage::Unspecified => {
+                    panic!("LinderaStyle::Unspecified is not supported")
+                }
                 LinderaLanguage::Chinese => format!("chinese_lindera{filters_suffix}"),
                 LinderaLanguage::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaLanguage::Korean => format!("korean_lindera{filters_suffix}"),
-            }
-            #[cfg(feature = "icu")]
+            },
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
-            SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),
-            SearchTokenizer::UnicodeWords{remove_emojis, filters: _} => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::Jieba {
+                chinese_convert,
+                filters: _,
+            } => {
+                if let Some(chinese_convert) = chinese_convert {
+                    format!("jieba{chinese_convert:?}{filters_suffix}")
+                } else {
+                    format!("jieba{filters_suffix}")
+                }
+            }
+            SearchTokenizer::UnicodeWordsDeprecated {
+                remove_emojis,
+                filters: _,
+            } => format!("remove_emojis:{remove_emojis}{filters_suffix}"),
+            SearchTokenizer::UnicodeWords {
+                remove_emojis,
+                filters: _,
+            } => format!("unicode_words_removeemojis:{remove_emojis}{filters_suffix}"),
         }
     }
 }
@@ -672,6 +789,7 @@ mod tests {
                 min_gram: 20,
                 max_gram: 60,
                 prefix_only: true,
+                positions: false,
                 filters: SearchTokenizerFilters {
                     remove_short: None,
                     remove_long: Some(123),
@@ -738,22 +856,25 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: None,
-                stopwords: Some(vec![
-                    " ".to_string(),
-                    "花朵".to_string(),
-                    "公园".to_string()
-                ]),
-                ascii_folding: None,
-                trim: None,
-                normalizer: None,
-                alpha_num_only: None,
-            })
+            SearchTokenizer::Jieba {
+                chinese_convert: None,
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: None,
+                    stopwords: Some(vec![
+                        " ".to_string(),
+                        "花朵".to_string(),
+                        "公园".to_string()
+                    ]),
+                    ascii_folding: None,
+                    trim: None,
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully
@@ -795,18 +916,21 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: Some(Language::English),
-                stopwords: None,
-                ascii_folding: None,
-                trim: None,
-                normalizer: None,
-                alpha_num_only: None,
-            })
+            SearchTokenizer::Jieba {
+                chinese_convert: None,
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: Some(vec![Language::English]),
+                    stopwords: None,
+                    ascii_folding: None,
+                    trim: None,
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully
@@ -847,18 +971,21 @@ mod tests {
 
         assert_eq!(
             tokenizer,
-            SearchTokenizer::Jieba(SearchTokenizerFilters {
-                remove_short: None,
-                remove_long: None,
-                lowercase: None,
-                stemmer: None,
-                stopwords_language: None,
-                stopwords: None,
-                ascii_folding: None,
-                trim: Some(true),
-                normalizer: None,
-                alpha_num_only: None,
-            })
+            SearchTokenizer::Jieba {
+                chinese_convert: None,
+                filters: SearchTokenizerFilters {
+                    remove_short: None,
+                    remove_long: None,
+                    lowercase: None,
+                    stemmer: None,
+                    stopwords_language: None,
+                    stopwords: None,
+                    ascii_folding: None,
+                    trim: Some(true),
+                    normalizer: None,
+                    alpha_num_only: None,
+                }
+            }
         );
 
         // Test that the tokenizer is created successfully

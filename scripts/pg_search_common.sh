@@ -6,15 +6,15 @@
 # for the pg_search extension. It is meant to be sourced by other scripts.
 #
 # Possible PostgreSQL version values:
-#  - 14.17
-#  - 15.12
-#  - 16.8
-#  - 17.4 (default)
+#  - 15.15
+#  - 16.11
+#  - 17.7
+#  - 18.1 (default)
 
 set -Eeuo pipefail
 
 # Parse arguments for the --release flag
-BUILD_PARAMS=("--features=icu")
+BUILD_PARAMS=()
 
 # Loop through arguments
 i=1
@@ -46,8 +46,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # Change to pg_search directory
 cd "${SCRIPT_DIR}/../pg_search" || exit 1
 
-# Set PostgreSQL version or use default 17.4
-PGVER=${PGVER:-17.4}
+# Set PostgreSQL version or use default 18.1
+PGVER=${PGVER:-18.1}
 
 # Extract major version and set port and feature flag
 BASEVER=$(echo "${PGVER}" | cut -f1 -d.)
@@ -60,7 +60,7 @@ set -x
 # Stop any existing pgrx server with this feature
 cargo pgrx stop "${FEATURE}" --package pg_search
 
-# Install pg_search extension with ICU support, conditionally using --release
+# Install pg_search extension, conditionally using --release
 cargo pgrx install --package pg_search "${BUILD_PARAMS[@]}" --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
 
 # Start the PostgreSQL server with the installed extension

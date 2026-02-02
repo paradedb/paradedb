@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -58,7 +58,6 @@ pub const NUMERIC_TYPE_PAIRS: &[[&str; 2]] = &[
     ["float4", "float4"],
     ["float8", "float8"],
     ["float4", "float8"],
-    ["numeric", "numeric"],
     // dates
     ["date", "date"],
     ["time", "time"],

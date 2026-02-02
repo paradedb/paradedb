@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -17,7 +17,7 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
@@ -40,22 +40,26 @@ impl OrderByStyle {
         unsafe {
             let pathkey = self.pathkey();
             assert!(!pathkey.is_null());
+            let nulls_first = (*pathkey).pk_nulls_first;
 
-            #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
-            {
-                match (*pathkey).pk_strategy as u32 {
-                    pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-                    pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-                    value => panic!("unrecognized sort strategy number: {value}"),
-                }
-            }
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+            let is_asc = match (*pathkey).pk_strategy as u32 {
+                pg_sys::BTLessStrategyNumber => true,
+                pg_sys::BTGreaterStrategyNumber => false,
+                value => panic!("unrecognized sort strategy number: {value}"),
+            };
             #[cfg(feature = "pg18")]
-            {
-                match (*pathkey).pk_cmptype {
-                    pg_sys::CompareType::COMPARE_LT => SortDirection::Asc,
-                    pg_sys::CompareType::COMPARE_GT => SortDirection::Desc,
-                    value => panic!("unrecognized compare type: {value}"),
-                }
+            let is_asc = match (*pathkey).pk_cmptype {
+                pg_sys::CompareType::COMPARE_LT => true,
+                pg_sys::CompareType::COMPARE_GT => false,
+                value => panic!("unrecognized compare type: {value}"),
+            };
+
+            match (is_asc, nulls_first) {
+                (true, true) => SortDirection::AscNullsFirst,
+                (true, false) => SortDirection::AscNullsLast,
+                (false, true) => SortDirection::DescNullsFirst,
+                (false, false) => SortDirection::DescNullsLast,
             }
         }
     }

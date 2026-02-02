@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -817,36 +817,9 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
-        // Use conservative boundary (2^53-2) not (2^53-1) to avoid precision loss during JSON roundtrip.
-        const MAX_SAFE_FOR_JSON: i64 = (1i64 << 53) - 2;
-        const MIN_SAFE_FOR_JSON: i64 = -MAX_SAFE_FOR_JSON;
-
-        // Try to extract as i64 first (covers most common cases)
-        if let Ok(i64_val) = TryInto::<i64>::try_into(val.clone()) {
-            // Check if it's within JSON-safe F64 range (excluding boundary values)
-            if i64_val > MIN_SAFE_FOR_JSON && i64_val <= MAX_SAFE_FOR_JSON {
-                // Safe to convert to F64
-                let f64_val: f64 = val.try_into()?;
-                return Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)));
-            }
-            // Use I64 to preserve precision
-            return Ok(TantivyValue(tantivy::schema::OwnedValue::I64(i64_val)));
-        }
-
-        // If it doesn't fit in i64, try u64
-        if let Ok(u64_val) = TryInto::<u64>::try_into(val.clone()) {
-            if u64_val <= MAX_SAFE_FOR_JSON as u64 {
-                // Safe to convert to F64
-                let f64_val: f64 = val.try_into()?;
-                return Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)));
-            }
-            // Use U64 to preserve precision
-            return Ok(TantivyValue(tantivy::schema::OwnedValue::U64(u64_val)));
-        }
-
-        // If it's not an integer, it's already a float - use F64
-        let f64_val: f64 = val.try_into()?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(f64_val)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+            val.try_into()?,
+        )))
     }
 }
 
@@ -898,17 +871,33 @@ impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
     }
 }
 
+/// Helper function to convert Tantivy OwnedValue to serde_json::Value
+/// Handles both Object types and String types (which may be JSON strings)
+fn tantivy_to_json_value(
+    owned_value: tantivy::schema::OwnedValue,
+    is_jsonb: bool,
+) -> Result<serde_json::Value, TantivyValueError> {
+    match owned_value {
+        tantivy::schema::OwnedValue::Object(val) => Ok(serde_json::to_value(val)?),
+        tantivy::schema::OwnedValue::Str(s) => {
+            // When grouping by JSON fields, the values come back as strings
+            // Try to parse as JSON first, fall back to treating as plain string
+            let json_value: serde_json::Value =
+                serde_json::from_str(&s).unwrap_or_else(|_| serde_json::Value::String(s));
+            Ok(json_value)
+        }
+        _ => Err(TantivyValueError::UnsupportedIntoConversion(
+            if is_jsonb { "jsonb" } else { "json" }.to_string(),
+        )),
+    }
+}
+
 impl TryFrom<TantivyValue> for pgrx::datum::JsonString {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::datum::JsonString(serde_json::to_string(&val)?))
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "json".to_string(),
-            ))
-        }
+        let json_value = tantivy_to_json_value(value.0, false)?;
+        Ok(pgrx::datum::JsonString(serde_json::to_string(&json_value)?))
     }
 }
 
@@ -926,13 +915,8 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
-            Ok(pgrx::JsonB(serde_json::to_value(val)?))
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "jsonb".to_string(),
-            ))
-        }
+        let json_value = tantivy_to_json_value(value.0, true)?;
+        Ok(pgrx::datum::JsonB(json_value))
     }
 }
 
@@ -1315,4 +1299,16 @@ pub enum TantivyValueError {
 
     #[error("UTF8 conversion error: {0}")]
     Utf8ConversionError(#[from] std::str::Utf8Error),
+}
+
+/// Check if the given OID is a date/time type that requires special conversion
+pub fn is_datetime_type(typoid: pg_sys::Oid) -> bool {
+    matches!(
+        typoid,
+        pg_sys::DATEOID
+            | pg_sys::TIMESTAMPOID
+            | pg_sys::TIMESTAMPTZOID
+            | pg_sys::TIMEOID
+            | pg_sys::TIMETZOID
+    )
 }

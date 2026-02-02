@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -19,8 +19,8 @@ use crate::api::{HashSet, OrderByFeature, OrderByInfo};
 use crate::customscan::builders::custom_path::{CustomPathBuilder, OrderByStyle};
 use crate::customscan::CustomScan;
 use crate::postgres::customscan::aggregatescan::{AggregateScan, CustomScanClause};
-use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
-use crate::postgres::customscan::pdbscan::PathKeyInfo;
+use crate::postgres::customscan::basescan::extract_pathkey_styles_with_sortability_check;
+use crate::postgres::customscan::basescan::PathKeyInfo;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
 use pgrx::pg_sys;
@@ -35,6 +35,16 @@ pub struct OrderByClause {
 }
 
 impl OrderByClause {
+    /// Creates an OrderByClause that indicates there is an ORDER BY clause,
+    /// but we couldn't extract it for pushdown (e.g., ORDER BY on aggregates)
+    pub fn unpushable() -> Self {
+        Self {
+            pathkeys: None,
+            orderby_info: Vec::new(),
+            has_orderby: true,
+        }
+    }
+
     pub fn has_orderby(&self) -> bool {
         self.has_orderby
     }

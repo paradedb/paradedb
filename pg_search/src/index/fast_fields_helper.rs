@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -97,19 +97,12 @@ impl FFHelper {
                 .value(doc_address.doc_id),
         )
     }
-
-    #[track_caller]
-    pub fn i64(&self, field: FFIndex, doc_address: DocAddress) -> Option<i64> {
-        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
-        let column = &columns[field];
-        column
-            .1
-            .get_or_init(|| FFType::new(ff_readers, &column.0))
-            .as_i64(doc_address.doc_id)
-    }
 }
 
-/// Helper for working with different "fast field" types as if they're all one type
+/// Helper for working with different "fast field" types as if they're all one type.
+///
+/// This enum is used *after* a column is open to provide a typed wrapper around the underlying
+/// Tantivy column readers.
 #[derive(Debug)]
 pub enum FFType {
     Junk,
@@ -194,38 +187,6 @@ impl FFType {
         value
     }
 
-    /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we
-    /// don't reconstruct the full string, and instead return the term ord as a u64
-    #[inline(always)]
-    #[allow(dead_code)]
-    pub fn value_fast(&self, doc: DocId) -> TantivyValue {
-        let value = match self {
-            FFType::Text(ff) => {
-                // just use the first term ord here.  that's enough to do a tie-break quickly
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                TantivyValue(ord.into())
-            }
-            other => other.value(doc),
-        };
-
-        value
-    }
-
-    /// Given a [`DocId`], what is its i64 "fast field" value?
-    ///
-    /// If this [`FFType`] isn't [`FFType::I64`], this function returns [`None`].
-    #[inline(always)]
-    pub fn as_i64(&self, doc: DocId) -> Option<i64> {
-        if let FFType::I64(ff) = self {
-            ff.first(doc)
-        } else {
-            None
-        }
-    }
-
     /// Given a [`DocId`], what is its u64 "fast field" value?
     ///
     /// If this [`FFType`] isn't [`FFType::U64`], this function returns [`None`].
@@ -250,6 +211,21 @@ impl FFType {
     }
 }
 
+/// A request for a specific fast field, used *before* the column is open.
+///
+/// This enum allows consumers to specify which columns to retrieve and their expected types.
+///
+/// # Type Widening
+///
+/// Currently, we "widen" various Postgres types into larger underlying storage types (e.g.
+/// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
+/// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
+/// these widened types back into their original Postgres OIDs.
+///
+/// TODO: This enum should eventually include all types which we can store accurately in Arrow with
+/// representations that have equivalent behavior to Postgres's types (perhaps by having one case which
+/// is a wrapper for an Arrow type). The current behavior means that if we had expressions for anything
+/// other than equality or comparison between equivalent types, we would do the wrong thing.
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
@@ -262,14 +238,28 @@ pub enum WhichFastField {
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
-    Numeric,
+    Int64,
+    UInt64,
+    Float64,
+    Bool,
+    Date,
 }
 
 impl From<SearchFieldType> for FastFieldType {
     fn from(value: SearchFieldType) -> Self {
         match value {
             SearchFieldType::Text(_) => FastFieldType::String,
-            _ => FastFieldType::Numeric,
+            SearchFieldType::Tokenized(..) => FastFieldType::String,
+            SearchFieldType::Uuid(_) => FastFieldType::String,
+            // TODO: Add proper support for Inet, Range, and Json fast fields
+            SearchFieldType::Inet(_) => FastFieldType::String,
+            SearchFieldType::I64(_) => FastFieldType::Int64,
+            SearchFieldType::F64(_) => FastFieldType::Float64,
+            SearchFieldType::U64(_) => FastFieldType::UInt64,
+            SearchFieldType::Bool(_) => FastFieldType::Bool,
+            SearchFieldType::Json(_) => FastFieldType::String,
+            SearchFieldType::Date(_) => FastFieldType::Date,
+            SearchFieldType::Range(_) => FastFieldType::String,
         }
     }
 }

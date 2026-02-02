@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -31,6 +31,9 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of our "ParadeDB Aggregate Scan".
 static ENABLE_AGGREGATE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Allows the user to toggle the use of our "ParadeDB Join Scan".
+static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
@@ -93,6 +96,10 @@ static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
 static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
 static GLOBAL_MUTABLE_SEGMENT_ROWS: GucSetting<i32> = GucSetting::<i32>::new(-1);
+static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Validate TopN scan eligibility for LIMIT queries
+static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -112,6 +119,15 @@ pub fn init() {
         c"Enable ParadeDB's custom aggregate scan",
         c"Enable ParadeDB's custom aggregate scan, which replaces row-based aggregates with column-based aggregates where beneficial",
         &ENABLE_AGGREGATE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_join_custom_scan",
+        c"Enable ParadeDB's experimental join custom scan",
+        c"Enable ParadeDB's experimental join custom scan. Default is false.",
+        &ENABLE_JOIN_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -251,6 +267,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.explain_recursive_estimates",
+        c"Enable recursive estimates in EXPLAIN VERBOSE",
+        c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
+        &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.global_mutable_segment_rows",
         c"a global mutable segment rows override",
@@ -270,6 +295,17 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.check_topn_scan",
+        c"Validate TopN scan eligibility for LIMIT queries",
+        c"When enabled, logs a warning if a query with LIMIT cannot use TopN scan. \
+          This helps detect performance issues during development where queries expected \
+          to use TopN optimization fall back to slower execution methods.",
+        &CHECK_TOPN_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -278,6 +314,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_aggregate_custom_scan() -> bool {
     ENABLE_AGGREGATE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_join_custom_scan() -> bool {
+    ENABLE_JOIN_CUSTOM_SCAN.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -382,7 +422,11 @@ pub fn limit_fetch_multiplier() -> f64 {
 }
 
 pub fn max_term_agg_buckets() -> i32 {
-    MAX_TERM_AGG_BUCKETS.get()
+    let v = MAX_TERM_AGG_BUCKETS.get();
+    if v <= 0 {
+        pgrx::error!("paradedb.max_term_agg_buckets must be a positive integer");
+    }
+    v
 }
 
 pub fn max_window_aggregate_response_bytes() -> usize {
@@ -400,6 +444,14 @@ pub fn global_mutable_segment_rows() -> Option<usize> {
     } else {
         None
     }
+}
+
+pub fn explain_recursive_estimates() -> bool {
+    EXPLAIN_RECURSIVE_ESTIMATES.get()
+}
+
+pub fn check_topn_scan() -> bool {
+    CHECK_TOPN_SCAN.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

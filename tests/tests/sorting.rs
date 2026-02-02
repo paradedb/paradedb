@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -36,6 +36,7 @@ fn field_sort_fixture(conn: &mut PgConnection) -> Value {
             text_fields = '{
                 "description": {},
                 "category": {
+                    "tokenizer": {"type": "keyword"},
                     "fast": true,
                     "normalizer": "lowercase"
                 }
@@ -112,6 +113,7 @@ fn sort_by_raw(mut conn: PgConnection) {
             text_fields = '{
                 "description": {},
                 "category": {
+                    "tokenizer": {"type": "keyword"},
                     "fast": true,
                     "normalizer": "raw"
                 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2026 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -31,9 +31,9 @@ use pgrx::{
     direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
 };
 
-use crate::postgres::utils::lookup_pdb_function;
 pub use aggregate::{
-    agg_fn_oid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, MvccVisibility,
+    agg_fn_oid, agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const,
+    MvccVisibility,
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
@@ -101,9 +101,6 @@ macro_rules! nodecast {
 // came to life in pg15
 pub type Cardinality = f64;
 
-#[cfg(feature = "pg14")]
-pub type Varno = pgrx::pg_sys::Index;
-#[cfg(not(feature = "pg14"))]
 pub type Varno = i32;
 
 #[allow(dead_code)]
@@ -115,15 +112,6 @@ pub trait AsCStr {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr>;
 }
 
-#[cfg(feature = "pg14")]
-impl AsBool for *mut pgrx::pg_sys::Node {
-    unsafe fn as_bool(&self) -> Option<bool> {
-        let node = nodecast!(Value, T_Integer, *self)?;
-        Some((*node).val.ival != 0)
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsBool for *mut pgrx::pg_sys::Node {
     unsafe fn as_bool(&self) -> Option<bool> {
         let node = nodecast!(Boolean, T_Boolean, *self)?;
@@ -131,15 +119,6 @@ impl AsBool for *mut pgrx::pg_sys::Node {
     }
 }
 
-#[cfg(feature = "pg14")]
-impl AsCStr for *mut pgrx::pg_sys::Node {
-    unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
-        let node = nodecast!(Value, T_String, *self)?;
-        Some(std::ffi::CStr::from_ptr((*node).val.str_))
-    }
-}
-
-#[cfg(not(feature = "pg14"))]
 impl AsCStr for *mut pgrx::pg_sys::Node {
     unsafe fn as_c_str(&self) -> Option<&std::ffi::CStr> {
         let node = nodecast!(String, T_String, *self)?;
@@ -262,19 +241,22 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
-#[repr(i32)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum SortDirection {
+    AscNullsFirst,
     #[default]
-    Asc = pg_sys::BTLessStrategyNumber as i32,
-    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+    AscNullsLast,
+    DescNullsFirst,
+    DescNullsLast,
 }
 
 impl AsRef<str> for SortDirection {
     fn as_ref(&self) -> &str {
         match self {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
+            SortDirection::AscNullsFirst => "asc nulls first",
+            SortDirection::AscNullsLast => "asc",
+            SortDirection::DescNullsFirst => "desc",
+            SortDirection::DescNullsLast => "desc nulls last",
         }
     }
 }
@@ -285,11 +267,17 @@ impl Display for SortDirection {
     }
 }
 
-impl From<SortDirection> for tantivy::Order {
+impl From<SortDirection> for tantivy::collector::sort_key::ComparatorEnum {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => tantivy::Order::Asc,
-            SortDirection::Desc => tantivy::Order::Desc,
+            SortDirection::AscNullsLast => {
+                tantivy::collector::sort_key::ComparatorEnum::ReverseNoneLower
+            }
+            SortDirection::DescNullsFirst => {
+                tantivy::collector::sort_key::ComparatorEnum::NaturalNoneHigher
+            }
+            SortDirection::DescNullsLast => tantivy::collector::sort_key::ComparatorEnum::Natural,
+            SortDirection::AscNullsFirst => tantivy::collector::sort_key::ComparatorEnum::Reverse,
         }
     }
 }
@@ -297,8 +285,12 @@ impl From<SortDirection> for tantivy::Order {
 impl From<SortDirection> for tantivy::aggregation::bucket::Order {
     fn from(value: SortDirection) -> Self {
         match value {
-            SortDirection::Asc => tantivy::aggregation::bucket::Order::Asc,
-            SortDirection::Desc => tantivy::aggregation::bucket::Order::Desc,
+            SortDirection::AscNullsFirst | SortDirection::AscNullsLast => {
+                tantivy::aggregation::bucket::Order::Asc
+            }
+            SortDirection::DescNullsFirst | SortDirection::DescNullsLast => {
+                tantivy::aggregation::bucket::Order::Desc
+            }
         }
     }
 }
@@ -320,10 +312,4 @@ impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score)
     }
-}
-
-/// Get the OID of the pdb.agg() aggregate function
-/// Returns InvalidOid if the function doesn't exist yet (e.g., during extension creation)
-pub fn agg_funcoid() -> pg_sys::Oid {
-    lookup_pdb_function("agg", &[pg_sys::JSONBOID])
 }

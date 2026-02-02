@@ -22,14 +22,13 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
-use datafusion_common::{DataFusionError, Result};
-use datafusion_execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion_physical_expr::expressions::Column;
-use datafusion_physical_expr::LexOrdering;
-use datafusion_physical_expr::{EquivalenceProperties, PhysicalSortExpr};
-use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
-use datafusion_physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion_physical_plan::{
+use datafusion::common::{DataFusionError, Result};
+use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::expressions::Column;
+use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalSortExpr};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
+use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;

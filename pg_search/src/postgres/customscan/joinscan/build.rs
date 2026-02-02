@@ -23,99 +23,11 @@
 //! Note: ORDER BY score pushdown is implemented via pathkeys on CustomPath at planning
 //! time. See `extract_score_pathkey()` in mod.rs.
 
-use crate::postgres::options::SortByField;
+use crate::api::OrderByInfo;
 use crate::query::SearchQueryInput;
+pub use crate::scan::ScanInfo;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-
-/// Information about one side of the join (outer or inner).
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct JoinSideInfo {
-    /// The range table index for this side's base relation.
-    pub heap_rti: Option<pg_sys::Index>,
-    /// The OID of the heap table.
-    pub heaprelid: Option<pg_sys::Oid>,
-    /// The OID of the BM25 index (if this side has one).
-    pub indexrelid: Option<pg_sys::Oid>,
-    /// The search query for this side (extracted from WHERE clause predicates).
-    /// None if this side has no BM25 index or no search predicate.
-    pub query: Option<SearchQueryInput>,
-    /// Whether this side has a search predicate (uses @@@ operator).
-    pub has_search_predicate: bool,
-    /// The alias used in the query (e.g., "p" for "products p"), if any.
-    pub alias: Option<String>,
-    /// Whether scores are needed for this side's results.
-    /// True when ORDER BY paradedb.score() is present for this side.
-    /// Used to optimize FastField executor (skip score computation when not needed).
-    pub score_needed: bool,
-    /// The sort order of the BM25 index segments, if the index was created with `sort_by`.
-    ///
-    /// When this is `Some`, the index segments are physically sorted by this field.
-    /// This enables DataFusion-based execution to:
-    /// - Declare sort ordering via `EquivalenceProperties`
-    /// - Use `SortPreservingMergeExec` to merge sorted segment streams
-    /// - Enable sort-merge joins when both sides are sorted on join keys
-    pub sort_order: Option<SortByField>,
-}
-
-impl JoinSideInfo {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_heap_rti(mut self, rti: pg_sys::Index) -> Self {
-        self.heap_rti = Some(rti);
-        self
-    }
-
-    pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.heaprelid = Some(oid);
-        self
-    }
-
-    pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.indexrelid = Some(oid);
-        self
-    }
-
-    /// Returns true if this side has a BM25 index.
-    pub fn has_bm25_index(&self) -> bool {
-        self.indexrelid.is_some()
-    }
-
-    pub fn with_query(mut self, query: SearchQueryInput) -> Self {
-        self.query = Some(query);
-        self.has_search_predicate = true;
-        self
-    }
-
-    pub fn with_alias(mut self, alias: String) -> Self {
-        self.alias = Some(alias);
-        self
-    }
-
-    pub fn with_score_needed(mut self, needed: bool) -> Self {
-        self.score_needed = needed;
-        self
-    }
-
-    /// Sets the sort order from the BM25 index metadata.
-    ///
-    /// This is populated at planning time by reading from `SearchIndexReader::sort_order()`.
-    /// When set, DataFusion-based execution can leverage the physical sort order for:
-    /// - Declaring output ordering via `EquivalenceProperties`
-    /// - Using `SortPreservingMergeExec` for merging sorted segment streams
-    /// - Enabling sort-merge joins when beneficial
-    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
-        self.sort_order = sort_order;
-        self
-    }
-
-    /// Returns true if this side's index produces sorted output.
-    pub fn is_sorted(&self) -> bool {
-        self.sort_order.is_some()
-    }
-}
 
 /// Represents the join type for serialization.
 ///
@@ -143,63 +55,6 @@ impl From<pg_sys::JoinType::Type> for JoinType {
             pg_sys::JoinType::JOIN_ANTI => JoinType::Anti,
             other => panic!("JoinScan: unsupported join type {:?}", other),
         }
-    }
-}
-
-/// Preferred join algorithm hint from planner.
-///
-/// Allows the planner to suggest which join algorithm the executor should use
-/// based on statistics available at planning time.
-///
-/// Note: Currently only Auto is used since JoinScan requires LIMIT.
-/// PreferHash is reserved for future non-LIMIT join support.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
-pub enum JoinAlgorithmHint {
-    /// Let executor decide based on runtime conditions (default)
-    #[default]
-    Auto,
-    /// Prefer hash join (good for larger build sides with good selectivity)
-    PreferHash,
-}
-
-/// Execution hints passed from planner to executor.
-///
-/// These hints allow the planner to pass optimization information to the executor
-/// based on statistics available at planning time. The executor can use these
-/// hints to make better decisions about algorithm selection, memory allocation,
-/// and batch sizing.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct ExecutionHints {
-    /// Preferred join algorithm based on planner's analysis
-    pub algorithm: JoinAlgorithmHint,
-
-    /// Estimated number of rows in build side (from planner statistics).
-    /// Used to pre-size hash table and decide algorithm.
-    pub estimated_build_rows: Option<f64>,
-
-    /// Estimated memory needed for hash table (bytes).
-    /// Helps executor decide if hash join is feasible before building.
-    pub estimated_hash_memory: Option<usize>,
-}
-
-impl ExecutionHints {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_algorithm(mut self, algo: JoinAlgorithmHint) -> Self {
-        self.algorithm = algo;
-        self
-    }
-
-    pub fn with_estimated_build_rows(mut self, rows: f64) -> Self {
-        self.estimated_build_rows = Some(rows);
-        self
-    }
-
-    pub fn with_estimated_hash_memory(mut self, bytes: usize) -> Self {
-        self.estimated_hash_memory = Some(bytes);
-        self
     }
 }
 
@@ -284,9 +139,9 @@ pub enum JoinLevelExpr {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct JoinCSClause {
     /// Information about the outer (left) side of the join.
-    pub outer_side: JoinSideInfo,
+    pub outer_side: ScanInfo,
     /// Information about the inner (right) side of the join.
-    pub inner_side: JoinSideInfo,
+    pub inner_side: ScanInfo,
     /// The type of join.
     pub join_type: JoinType,
     /// The join key column pairs (for equi-joins).
@@ -302,8 +157,8 @@ pub struct JoinCSClause {
     /// The boolean expression tree that combines predicates and heap conditions.
     /// When Some, this expression must be evaluated for each row-pair.
     pub join_level_expr: Option<JoinLevelExpr>,
-    /// Execution hints from planner to guide runtime decisions.
-    pub hints: ExecutionHints,
+    /// ORDER BY clause to be applied to the DataFusion plan.
+    pub order_by: Vec<OrderByInfo>,
 }
 
 impl JoinCSClause {
@@ -311,12 +166,12 @@ impl JoinCSClause {
         Self::default()
     }
 
-    pub fn with_outer_side(mut self, side: JoinSideInfo) -> Self {
+    pub fn with_outer_side(mut self, side: ScanInfo) -> Self {
         self.outer_side = side;
         self
     }
 
-    pub fn with_inner_side(mut self, side: JoinSideInfo) -> Self {
+    pub fn with_inner_side(mut self, side: ScanInfo) -> Self {
         self.inner_side = side;
         self
     }
@@ -328,6 +183,11 @@ impl JoinCSClause {
 
     pub fn with_limit(mut self, limit: Option<usize>) -> Self {
         self.limit = limit;
+        self
+    }
+
+    pub fn with_order_by(mut self, order_by: Vec<OrderByInfo>) -> Self {
+        self.order_by = order_by;
         self
     }
 
@@ -369,12 +229,6 @@ impl JoinCSClause {
     /// Set the join-level expression tree.
     pub fn with_join_level_expr(mut self, expr: JoinLevelExpr) -> Self {
         self.join_level_expr = Some(expr);
-        self
-    }
-
-    /// Set execution hints from planner.
-    pub fn with_hints(mut self, hints: ExecutionHints) -> Self {
-        self.hints = hints;
         self
     }
 
@@ -424,7 +278,7 @@ impl JoinCSClause {
     }
 
     /// Get the driving side info (side with search predicate).
-    pub fn driving_side(&self) -> &JoinSideInfo {
+    pub fn driving_side(&self) -> &ScanInfo {
         if self.driving_side_is_outer() {
             &self.outer_side
         } else {
@@ -432,8 +286,8 @@ impl JoinCSClause {
         }
     }
 
-    /// Get the build side info (side without search predicate, used for hash table).
-    pub fn build_side(&self) -> &JoinSideInfo {
+    /// Get the build side info (side without search predicate, used for join).
+    pub fn build_side(&self) -> &ScanInfo {
         if self.driving_side_is_outer() {
             &self.inner_side
         } else {

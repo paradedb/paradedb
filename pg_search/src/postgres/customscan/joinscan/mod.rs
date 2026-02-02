@@ -18,7 +18,7 @@
 //! JoinScan: Custom scan operator for optimizing joins with BM25 full-text search.
 //!
 //! JoinScan intercepts PostgreSQL join operations and executes them using Tantivy's
-//! search capabilities combined with a hash-join algorithm, providing significant
+//! search capabilities combined with a join algorithm, providing significant
 //! performance improvements for queries that combine full-text search with joins.
 //!
 //! # Activation Conditions
@@ -44,7 +44,7 @@
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
 //!    respective BM25 indexes:
-//!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for hash table lookup
+//!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
 //!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
 //!    - ORDER BY columns must be fast fields for efficient sorting
 //!    - If any required column is not a fast field, the query falls back to PostgreSQL
@@ -89,51 +89,62 @@
 //! # Architecture
 //!
 //! ```text
-//! ┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
-//! │   PostgreSQL    │     │    JoinScan      │     │     Tantivy        │
-//! │   Planner       │────▶│   Custom Scan    │────▶│   BM25 Index       │
-//! │   (hook)        │     │   (planning +    │     │   (search + ctids) │
-//! │                 │     │    execution)    │     │                    │
-//! └─────────────────┘     └──────────────────┘     └────────────────────┘
+//! ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
+//! │   PostgreSQL    │     │    JoinScan      │     │     DataFusion      │
+//! │   Planner       │────▶│   Custom Scan    │────▶│   Execution Plan    │
+//! │   (hook)        │     │   (planning +    │     │                     │
+//! │                 │     │    execution)    │     │                     │
+//! └─────────────────┘     └──────────────────┘     └─────────────────────┘
+//!                                                             │
+//!                                                             ▼
+//!                                                  ┌─────────────────────┐
+//!                                                  │      Tantivy        │
+//!                                                  │    (Scan + Search)  │
+//!                                                  └─────────────────────┘
 //! ```
 //!
 //! ## Execution Strategy
 //!
-//! 1. **Driving side**: The side with the `@@@` predicate streams results from Tantivy
-//! 2. **Build side**: The other side is scanned to build a hash table keyed by join columns
-//! 3. **Probe**: For each driving row, probe the hash table for matching build rows
-//! 4. **Result**: Emit joined tuples, respecting LIMIT
+//! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into the join path list.
+//!    It identifies potential search joins, extracts predicates, and builds a `JoinCSClause`.
+//! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
+//!    This plan defines the join, filters, sorts, and limits.
+//! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
+//!    - **Driving side**: Streams results from Tantivy (search results).
+//!    - **Build side**: Scans the other relation (or search results).
+//! 4. **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
 //!
 //! # Submodules
 //!
-//! - [`build`]: Data structures for planning serialization (`JoinCSClause`, `JoinSideInfo`)
-//! - [`planning`]: Cost estimation, condition extraction, pathkey handling
-//! - [`predicate`]: Transform PostgreSQL expressions to evaluable expression trees
-//! - [`scan_state`]: Execution state (hash table, visibility checkers, slots)
-//! - [`privdat`]: Private data serialization between planning and execution
-//! - [`explain`]: EXPLAIN output formatting
+//! - [`build`]: Data structures for planning serialization.
+//! - [`planning`]: Cost estimation, condition extraction, field collection, pathkey handling.
+//! - [`predicate`]: Transform PostgreSQL expressions to evaluable expression trees.
+//! - [`scan_state`]: Execution state and DataFusion plan building.
+//! - [`translator`]: Maps PostgreSQL expressions/columns to DataFusion expressions.
+//! - [`privdat`]: Private data serialization between planning and execution.
+//! - [`explain`]: EXPLAIN output formatting.
 
-pub mod build;
+mod build;
 mod explain;
 mod memory;
-mod plan_builder;
 mod planning;
 mod predicate;
-pub mod privdat;
-pub mod scan_state;
+mod privdat;
+mod scan_state;
 mod translator;
+mod udf;
 
-use self::build::{JoinAlgorithmHint, JoinCSClause, JoinType};
+use self::build::{JoinCSClause, JoinType};
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::PanicOnOOMMemoryPool;
-use self::plan_builder::JoinScanPlanBuilder;
 use self::planning::{
-    compute_execution_hints, extract_join_conditions, extract_join_side_info,
+    collect_required_fields, extract_join_conditions, extract_join_side_info, extract_orderby,
     extract_score_pathkey, order_by_columns_are_fast_fields,
 };
 use self::predicate::{extract_join_level_conditions, is_column_fast_field};
-use self::privdat::PrivateData;
-use self::scan_state::JoinScanState;
+use self::privdat::{PrivateData, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS};
+use self::scan_state::{build_joinscan_logical_plan, JoinScanState};
+use crate::api::{OrderByFeature, OrderByInfo};
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -145,11 +156,8 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use datafusion_execution::runtime_env::RuntimeEnvBuilder;
-use datafusion_execution::TaskContext;
-use datafusion_physical_plan::filter::FilterExec;
-use datafusion_physical_plan::joins::HashJoinExec;
-use datafusion_physical_plan::ExecutionPlan;
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::TaskContext;
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
@@ -213,7 +221,7 @@ impl CustomScan for JoinScan {
 
             // Require equi-join keys for JoinScan.
             // Without equi-join keys, we'd have a cross join requiring O(N*M) comparisons
-            // where ALL build rows map to a single hash bucket. PostgreSQL's native join
+            // where join complexity explodes. PostgreSQL's native join
             // handles cartesian products more efficiently.
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
             if !has_equi_join_keys {
@@ -228,7 +236,6 @@ impl CustomScan for JoinScan {
             }
 
             // Determine driving side: the side with a search predicate is the driving side
-            // (it streams results from Tantivy while the other side builds a hash table)
             let driving_side_is_outer = outer_side.has_search_predicate;
             let driving_side_rti = if driving_side_is_outer {
                 outer_rti
@@ -352,9 +359,9 @@ impl CustomScan for JoinScan {
             let total_cost = startup_cost + 1.0;
             let result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
 
-            // Simple execution hints
-            let hints = compute_execution_hints(limit);
-            join_clause = join_clause.with_hints(hints);
+            // Extract ORDER BY info for DataFusion execution
+            let order_by = extract_orderby(root, &outer_side, &inner_side, driving_side_is_outer);
+            join_clause = join_clause.with_order_by(order_by);
 
             // Create the private data with hints included
             let private_data = PrivateData::new(join_clause.clone());
@@ -521,6 +528,13 @@ impl CustomScan for JoinScan {
             }
             node.custom_exprs = custom_exprs.into_pg();
 
+            // Collect all required fields for execution
+            collect_required_fields(
+                &mut private_data.join_clause,
+                &private_data.output_columns,
+                node.custom_exprs,
+            );
+
             // Convert PrivateData back to a list and preserve the restrictlist
             let private_data_list: *mut pg_sys::List = private_data.into();
             let mut new_private = PgList::<pg_sys::Node>::from_pg(private_data_list);
@@ -597,15 +611,15 @@ impl CustomScan for JoinScan {
             .unwrap_or_else(|| inner_rel_name.clone());
 
         // Show relation info for both sides (with alias in parentheses if different)
-        let outer_display = if join_clause.outer_side.alias.is_some() {
+        let outer_display = if outer_rel_name != outer_alias {
             format!("{} ({})", outer_rel_name, outer_alias)
         } else {
-            outer_rel_name.clone()
+            outer_rel_name
         };
-        let inner_display = if join_clause.inner_side.alias.is_some() {
+        let inner_display = if inner_rel_name != inner_alias {
             format!("{} ({})", inner_rel_name, inner_alias)
         } else {
-            inner_rel_name.clone()
+            inner_rel_name
         };
         explainer.add_text("Outer Relation", outer_display);
         explainer.add_text("Inner Relation", inner_display);
@@ -670,21 +684,38 @@ impl CustomScan for JoinScan {
             explainer.add_text("Limit", limit.to_string());
         }
 
-        // Show execution hints from planner
-        let hint_str = match join_clause.hints.algorithm {
-            JoinAlgorithmHint::Auto => "Auto",
-            JoinAlgorithmHint::PreferHash => "Prefer Hash",
-        };
-        explainer.add_text("Algorithm Hint", hint_str);
+        // Show Order By if present
+        if !join_clause.order_by.is_empty() {
+            explainer.add_text(
+                "Order By",
+                join_clause
+                    .order_by
+                    .iter()
+                    .map(|oi| match oi {
+                        OrderByInfo {
+                            feature: OrderByFeature::Field(fieldname),
+                            direction,
+                            ..
+                        } => {
+                            format!("{} {}", fieldname, direction.as_ref())
+                        }
 
-        // Show estimated build rows if available
-        if let Some(est_rows) = join_clause.hints.estimated_build_rows {
-            explainer.add_text("Est. Build Rows", format!("{:.0}", est_rows));
+                        OrderByInfo {
+                            feature: OrderByFeature::Score,
+                            direction,
+                            ..
+                        } => {
+                            format!("pdb.score() {}", direction.as_ref())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
 
         // For EXPLAIN ANALYZE, show the actual execution method used
         if explainer.is_analyze() {
-            explainer.add_text("Exec Method", "Hash Join");
+            explainer.add_text("Exec Method", "DataFusion Join");
         }
     }
 
@@ -704,7 +735,7 @@ impl CustomScan for JoinScan {
 
             // Initialize memory limit from work_mem (in KB, convert to bytes)
             let work_mem_bytes = (pg_sys::work_mem as usize) * 1024;
-            state.custom_state_mut().max_hash_memory = work_mem_bytes;
+            state.custom_state_mut().max_memory = work_mem_bytes;
 
             // Use PostgreSQL's already-initialized result tuple slot (ps_ResultTupleSlot).
             // PostgreSQL sets this up in ExecInitCustomScan based on custom_scan_tlist
@@ -774,18 +805,18 @@ impl CustomScan for JoinScan {
                 // back to their original columns during plan building.
                 private_data.output_columns = state.custom_state().output_columns.clone();
 
-                let plan = JoinScanPlanBuilder::build(
-                    &join_clause,
-                    &private_data,
-                    (*cscan).custom_exprs,
-                    snapshot,
-                )
-                .expect("Failed to build DataFusion plan");
+                let plan = runtime
+                    .block_on(build_joinscan_logical_plan(
+                        &join_clause,
+                        &private_data,
+                        (*cscan).custom_exprs,
+                    ))
+                    .expect("Failed to build DataFusion plan");
 
                 // Configure DataFusion memory management
                 // We use a custom memory pool that panics on OOM to enforce work_mem
                 // TODO: Support spilling to PostgreSQL temporary files when work_mem is exceeded
-                let memory_limit = state.custom_state().max_hash_memory;
+                let memory_limit = state.custom_state().max_memory;
                 let memory_pool = Arc::new(PanicOnOOMMemoryPool::new(memory_limit));
 
                 let runtime_env = RuntimeEnvBuilder::new()
@@ -796,40 +827,23 @@ impl CustomScan for JoinScan {
                 let task_ctx = TaskContext::default().with_runtime(Arc::new(runtime_env));
                 let task_ctx = Arc::new(task_ctx);
 
-                let stream = plan
-                    .execute(0, task_ctx)
-                    .expect("Failed to execute DataFusion plan");
+                let stream = {
+                    let _guard = runtime.enter();
+                    plan.execute(0, task_ctx)
+                        .expect("Failed to execute DataFusion plan")
+                };
 
                 // Determine score column indices
                 let schema = plan.schema();
-                // We need to know where outer columns end and inner columns start
-                let outer_cols_len =
-                    if let Some(filter) = plan.as_any().downcast_ref::<FilterExec>() {
-                        filter
-                            .input()
-                            .as_any()
-                            .downcast_ref::<HashJoinExec>()
-                            .expect("FilterExec child should be HashJoinExec")
-                            .children()[0]
-                            .schema()
-                            .fields()
-                            .len()
-                    } else if let Some(join) = plan.as_any().downcast_ref::<HashJoinExec>() {
-                        join.children()[0].schema().fields().len()
-                    } else {
-                        panic!("Unexpected plan type");
-                    };
 
                 let mut outer_score_idx = None;
                 let mut inner_score_idx = None;
 
                 for (i, field) in schema.fields().iter().enumerate() {
-                    if field.name() == "pdb.score()" {
-                        if i < outer_cols_len {
-                            outer_score_idx = Some(i);
-                        } else {
-                            inner_score_idx = Some(i);
-                        }
+                    if field.name() == OUTER_SCORE_ALIAS {
+                        outer_score_idx = Some(i);
+                    } else if field.name() == INNER_SCORE_ALIAS {
+                        inner_score_idx = Some(i);
                     }
                 }
 
@@ -846,7 +860,7 @@ impl CustomScan for JoinScan {
                     if state.custom_state().batch_index < batch.num_rows() {
                         let idx = state.custom_state().batch_index;
 
-                        // JoinScanPlanBuilder ensures that CTIDs are at the following indices:
+                        // build_joinscan_logical_plan ensures that CTIDs are at the following indices:
                         // - Outer CTID: index 0
                         // - Inner CTID: the last "ctid" column in the schema
                         let schema = batch.schema();
@@ -972,7 +986,7 @@ impl JoinScan {
         }
 
         // Fetch build tuple using direct tuple fetch.
-        // The build side ctids come from a sequential scan (hash table building), not from an index,
+        // The build side ctids come from a sequential scan (datafusion scan), not from an index,
         // so we use fetch_tuple_direct which uses table_tuple_fetch_slot instead of
         // table_index_fetch_tuple. The latter is designed for index-derived ctids and may incorrectly
         // report tuples as "all_dead" when used with sequential scan ctids.

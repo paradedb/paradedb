@@ -19,8 +19,8 @@ use std::sync::Arc;
 
 use arrow_array::{Array, RecordBatch};
 use arrow_schema::SchemaRef;
-use datafusion_execution::{SendableRecordBatchStream, TaskContext};
-use datafusion_physical_plan::ExecutionPlan;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_plan::ExecutionPlan;
 use futures::StreamExt;
 use tokio::runtime::Runtime;
 

@@ -25,7 +25,7 @@
 //! - Cross-relation heap conditions (evaluated by PostgreSQL)
 //! - Boolean expression trees (AND/OR/NOT)
 
-use super::build::{JoinCSClause, JoinLevelExpr, JoinSide, JoinSideInfo};
+use super::build::{JoinCSClause, JoinLevelExpr, JoinSide, ScanInfo};
 use super::explain::format_expr_for_explain;
 use super::translator::PredicateTranslator;
 use crate::api::operator::anyelement_query_input_opoid;
@@ -50,8 +50,8 @@ use pgrx::{pg_sys, PgList};
 pub(super) unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    outer_side: &ScanInfo,
+    inner_side: &ScanInfo,
     other_conditions: &[*mut pg_sys::RestrictInfo],
     mut join_clause: JoinCSClause,
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
@@ -76,7 +76,7 @@ pub(super) unsafe fn extract_join_level_conditions(
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     // Track which RestrictInfos are heap conditions (by pointer) for index lookup
-    let other_cond_set: std::collections::HashSet<usize> =
+    let other_cond_set: crate::api::HashSet<usize> =
         other_conditions.iter().map(|&ri| ri as usize).collect();
 
     for ri in restrict_infos.iter_ptr() {
@@ -168,8 +168,8 @@ pub(super) unsafe fn transform_to_search_expr(
     node: *mut pg_sys::Node,
     outer_rti: pg_sys::Index,
     inner_rti: pg_sys::Index,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    outer_side: &ScanInfo,
+    inner_side: &ScanInfo,
     join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
@@ -333,7 +333,7 @@ pub(super) unsafe fn transform_to_search_expr(
 pub(super) unsafe fn extract_single_table_predicate(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    side: &JoinSideInfo,
+    side: &ScanInfo,
     expr: *mut pg_sys::Node,
     join_clause: &mut JoinCSClause,
 ) -> Option<usize> {
@@ -380,8 +380,8 @@ unsafe fn all_vars_are_fast_fields(
     node: *mut pg_sys::Node,
     outer_rti: pg_sys::Index,
     inner_rti: pg_sys::Index,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    outer_side: &ScanInfo,
+    inner_side: &ScanInfo,
 ) -> bool {
     let vars = expr_collect_vars(node, false);
 
@@ -410,7 +410,7 @@ unsafe fn all_vars_are_fast_fields(
 /// Returns true if:
 /// - The column is explicitly marked as a fast field in the index schema, OR
 /// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
-pub(super) unsafe fn is_column_fast_field(side: &JoinSideInfo, attno: pg_sys::AttrNumber) -> bool {
+pub(super) unsafe fn is_column_fast_field(side: &ScanInfo, attno: pg_sys::AttrNumber) -> bool {
     // Need both heap and index relations
     let Some(heaprelid) = side.heaprelid else {
         return false;

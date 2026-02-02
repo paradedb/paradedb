@@ -195,10 +195,26 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
-    // Find the first indexed field with "fast": true in its JSON config to use for sort_by
+    // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
+    let sortable_types = [
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "REAL",
+        "FLOAT",
+        "DOUBLE",
+        "NUMERIC",
+        "DATE",
+        "TIMESTAMP",
+    ];
     let sort_by_field = columns_def
         .iter()
         .filter(|c| c.is_indexed)
+        .filter(|c| {
+            sortable_types
+                .iter()
+                .any(|t| c.sql_type.to_uppercase().contains(t))
+        })
         .filter_map(|c| {
             c.bm25_options
                 .as_ref()

@@ -26,34 +26,27 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 
 ParadeDB is currently only able to push down aggregates over a single table. JOINs are not yet pushed down but are on the [roadmap](/welcome/roadmap).
 
-## NUMERIC Column Precision
+## NUMERIC Columns
 
-For `NUMERIC` columns, aggregate pushdown support depends on the column's declared precision:
+`NUMERIC` columns do not support aggregate pushdown. Queries with aggregates on `NUMERIC` columns will automatically fall back to PostgreSQL for aggregation.
 
-| Column Definition              | Aggregate Pushdown | Notes                                            |
-| ------------------------------ | ------------------ | ------------------------------------------------ |
-| `NUMERIC(p,s)` where `p <= 18` | Supported          | Values stored as 64-bit fixed-point integers     |
-| `NUMERIC(p,s)` where `p > 18`  | Not supported      | Values stored as sortable bytes (not aggregable) |
-| `NUMERIC` (unbounded)          | Not supported      | Values stored as sortable bytes (not aggregable) |
-
-For best performance with `NUMERIC` columns that need aggregate pushdown, declare an explicit precision of 18 or less:
+For numeric data that requires aggregate pushdown, use `FLOAT` or `DOUBLE PRECISION` instead:
 
 ```sql
 -- Aggregates can be pushed down
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
-    price NUMERIC(18,2)  -- precision <= 18
+    price DOUBLE PRECISION
 );
 
--- Aggregates cannot be pushed down (falls back to PostgreSQL)
+-- Aggregates fall back to PostgreSQL
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
-    price NUMERIC  -- unbounded precision
+    price NUMERIC(10,2)
 );
 ```
 
 <Note>
-  Filter pushdown (equality and range queries) is supported for all `NUMERIC`
-  columns regardless of precision. Only aggregate pushdown has the precision
-  limitation.
+  Filter pushdown (equality and range queries) is fully supported for all
+  `NUMERIC` columns. Only aggregate pushdown is not supported.
 </Note>

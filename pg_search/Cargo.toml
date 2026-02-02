@@ -23,6 +23,7 @@ debug-logging = [
 ] # enables env_logger for dependency debug output
 
 [dependencies]
+async-trait = "0.1.89"
 stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
 arrow-array = "57.2.0"
@@ -72,11 +73,7 @@ bytemuck = { version = "1.24.0", features = ["derive", "min_const_generics"] }
 paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
-datafusion-common = { version = "52.0.0", default-features = false }
-datafusion-execution = { version = "52.0.0", default-features = false }
-datafusion-expr = { version = "52.0.0", default-features = false }
-datafusion-physical-expr = { version = "52.0.0", default-features = false }
-datafusion-physical-plan = { version = "52.0.0", default-features = false }
+datafusion = { version = "=52.0.0", default-features = false }
 futures = "0.3"
 
 [dev-dependencies]

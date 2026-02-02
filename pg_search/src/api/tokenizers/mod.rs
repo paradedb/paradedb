@@ -133,7 +133,10 @@ pub fn search_field_config_from_type(
 
     let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
 
-    let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
+    let parsed_fieldnorms = parsed_typmod
+        .get("fieldnorms")
+        .and_then(|p| p.as_bool())
+        .unwrap_or(true);
     // columnar=true/false is our renaming of Tantivy's `fast` option
     // fast is default to true for any field that's not text or JSON
     // if it is text or JSON, it also default to true for literal and literal_normalized
@@ -144,13 +147,13 @@ pub fn search_field_config_from_type(
     {
         // literal and literal_normalized default to fast=true (columnar=true)
         let fast = columnar_explicit.unwrap_or(true);
-        (fast, false, IndexRecordOption::Basic)
+        (fast, parsed_fieldnorms, IndexRecordOption::Basic)
     } else {
         // all others default to fast=false (columnar=false)
         let fast = columnar_explicit.unwrap_or(false);
         (
             fast,
-            parsed_fieldnorms.unwrap_or(true),
+            parsed_fieldnorms,
             IndexRecordOption::WithFreqsAndPositions,
         )
     };

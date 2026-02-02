@@ -221,10 +221,9 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
 unsafe fn find_matching_fast_field(
     node: *mut pg_sys::Node,
     index_expressions: &PgList<pg_sys::Expr>,
-    schema: &SearchIndexSchema,
+    schema: SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
-    let unwrapped_node = strip_tokenizer_cast(node);
     for (i, expr) in index_expressions.iter_ptr().enumerate() {
         let expr = expr as *mut pg_sys::Node;
         // Check if the unwrapped index expression matches the target node
@@ -233,11 +232,10 @@ unsafe fn find_matching_fast_field(
         // Adjust varno in index expression to match query rti
         fix_varno_in_place(unwrapped_index_expr, 1, rti as i32);
 
-        let matches = pg_sys::equal(
-            unwrapped_node as *const core::ffi::c_void,
+        if pg_sys::equal(
+            node as *const core::ffi::c_void,
             unwrapped_index_expr as *const core::ffi::c_void,
-        );
-        if matches {
+        ) {
             // Find the search field corresponding to this expression index
             let categorized_fields = schema.categorized_fields();
             let field_data = categorized_fields.iter().find(|(sf, data)| {
@@ -280,7 +278,6 @@ pub unsafe fn pullup_fast_fields(
     // Get index expressions to check for matching expressions
     let index_info = pg_sys::BuildIndexInfo(index.as_ptr());
     let index_expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
-    let schema = index.schema().ok()?;
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
@@ -340,7 +337,7 @@ pub unsafe fn pullup_fast_fields(
         if let Some(ff) = find_matching_fast_field(
             (*te).expr as *mut pg_sys::Node,
             &index_expressions,
-            &schema,
+            index.schema().ok()?,
             rti,
         ) {
             matches.push(ff);
@@ -443,7 +440,7 @@ pub unsafe fn pullup_fast_fields(
                 if let Some(ff) = find_matching_fast_field(
                     &mut dummy_var as *mut _ as *mut pg_sys::Node,
                     &index_expressions,
-                    &schema,
+                    index.schema().ok()?,
                     rti,
                 ) {
                     matches.push(ff);

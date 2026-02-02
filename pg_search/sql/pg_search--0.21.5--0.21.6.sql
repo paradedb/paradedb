@@ -1,1 +1,4 @@
 \echo Use "ALTER EXTENSION pg_search UPDATE TO '0.21.6'" to load this file. \quit
+
+DROP FUNCTION IF EXISTS tokenizer(name text, remove_long pg_catalog.int4, lowercase bool, min_gram pg_catalog.int4, max_gram pg_catalog.int4, prefix_only bool, language text, pattern text, stemmer text, stopwords_language text, stopwords_languages text[], stopwords text[], ascii_folding bool);
+CREATE OR REPLACE FUNCTION tokenizer(name text, remove_long pg_catalog.int4 DEFAULT '255', lowercase bool DEFAULT 'true', min_gram pg_catalog.int4 DEFAULT NULL, max_gram pg_catalog.int4 DEFAULT NULL, prefix_only bool DEFAULT NULL, language text DEFAULT NULL, pattern text DEFAULT NULL, stemmer text DEFAULT NULL, stemmers text[] DEFAULT NULL, stopwords_language text DEFAULT NULL, stopwords_languages text[] DEFAULT NULL, stopwords text[] DEFAULT NULL, ascii_folding bool DEFAULT NULL) RETURNS jsonb AS 'MODULE_PATHNAME', 'tokenizer_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

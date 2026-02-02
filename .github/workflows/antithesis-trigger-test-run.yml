@@ -121,7 +121,7 @@ jobs:
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
       - name: Build and Push Stressgres Docker Image to Antithesis Registry
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64

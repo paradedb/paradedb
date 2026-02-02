@@ -836,11 +836,8 @@ mod tests {
     }
 
     /// Tests that parallel index building fails with insufficient memory.
-    ///
-    /// This test is marked `#[ignore]` because it creates 35,000 rows and takes
-    /// a long time to run. Run it explicitly with:
-    /// `cargo pgrx test -- --ignored test_parallel_build_large_insufficient_memory`
     #[pg_test]
+    #[should_panic(expected = "maintenance_work_mem")]
     fn test_parallel_build_large_insufficient_memory() {
         setup_parallel_build_large_table();
 
@@ -848,31 +845,17 @@ mod tests {
         Spi::run("SET maintenance_work_mem = '64MB';").unwrap();
         Spi::run("SET max_parallel_maintenance_workers = 8;").unwrap();
 
-        let result = Spi::run(
+        // This should panic with a "maintenance_work_mem is not high enough" error
+        Spi::run(
             "CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = 16);",
-        );
-
-        // This should fail with a "not enough memory" error
-        assert!(
-            result.is_err(),
-            "Expected CREATE INDEX to fail with insufficient memory"
-        );
-        let err_msg = format!("{:?}", result.unwrap_err());
-        assert!(
-            err_msg.contains("memory") || err_msg.contains("Memory"),
-            "Expected error message to mention memory, got: {}",
-            err_msg
-        );
-
-        cleanup_parallel_build_large_table();
+        ).unwrap();
     }
 
     /// Tests parallel index building with various configurations.
     ///
-    /// This test is marked `#[ignore]` because it creates 35,000 rows and tests
-    /// 32 different configuration combinations, taking a long time to run.
-    /// Run it explicitly with:
-    /// `cargo pgrx test -- --ignored test_parallel_build_large_configurations`
+    /// This test creates 35,000 rows and tests 32 different configuration
+    /// combinations of maintenance_work_mem, workers, leader participation,
+    /// and target segment count.
     #[pg_test]
     fn test_parallel_build_large_configurations() {
         setup_parallel_build_large_table();

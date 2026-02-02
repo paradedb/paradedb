@@ -1,0 +1,52 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CREATE TABLE test (id serial PRIMARY KEY, description text);
+INSERT INTO test (description) VALUES ('Cloud Engagement Manager'),('cloud engineer'), ('Clōüd engineer'),('cloud Engineer'), ('Cloud engineer');
+CREATE INDEX test_bm25 ON test
+USING bm25 (
+	id,
+	(lower(description)::pdb.literal_normalized('ascii_folding=true'))
+) WITH (key_field = id);
+SELECT * FROM paradedb.schema('test_bm25');
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |               tokenizer                | record | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+----------------------------------------+--------+------------
+ ctid        | U64        | f      | t       | t    | f          |             |                                        |        | 
+ description | Str        | f      | t       | t    | f          |             | literal_normalized[ascii_folding=true] | basic  | lowercase
+ id          | I64        | f      | t       | t    | f          |             |                                        |        | 
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM test
+WHERE lower(description) === 'cloud engineer'
+ORDER BY lower(description)
+LIMIT 10;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on test
+         Table: test
+         Index: test_bm25
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: description asc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer","is_datetime":false}}}}
+(9 rows)
+
+SELECT * FROM test
+WHERE lower(description) === 'cloud engineer'
+ORDER BY lower(description)
+LIMIT 10;
+ id |  description   
+----+----------------
+  2 | cloud engineer
+  4 | cloud Engineer
+  5 | Cloud engineer
+  3 | Clōüd engineer
+(4 rows)
+
+DROP TABLE test;

@@ -2204,15 +2204,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "decimal-bytes"
-version = "0.3.1"
-source = "git+https://github.com/paradedb/decimal-bytes.git?rev=d4932bcd91e5bc45c7dd47c1dd0e0c301728821b#d4932bcd91e5bc45c7dd47c1dd0e0c301728821b"
-dependencies = [
- "serde",
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "datafusion-pruning"
 version = "52.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2241,6 +2232,15 @@ dependencies = [
  "datafusion-expr",
  "datafusion-physical-plan",
  "parking_lot",
+]
+
+[[package]]
+name = "decimal-bytes"
+version = "0.3.1"
+source = "git+https://github.com/paradedb/decimal-bytes.git?rev=d4932bcd91e5bc45c7dd47c1dd0e0c301728821b#d4932bcd91e5bc45c7dd47c1dd0e0c301728821b"
+dependencies = [
+ "serde",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

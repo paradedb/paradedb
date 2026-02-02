@@ -16,6 +16,8 @@ def extract_statements(content):
     content = re.sub(r"--[^\n]*", "", content)
     # Remove block comments (/* ... */)
     content = re.sub(r"/\*.*?\*/", "", content, flags=re.DOTALL)
+    # Remove psql meta-commands (\echo, \quit, etc.) - they don't end with semicolons
+    content = re.sub(r"\\[a-zA-Z]+[^\n]*", "", content)
     # Normalize whitespace
     content = re.sub(r"\s+", " ", content).strip()
 

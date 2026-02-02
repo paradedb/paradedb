@@ -109,6 +109,7 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
+    prefetched: Option<Batch>,
 }
 
 impl Scanner {
@@ -130,6 +131,7 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
+            prefetched: None,
         }
     }
 
@@ -176,6 +178,9 @@ impl Scanner {
         ffhelper: &FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
     ) -> Option<Batch> {
+        if let Some(batch) = self.prefetched.take() {
+            return Some(batch);
+        }
         pgrx::check_for_interrupts!();
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
@@ -268,6 +273,22 @@ impl Scanner {
                 .collect(),
             fields,
         })
+    }
+
+    /// Prefetch a single batch and store it for the next `next()` call.
+    ///
+    /// This is used to force some work between parallel segment checkouts while
+    /// preserving correctness (the prefetched batch will still be returned).
+    pub fn prefetch_next(
+        &mut self,
+        ffhelper: &FFHelper,
+        visibility: &mut (impl VisibilityChecker + ?Sized),
+    ) {
+        if self.prefetched.is_none() {
+            if let Some(batch) = self.next(ffhelper, visibility) {
+                self.prefetched = Some(batch);
+            }
+        }
     }
 }
 

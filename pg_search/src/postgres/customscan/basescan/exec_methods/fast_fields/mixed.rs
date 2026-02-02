@@ -33,7 +33,7 @@ use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::datafusion_plan::{create_sorted_scan, make_checkout_factory, ScanPlan};
+use crate::scan::datafusion_plan::{create_sorted_scan, make_checkout_factory, SegmentPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -113,28 +113,26 @@ impl Inner {
 ///
 /// This enum replaces the previous `sorted: bool` + `sort_order: Option<SortByField>`
 /// pattern to prevent invalid states (e.g., sorted=true with sort_order=None).
-#[derive(Clone)]
-pub enum ScanStrategy {
+///
+/// The `Sorted` variant contains all sorted-specific state (sort order and schema),
+/// avoiding the need for Option wrappers on the main struct.
+pub enum MixedExecStrategy {
     /// Unsorted execution: segments are processed lazily via PostgreSQL's parallel
     /// query infrastructure, with each segment producing its own DataFusion stream.
     Unsorted,
     /// Sorted execution: all segments are merged via `SortPreservingMergeExec`
     /// to produce globally sorted output according to the specified sort order.
-    Sorted(SortByField),
+    Sorted {
+        sort_order: SortByField,
+        /// Arrow schema for the sorted scan, pre-computed from which_fast_fields.
+        schema: SchemaRef,
+    },
 }
 
-impl ScanStrategy {
+impl MixedExecStrategy {
     /// Returns true if this is the sorted strategy.
     pub fn is_sorted(&self) -> bool {
-        matches!(self, ScanStrategy::Sorted(_))
-    }
-
-    /// Returns the sort order if this is a sorted strategy.
-    pub fn sort_order(&self) -> Option<&SortByField> {
-        match self {
-            ScanStrategy::Sorted(order) => Some(order),
-            ScanStrategy::Unsorted => None,
-        }
+        matches!(self, MixedExecStrategy::Sorted { .. })
     }
 }
 
@@ -149,10 +147,10 @@ impl ScanStrategy {
 ///
 /// # Scan Strategy
 ///
-/// When using `ScanStrategy::Sorted`, this execution method uses `SortPreservingMergeExec`
+/// When using `MixedExecStrategy::Sorted`, this execution method uses `SortPreservingMergeExec`
 /// to merge sorted segment outputs into a globally sorted result.
 ///
-/// When using `ScanStrategy::Unsorted`, segments are processed lazily via PostgreSQL's
+/// When using `MixedExecStrategy::Unsorted`, segments are processed lazily via PostgreSQL's
 /// parallel query infrastructure with DataFusion producing batches for each segment.
 ///
 /// # Usage Context
@@ -174,10 +172,7 @@ pub struct MixedFastFieldExecState {
     batch_size_hint: Option<usize>,
 
     /// Scan execution strategy (sorted or unsorted).
-    strategy: ScanStrategy,
-
-    /// Arrow schema for the RecordBatch
-    schema: Option<SchemaRef>,
+    strategy: MixedExecStrategy,
 
     /// Tokio runtime for driving async DataFusion streams synchronously.
     /// Created once and reused (same pattern as JoinScan).
@@ -295,7 +290,7 @@ impl MixedFastFieldExecState {
     ///
     /// * `which_fast_fields` - Vector of fast fields that will be processed
     /// * `limit` - Optional limit for batch size optimization
-    /// * `strategy` - The scan execution strategy (sorted or unsorted)
+    /// * `sort_order` - Optional sort order; if provided, creates a sorted strategy
     ///
     /// # Returns
     ///
@@ -303,7 +298,7 @@ impl MixedFastFieldExecState {
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
         limit: Option<usize>,
-        strategy: ScanStrategy,
+        sort_order: Option<SortByField>,
     ) -> Self {
         // Find ctid and score column indices
         let ctid_column_idx = which_fast_fields
@@ -313,6 +308,15 @@ impl MixedFastFieldExecState {
             .iter()
             .position(|f| matches!(f, WhichFastField::Score));
 
+        // Build strategy with schema if sorted
+        let strategy = match sort_order {
+            Some(sort_order) => {
+                let schema = build_arrow_schema(&which_fast_fields);
+                MixedExecStrategy::Sorted { sort_order, schema }
+            }
+            None => MixedExecStrategy::Unsorted,
+        };
+
         // If there is a limit, then we use a batch size hint which is a small multiple of the
         // limit, in case of dead tuples.
         let batch_size_hint = limit.map(|limit| limit * 2);
@@ -320,7 +324,6 @@ impl MixedFastFieldExecState {
             inner: Inner::new(which_fast_fields),
             batch_size_hint,
             strategy,
-            schema: None,
             runtime: None,
             stream: None,
             current_record_batch: None,
@@ -335,7 +338,7 @@ impl MixedFastFieldExecState {
     /// Creates a DataFusion stream for the unsorted path.
     ///
     /// Uses PostgreSQL's lazy segment checkout - one segment at a time.
-    /// Each segment is processed through DataFusion's ScanPlan.
+    /// Each segment is processed through DataFusion's SegmentPlan.
     fn create_unsorted_stream(
         &mut self,
         state: &mut BaseScanState,
@@ -384,9 +387,6 @@ impl MixedFastFieldExecState {
             heaprel.oid().into(),
         );
 
-        // Capture schema
-        self.schema = Some(scanner.schema());
-
         // Clone visibility checker for the plan
         let visibility = state
             .visibility_checker
@@ -394,15 +394,18 @@ impl MixedFastFieldExecState {
             .expect("MixedFastFieldsExecState: visibility_checker should be initialized")
             .clone();
 
-        // Create ScanPlan and execute via DataFusion
-        let plan =
-            ScanPlan::new_with_shared_ffhelper(scanner, Arc::clone(ffhelper), Box::new(visibility));
+        // Create SegmentPlan and execute via DataFusion
+        let plan = SegmentPlan::new_with_shared_ffhelper(
+            scanner,
+            Arc::clone(ffhelper),
+            Box::new(visibility),
+        );
 
         let task_ctx = Arc::new(TaskContext::default());
         match plan.execute(0, task_ctx) {
             Ok(stream) => Some(stream),
             Err(e) => {
-                pgrx::warning!("Failed to execute ScanPlan: {e}");
+                pgrx::warning!("Failed to execute SegmentPlan: {e}");
                 None
             }
         }
@@ -423,7 +426,7 @@ impl MixedFastFieldExecState {
         &mut self,
         state: &mut BaseScanState,
     ) -> Option<SendableRecordBatchStream> {
-        use crate::index::reader::index::MultiSegmentSearchResults;
+        use crate::scan::datafusion_plan::ScanState;
         use std::cell::RefCell;
 
         if self.inner.did_query {
@@ -431,7 +434,11 @@ impl MixedFastFieldExecState {
         }
         self.inner.did_query = true;
 
-        let sort_order = self.strategy.sort_order()?;
+        // Extract sort_order and schema from the strategy
+        let (sort_order, schema) = match &self.strategy {
+            MixedExecStrategy::Sorted { sort_order, schema } => (sort_order, Arc::clone(schema)),
+            MixedExecStrategy::Unsorted => return None,
+        };
 
         let heaprel = self
             .inner
@@ -444,53 +451,78 @@ impl MixedFastFieldExecState {
             .as_ref()
             .expect("MixedFastFieldsExecState: ffhelper should be initialized");
         let search_reader = state.search_reader.as_ref().unwrap();
+        let visibility_checker = state
+            .visibility_checker
+            .clone()
+            .expect("MixedFastFieldsExecState: visibility_checker should be initialized");
+        let ffhelper = Arc::clone(ffhelper);
 
-        // Build schema from which_fast_fields (shared with Scanner::schema())
-        let schema = build_arrow_schema(&self.inner.which_fast_fields);
-        self.schema = Some(schema.clone());
-
-        // Pre-open segments as we check them out. We store Option<MultiSegmentSearchResults>
+        // Pre-open segments as we check them out. We store Option<ScanState>
         // so we can take ownership in the factory.
-        let pre_opened: Vec<Option<MultiSegmentSearchResults>> =
-            if let Some(parallel_state) = state.parallel_state {
-                // Parallel execution: check out and open segments one at a time.
-                let mut segments = Vec::new();
-                loop {
-                    // Check for query cancellation
-                    pgrx::check_for_interrupts!();
+        let pre_opened: Vec<Option<ScanState>> = if let Some(parallel_state) = state.parallel_state
+        {
+            // Parallel execution: check out and open segments one at a time.
+            let mut segments = Vec::new();
+            loop {
+                // Check for query cancellation
+                pgrx::check_for_interrupts!();
 
-                    // Try to check out a segment
-                    let segment_id = unsafe { checkout_segment(parallel_state) };
-                    let Some(segment_id) = segment_id else {
-                        // No more segments available
-                        break;
-                    };
+                // Try to check out a segment
+                let segment_id = unsafe { checkout_segment(parallel_state) };
+                let Some(segment_id) = segment_id else {
+                    // No more segments available
+                    break;
+                };
 
-                    // Open the segment and create search results.
-                    let search_results = search_reader.search_segments([segment_id].into_iter());
-                    segments.push(Some(search_results));
-                }
+                // Open the segment and create a scanner.
+                let search_results = search_reader.search_segments([segment_id].into_iter());
+                let mut scanner = Scanner::new(
+                    search_results,
+                    self.batch_size_hint,
+                    self.inner.which_fast_fields.clone(),
+                    heaprel.oid().into(),
+                );
+                let mut visibility = visibility_checker.clone();
+                // Do real work between checkouts to avoid one worker claiming all segments.
+                scanner.prefetch_next(&ffhelper, &mut visibility);
+                segments.push(Some((
+                    scanner,
+                    Arc::clone(&ffhelper),
+                    Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                )));
+            }
 
-                if segments.is_empty() {
-                    return None;
-                }
+            if segments.is_empty() {
+                return None;
+            }
 
-                segments
-            } else {
-                // Non-parallel execution: open all segments upfront
-                let segment_readers = search_reader.segment_readers();
-                if segment_readers.is_empty() {
-                    return None;
-                }
-                segment_readers
-                    .iter()
-                    .map(|r| {
-                        let search_results =
-                            search_reader.search_segments([r.segment_id()].into_iter());
-                        Some(search_results)
-                    })
-                    .collect()
-            };
+            segments
+        } else {
+            // Non-parallel execution: open all segments upfront
+            let segment_readers = search_reader.segment_readers();
+            if segment_readers.is_empty() {
+                return None;
+            }
+            segment_readers
+                .iter()
+                .map(|r| {
+                    let search_results =
+                        search_reader.search_segments([r.segment_id()].into_iter());
+                    let scanner = Scanner::new(
+                        search_results,
+                        self.batch_size_hint,
+                        self.inner.which_fast_fields.clone(),
+                        heaprel.oid().into(),
+                    );
+                    let visibility = visibility_checker.clone();
+                    Some((
+                        scanner,
+                        Arc::clone(&ffhelper),
+                        Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                    ))
+                })
+                .collect()
+        };
 
         let segment_count = pre_opened.len();
 
@@ -499,30 +531,12 @@ impl MixedFastFieldExecState {
         let pre_opened = RefCell::new(pre_opened);
 
         // Capture variables for the factory closure
-        let batch_size = self.batch_size_hint;
-        let which_fast_fields = self.inner.which_fast_fields.clone();
-        let table_oid: u32 = heaprel.oid().into();
-        let ffhelper = Arc::clone(ffhelper);
-        let visibility_checker = state
-            .visibility_checker
-            .clone()
-            .expect("MixedFastFieldsExecState: visibility_checker should be initialized");
-
         // Create factory that uses the pre-opened segment search results.
         // The pre_opened vector contains only the segments THIS worker checked out.
         let checkout_factory = make_checkout_factory(move |partition: usize| {
-            let search_results = pre_opened.borrow_mut()[partition]
+            pre_opened.borrow_mut()[partition]
                 .take()
-                .expect("BUG: Partition executed more than once");
-            let scanner = Scanner::new(
-                search_results,
-                batch_size,
-                which_fast_fields.clone(),
-                table_oid,
-            );
-            let visibility: Box<dyn crate::scan::VisibilityChecker> =
-                Box::new(visibility_checker.clone());
-            (scanner, Arc::clone(&ffhelper), visibility)
+                .expect("BUG: Partition executed more than once")
         });
 
         // Create sorted scan plan with SortPreservingMergeExec
@@ -546,7 +560,7 @@ impl MixedFastFieldExecState {
         match plan.execute(0, task_ctx) {
             Ok(stream) => Some(stream),
             Err(e) => {
-                pgrx::warning!("Failed to execute sorted ScanPlan: {e}");
+                pgrx::warning!("Failed to execute sorted SegmentPlan: {e}");
                 None
             }
         }
@@ -583,7 +597,6 @@ impl ExecMethod for MixedFastFieldExecState {
 
         // Reset mixed field specific state
         self.stream = None;
-        self.schema = None;
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
         self.num_visible = 0;
@@ -764,7 +777,6 @@ impl ExecMethod for MixedFastFieldExecState {
 
         // Reset DataFusion stream state
         self.stream = None;
-        self.schema = None;
         self.current_record_batch = None;
         self.current_batch_row_idx = 0;
 

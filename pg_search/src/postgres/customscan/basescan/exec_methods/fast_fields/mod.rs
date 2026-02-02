@@ -58,17 +58,16 @@ pub unsafe fn collect_fast_fields(
     index: &PgSearchRelation,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
-    let fast_fields = pullup_fast_fields(
+    pullup_fast_fields(
         target_list,
         referenced_columns,
         heaprel,
         index,
         rti,
         is_execution_time,
-    );
-    fast_fields
-        .filter(|fast_fields| !fast_fields.is_empty())
-        .unwrap_or_default()
+    )
+    .filter(|fields| !fields.is_empty())
+    .unwrap_or_default()
 }
 
 fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<FastFieldType> {
@@ -201,6 +200,9 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
         if (*var).varno as i32 == old_varno {
             (*var).varno = new_varno as _;
         }
+        if (*var).varnosyn as i32 == old_varno {
+            (*var).varnosyn = new_varno as _;
+        }
     } else if let Some(expr) = nodecast!(OpExpr, T_OpExpr, node) {
         fix_varno_list((*expr).args, old_varno, new_varno);
     } else if let Some(expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
@@ -219,9 +221,10 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
 unsafe fn find_matching_fast_field(
     node: *mut pg_sys::Node,
     index_expressions: &PgList<pg_sys::Expr>,
-    schema: SearchIndexSchema,
+    schema: &SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
+    let unwrapped_node = strip_tokenizer_cast(node);
     for (i, expr) in index_expressions.iter_ptr().enumerate() {
         let expr = expr as *mut pg_sys::Node;
         // Check if the unwrapped index expression matches the target node
@@ -230,10 +233,11 @@ unsafe fn find_matching_fast_field(
         // Adjust varno in index expression to match query rti
         fix_varno_in_place(unwrapped_index_expr, 1, rti as i32);
 
-        if pg_sys::equal(
-            node as *const core::ffi::c_void,
+        let matches = pg_sys::equal(
+            unwrapped_node as *const core::ffi::c_void,
             unwrapped_index_expr as *const core::ffi::c_void,
-        ) {
+        );
+        if matches {
             // Find the search field corresponding to this expression index
             let categorized_fields = schema.categorized_fields();
             let field_data = categorized_fields.iter().find(|(sf, data)| {
@@ -276,6 +280,7 @@ pub unsafe fn pullup_fast_fields(
     // Get index expressions to check for matching expressions
     let index_info = pg_sys::BuildIndexInfo(index.as_ptr());
     let index_expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
+    let schema = index.schema().ok()?;
 
     // First collect all matches from the target list (standard behavior)
     let targetlist = PgList::<pg_sys::TargetEntry>::from_pg(node);
@@ -335,7 +340,7 @@ pub unsafe fn pullup_fast_fields(
         if let Some(ff) = find_matching_fast_field(
             (*te).expr as *mut pg_sys::Node,
             &index_expressions,
-            index.schema().ok()?,
+            &schema,
             rti,
         ) {
             matches.push(ff);
@@ -438,7 +443,7 @@ pub unsafe fn pullup_fast_fields(
                 if let Some(ff) = find_matching_fast_field(
                     &mut dummy_var as *mut _ as *mut pg_sys::Node,
                     &index_expressions,
-                    index.schema().ok()?,
+                    &schema,
                     rti,
                 ) {
                     matches.push(ff);
@@ -451,7 +456,7 @@ pub unsafe fn pullup_fast_fields(
 }
 
 fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
-    if privdata.referenced_columns_count() == 0 {
+    if privdata.referenced_columns_count() == 0 && privdata.target_list_len().unwrap_or(0) == 0 {
         return false;
     }
 

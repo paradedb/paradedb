@@ -45,12 +45,10 @@ const COLUMNS: &[Column] = &[
         .groupable({
             true
         })
-        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
-        .fast()
+        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql("rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid"),
     Column::new("name", "TEXT", "'bob'")
         .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
-        .fast()
         .random_generator_sql(
             "(ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int]"
         ),
@@ -62,13 +60,11 @@ const COLUMNS: &[Column] = &[
             false
         })
         .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
-        .fast()
         .random_generator_sql(
             "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
         ),
     Column::new("age", "INTEGER", "'20'")
         .bm25_numeric_field(r#""age": { "fast": true }"#)
-        .fast()
         .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
         .whereable({
@@ -78,7 +74,6 @@ const COLUMNS: &[Column] = &[
             false
         })
         .bm25_numeric_field(r#""quantity": { "fast": true }"#)
-        .fast()
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
         .groupable({
@@ -89,7 +84,6 @@ const COLUMNS: &[Column] = &[
             false
         })
         .bm25_numeric_field(r#""price": { "fast": true }"#)
-        .fast()
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
     Column::new("rating", "INTEGER", "'4'")
         .indexed({
@@ -100,7 +94,6 @@ const COLUMNS: &[Column] = &[
             true
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
-        .fast()
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
     Column::new("literal_normalized", "TEXT", "'Hello World'")
         .whereable({

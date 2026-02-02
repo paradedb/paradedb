@@ -71,8 +71,7 @@ where
 }
 
 /// A DataFusion `ExecutionPlan` for scanning a `pg_search` index.
-#[allow(dead_code)]
-pub struct ScanPlan {
+pub struct SegmentPlan {
     // We use a Mutex to allow taking the fields during execute()
     // We wrap the state in UnsafeSendSync to satisfy ExecutionPlan's Send+Sync requirements
     // This is safe because we are running in a single-threaded environment (Postgres)
@@ -80,16 +79,15 @@ pub struct ScanPlan {
     properties: PlanProperties,
 }
 
-impl std::fmt::Debug for ScanPlan {
+impl std::fmt::Debug for SegmentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ScanPlan")
+        f.debug_struct("SegmentPlan")
             .field("properties", &self.properties)
             .finish()
     }
 }
 
-impl ScanPlan {
-    #[allow(dead_code)]
+impl SegmentPlan {
     pub fn new(
         scanner: Scanner,
         ffhelper: FFHelper,
@@ -112,7 +110,7 @@ impl ScanPlan {
         }
     }
 
-    /// Creates a new ScanPlan with declared sort ordering.
+    /// Creates a new SegmentPlan with declared sort ordering.
     ///
     /// When `sort_order` is provided, the plan's `EquivalenceProperties` will declare
     /// that the output is sorted by the specified field. This allows DataFusion's
@@ -127,11 +125,10 @@ impl ScanPlan {
         Self::new_sorted_with_shared_ffhelper(scanner, Arc::new(ffhelper), visibility, sort_order)
     }
 
-    /// Creates a new ScanPlan with a shared FFHelper.
+    /// Creates a new SegmentPlan with a shared FFHelper.
     ///
     /// This variant accepts an `Arc<FFHelper>` allowing the FFHelper to be shared
     /// across multiple plans or with other components.
-    #[allow(dead_code)]
     pub fn new_with_shared_ffhelper(
         scanner: Scanner,
         ffhelper: Arc<FFHelper>,
@@ -150,7 +147,7 @@ impl ScanPlan {
         }
     }
 
-    /// Creates a new ScanPlan with a shared FFHelper and declared sort ordering.
+    /// Creates a new SegmentPlan with a shared FFHelper and declared sort ordering.
     #[allow(dead_code)]
     pub fn new_sorted_with_shared_ffhelper(
         scanner: Scanner,
@@ -209,13 +206,13 @@ fn build_equivalence_properties(
     eq_properties
 }
 
-impl DisplayAs for ScanPlan {
+impl DisplayAs for SegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "PgSearchScan")
     }
 }
 
-impl ExecutionPlan for ScanPlan {
+impl ExecutionPlan for SegmentPlan {
     fn name(&self) -> &str {
         "PgSearchScan"
     }
@@ -245,10 +242,10 @@ impl ExecutionPlan for ScanPlan {
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut state = self.state.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock ScanPlan state: {e}"))
+            DataFusionError::Internal(format!("Failed to lock SegmentPlan state: {e}"))
         })?;
         let UnsafeSendSync((scanner, ffhelper, visibility)) = state.take().ok_or_else(|| {
-            DataFusionError::Internal("ScanPlan can only be executed once".to_string())
+            DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
         })?;
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
@@ -295,11 +292,9 @@ impl RecordBatchStream for ScanStream {
 /// This is used to wrap `ScanStream` which is !Send because it contains Tantivy and Postgres
 /// state that is not Send. This is safe because pg_search operates in a single-threaded
 /// Tokio executor within Postgres, and these objects will never cross thread boundaries.
-#[allow(dead_code)]
 struct UnsafeSendStream<T>(T);
 
 impl<T> UnsafeSendStream<T> {
-    #[allow(dead_code)]
     unsafe fn new(t: T) -> Self {
         Self(t)
     }
@@ -334,7 +329,6 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
 /// Uses lazy segment checkout - segments are checked out on-demand when `execute()`
 /// is called, rather than upfront at plan creation time. This defers memory allocation
 /// until the partition is actually executed.
-#[allow(dead_code)]
 pub struct MultiSegmentPlan {
     /// Number of segments/partitions.
     segment_count: usize,
@@ -366,7 +360,6 @@ impl MultiSegmentPlan {
     /// * `checkout_factory` - Factory function (wrapped in UnsafeSendSync) that creates a `ScanState`
     /// * `schema` - Arrow schema for the output
     /// * `sort_order` - Optional sort order declaration for equivalence properties
-    #[allow(dead_code)]
     pub fn new(
         segment_count: usize,
         checkout_factory: CheckoutFactory,
@@ -484,7 +477,6 @@ impl ExecutionPlan for MultiSegmentPlan {
 /// * `checkout_factory` - Factory function that creates a `ScanState` for a given partition
 /// * `schema` - Arrow schema for the output
 /// * `sort_order` - Sort order for the merge operation
-#[allow(dead_code)]
 pub fn create_sorted_scan(
     segment_count: usize,
     checkout_factory: CheckoutFactory,

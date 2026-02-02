@@ -164,7 +164,7 @@ impl CustomScan for JoinScan {
     type State = JoinScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe {
             let args = builder.args();
             let root = args.root;
@@ -181,7 +181,7 @@ impl CustomScan for JoinScan {
             // - SEMI JOIN: Stop after first match per driving row (benefits EXISTS queries)
             // - ANTI JOIN: Return only driving rows with no matches (benefits NOT EXISTS)
             if jointype != pg_sys::JoinType::JOIN_INNER {
-                return None;
+                return Vec::new();
             }
 
             // TODO(no-limit): Currently requires LIMIT for JoinScan to be proposed.
@@ -195,12 +195,16 @@ impl CustomScan for JoinScan {
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
-                return None;
+                return Vec::new();
             };
 
             // Extract information from both sides of the join
-            let mut outer_side = extract_join_side_info(root, outerrel)?;
-            let mut inner_side = extract_join_side_info(root, innerrel)?;
+            let Some(mut outer_side) = extract_join_side_info(root, outerrel) else {
+                return Vec::new();
+            };
+            let Some(mut inner_side) = extract_join_side_info(root, innerrel) else {
+                return Vec::new();
+            };
 
             // Extract join conditions from the restrict list
             let outer_rti = outer_side.heap_rti.unwrap_or(0);
@@ -214,13 +218,13 @@ impl CustomScan for JoinScan {
             let has_equi_join_keys = !join_conditions.equi_keys.is_empty();
             if !has_equi_join_keys {
                 pgrx::debug1!("JoinScan: no equi-join keys (cross join), rejecting");
-                return None;
+                return Vec::new();
             }
 
             // Check if all ORDER BY columns are fast fields
             // JoinScan requires fast field access for efficient sorting
             if !order_by_columns_are_fast_fields(root, &outer_side, &inner_side) {
-                return None;
+                return Vec::new();
             }
 
             // Determine driving side: the side with a search predicate is the driving side
@@ -278,7 +282,7 @@ impl CustomScan for JoinScan {
                         "JoinScan: outer equi-join key column (attno={}) is not a fast field, rejecting",
                         jk.outer_attno
                     );
-                    return None;
+                    return Vec::new();
                 }
                 // Check if inner join key column is a fast field
                 if !is_column_fast_field(&inner_side, jk.inner_attno) {
@@ -286,7 +290,7 @@ impl CustomScan for JoinScan {
                         "JoinScan: inner equi-join key column (attno={}) is not a fast field, rejecting",
                         jk.inner_attno
                     );
-                    return None;
+                    return Vec::new();
                 }
                 join_clause = join_clause.add_join_key(
                     jk.outer_attno,
@@ -316,7 +320,7 @@ impl CustomScan for JoinScan {
                     Err(err) => {
                         // Log the error for debugging - JoinScan won't be proposed for this query
                         pgrx::debug1!("JoinScan: failed to extract join-level conditions: {}", err);
-                        return None;
+                        return Vec::new();
                     }
                 };
 
@@ -329,7 +333,7 @@ impl CustomScan for JoinScan {
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {
-                return None;
+                return Vec::new();
             }
 
             // Note: Multi-table predicates (conditions like `a.price > b.price`) are allowed
@@ -392,7 +396,7 @@ impl CustomScan for JoinScan {
 
             custom_path.custom_private = private_list.into_pg();
 
-            Some(custom_path)
+            vec![custom_path]
         }
     }
 

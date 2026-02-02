@@ -39,7 +39,7 @@ use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::expr_collect_vars;
 use crate::query::SearchQueryInput;
-use crate::scan::datafusion_plan::ScanPlan;
+use crate::scan::datafusion_plan::SegmentPlan;
 use crate::scan::Scanner;
 
 pub struct JoinScanPlanBuilder;
@@ -338,7 +338,7 @@ unsafe fn compute_predicate_matches(
     Ok(ctids)
 }
 
-/// Create a DataFusion `ScanPlan` for one side of the join.
+/// Create a DataFusion `SegmentPlan` for one side of the join.
 ///
 /// This plan scans the BM25 index and extracts the requested fast fields (including CTIDs).
 unsafe fn build_side_plan(
@@ -380,7 +380,7 @@ unsafe fn build_side_plan(
         heap_relid.into(),
     );
 
-    Ok(Arc::new(ScanPlan::new(
+    Ok(Arc::new(SegmentPlan::new(
         scanner,
         ffhelper,
         Box::new(visibility),

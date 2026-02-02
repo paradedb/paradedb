@@ -277,6 +277,10 @@ impl PrivateData {
         self.segment_count
     }
 
+    pub fn target_list_len(&self) -> Option<usize> {
+        self.target_list_len
+    }
+
     pub fn planned_which_fast_fields(&self) -> &Option<HashSet<WhichFastField>> {
         &self.planned_which_fast_fields
     }

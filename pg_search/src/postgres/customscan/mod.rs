@@ -134,7 +134,7 @@ pub trait CustomScan: ExecMethod + Default + Sized {
             .0
     }
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan;
 

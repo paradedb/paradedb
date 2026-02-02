@@ -441,9 +441,10 @@ impl CustomScan for BaseScan {
     type State = BaseScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        unsafe {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let paths = (|| unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
+            let rel = builder.args().rel;
 
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
@@ -478,7 +479,6 @@ impl CustomScan for BaseScan {
             };
 
             let root = builder.args().root;
-            let rel = builder.args().rel;
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
@@ -693,7 +693,13 @@ impl CustomScan for BaseScan {
             let exec_method_type =
                 choose_exec_method(&custom_private, &topn_pathkey_info, limit_is_explicit);
             custom_private.set_exec_method_type(exec_method_type);
-            if custom_private.exec_method_type().is_sorted_topn() {
+            if matches!(
+                custom_private.exec_method_type(),
+                ExecMethodType::TopN {
+                    orderby_info: Some(..),
+                    ..
+                }
+            ) {
                 // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
                 // because we don't want/need to serialize them for execution.
                 if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
@@ -769,22 +775,24 @@ impl CustomScan for BaseScan {
             // Check if the index has a sort_by configuration and the query has a matching pathkey.
             // If so, create an additional sorted path that declares the pathkey.
             // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_fields = bm25_index.options().sort_by();
-            let sort_by_pathkey = sort_by_fields
-                .first()
-                .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table));
+            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+                let sort_by_fields = bm25_index.options().sort_by();
+                sort_by_fields
+                    .first()
+                    .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table))
+            } else {
+                None
+            };
 
-            // Only create the sorted path if MixedFastFieldExec can be used.
-            // MixedFastFieldExec uses SortPreservingMergeExec to merge sorted segment outputs.
-            // NormalScanExecState iterates segments sequentially without merging, so it cannot
-            // provide globally sorted output. If we advertise pathkeys but fall back to Normal,
-            // the planner will skip the Sort node and we'll return unsorted results.
-            let can_use_sorted_execution =
-                exec_methods::fast_fields::is_mixed_fast_field_capable(&custom_private);
+            // Check if the chosen exec method can support sorted output via sort_by index.
+            // This is determined by choose_exec_method above. Only FastFieldMixed can use
+            // SortPreservingMergeExec for sorted output - TopN has its own pathkey handling,
+            // and NormalScanExecState cannot merge sorted segment outputs.
+            let can_use_sorted_execution = custom_private.exec_method_type().can_support_sorted();
 
             if let Some(ref pathkey_style) = sort_by_pathkey.filter(|_| can_use_sorted_execution) {
                 // We have a matching pathkey - create both sorted and unsorted paths.
-                // Build the unsorted path first (it will be returned)
+                // Build the unsorted path first.
                 custom_private.set_use_sorted_path(false);
                 let unsorted_path = builder.build(custom_private.clone());
 
@@ -797,6 +805,11 @@ impl CustomScan for BaseScan {
                 // Update private data to indicate sorted path
                 let mut sorted_private = custom_private.clone();
                 sorted_private.set_use_sorted_path(true);
+                sorted_private.set_exec_method_type(choose_exec_method(
+                    &sorted_private,
+                    &topn_pathkey_info,
+                    limit_is_explicit,
+                ));
                 sorted_path.custom_private = sorted_private.into();
 
                 // Add the pathkey to declare sorted output
@@ -810,25 +823,15 @@ impl CustomScan for BaseScan {
                 // PostgreSQL's Gather Merge combines the sorted outputs from all workers.
                 // The sorted path inherits parallel settings from the unsorted path (already set above).
 
-                // Copy to Postgres memory and add the sorted path
-                let sorted_path_ptr: *mut pg_sys::CustomPath =
-                    PgMemoryContexts::CurrentMemoryContext
-                        .copy_ptr_into(&mut sorted_path, std::mem::size_of_val(&sorted_path));
-                pg_sys::add_path(rel, sorted_path_ptr.cast());
-
-                // Also need to copy and add the unsorted path since we modified it
-                let unsorted_path_copy = unsorted_path;
-                let mut unsorted_private = custom_private;
-                unsorted_private.set_use_sorted_path(false);
-
-                // Return the unsorted path (built from the copy we made)
-                Some(unsorted_path_copy)
+                // Return both paths to the planner for cost-based selection.
+                Some(vec![unsorted_path, sorted_path])
             } else {
                 // No matching pathkey - just return the unsorted path
                 custom_private.set_use_sorted_path(false);
-                Some(builder.build(custom_private))
+                Some(vec![builder.build(custom_private)])
             }
-        }
+        })();
+        paths.unwrap_or_default()
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -1645,24 +1648,30 @@ fn choose_exec_method(
 
     // Otherwise, see if we can use a fast fields method.
     let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
-        // Check if the index has a sort_by configuration
-        let sort_order: Option<SortByField> = privdata.indexrelid().and_then(|indexrelid| {
-            let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-            let sort_by_fields = indexrel.options().sort_by();
-            // Currently only single-field sorting is supported
-            sort_by_fields.into_iter().next()
-        });
+        // Check if the index has a sort_by configuration (and sorting is enabled)
+        let sort_order: Option<SortByField> = if gucs::is_mixed_fast_field_sort_enabled() {
+            privdata.indexrelid().and_then(|indexrelid| {
+                let indexrel =
+                    PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+                let sort_by_fields = indexrel.options().sort_by();
+                // Currently only single-field sorting is supported
+                sort_by_fields.into_iter().next()
+            })
+        } else {
+            None
+        };
 
-        // Use sorted execution only if:
-        // 1. The index has a sort_by configuration, AND
-        // 2. Postgres chose the sorted path (which declares pathkeys)
-        // This allows the planner to choose between sorted/unsorted based on query needs.
-        let sorted = sort_order.is_some() && privdata.use_sorted_path();
+        // Only store the sort order when the sorted path was chosen. This allows us to
+        // distinguish between sorted/unsorted paths even when the index has sort_by.
+        let sort_order = if privdata.use_sorted_path() {
+            sort_order
+        } else {
+            None
+        };
 
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-            sorted,
             sort_order,
         }
     } else {
@@ -1701,31 +1710,26 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,
-            sorted,
             sort_order,
         } => {
-            // Compute strategy at execution time from PrivateData's use_sorted_path().
-            // The exec_method_type's sorted field is computed during choose_exec_method
-            // which runs BEFORE we set use_sorted_path for the sorted/unsorted paths,
-            // so it's always false. The correct value comes from use_sorted_path().
-            use exec_methods::fast_fields::mixed::ScanStrategy;
+            // Compute effective sort_order at execution time from PrivateData's use_sorted_path().
+            // sort_order is only populated for sorted paths, but we still guard against
+            // planner/executor mismatches using use_sorted_path().
             let runtime_sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
 
             // Safety check: ensure we don't drop sorted output when we claimed it at planning time.
             // This catches bugs where the planner was told output would be sorted but execution
             // cannot provide it.
-            if sorted && !runtime_sorted {
+            if sort_order.is_some() && !runtime_sorted {
                 panic!(
                     "BUG: Claimed sorted output at planning time, but unable to provide it at \
                     execution time. This indicates a planner/executor mismatch."
                 );
             }
 
-            let strategy = if runtime_sorted {
-                ScanStrategy::Sorted(sort_order.unwrap())
-            } else {
-                ScanStrategy::Unsorted
-            };
+            // Pass sort_order only if we're actually using sorted execution
+            let effective_sort_order = if runtime_sorted { sort_order } else { None };
+
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
@@ -1733,7 +1737,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
                         limit,
-                        strategy,
+                        effective_sort_order,
                     ),
                     None,
                 )
@@ -2046,34 +2050,33 @@ unsafe fn find_sort_by_pathkey(
 
     let sort_field_name = sort_by.field_name.as_ref();
 
-    // Look through all pathkeys to find one matching our sort_by field
-    for pathkey_ptr in pathkeys.iter_ptr() {
-        let pathkey = pathkey_ptr;
-        let equivclass = (*pathkey).pk_eclass;
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+    // Only the first pathkey can be used for sorted execution (prefix semantics).
+    // If the first pathkey doesn't match sort_by, we must not declare ordering.
+    let pathkey = pathkeys.get_ptr(0)?;
+    let equivclass = (*pathkey).pk_eclass;
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
-        for member in members.iter_ptr() {
-            let expr = (*member).em_expr;
+    for member in members.iter_ptr() {
+        let expr = (*member).em_expr;
 
-            // Try to extract a Var from the expression (either directly or wrapped in RelabelType)
-            let var = if let Some(var) = nodecast!(Var, T_Var, expr) {
-                var
-            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                // RelabelType wraps a Var for type coercions
-                match nodecast!(Var, T_Var, (*relabel).arg) {
-                    Some(var) => var,
-                    None => continue,
-                }
-            } else {
-                continue;
-            };
-
-            // Check if this Var matches our sort_by field
-            if let Some(style) =
-                check_var_matches_sort_by(var, rti, pathkey, sort_by, sort_field_name, table)
-            {
-                return Some(style);
+        // Try to extract a Var from the expression (either directly or wrapped in RelabelType)
+        let var = if let Some(var) = nodecast!(Var, T_Var, expr) {
+            var
+        } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+            // RelabelType wraps a Var for type coercions
+            match nodecast!(Var, T_Var, (*relabel).arg) {
+                Some(var) => var,
+                None => continue,
             }
+        } else {
+            continue;
+        };
+
+        // Check if this Var matches our sort_by field
+        if let Some(style) =
+            check_var_matches_sort_by(var, rti, pathkey, sort_by, sort_field_name, table)
+        {
+            return Some(style);
         }
     }
 
@@ -2092,8 +2095,6 @@ unsafe fn check_var_matches_sort_by(
     sort_field_name: &str,
     table: &PgSearchRelation,
 ) -> Option<OrderByStyle> {
-    use crate::postgres::options::SortByDirection;
-
     // Check if this Var is for our relation
     if (*var).varno as pg_sys::Index != rti {
         return None;
@@ -2112,18 +2113,28 @@ unsafe fn check_var_matches_sort_by(
         return None;
     }
 
+    if !pathkey_matches_sort_by(pathkey, sort_by) {
+        return None;
+    }
+
+    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
+}
+
+unsafe fn pathkey_matches_sort_by(pathkey: *mut pg_sys::PathKey, sort_by: &SortByField) -> bool {
+    use crate::postgres::options::SortByDirection;
+
     // Check if the sort direction matches
     #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
     let is_desc = match (*pathkey).pk_strategy as u32 {
         pg_sys::BTLessStrategyNumber => false,
         pg_sys::BTGreaterStrategyNumber => true,
-        _ => return None, // Unknown strategy
+        _ => return false, // Unknown strategy
     };
     #[cfg(feature = "pg18")]
     let is_desc = match (*pathkey).pk_cmptype {
         pg_sys::CompareType::COMPARE_LT => false,
         pg_sys::CompareType::COMPARE_GT => true,
-        _ => return None,
+        _ => return false,
     };
 
     let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
@@ -2139,11 +2150,7 @@ unsafe fn check_var_matches_sort_by(
     // PostgreSQL will add a Sort node to achieve the requested ordering.
     // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
     // For text fields with non-C collation, sorted path may produce incorrect order.
-    if is_desc != sort_by_is_desc || (*pathkey).pk_nulls_first != sort_by_nulls_first {
-        return None;
-    }
-
-    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
+    is_desc == sort_by_is_desc && (*pathkey).pk_nulls_first == sort_by_nulls_first
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

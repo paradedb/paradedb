@@ -235,7 +235,7 @@ pub enum WhichFastField {
     Named(String, FastFieldType),
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
     Int64,

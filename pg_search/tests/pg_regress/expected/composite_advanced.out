@@ -1096,6 +1096,217 @@ ORDER BY score DESC, id LIMIT 1;
  1000 | 10.057667
 (1 row)
 
+------------------------------------------------------------
+-- TEST: MixedFastFieldExecState with composite fields
+-- Verifies that fields indexed ONLY via composite expressions
+-- can be projected using MixedFastFieldExecState
+------------------------------------------------------------
+\echo '=== TEST: MixedFastFieldExecState with Composite Fields ==='
+=== TEST: MixedFastFieldExecState with Composite Fields ===
+DROP TYPE IF EXISTS mixedff_comp CASCADE;
+CREATE TYPE mixedff_comp AS (priority INTEGER, created_at DATE);
+DROP TABLE IF EXISTS mixedff_comp_test CASCADE;
+CREATE TABLE mixedff_comp_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    priority INTEGER,
+    created_at DATE
+);
+INSERT INTO mixedff_comp_test (content, priority, created_at) VALUES
+    ('item alpha', 10, '2024-01-01'),
+    ('item beta', 30, '2024-01-02'),
+    ('item gamma', 20, '2024-01-03'),
+    ('item delta', 40, '2024-01-04');
+-- Create index with priority ONLY in composite (not as direct column)
+CREATE INDEX mixedff_comp_test_idx ON mixedff_comp_test
+USING bm25 (id, content, (ROW(priority, created_at)::mixedff_comp))
+WITH (
+    key_field = 'id',
+    text_fields = '{"content": {}}',
+    sort_by = 'priority DESC NULLS LAST'
+);
+-- Verify schema shows priority as fast field
+SELECT name, field_type, fast FROM paradedb.schema('mixedff_comp_test_idx')
+WHERE name = 'priority';
+   name   | field_type | fast 
+----------+------------+------
+ priority | I64        | t
+(1 row)
+
+-- Should use MixedFastFieldExecState (not NormalScanExecState)
+-- and NO Sort node because sorted path is available
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority FROM mixedff_comp_test
+WHERE content @@@ 'item'
+ORDER BY priority DESC NULLS LAST;
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mixedff_comp_test
+   Table: mixedff_comp_test
+   Index: mixedff_comp_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, priority
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+-- Verify correct sorted results
+SELECT id, priority FROM mixedff_comp_test
+WHERE content @@@ 'item'
+ORDER BY priority DESC NULLS LAST;
+ id | priority 
+----+----------
+  4 |       40
+  2 |       30
+  3 |       20
+  1 |       10
+(4 rows)
+
+DROP TABLE mixedff_comp_test CASCADE;
+DROP TYPE mixedff_comp CASCADE;
+------------------------------------------------------------
+-- TEST: Expression-based indexing (fast fields + sorted path)
+------------------------------------------------------------
+\echo '=== TEST: Expression-based indexing (fast fields + sorted path) ==='
+=== TEST: Expression-based indexing (fast fields + sorted path) ===
+-- Test 1: Simple aliased expression - SELECT only
+DROP TABLE IF EXISTS expr_test CASCADE;
+CREATE TABLE expr_test (id SERIAL PRIMARY KEY, a INT, b INT, name TEXT);
+INSERT INTO expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo'), (5, 6, 'bar');
+CREATE INDEX expr_test_idx ON expr_test
+USING bm25 (id, name, ((a + b)::pdb.alias('sum_val')))
+WITH (key_field = 'id', text_fields = '{"name": {}}');
+-- Should use MixedFastFieldExecState with Fast Fields: id, sum_val
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on expr_test
+   Table: expr_test
+   Index: expr_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, sum_val
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+-- Test 2: Simple aliased expression - SELECT + ORDER BY (sorted index)
+DROP INDEX expr_test_idx;
+CREATE INDEX expr_test_idx ON expr_test
+USING bm25 (id, name, ((a + b)::pdb.alias('sum_val')))
+WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'sum_val DESC NULLS LAST');
+-- Should use MixedFastFieldExecState and NO Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, a + b FROM expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on expr_test
+   Table: expr_test
+   Index: expr_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, sum_val
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+DROP TABLE expr_test CASCADE;
+-- Test 4: Composite type - simple column inside ROW
+DROP TABLE IF EXISTS comp_test CASCADE;
+DROP TYPE IF EXISTS my_comp CASCADE;
+CREATE TYPE my_comp AS (priority INT, created DATE);
+CREATE TABLE comp_test (id SERIAL PRIMARY KEY, priority INT, created DATE, name TEXT);
+INSERT INTO comp_test (priority, created, name) VALUES (10, '2024-01-01', 'foo'), (20, '2024-01-02', 'foo');
+CREATE INDEX comp_test_idx ON comp_test
+USING bm25 (id, name, (ROW(priority, created)::my_comp))
+WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'priority DESC NULLS LAST');
+-- Should use MixedFastFieldExecState and NO Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on comp_test
+   Table: comp_test
+   Index: comp_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, priority
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+DROP TABLE comp_test CASCADE;
+DROP TYPE my_comp CASCADE;
+-- Test 5: Composite type - expression inside ROW
+DROP TABLE IF EXISTS comp_expr_test CASCADE;
+DROP TYPE IF EXISTS comp_expr CASCADE;
+CREATE TYPE comp_expr AS (sum_val INT);
+CREATE TABLE comp_expr_test (id SERIAL PRIMARY KEY, a INT, b INT, name TEXT);
+INSERT INTO comp_expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo');
+CREATE INDEX comp_expr_test_idx ON comp_expr_test
+USING bm25 (id, name, (ROW(a + b)::comp_expr))
+WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'sum_val DESC NULLS LAST');
+-- Should use MixedFastFieldExecState and NO Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, a + b FROM comp_expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on comp_expr_test
+   Table: comp_expr_test
+   Index: comp_expr_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, sum_val
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+DROP TABLE comp_expr_test CASCADE;
+DROP TYPE comp_expr CASCADE;
+-- Test 6: Composite with mixed Var + expression
+DROP TABLE IF EXISTS comp_mixed_test CASCADE;
+DROP TYPE IF EXISTS comp_mixed CASCADE;
+CREATE TYPE comp_mixed AS (sum_val INT, priority INT);
+CREATE TABLE comp_mixed_test (id SERIAL PRIMARY KEY, a INT, b INT, priority INT, name TEXT);
+INSERT INTO comp_mixed_test (a, b, priority, name) VALUES (1, 2, 10, 'foo'), (3, 4, 20, 'foo');
+CREATE INDEX comp_mixed_idx ON comp_mixed_test
+USING bm25 (id, name, (ROW(a + b, priority)::comp_mixed))
+WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'priority DESC NULLS LAST');
+-- Should use MixedFastFieldExecState and NO Sort node (2 fast fields: sum_val, priority)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT a + b, priority FROM comp_mixed_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on comp_mixed_test
+   Table: comp_mixed_test
+   Index: comp_mixed_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: sum_val, priority
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+DROP TABLE comp_mixed_test CASCADE;
+DROP TYPE comp_mixed CASCADE;
+-- Test 7: Function expression (not arithmetic)
+DROP TABLE IF EXISTS func_expr_test CASCADE;
+CREATE TABLE func_expr_test (id SERIAL PRIMARY KEY, val INT, name TEXT);
+INSERT INTO func_expr_test (val, name) VALUES (-5, 'foo'), (10, 'foo');
+CREATE INDEX func_expr_idx ON func_expr_test
+USING bm25 (id, name, (ABS(val)::pdb.alias('abs_val')))
+WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'abs_val DESC NULLS LAST');
+-- Should use MixedFastFieldExecState and NO Sort node
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on func_expr_test
+   Table: func_expr_test
+   Index: func_expr_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: abs_val, id
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+DROP TABLE func_expr_test CASCADE;
 \i common/composite_advanced_cleanup.sql
 -- Cleanup for advanced composite type tests
 DROP SCHEMA IF EXISTS composite_adv CASCADE;

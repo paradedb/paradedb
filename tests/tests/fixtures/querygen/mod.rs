@@ -41,8 +41,6 @@ pub struct BM25Options {
     pub field_type: &'static str,
     /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
     pub config_json: &'static str,
-    /// Whether this field has `fast: true` (for numeric fields used in sort_by)
-    pub fast: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +103,6 @@ impl Column {
         self.bm25_options = Some(BM25Options {
             field_type: "text_fields",
             config_json,
-            fast: false,
         });
         self
     }
@@ -114,16 +111,7 @@ impl Column {
         self.bm25_options = Some(BM25Options {
             field_type: "numeric_fields",
             config_json,
-            fast: false,
         });
-        self
-    }
-
-    /// Mark the BM25 field as a fast field (enables efficient sorting via sort_by)
-    pub const fn fast(mut self) -> Self {
-        if let Some(ref mut opts) = self.bm25_options {
-            opts.fast = true;
-        }
         self
     }
 
@@ -207,11 +195,16 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
-    // Find the first indexed field with fast: true to use for sort_by
+    // Find the first indexed field with "fast": true in its JSON config to use for sort_by
     let sort_by_field = columns_def
         .iter()
         .filter(|c| c.is_indexed)
-        .filter_map(|c| c.bm25_options.as_ref().filter(|o| o.fast).map(|_| c.name))
+        .filter_map(|c| {
+            c.bm25_options
+                .as_ref()
+                .filter(|o| o.config_json.contains(r#""fast": true"#))
+                .map(|_| c.name)
+        })
         .next();
 
     // For INSERT statements
@@ -327,6 +320,8 @@ pub struct PgGucs {
     /// Enable mixed fast field execution (MixedFastFieldExecState).
     /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
     pub mixed_fast_field_exec: bool,
+    /// Enable sorted execution for MixedFastFieldExecState.
+    pub mixed_fast_field_sort: bool,
 }
 
 impl Default for PgGucs {
@@ -341,6 +336,7 @@ impl Default for PgGucs {
             indexscan: true,
             parallel_workers: true,
             mixed_fast_field_exec: false,
+            mixed_fast_field_sort: true,
         }
     }
 }
@@ -357,6 +353,7 @@ impl PgGucs {
             indexscan,
             parallel_workers,
             mixed_fast_field_exec,
+            mixed_fast_field_sort,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -390,6 +387,11 @@ impl PgGucs {
         writeln!(
             gucs,
             "SET paradedb.enable_mixed_fast_field_exec TO {mixed_fast_field_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_sort TO {mixed_fast_field_sort};"
         )
         .unwrap();
         gucs

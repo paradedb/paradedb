@@ -69,14 +69,16 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         // We can only handle single base relations as input
         if builder.args().input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
-            return None;
+            return Vec::new();
         }
 
         let parent_relids = builder.args().input_rel().relids;
-        let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+        let Some(heap_rti) = (unsafe { range_table::bms_exactly_one_member(parent_relids) }) else {
+            return Vec::new();
+        };
         let heap_rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
@@ -84,16 +86,24 @@ impl CustomScan for AggregateScan {
                 builder.args().root().simple_rel_array_size as usize,
                 builder.args().root().simple_rte_array,
                 heap_rti,
-            )?
+            )
         };
-        let (table, index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
-        let (builder, aggregate_clause) = AggregateCSClause::build(builder, heap_rti, &index)?;
+        let Some(heap_rte) = heap_rte else {
+            return Vec::new();
+        };
+        let Some((table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
+            return Vec::new();
+        };
+        let Some((builder, aggregate_clause)) = AggregateCSClause::build(builder, heap_rti, &index)
+        else {
+            return Vec::new();
+        };
 
-        Some(builder.build(PrivateData {
+        vec![builder.build(PrivateData {
             heap_rti,
             indexrelid: index.oid(),
             aggregate_clause,
-        }))
+        })]
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {

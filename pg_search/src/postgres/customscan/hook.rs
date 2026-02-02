@@ -129,7 +129,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             return;
         }
 
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             rel,
             RelPathlistHookArgs {
@@ -138,11 +138,15 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
                 rti,
                 rte,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(rel, path)
+        if paths.is_empty() {
+            return;
+        }
+
+        for path in paths {
+            add_path(rel, path);
+        }
     }
 }
 
@@ -206,7 +210,7 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
             return;
         }
 
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             joinrel,
             JoinPathlistHookArgs {
@@ -217,11 +221,15 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
                 jointype,
                 extra,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(joinrel, path)
+        if paths.is_empty() {
+            return;
+        }
+
+        for path in paths {
+            add_path(joinrel, path);
+        }
     }
 }
 
@@ -292,7 +300,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     }
 
     unsafe {
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             output_rel,
             CreateUpperPathsHookArgs {
@@ -302,11 +310,15 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
                 output_rel,
                 extra,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(output_rel, path)
+        if paths.is_empty() {
+            return;
+        }
+
+        for path in paths {
+            add_path(output_rel, path);
+        }
     }
 }
 

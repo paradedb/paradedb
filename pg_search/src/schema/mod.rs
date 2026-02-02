@@ -384,6 +384,16 @@ impl SearchIndexSchema {
         }
     }
 
+    /// Check if a field supports aggregate pushdown.
+    ///
+    /// Returns `false` for NUMERIC fields (which don't support aggregate pushdown
+    /// due to NaN/Infinity handling), `true` for all other field types.
+    /// Returns `false` if the field doesn't exist.
+    pub fn field_supports_aggregate(&self, name: impl AsRef<str>) -> bool {
+        self.search_field(name)
+            .is_some_and(|f| !f.field_type().is_numeric())
+    }
+
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
         self.schema.fields()
     }

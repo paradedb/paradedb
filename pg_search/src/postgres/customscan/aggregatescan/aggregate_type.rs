@@ -47,32 +47,6 @@ use tantivy::aggregation::metric::{
 };
 use tantivy::schema::OwnedValue;
 
-/// Check if aggregate pushdown is supported for a field.
-///
-/// Returns:
-/// - `Some(())` for aggregatable field types (non-NUMERIC)
-/// - `None` if the field is a NUMERIC type (aggregate pushdown not supported)
-///
-/// NUMERIC columns do not support aggregate pushdown because:
-/// - Special values (NaN, Infinity) would produce incorrect results
-/// - Filter pushdown (equality/range) is still fully supported
-fn check_field_supports_aggregate(bm25_index: &PgSearchRelation, field: &str) -> Option<()> {
-    let schema = bm25_index.schema().ok()?;
-    let search_field = schema.search_field(field)?;
-
-    if search_field.field_type().is_numeric() {
-        pgrx::debug1!(
-            "Aggregate pushdown disabled for NUMERIC field '{}': \
-             NUMERIC columns do not support aggregate pushdown. \
-             The query will fall back to PostgreSQL for aggregation.",
-            field
-        );
-        None
-    } else {
-        Some(())
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     CountAny {
@@ -147,7 +121,7 @@ impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
         heaprelid: pg_sys::Oid,
-        bm25_index: &crate::postgres::PgSearchRelation,
+        bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
@@ -209,7 +183,9 @@ impl AggregateType {
             // NUMERIC fields do not support aggregate pushdown
             let agg_name_to_field = extract_agg_name_to_field(&json_value);
             for field_name in agg_name_to_field.values() {
-                check_field_supports_aggregate(bm25_index, field_name)?;
+                if !bm25_index.field_supports_aggregate(field_name).ok()? {
+                    return None;
+                }
             }
 
             return Some(AggregateType::Custom {
@@ -236,7 +212,9 @@ impl AggregateType {
 
         // Check if aggregate pushdown is supported for this field type
         // NUMERIC fields are not supported - they fall back to PostgreSQL
-        check_field_supports_aggregate(bm25_index, &field)?;
+        if !bm25_index.field_supports_aggregate(&field).ok()? {
+            return None;
+        }
 
         let agg_type =
             create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;

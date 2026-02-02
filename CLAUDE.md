@@ -1,12 +1,33 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude agents when working with code in this repository.
 
 ## Overview
 
 ParadeDB is a Postgres extension that enables full-text search using the BM25 algorithm. It's built on top of Tantivy (the Rust alternative to Apache Lucene) using pgrx. ParadeDB implements a custom Postgres index access method and custom scan providers to integrate search and analytics capabilities seamlessly with SQL.
 
-## Common Development Commands
+## Core Mandates
+
+Follow these rules when working on this codebase:
+
+- **Conventions**: Rigorously adhere to existing project conventions. Analyze surrounding code, tests, and configuration before making changes.
+- **Libraries**: NEVER assume a library is available. Verify its usage in `Cargo.toml` before using it.
+- **Style**: Mimic the style (formatting, naming), structure, and architectural patterns of existing code.
+- **Comments**: Add comments sparingly. Focus on WHY something is done, not WHAT. Never use comments to communicate with the user.
+- **Error Handling**: Use `pgrx::error!()` for fatal errors that abort transactions. Use `thiserror` for error types following patterns in `pg_search/src/query/mod.rs`.
+- **Logging**: Use `pgrx::warning!()` for debug output (visible in regression test results). Use sparingly.
+- **Do Not Revert**: Do not revert changes unless explicitly asked or if they caused an error.
+- **Build Performance**: Do NOT use `--release` flag during development - it significantly slows compilation.
+
+## Development Workflow
+
+### Primary Workflow for Bug Fixes and Features
+
+1. **Understand**: Read the issue, related code, and existing tests
+2. **Plan**: Identify files to modify and test approach
+3. **Implement**: Make changes following existing patterns
+4. **Test**: Run regression tests, verify with EXPLAIN output
+5. **Verify**: Run `pre-commit run --all-files` to check lints and formatting
 
 ### Build and Installation
 
@@ -20,38 +41,12 @@ cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
 # Ubuntu
 cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
 
-# Build and package the extension
-cargo pgrx package --package pg_search --pg-config <path-to-pg_config>
+# Build and install (DEBUG - use for development)
+cargo pgrx install --package pg_search --pg-config <path-to-pg_config>
 
-# Install into Postgres
-cargo pgrx install --package pg_search --release --pg-config <path-to-pg_config>
 
-# Run development Postgres with the current commit of the extension installed
+# Run development Postgres with the extension installed
 cargo pgrx run
-```
-
-### Testing
-
-```bash
-# Set up DATABASE_URL (required for tests)
-# Create .env file with:
-# DATABASE_URL=postgres://<username>@localhost:<port>/pg_search
-# Port = 28800 + postgres version (e.g., 28818 for PG18)
-
-# Run all tests
-cargo test --package tests
-
-# Run a single test file (without .rs extension)
-cargo test --package tests --test <testname>
-
-# With verbose output
-export RUST_BACKTRACE=1
-cargo test --package tests
-
-# Restart pgrx Postgres for testing
-cargo pgrx stop --package pg_search
-cargo pgrx install --package pg_search --pg-config <path>
-cargo pgrx start --package pg_search
 ```
 
 ### Linting and Formatting
@@ -60,7 +55,7 @@ cargo pgrx start --package pg_search
 # Install pre-commit hooks (enforced by CI)
 pre-commit install
 
-# Run pre-commit checks manually
+# Run pre-commit checks manually (REQUIRED before commits)
 pre-commit run --all-files
 
 # Format Rust code
@@ -70,23 +65,200 @@ cargo fmt
 cargo clippy
 ```
 
+## Testing
+
+### Interactive SQL Development
+
+Use `pg_search_run.sh` as an equivalent to `psql` with the extension loaded:
+
+```bash
+# Run SQL interactively
+PGVER=18.1 ./scripts/pg_search_run.sh
+
+# Run a specific SQL file
+PGVER=18.1 ./scripts/pg_search_run.sh -f path/to/file.sql
+
+# Example with full path
+cd /path/to/paradedb && PGVER=18.1 ./scripts/pg_search_run.sh -f pg_search/tests/pg_regress/sql/my_test.sql
+```
+
+### Regression Tests (pg_regress)
+
+SQL-based tests in `pg_search/tests/pg_regress/sql/`. Results go to `pg_search/tests/pg_regress/expected/`.
+
+```bash
+# Run a single regression test (without .sql extension)
+cargo pgrx regress --package pg_search --resetdb --auto pg18 my_test_name
+
+# Example: run the operators test
+cargo pgrx regress --package pg_search --resetdb --auto pg18 operators
+```
+
+**Important**: The test fails if the result file changes, but this doesn't necessarily mean the test logic failed - review the diff to determine if the change is expected.
+
+### Integration Tests (Rust)
+
+```bash
+# Run all integration tests using the helper script
+PGVER=18.1 ./scripts/pg_search_test.sh
+
+# Run a specific test file
+PGVER=18.1 ./scripts/pg_search_test.sh --test sorting
+
+# Or manually (requires DATABASE_URL to be set)
+cargo test --package tests --package tokenizers
+
+# Run a single test file
+cargo test --package tests --test <testname>
+```
+
+### Environment Setup
+
+```bash
+# Required for tests - create .env file or export:
+DATABASE_URL=postgres://<username>@localhost:<port>/pg_search
+
+# Port calculation: 28800 + postgres_major_version
+# PG15: 28815, PG16: 28816, PG17: 28817, PG18: 28818
+
+# Enable verbose output
+export RUST_BACKTRACE=1
+```
+
+### Writing Regression Tests
+
+Follow the pattern in `pg_search/tests/pg_regress/sql/`:
+
+```sql
+\i common/common_setup.sql
+
+-- Create test table and index
+CALL paradedb.create_bm25_test_table(
+    schema_name => 'public',
+    table_name => 'mock_items'
+);
+
+CREATE INDEX idx_mock_items ON mock_items
+    USING bm25 (id, description, category)
+    WITH (key_field='id');
+
+-- For each query: run EXPLAIN first, then the query itself
+-- This ensures both the plan and results appear in output
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes';
+SELECT * FROM mock_items WHERE description @@@ 'shoes' ORDER BY id;
+
+-- Always use ORDER BY for deterministic results
+-- Always clean up
+DROP TABLE mock_items;
+```
+
+Key conventions:
+
+- Start with `\i common/common_setup.sql`
+- Include both `EXPLAIN` and actual query for each test case
+- Use `ORDER BY` for deterministic output
+- Use `COSTS OFF, TIMING OFF` in EXPLAIN to avoid flaky output
+- Clean up tables at the end
+
+### Restarting pgrx Postgres
+
+If you need to restart the pgrx-managed Postgres:
+
+```bash
+cargo pgrx stop --package pg_search
+cargo pgrx install --package pg_search --pg-config <path>
+cargo pgrx start --package pg_search
+```
+
+## Code Conventions
+
+### Error Handling
+
+Use `thiserror` for error types with descriptive messages:
+
+```rust
+#[derive(thiserror::Error, Debug)]
+pub enum QueryError {
+    #[error("wrong field type for field: {0}")]
+    WrongFieldType(FieldName),
+
+    #[error("could not build regex with pattern '{1}': {0}")]
+    RegexError(#[source] tantivy::TantivyError, String),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::TantivyError),
+}
+```
+
+- `pgrx::error!()` - Fatal errors that abort the transaction
+- `Result<T, E>` - Recoverable errors
+- `anyhow::Result` - Internal operations
+- `#[source]` - Chain errors for context
+
+### Logging
+
+```rust
+// Fatal error - aborts transaction
+pgrx::error!("bucket_limit must be a positive integer");
+
+// Warning - visible in regression test output, useful for debugging
+pgrx::warning!("Query has LIMIT {} but is not using TopN scan", limit);
+
+// Info log - use sparingly
+pgrx::log!("Background worker started");
+```
+
+### Naming Conventions
+
+- Functions/variables: `snake_case`
+- Types/structs/enums: `PascalCase`
+- Constants: `UPPER_SNAKE_CASE`
+- Error types: `*Error` suffix (e.g., `QueryError`, `SchemaError`)
+
+### File Headers
+
+Every Rust file starts with:
+
+```rust
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+```
+
 ## Architecture
 
 ### Repository Structure
 
 - **pg_search/**: Main Postgres extension implementing BM25 full-text search
+
   - Core modules: `postgres/`, `query/`, `schema/`, `index/`, `api/`
-  - ~95 Rust source files organized into subsystems
+  - `tests/pg_regress/`: SQL regression tests
 
 - **tokenizers/**: Standalone tokenization library
+
   - Multi-language support: Jieba (Chinese), Lindera (Japanese/Korean), ICU, n-gram
   - Integrates with Tantivy's tokenizer API
 
 - **macros/**: Procedural macros for code generation
+
   - Builder functions for search queries
   - SQL generation for tokenizers
 
-- **tests/**: Integration test suite
+- **tests/**: Rust integration test suite
+
   - Uses sqlx for Postgres integration
   - Tests cover BM25 search, joins, aggregations, mutations, sorting
 
@@ -98,21 +270,19 @@ cargo clippy
 
 #### 1. Postgres Integration (`pg_search/src/postgres/`)
 
-##### Index Access Method (IAM)
+**Index Access Method (IAM)**:
 
 - Implements custom BM25 index handler via `bm25_handler()` function
 - Registers custom scan strategies for text queries
 - Manages index lifecycle: validate, build, insert, delete, vacuum, parallel operations
 
-##### Custom Scan Execution Framework
-
-Three custom scan types:
+**Custom Scan Execution Framework** - Three scan types:
 
 - **BaseScan**: Low-level index scans against BM25 indexes
 - **AggregateScan**: Query-level aggregations pushed down to the index
 - **JoinScan**: Join operations optimized for search indexes
 
-##### Storage Subsystem (`postgres/storage/`)
+**Storage Subsystem** (`postgres/storage/`):
 
 - Uses Postgres heap blocks to store Tantivy index segments
 - Block layout:
@@ -122,7 +292,7 @@ Three custom scan types:
   - Block 4: Segment metadata entries
   - Blocks 5+: Actual segment component data
 
-##### Parallel Query Support
+**Parallel Query Support**:
 
 - `ParallelScanState`: Shared state between leader and worker processes
 - Work-stealing segment pool for dynamic load balancing
@@ -130,11 +300,10 @@ Three custom scan types:
 
 #### 2. Query & Search Layer (`pg_search/src/query/`)
 
-##### SearchQueryInput Enum (Core Query DSL)
-
+**SearchQueryInput Enum** (Core Query DSL):
 Main variants: All, Boolean, Boost, DisjunctionMax, ConstScore, Term, Range, Phrase, Regex, Fuzzy, Parse, etc.
 
-##### Query Processing Pipeline
+**Query Processing Pipeline**:
 
 - `builder.rs`: Converts Postgres expressions to Tantivy queries
 - `estimate_tree.rs`: Query cost estimation for planner
@@ -144,13 +313,9 @@ Main variants: All, Boolean, Boost, DisjunctionMax, ConstScore, Term, Range, Phr
 
 #### 3. Schema & Index Configuration (`pg_search/src/schema/`)
 
-##### SearchFieldType Enum
+**SearchFieldType Enum**: Text, Tokenized, Uuid, Inet, I64, F64, U64, Bool, Json, Date, Range
 
-Supported types: Text, Tokenized, Uuid, Inet, I64, F64, U64, Bool, Json, Date, Range
-
-##### Field Configuration
-
-Each field has a `SearchFieldConfig` specifying:
+**Field Configuration** - Each field has a `SearchFieldConfig` specifying:
 
 - Tokenizer type
 - Normalization settings
@@ -190,17 +355,16 @@ Return results to Postgres
 
 Key tunables in `pg_search/src/postgres/gucs.rs`:
 
-- `enable_custom_scan`: Toggle index scans (default: true)
-- `enable_aggregate_custom_scan`: Toggle aggregate pushdown (default: false)
-- `enable_join_custom_scan`: Toggle join optimization (default: false)
-- `enable_fast_field_exec`: Use columnar storage (default: true)
-- `limit_fetch_multiplier`: TopN optimization factor (default: 1.0)
-- Segment management settings
+- `paradedb.enable_custom_scan`: Toggle index scans (default: true)
+- `paradedb.enable_aggregate_custom_scan`: Toggle aggregate pushdown (default: false)
+- `paradedb.enable_join_custom_scan`: Toggle join optimization (default: false)
+- `paradedb.enable_fast_field_exec`: Use columnar storage (default: true)
+- `paradedb.limit_fetch_multiplier`: TopN optimization factor (default: 1.0)
 
 ## Key Dependencies
 
 - **pgrx**: Version 0.16.1 (must be exact match)
-- **Tantivy**: Forked version with custom features (columnar compression, quickwit support)
+- **Tantivy**: Forked version with custom features
   - Fork: `https://github.com/paradedb/tantivy.git`
   - Features: `columnar-zstd-compression`, `lz4-compression`, `quickwit`, `stemmer`, `stopwords`
 - **PostgreSQL**: Supports versions 15+
@@ -217,19 +381,6 @@ shared_preload_libraries = 'pg_search'
 
 This enables the background worker process for index writes. Without this, database connections will crash or hang when creating a BM25 index.
 
-### Environment Variables for Development
-
-```bash
-# Required for tests
-DATABASE_URL=postgres://<username>@localhost:<port>/pg_search
-
-# Port calculation: 28800 + postgres_version
-# Example for PG18: 28818
-
-# Helpful for debugging
-RUST_BACKTRACE=1
-```
-
 ## Common Patterns
 
 ### Adding a New Tokenizer
@@ -238,14 +389,14 @@ RUST_BACKTRACE=1
 2. Register in `tokenizers/src/manager.rs`
 3. Add SQL generation macro in `macros/src/`
 4. Update `SearchFieldConfig` to support the new tokenizer
-5. Add tests in `tests/src/`
+5. Add tests in `tests/tests/`
 
 ### Adding a New Query Type
 
 1. Add variant to `SearchQueryInput` enum in `pg_search/src/query/mod.rs`
 2. Implement conversion to Tantivy query in `pg_search/src/query/builder.rs`
 3. Add cost estimation logic in `pg_search/src/query/estimate_tree.rs`
-4. Add tests in `tests/src/`
+4. Add tests in `tests/tests/`
 
 ### Modifying Index Storage Format
 
@@ -256,12 +407,14 @@ Changes to storage require careful handling:
 3. Consider migration path for existing indexes
 4. Update vacuum and merge logic if needed
 
-## Testing Strategy
+## Debugging Tips
 
-- Integration tests use real Postgres instances via pgrx
-- Tests are organized by feature (bm25, joins, aggregates, etc.)
-- Use rstest for fixture-based testing
-- pgvector must be installed for hybrid search tests
+- Use `cargo pgrx run` for interactive development with Postgres
+- Check Postgres logs for custom scan execution details
+- Use `EXPLAIN` to see query plans with custom scans
+- Set `RUST_BACKTRACE=1` for detailed error traces
+- For parallel query debugging, check worker process logs
+- Use `pgrx::warning!()` to add debug output visible in regression test results
 
 ## Pull Request Requirements
 
@@ -270,14 +423,6 @@ Changes to storage require careful handling:
 - Add documentation in `docs/` for user-facing features
 - Pre-commit hooks must pass
 - Sign the CLA (enforced by CLA Assistant)
-
-## Debugging Tips
-
-- Use `cargo pgrx run` for interactive development with Postgres
-- Check Postgres logs for custom scan execution details
-- Use `EXPLAIN` to see query plans with custom scans
-- Set `RUST_BACKTRACE=1` for detailed error traces
-- For parallel query debugging, check worker process logs
 
 ## Critical Design Decisions
 

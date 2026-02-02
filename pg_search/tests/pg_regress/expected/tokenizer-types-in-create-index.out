@@ -35,7 +35,7 @@ SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
  lindera_chinese    | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
  lindera_japanese   | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
  lindera_korean     | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
- literal            | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
+ literal            | Str        | f      | t       | t    | t          |             | keyword[lowercase=false]                   | basic    | raw
  ngram              | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | 
  regex              | Str        | f      | t       | f    | t          |             | regex                                      | position | 
  simple             | Str        | f      | t       | f    | t          |             | default                                    | position | 

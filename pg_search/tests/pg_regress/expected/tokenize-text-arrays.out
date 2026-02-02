@@ -42,7 +42,7 @@ CREATE INDEX idxindex_text_array ON index_text_array USING bm25 (id, (arr::pdb.l
 SELECT * FROM paradedb.schema('idxindex_text_array') ORDER BY name;
  name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
 ------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- arr  | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
+ arr  | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | basic  | raw
  ctid | U64        | f      | t       | t    | f          |             |                          |        | 
  id   | I64        | f      | t       | t    | f          |             |                          |        | 
 (3 rows)
@@ -76,7 +76,7 @@ CREATE INDEX idxindex_varchar_array ON index_varchar_array USING bm25 (id, (arr:
 SELECT * FROM paradedb.schema('idxindex_varchar_array') ORDER BY name;
  name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
 ------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- arr  | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
+ arr  | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | basic  | raw
  ctid | U64        | f      | t       | t    | f          |             |                          |        | 
  id   | I64        | f      | t       | t    | f          |             |                          |        | 
 (3 rows)

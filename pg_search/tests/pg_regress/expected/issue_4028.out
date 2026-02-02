@@ -15,7 +15,7 @@ SELECT * FROM paradedb.schema('test_bm25');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |               tokenizer                | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+----------------------------------------+--------+------------
  ctid        | U64        | f      | t       | t    | f          |             |                                        |        | 
- description | Str        | f      | t       | t    | f          |             | literal_normalized[ascii_folding=true] | basic  | lowercase
+ description | Str        | f      | t       | t    | t          |             | literal_normalized[ascii_folding=true] | basic  | lowercase
  id          | I64        | f      | t       | t    | f          |             |                                        |        | 
 (3 rows)
 

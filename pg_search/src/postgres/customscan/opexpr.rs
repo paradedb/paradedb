@@ -18,6 +18,7 @@
 use crate::api::HashMap;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
+use crate::postgres::types::ConstNode;
 use pgrx::{pg_sys, PgList};
 use std::sync::OnceLock;
 
@@ -167,24 +168,85 @@ impl OpExpr {
     }
 }
 
-/// Unwrap an expression from type coercion wrappers (RelabelType, CoerceViaIO, single-arg FuncExpr).
+// ============================================================================
+// Expression Unwrapping - Trait-based API
+// ============================================================================
+
+/// Trait for extracting PostgreSQL node types from expressions wrapped in type coercions.
 ///
-/// PostgreSQL wraps expressions in type coercion nodes when implicit or explicit type
-/// conversion is needed. This function recursively unwraps these wrappers to find the
-/// underlying expression.
-///
-/// The `extract` closure is called at each level to attempt extraction of the desired type.
-/// Returns `Some(T)` when extraction succeeds, `None` if the expression can't be unwrapped further.
+/// Similar to `FromDatum`, this provides a type-safe way to extract specific node types
+/// from PostgreSQL expression trees that may be wrapped in `RelabelType`, `CoerceViaIO`,
+/// or `FuncExpr` coercion nodes.
 ///
 /// # Example
 /// ```ignore
 /// // Extract a Var from a potentially wrapped expression
-/// let var = unwrap_expr(expr, |e| nodecast!(Var, T_Var, e));
+/// let var: Option<*mut pg_sys::Var> = UnwrapFromExpr::unwrap_from_expr(expr);
 ///
-/// // Extract a Const from a potentially wrapped expression  
-/// let const_node = unwrap_expr(expr, |e| ConstNode::try_from(e as *mut pg_sys::Node));
+/// // Or with turbofish syntax
+/// let var = <*mut pg_sys::Var>::unwrap_from_expr(expr);
 /// ```
-pub unsafe fn unwrap_expr<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
+pub trait UnwrapFromExpr: Sized {
+    /// Try to extract this node type from the expression, unwrapping all coercion layers
+    /// including single-arg FuncExpr nodes (deep unwrapping).
+    ///
+    /// Use this when the expression might be wrapped in function-based type coercions
+    /// (e.g., `float4` -> `float8` via a cast function).
+    unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self>;
+
+    /// Try to extract this node type from the expression, unwrapping only basic coercion
+    /// layers (RelabelType, CoerceViaIO) without unwrapping FuncExpr nodes.
+    ///
+    /// Use this when you only want to strip simple type relabeling.
+    unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self>;
+}
+
+impl UnwrapFromExpr for *mut pg_sys::Var {
+    unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_expr(expr, |e| nodecast!(Var, T_Var, e))
+    }
+
+    unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_coercion(expr, |e| nodecast!(Var, T_Var, e))
+    }
+}
+
+impl UnwrapFromExpr for *mut pg_sys::RowExpr {
+    unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_expr(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
+    }
+
+    unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_coercion(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
+    }
+}
+
+impl UnwrapFromExpr for *mut pg_sys::Const {
+    unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_expr(expr, |e| nodecast!(Const, T_Const, e))
+    }
+
+    unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_coercion(expr, |e| nodecast!(Const, T_Const, e))
+    }
+}
+
+impl UnwrapFromExpr for ConstNode {
+    unsafe fn unwrap_from_expr(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_expr(expr, |e| ConstNode::try_from(e as *mut pg_sys::Node))
+    }
+
+    unsafe fn unwrap_from_coercion(expr: *mut pg_sys::Expr) -> Option<Self> {
+        unwrap_coercion(expr, |e| ConstNode::try_from(e as *mut pg_sys::Node))
+    }
+}
+
+// ============================================================================
+// Expression Unwrapping - Internal helpers
+// ============================================================================
+
+/// Unwrap an expression from type coercion wrappers (RelabelType, CoerceViaIO, single-arg FuncExpr).
+unsafe fn unwrap_expr<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
 where
     F: FnMut(*mut pg_sys::Expr) -> Option<T>,
 {
@@ -222,8 +284,7 @@ where
 /// Unwrap an expression from basic type coercion wrappers (RelabelType, CoerceViaIO only).
 ///
 /// Unlike `unwrap_expr`, this does NOT unwrap single-arg FuncExpr nodes.
-/// Use this when you only want to strip simple type relabeling, not function-based coercions.
-pub unsafe fn unwrap_expr_simple<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
+unsafe fn unwrap_coercion<T, F>(mut expr: *mut pg_sys::Expr, mut extract: F) -> Option<T>
 where
     F: FnMut(*mut pg_sys::Expr) -> Option<T>,
 {
@@ -241,25 +302,6 @@ where
         }
         return None;
     }
-}
-
-/// Unwrap a Var from potential type coercion wrappers (including FuncExpr).
-///
-/// Convenience function that uses `unwrap_expr` to find a Var node.
-pub unsafe fn unwrap_var(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::Var> {
-    unwrap_expr(expr, |e| nodecast!(Var, T_Var, e))
-}
-
-/// Unwrap a Var from basic type coercion wrappers (CoerceViaIO, RelabelType only).
-///
-/// Unlike `unwrap_var`, this does NOT unwrap FuncExpr nodes.
-pub unsafe fn unwrap_var_simple(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::Var> {
-    unwrap_expr_simple(expr, |e| nodecast!(Var, T_Var, e))
-}
-
-/// Unwrap a RowExpr from type coercion wrappers.
-pub unsafe fn unwrap_row_expr(expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
-    unwrap_expr_simple(expr, |e| nodecast!(RowExpr, T_RowExpr, e))
 }
 
 // ============================================================================
@@ -349,33 +391,47 @@ unsafe fn args_equal(args_a: &PgList<pg_sys::Node>, args_b: &PgList<pg_sys::Node
     true
 }
 
+/// Canonical arithmetic operations that can be represented differently across numeric types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArithmeticOp {
+    Multiply,
+    Divide,
+    Add,
+    Subtract,
+}
+
 /// Normalize arithmetic function names to their base operation.
 ///
 /// PostgreSQL uses type-specific function names for arithmetic operations
 /// (e.g., int4mul, float8mul, numeric_mul all implement multiplication).
-/// This function maps them to a canonical operation name for comparison.
-fn normalize_arithmetic_op(name: &str) -> Option<&'static str> {
-    // Extract the operation suffix after the type prefix
+/// This function maps them to a canonical operation for comparison.
+fn normalize_arithmetic_op(name: &str) -> Option<ArithmeticOp> {
     // Pattern: {type}{op} where type is int2/int4/int8/float4/float8/numeric
-    let op = match name {
-        // Multiply
-        "int2mul" | "int4mul" | "int8mul" | "float4mul" | "float8mul" | "numeric_mul" => "mul",
-        // Divide
-        "int2div" | "int4div" | "int8div" | "float4div" | "float8div" | "numeric_div" => "div",
-        // Add
-        "int2pl" | "int4pl" | "int8pl" | "float4pl" | "float8pl" | "numeric_add" => "add",
-        // Subtract
-        "int2mi" | "int4mi" | "int8mi" | "float4mi" | "float8mi" | "numeric_sub" => "sub",
-        // Not a recognized arithmetic operation
-        _ => return None,
-    };
-    Some(op)
+    match name {
+        "int2mul" | "int4mul" | "int8mul" | "float4mul" | "float8mul" | "numeric_mul" => {
+            Some(ArithmeticOp::Multiply)
+        }
+        "int2div" | "int4div" | "int8div" | "float4div" | "float8div" | "numeric_div" => {
+            Some(ArithmeticOp::Divide)
+        }
+        "int2pl" | "int4pl" | "int8pl" | "float4pl" | "float8pl" | "numeric_add" => {
+            Some(ArithmeticOp::Add)
+        }
+        "int2mi" | "int4mi" | "int8mi" | "float4mi" | "float8mi" | "numeric_sub" => {
+            Some(ArithmeticOp::Subtract)
+        }
+        _ => None,
+    }
 }
 
 /// Check if two function OIDs implement semantically equivalent operations.
 ///
 /// This handles cases where PostgreSQL uses different function implementations
-/// for the same arithmetic operation on different numeric types.
+/// for the same arithmetic operation on different numeric types (e.g., `int4pl`
+/// and `float8pl` are both addition).
+///
+/// **Note**: This only compares the function identities, not their arguments.
+/// Callers must separately verify argument equivalence if needed (see `args_equal`).
 unsafe fn funcs_are_equivalent(funcid1: pg_sys::Oid, funcid2: pg_sys::Oid) -> bool {
     if funcid1 == funcid2 {
         return true;
@@ -452,11 +508,11 @@ unsafe fn opexpr_matches_funcexpr(
 /// Use this instead of `pg_sys::equal` when comparing expressions from
 /// different query contexts (e.g., index definition vs. WHERE clause).
 pub unsafe fn expr_equal_ignoring_context(a: *mut pg_sys::Node, b: *mut pg_sys::Node) -> bool {
-    // Handle null cases
-    match (a.is_null(), b.is_null()) {
-        (true, true) => return true,
-        (true, false) | (false, true) => return false,
-        (false, false) => {}
+    if a.is_null() && b.is_null() {
+        return true;
+    }
+    if a.is_null() || b.is_null() {
+        return false;
     }
 
     let tag_a = (*a).type_;

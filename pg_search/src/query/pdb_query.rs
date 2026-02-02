@@ -17,9 +17,8 @@
 
 use crate::api::FieldName;
 use crate::query::numeric::{
-    convert_value_for_field, convert_value_for_field_or_default, convert_value_for_range_field,
-    map_bound, numeric_bound_to_bytes, scale_numeric_bound, string_to_f64, string_to_i64,
-    string_to_json_numeric, string_to_u64, try_numeric_term_query,
+    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
+    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
 };
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
@@ -700,7 +699,7 @@ fn term_set(
     // Convert terms based on field type (uses same logic as term())
     let converted_terms: Vec<OwnedValue> = terms
         .into_iter()
-        .map(|term| convert_value_for_field_or_default(term, &search_field_type, OwnedValue::Null))
+        .map(|term| convert_value_for_field(term, &search_field_type).unwrap_or(OwnedValue::Null))
         .collect();
 
     Ok(Box::new(TermSetQuery::new(
@@ -1672,11 +1671,31 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     let search_field = schema
         .search_field(field)
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_type();
 
-    // Try to create a term query for numeric fields (Numeric64/NumericBytes)
-    // These need special handling since Tantivy's QueryParser can't parse decimals directly
-    if let Some(result) = try_numeric_term_query(&search_field, field, &query_string) {
-        return result;
+    // Handle Numeric64 and NumericBytes fields specially
+    // Tantivy's QueryParser can't parse decimal strings directly for these types
+    if matches!(
+        field_type,
+        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(_)
+    ) {
+        // Convert the query string to the appropriate numeric format
+        let value = OwnedValue::Str(query_string.trim().to_string());
+        if let Ok(converted) = convert_value_for_field(value, &field_type) {
+            let tantivy_field_type = search_field.field_entry().field_type();
+            let term = value_to_term(
+                search_field.field(),
+                &converted,
+                tantivy_field_type,
+                field.path().as_deref(),
+                false,
+            )?;
+            return Ok(Box::new(TermQuery::new(
+                term,
+                IndexRecordOption::WithFreqsAndPositions.into(),
+            )));
+        }
+        // If conversion fails, fall through to standard parsing (will likely error)
     }
 
     let mut parser = parser();

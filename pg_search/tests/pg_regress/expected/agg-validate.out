@@ -158,7 +158,7 @@ ORDER BY id DESC LIMIT 3;
 SELECT pdb.agg('{"avg": {"field": "not_valid"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  pdb.agg() references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 6: Invalid field in date_histogram - should error
 SELECT pdb.agg('{"date_histogram": {"field": "not_valid", "fixed_interval": "30d"}}'::jsonb)
 FROM mock_items
@@ -187,12 +187,12 @@ ERROR:  pdb.agg() references invalid field 'invalid_field'. Available indexed fi
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"avg_invalid": {"avg": {"field": "bad_field"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  pdb.agg() references invalid field 'bad_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 11: Multiple levels of nesting with invalid field - should error
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"nested": {"terms": {"field": "also_invalid"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() must be handled by ParadeDB's custom scan. This error usually means the query syntax is not supported. Try adding '@@@ pdb.all()' to your WHERE clause to force custom scan usage, or file an issue at https://github.com/paradedb/paradedb/issues if this should be supported.
+ERROR:  pdb.agg() references invalid field 'also_invalid'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 4: Valid nested aggregations (should succeed)
 -- =====================================================================

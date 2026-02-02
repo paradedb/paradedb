@@ -564,54 +564,6 @@ unsafe fn window_has_order_by(parse: *mut pg_sys::Query, order_clause: *mut pg_s
     !order_list.is_empty()
 }
 
-/// Check that window aggregates don't use NUMERIC fields.
-///
-/// NUMERIC fields do not support aggregate pushdown. This function checks all
-/// window aggregates and returns an error if any aggregate uses a NUMERIC field.
-///
-/// Returns `Err` with field name if any aggregate uses a NUMERIC field.
-pub fn check_window_aggregates_no_numeric(
-    window_aggregates: &[WindowAggregateInfo],
-    bm25_index: &PgSearchRelation,
-) -> Result<(), String> {
-    use crate::postgres::customscan::aggregatescan::extract_agg_name_to_field;
-
-    let schema = match bm25_index.schema() {
-        Ok(s) => s,
-        Err(_) => return Ok(()),
-    };
-
-    for window_agg in window_aggregates.iter() {
-        for agg_type in window_agg.targetlist.aggregates() {
-            match agg_type {
-                AggregateType::Custom { agg_json, .. } => {
-                    // Check all fields referenced in custom aggregates
-                    let agg_name_to_field = extract_agg_name_to_field(agg_json);
-                    for (_agg_name, field_name) in agg_name_to_field {
-                        if let Some(search_field) = schema.search_field(&field_name) {
-                            if search_field.field_type().is_numeric() {
-                                return Err(field_name);
-                            }
-                        }
-                    }
-                }
-                AggregateType::Sum { field, .. }
-                | AggregateType::Avg { field, .. }
-                | AggregateType::Min { field, .. }
-                | AggregateType::Max { field, .. } => {
-                    if let Some(search_field) = schema.search_field(field.as_str()) {
-                        if search_field.field_type().is_numeric() {
-                            return Err(field.clone());
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Resolve window aggregate FILTER clauses at custom plan creation time
 ///
 /// Converts PostgresExpression filters (serialized at planner hook time) to SearchQueryInput

@@ -27,33 +27,10 @@
 use std::ops::Bound;
 use std::str::FromStr;
 
-use super::value_to_term;
-use crate::api::FieldName;
-use crate::schema::SearchField;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
 use decimal_bytes::Decimal;
-use tantivy::query::{Query as TantivyQuery, TermQuery};
-use tantivy::schema::IndexRecordOption;
 use tantivy::schema::OwnedValue;
-
-// ============================================================================
-// Core String Extraction
-// ============================================================================
-
-/// Extract a numeric string representation from an OwnedValue.
-///
-/// This is the foundation for all numeric conversions, ensuring consistent
-/// handling of different input types.
-pub fn extract_numeric_string(value: &OwnedValue) -> Option<String> {
-    match value {
-        OwnedValue::Str(s) => Some(s.clone()),
-        OwnedValue::F64(f) => Some(f.to_string()),
-        OwnedValue::I64(i) => Some(i.to_string()),
-        OwnedValue::U64(u) => Some(u.to_string()),
-        _ => None,
-    }
-}
 
 // ============================================================================
 // Numeric64 Scaling (I64 Fixed-Point)
@@ -86,22 +63,40 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
 /// Scale an OwnedValue to I64 fixed-point representation.
 ///
 /// Handles Str, I64, U64, and F64 values, converting to scaled I64.
-/// Used for query value scaling where the input type may vary.
+/// Uses direct primitive constructors (`from_i64`, `from_u64`, `from_f64`)
+/// for efficient conversion without string intermediates.
 ///
 /// # Example
 /// ```ignore
 /// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
+/// scale_owned_value(OwnedValue::I64(100), 2) // Returns Ok(OwnedValue::I64(10000))
 /// ```
 pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
-    let numeric_str = match &value {
-        OwnedValue::Str(s) => s.clone(),
-        OwnedValue::F64(f) => f.to_string(),
-        OwnedValue::I64(i) => i.to_string(),
-        OwnedValue::U64(u) => u.to_string(),
-        _ => anyhow::bail!("Cannot scale non-numeric value: {:?}", value),
+    use decimal_bytes::Decimal64NoScale;
+
+    let scale_i32 = scale as i32;
+
+    let scaled = match &value {
+        // Use direct primitive constructors for efficiency
+        OwnedValue::I64(i) => Decimal64NoScale::from_i64(*i, scale_i32)
+            .map_err(|e| anyhow::anyhow!("Failed to scale i64 {}: {:?}", i, e))?
+            .value(),
+        OwnedValue::U64(u) => Decimal64NoScale::from_u64(*u, scale_i32)
+            .map_err(|e| anyhow::anyhow!("Failed to scale u64 {}: {:?}", u, e))?
+            .value(),
+        OwnedValue::F64(f) => Decimal64NoScale::from_f64(*f, scale_i32)
+            .map_err(|e| anyhow::anyhow!("Failed to scale f64 {}: {:?}", f, e))?
+            .value(),
+        // Fall back to string parsing for string values
+        OwnedValue::Str(s) => scale_i64(s, scale)?,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Cannot scale non-numeric value: {:?}",
+                value
+            ))
+        }
     };
 
-    let scaled = scale_i64(&numeric_str, scale)?;
     Ok(OwnedValue::I64(scaled))
 }
 
@@ -115,30 +110,27 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
 /// The hex encoding preserves lexicographic byte ordering for range queries.
 /// We use string storage (not bytes) because Tantivy's FastFieldReaders doesn't
 /// support bytes columns for join pushdown and other fast field operations.
+///
+/// Uses direct type conversions via `From`/`TryFrom` traits to avoid unnecessary
+/// string intermediates for primitive numeric types.
 pub fn numeric_value_to_bytes(value: OwnedValue) -> Result<OwnedValue> {
-    let numeric_str = extract_numeric_string(&value)
-        .ok_or_else(|| anyhow::anyhow!("Cannot convert non-numeric value to hex: {:?}", value))?;
-
-    let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to convert numeric value '{}' to hex: {:?}",
-            numeric_str,
-            e
-        )
-    })?;
+    let decimal = match &value {
+        OwnedValue::I64(i) => Decimal::from(*i),
+        OwnedValue::U64(u) => Decimal::from(*u),
+        OwnedValue::F64(f) => Decimal::try_from(*f)
+            .map_err(|e| anyhow::anyhow!("Failed to convert f64 {} to Decimal: {:?}", f, e))?,
+        OwnedValue::Str(s) => Decimal::from_str(s)
+            .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", s, e))?,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Cannot convert non-numeric value to hex: {:?}",
+                value
+            ))
+        }
+    };
 
     // Hex-encode the bytes to create a string that preserves lexicographic ordering
     Ok(OwnedValue::Str(bytes_to_hex(decimal.as_bytes())))
-}
-
-/// Convert a numeric string to hex-encoded sortable bytes.
-///
-/// Used for NUMRANGE fields where values are stored as hex strings.
-pub fn numeric_to_hex_bytes(numeric_str: &str) -> Result<String> {
-    let decimal = Decimal::from_str(numeric_str)
-        .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", numeric_str, e))?;
-
-    Ok(bytes_to_hex(decimal.as_bytes()))
 }
 
 /// Convert a byte slice to a hex-encoded string.
@@ -158,7 +150,7 @@ pub fn bytes_to_hex(bytes: &[u8]) -> String {
 ///
 /// Returns `None` if the string contains invalid hex characters or has odd length.
 #[inline]
-pub fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
+fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
         return None;
     }
@@ -166,6 +158,18 @@ pub fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
         .collect()
+}
+
+/// Convert a hex-encoded decimal string back to a Decimal.
+///
+/// This is a convenience function that combines `hex_to_bytes` and `Decimal::from_bytes`
+/// to convert from hex-encoded storage format to a `Decimal` object.
+///
+/// Returns `None` if the hex string is invalid or cannot be parsed as a Decimal.
+#[inline]
+pub fn hex_to_decimal(hex: &str) -> Option<Decimal> {
+    let bytes = hex_to_bytes(hex)?;
+    Decimal::from_bytes(&bytes).ok()
 }
 
 // ============================================================================
@@ -318,6 +322,8 @@ pub fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> Result<Bound<OwnedVal
 /// - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
 /// - NUMRANGEOID: indexed as hex-encoded sortable bytes → convert to hex string
 /// - Date/time ranges: use datetime conversion (handled elsewhere)
+///
+/// Uses direct type conversions where possible to avoid unnecessary string intermediates.
 pub fn convert_value_for_range_field(
     value: OwnedValue,
     field_type: &SearchFieldType,
@@ -330,31 +336,32 @@ pub fn convert_value_for_range_field(
         _ => return value, // Not a range field, pass through
     };
 
-    // Get string representation for conversion
-    let numeric_str = match extract_numeric_string(&value) {
-        Some(s) => s,
-        None => return value, // Non-numeric types pass through unchanged
-    };
-
     // Convert based on the range's element type
     match oid.try_into() {
         Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
-            // Integer ranges: parse directly to i64 to preserve precision
-            if let Ok(i) = numeric_str.parse::<i64>() {
-                return OwnedValue::I64(i);
+            // Integer ranges: convert directly to i64
+            match &value {
+                OwnedValue::I64(i) => OwnedValue::I64(*i),
+                OwnedValue::U64(u) => OwnedValue::I64(*u as i64),
+                OwnedValue::F64(f) => OwnedValue::I64(*f as i64),
+                OwnedValue::Str(s) => {
+                    // Try parsing as i64 first to preserve precision
+                    if let Ok(i) = s.parse::<i64>() {
+                        return OwnedValue::I64(i);
+                    }
+                    // Fallback: try parsing as f64 for decimal values
+                    if let Ok(f) = s.parse::<f64>() {
+                        return OwnedValue::I64(f as i64);
+                    }
+                    value
+                }
+                _ => value,
             }
-            // Fallback: try parsing as decimal for values with decimal points
-            if let Ok(f) = numeric_str.parse::<f64>() {
-                return OwnedValue::I64(f as i64);
-            }
-            value
         }
         Ok(BuiltinOid::NUMRANGEOID) => {
             // Numeric ranges are indexed as hex-encoded sortable bytes
-            if let Ok(hex) = numeric_to_hex_bytes(&numeric_str) {
-                return OwnedValue::Str(hex);
-            }
-            value
+            // Use numeric_value_to_bytes which handles all types directly
+            numeric_value_to_bytes(value.clone()).unwrap_or(value)
         }
         // Date/time ranges are handled by the is_datetime flag
         _ => value,
@@ -391,63 +398,6 @@ pub fn convert_value_for_field(
     }
 }
 
-/// Convert a value for a field, returning a default on error.
-///
-/// This is useful for bulk conversions (like term_set) where individual
-/// failures shouldn't abort the entire operation.
-pub fn convert_value_for_field_or_default(
-    value: OwnedValue,
-    field_type: &SearchFieldType,
-    default: OwnedValue,
-) -> OwnedValue {
-    convert_value_for_field(value, field_type).unwrap_or(default)
-}
-
-/// Try to create a term query for a numeric field from a query string.
-///
-/// For Numeric64 and NumericBytes fields, Tantivy's QueryParser can't parse
-/// decimal strings directly. This function handles the conversion:
-/// - Numeric64: Scales the string value to I64 fixed-point
-/// - NumericBytes: Converts the string to lexicographically sortable bytes
-///
-/// Returns `Some(query)` if successful, `None` if the field type doesn't need
-/// special handling or the string isn't a valid numeric value.
-pub fn try_numeric_term_query(
-    search_field: &SearchField,
-    field: &FieldName,
-    query_string: &str,
-) -> Option<Result<Box<dyn TantivyQuery>>> {
-    let field_type = search_field.field_type();
-
-    // Only handle Numeric64 and NumericBytes fields
-    if !matches!(
-        field_type,
-        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(_)
-    ) {
-        return None;
-    }
-
-    // Convert the query string to the appropriate format for this field type
-    let value = OwnedValue::Str(query_string.trim().to_string());
-    let converted = convert_value_for_field(value, &field_type).ok()?;
-
-    // Create the term query
-    let tantivy_field_type = search_field.field_entry().field_type();
-    match value_to_term(
-        search_field.field(),
-        &converted,
-        tantivy_field_type,
-        field.path().as_deref(),
-        false,
-    ) {
-        Ok(term) => Some(Ok(Box::new(TermQuery::new(
-            term,
-            IndexRecordOption::WithFreqsAndPositions,
-        )))),
-        Err(e) => Some(Err(e)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,38 +416,31 @@ mod tests {
             scale_owned_value(OwnedValue::Str("123.45".to_string()), 2).unwrap(),
             OwnedValue::I64(12345)
         );
-        // F64 input
+        // F64 input (uses from_f64 directly)
         assert_eq!(
             scale_owned_value(OwnedValue::F64(0.999), 3).unwrap(),
             OwnedValue::I64(999)
         );
-        // I64 input (already integer, but scales)
+        // I64 input (uses from_i64 directly)
         assert_eq!(
             scale_owned_value(OwnedValue::I64(50), 1).unwrap(),
             OwnedValue::I64(500)
         );
-        // Negative value
+        // U64 input (uses from_u64 directly)
+        assert_eq!(
+            scale_owned_value(OwnedValue::U64(100), 2).unwrap(),
+            OwnedValue::I64(10000)
+        );
+        // Negative value via string
         assert_eq!(
             scale_owned_value(OwnedValue::Str("-50.5".to_string()), 1).unwrap(),
             OwnedValue::I64(-505)
         );
-    }
-
-    #[test]
-    fn test_extract_numeric_string() {
+        // Negative I64 (uses from_i64 directly)
         assert_eq!(
-            extract_numeric_string(&OwnedValue::Str("123.45".to_string())),
-            Some("123.45".to_string())
+            scale_owned_value(OwnedValue::I64(-25), 2).unwrap(),
+            OwnedValue::I64(-2500)
         );
-        assert_eq!(
-            extract_numeric_string(&OwnedValue::I64(42)),
-            Some("42".to_string())
-        );
-        assert_eq!(
-            extract_numeric_string(&OwnedValue::F64(2.5)),
-            Some("2.5".to_string())
-        );
-        assert_eq!(extract_numeric_string(&OwnedValue::Null), None);
     }
 
     #[test]

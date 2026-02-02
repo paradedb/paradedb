@@ -44,8 +44,8 @@ use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::basescan::projections::window_agg::{
-    check_window_aggregates_no_numeric, deserialize_window_agg_placeholders,
-    resolve_window_aggregate_filters_at_plan_time, WindowAggregateInfo,
+    deserialize_window_agg_placeholders, resolve_window_aggregate_filters_at_plan_time,
+    WindowAggregateInfo,
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
@@ -811,19 +811,8 @@ impl CustomScan for BaseScan {
                             rti,
                         );
 
-                        // Check that no window aggregates use NUMERIC fields
-                        // NUMERIC columns do not support aggregate pushdown
-                        if let Err(field) =
-                            check_window_aggregates_no_numeric(&window_aggregates, &bm25_index)
-                        {
-                            panic!(
-                                "Window aggregate on field '{}' cannot be pushed down: \
-                                 NUMERIC columns do not support aggregate pushdown.",
-                                field
-                            );
-                        }
-
                         // Validate that all fields in window aggregates exist in the index schema
+                        // and are supported for aggregate pushdown (not NUMERIC)
                         if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
                             for window_agg in &window_aggregates {
                                 for agg_type in window_agg.targetlist.aggregates() {

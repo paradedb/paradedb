@@ -41,7 +41,7 @@ use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::opexpr::{
-    expr_matches_node, unwrap_row_expr, unwrap_var_simple, vars_equal_ignoring_varno,
+    expr_matches_node, vars_equal_ignoring_varno, UnwrapFromExpr,
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
@@ -354,7 +354,8 @@ pub unsafe fn field_name_from_node(
                 let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
                 if is_composite {
-                    if let Some(row_expr) = unwrap_row_expr(expression) {
+                    if let Some(row_expr) = <*mut pg_sys::RowExpr>::unwrap_from_coercion(expression)
+                    {
                         let composite_oid = pg_sys::exprType(expression.cast());
                         let Ok(fields) = get_composite_type_fields(composite_oid) else {
                             expr_no += 1;
@@ -368,7 +369,9 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
-                            if let Some(arg_var) = unwrap_var_simple(arg.cast()) {
+                            if let Some(arg_var) =
+                                <*mut pg_sys::Var>::unwrap_from_coercion(arg.cast())
+                            {
                                 if vars_equal_ignoring_varno(arg_var, var) {
                                     return Some(FieldName::from(
                                         fields[position].field_name.clone(),
@@ -418,7 +421,9 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
-                if let Some(row_expr) = unwrap_row_expr(indexed_expression) {
+                if let Some(row_expr) =
+                    <*mut pg_sys::RowExpr>::unwrap_from_coercion(indexed_expression)
+                {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
                         continue;

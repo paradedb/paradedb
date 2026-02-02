@@ -17,13 +17,13 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{
-    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashMap,
-    HashSet, MvccVisibility,
+    agg_funcoid, agg_with_solve_mvcc_funcoid, extract_solve_mvcc_from_const, FieldName, HashSet,
+    MvccVisibility,
 };
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
-use crate::postgres::customscan::opexpr::{unwrap_expr, unwrap_var};
+use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
@@ -179,11 +179,17 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
-            // Check if any fields in the custom aggregate are NUMERIC
+            // Check if any existing fields in the custom aggregate are NUMERIC
             // NUMERIC fields do not support aggregate pushdown
-            let agg_name_to_field = extract_agg_name_to_field(&json_value);
-            for field_name in agg_name_to_field.values() {
-                if !bm25_index.field_supports_aggregate(field_name).ok()? {
+            // Note: Non-existent fields are caught by validate_fields() with proper error
+            let schema = bm25_index.schema().ok()?;
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(&json_value, &mut fields);
+            for field_name in &fields {
+                // Only check NUMERIC support if field exists in schema
+                if schema.search_field(field_name).is_some()
+                    && !schema.field_supports_aggregate(field_name)
+                {
                     return None;
                 }
             }
@@ -338,11 +344,28 @@ impl AggregateType {
         }
     }
 
-    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
-    /// Returns an error if any field is invalid.
-    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// Validate that fields referenced by this aggregate exist in the schema
+    /// and are supported for aggregate pushdown.
+    ///
+    /// Returns an error if:
+    /// - Any referenced field doesn't exist in the index
+    /// - Any referenced field is a NUMERIC type (not supported for aggregation)
+    ///
+    /// TODO: remove field existence check once Tantivy aggregation validation is fixed.
     /// https://github.com/quickwit-oss/tantivy/issues/2767
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
+        // Check NUMERIC field support for standard aggregates
+        if let Some(field) = self.field_name() {
+            if !schema.field_supports_aggregate(&field) {
+                return Err(format!(
+                    "Aggregate on NUMERIC field '{}' cannot be pushed down. \
+                     NUMERIC columns do not support aggregate pushdown.",
+                    field
+                ));
+            }
+        }
+
+        // For Custom aggregates, validate field existence and NUMERIC support
         if let AggregateType::Custom { agg_json, .. } = self {
             let mut fields = HashSet::default();
             extract_fields_from_agg_json(agg_json, &mut fields);
@@ -352,11 +375,11 @@ impl AggregateType {
                 .collect();
 
             for field in &fields {
+                // Check field exists
                 if !indexed_fields.contains(field) {
-                    // Build a sorted list of available fields for the error message
                     let mut available: Vec<_> = indexed_fields
                         .iter()
-                        .filter(|f| *f != "ctid") // Don't show internal ctid field
+                        .filter(|f| *f != "ctid")
                         .cloned()
                         .collect();
                     available.sort();
@@ -364,6 +387,14 @@ impl AggregateType {
                         "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
                         field,
                         available.join(", ")
+                    ));
+                }
+                // Check NUMERIC support
+                if !schema.field_supports_aggregate(field) {
+                    return Err(format!(
+                        "pdb.agg() references NUMERIC field '{}' which cannot be aggregated. \
+                         NUMERIC columns do not support aggregate pushdown.",
+                        field
                     ));
                 }
             }
@@ -389,105 +420,6 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
         serde_json::Value::Array(arr) => {
             for item in arr {
                 extract_fields_from_agg_json(item, fields);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Extract a mapping from aggregate names to the field they aggregate.
-/// For example, {"aggs": {"avg_price": {"avg": {"field": "price"}}}} -> {"avg_price": "price"}
-/// This also handles nested aggregations and top-level metric aggregates.
-pub fn extract_agg_name_to_field(json: &serde_json::Value) -> HashMap<String, String> {
-    let mut result = HashMap::default();
-    extract_agg_name_to_field_recursive(json, &mut result, None);
-    result
-}
-
-fn extract_agg_name_to_field_recursive(
-    json: &serde_json::Value,
-    result: &mut HashMap<String, String>,
-    current_agg_name: Option<&str>,
-) {
-    const METRIC_TYPES: &[&str] = &[
-        "avg",
-        "sum",
-        "min",
-        "max",
-        "count",
-        "stats",
-        "percentiles",
-        "value_count",
-    ];
-
-    match json {
-        serde_json::Value::Object(map) => {
-            // Check for a "field" key at this level - this is where the field name is
-            if let Some(serde_json::Value::String(field_name)) = map.get("field") {
-                // If we have a current aggregate name, record the mapping
-                if let Some(agg_name) = current_agg_name {
-                    let field = FieldName::from(field_name);
-                    result.insert(agg_name.to_string(), field.root());
-                }
-            }
-
-            // Check if this is an "aggs" or "aggregations" block
-            if let Some(serde_json::Value::Object(aggs_map)) =
-                map.get("aggs").or_else(|| map.get("aggregations"))
-            {
-                for (agg_name, agg_def) in aggs_map {
-                    // Recurse with the aggregate name
-                    extract_agg_name_to_field_recursive(agg_def, result, Some(agg_name));
-                }
-            }
-
-            // Check for top-level metric aggregates (avg, sum, min, max, count, etc.)
-            for metric_type in METRIC_TYPES {
-                if let Some(metric_value) = map.get(*metric_type) {
-                    if let Some(agg_name) = current_agg_name {
-                        // Recurse into the metric definition to find the field
-                        extract_agg_name_to_field_recursive(metric_value, result, Some(agg_name));
-                    } else {
-                        // Top-level metric aggregate without a name - use a special marker
-                        // "__top_level__" to indicate the value should be descaled at the top level
-                        extract_agg_name_to_field_recursive(
-                            metric_value,
-                            result,
-                            Some("__top_level__"),
-                        );
-                    }
-                }
-            }
-
-            // Recurse into other values (like nested bucket aggregations or named aggregates)
-            // For the legacy paradedb.aggregate() format like {"sum_price": {"sum": {"field": "price"}}},
-            // the key (e.g., "sum_price") is the aggregate name
-            for (key, value) in map {
-                if key != "aggs"
-                    && key != "aggregations"
-                    && key != "field"
-                    && !METRIC_TYPES.contains(&key.as_str())
-                {
-                    // Check if this is a named aggregate (contains a metric type directly)
-                    // e.g., {"sum_price": {"sum": {"field": "price"}}}
-                    let is_named_aggregate = if let serde_json::Value::Object(inner_map) = value {
-                        METRIC_TYPES.iter().any(|mt| inner_map.contains_key(*mt))
-                    } else {
-                        false
-                    };
-
-                    if is_named_aggregate && current_agg_name.is_none() {
-                        // Use the key as the aggregate name
-                        extract_agg_name_to_field_recursive(value, result, Some(key));
-                    } else {
-                        extract_agg_name_to_field_recursive(value, result, current_agg_name);
-                    }
-                }
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for item in arr {
-                extract_agg_name_to_field_recursive(item, result, current_agg_name);
             }
         }
         _ => {}
@@ -595,13 +527,11 @@ pub unsafe fn parse_coalesce_expression(
     // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
     // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
     let first_arg = args.get_ptr(0)?;
-    let var = unwrap_var(first_arg as *mut pg_sys::Expr)?;
+    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)?;
 
     // Second argument (the default value) might also be wrapped in type coercion
     let second_arg = args.get_ptr(1)?;
-    let const_node = unwrap_expr(second_arg as *mut pg_sys::Expr, |e| {
-        ConstNode::try_from(e as *mut pg_sys::Node)
-    })?;
+    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)?;
 
     let missing = match TantivyValue::try_from(const_node) {
         Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),

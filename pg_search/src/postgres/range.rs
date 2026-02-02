@@ -1,5 +1,5 @@
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::numeric::bytes_to_hex;
+use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
 use crate::schema::range::TantivyRangeBuilder;
 use decimal_bytes::Decimal;
 use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
@@ -88,9 +88,8 @@ impl<'de> Deserialize<'de> for SortableDecimal {
         D: Deserializer<'de>,
     {
         let hex_str = String::deserialize(deserializer)?;
-        let bytes = crate::query::numeric::hex_to_bytes(&hex_str)
+        let decimal = hex_to_decimal(&hex_str)
             .ok_or_else(|| serde::de::Error::custom("invalid hex string"))?;
-        let decimal = Decimal::from_bytes(&bytes).map_err(serde::de::Error::custom)?;
         Ok(SortableDecimal(decimal))
     }
 }

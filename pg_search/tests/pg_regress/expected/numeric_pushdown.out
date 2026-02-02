@@ -2918,14 +2918,14 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 SELECT id, category, price,
        SUM(price) OVER () as total_price
 FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate AVG on Numeric64 field in TopN query
 SELECT id, category, price,
        AVG(price) OVER () as avg_price
@@ -2933,7 +2933,7 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 -- Window aggregate MIN/MAX on Numeric64 field in TopN query
 SELECT id, category, price,
        MIN(price) OVER () as min_price,
@@ -2942,7 +2942,7 @@ FROM window_agg_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'price' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'price' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numeric64_test;
 -- ----------------------------------------------------------------------------
 -- TEST: Window aggregates on NumericBytes fields in TopN query (should error)
@@ -2968,7 +2968,7 @@ FROM window_agg_numericbytes_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'amount' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'amount' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_numericbytes_test;
 -- ----------------------------------------------------------------------------
 -- TEST: Window aggregates on high-precision NUMERIC in TopN query (should error)
@@ -2993,5 +2993,5 @@ FROM window_agg_highprec_test
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 10;
-ERROR:  Window aggregate on field 'value' cannot be pushed down: NUMERIC columns do not support aggregate pushdown.
+ERROR:  Aggregate on NUMERIC field 'value' cannot be pushed down. NUMERIC columns do not support aggregate pushdown.
 DROP TABLE window_agg_highprec_test;

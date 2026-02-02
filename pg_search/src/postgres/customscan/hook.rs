@@ -24,6 +24,7 @@ use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
+use crate::postgres::customscan::orderby::validate_topn_compatibility;
 use crate::postgres::customscan::pdbscan::projections::window_agg;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
@@ -378,6 +379,11 @@ pub unsafe fn try_extract_quals_from_query(
 /// Errors if `pdb.agg()` is used AT THE CURRENT LEVEL but requirements aren't met.
 /// Note: pdb.agg() in subqueries/CTEs will be checked separately when those are processed.
 unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
+    // Check if custom scan is enabled globally
+    if !gucs::enable_custom_scan() {
+        return false;
+    }
+
     // Early return: not a SELECT query
     if parse.is_null() || (*parse).commandType != pg_sys::CmdType::CMD_SELECT {
         return false;
@@ -390,17 +396,6 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
 
     // Check if pdb.agg() is used at the CURRENT level (not in subqueries/CTEs)
     let has_paradedb_agg_current_level = query_has_paradedb_agg(parse, false);
-
-    // Check if this is a TopN query
-    if !query_is_topn(parse) {
-        // pdb.agg() at current level requires TopN
-        if has_paradedb_agg_current_level {
-            pgrx::error!(
-                "pdb.agg() window functions require ORDER BY and LIMIT clauses (TopN query)"
-            );
-        }
-        return false;
-    }
 
     // Check if we should handle this query (has pdb.agg or search operator)
     let has_search_operator = query_has_search_operator(parse);
@@ -419,6 +414,21 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
             );
         }
         // For non-pdb.agg queries, just don't replace - let PostgreSQL handle them
+        return false;
+    }
+
+    // STRICT CHECK: Validate TopN compatibility
+    // If we're going to replace window functions with pdb.window_agg(), we MUST ensure
+    // that the query can actually be executed as a TopN query on the index.
+    // Otherwise, we'll crash later when basescan falls back to Normal execution.
+    if !unsafe { validate_topn_compatibility(parse) } {
+        if has_paradedb_agg_current_level {
+            pgrx::error!(
+                "pdb.agg() window functions require a valid TopN query (ORDER BY and LIMIT) where all \
+                 ORDER BY columns are indexed and sortable (fast fields). Ensure you are sorting by \
+                 indexed columns of a single table with a BM25 index."
+            );
+        }
         return false;
     }
 
@@ -692,19 +702,6 @@ unsafe fn is_paradedb_search_operator(opno: pg_sys::Oid) -> bool {
 
     pg_sys::ReleaseSysCache(opertup);
     is_our_operator
-}
-
-/// Check if the query is a TopN query (has ORDER BY and LIMIT)
-unsafe fn query_is_topn(parse: *mut pg_sys::Query) -> bool {
-    if parse.is_null() {
-        return false;
-    }
-
-    // Must have both ORDER BY (sortClause) and LIMIT (limitCount)
-    let has_order_by = !(*parse).sortClause.is_null();
-    let has_limit = !(*parse).limitCount.is_null();
-
-    has_order_by && has_limit
 }
 
 /// Check if the query contains pdb.agg() in any context (window function or aggregate)

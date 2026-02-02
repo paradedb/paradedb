@@ -46,7 +46,7 @@ ORDER BY
   topn.score DESC;
 
 -- Directly, without a CTE.
-SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
   *,
   pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM

@@ -12,7 +12,7 @@ WHERE
 ORDER BY score DESC
 LIMIT 1000;
 
-SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
   documents.id,
   files.id,
   pages.id,

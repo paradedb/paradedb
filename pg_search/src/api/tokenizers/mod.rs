@@ -131,8 +131,12 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    // Parse columnar option from typmod
     let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
+
+    // columnar=true/false is our renaming of Tantivy's `fast` option
+    // fast is default to true for any field that's not text or JSON
+    // if it is text or JSON, it also default to true for literal and literal_normalized
+    // otherwise the user needs to explicitly set it to true
     let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
 
     let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"

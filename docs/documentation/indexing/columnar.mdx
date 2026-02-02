@@ -37,3 +37,8 @@ split into tokens `hello` and `world`, the columnar value remains `Hello world`.
 This is important because operations like filtering and sorting require the original field value, not the tokens.
 
 </Note>
+
+<Note>
+  Internally, Tantivy refers to columnar fields as fast fields. Our [legacy
+  docs](/legacy/indexing/create-index) also refer to these fields as fast.
+</Note>

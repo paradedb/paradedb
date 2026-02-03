@@ -68,7 +68,16 @@ FROM transactions
 WHERE transactions.id @@@ paradedb.all()
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date NULLS LAST;
-ERROR:  search should not fail: InvalidArgument("Missing value I64(9223372036854775807) for field as_of_date is not supported for column type DateTime")
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+         1 | 12-29-2025
+         2 | 12-30-2025
+         1 | 12-31-2025
+(6 rows)
+
 -- =====================================================================
 -- Test 2: GROUP BY DateTime with BETWEEN range filter
 -- =====================================================================
@@ -107,7 +116,13 @@ WHERE transactions.organization_id = 'org1'
     AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
-ERROR:  search should not fail: InvalidArgument("Missing value I64(9223372036854775807) for field as_of_date is not supported for column type DateTime")
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+(3 rows)
+
 -- =====================================================================
 -- Test 3: GROUP BY DateTime with < operator
 -- =====================================================================
@@ -138,7 +153,13 @@ WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date < '2025-12-29'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
-ERROR:  search should not fail: InvalidArgument("Missing value I64(9223372036854775807) for field as_of_date is not supported for column type DateTime")
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+(3 rows)
+
 -- =====================================================================
 -- Test 4: GROUP BY DateTime with > operator
 -- =====================================================================
@@ -169,7 +190,13 @@ WHERE transactions.id @@@ paradedb.all()
     AND transactions.as_of_date > '2025-12-28'
 GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
-ERROR:  search should not fail: InvalidArgument("Missing value I64(9223372036854775807) for field as_of_date is not supported for column type DateTime")
+ count_all | as_of_date 
+-----------+------------
+         1 | 12-29-2025
+         2 | 12-30-2025
+         1 | 12-31-2025
+(3 rows)
+
 -- =====================================================================
 -- Test 5: MIN/MAX aggregates on DateTime field
 -- =====================================================================

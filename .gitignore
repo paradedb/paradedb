@@ -47,3 +47,11 @@ node_modules/
 
 # Cursor
 .cursor/
+<<<<<<< HEAD
+=======
+
+# Claude
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+>>>>>>> bb042cc2 (fix: `pdb.score()` panics with NOT EXISTS in parallel plans (#4049))

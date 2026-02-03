@@ -152,8 +152,12 @@ fn build_clause_df<'a>(
 
         // Prepare join keys
         let mut on: Vec<Expr> = Vec::new();
-        let outer_alias_owned = outer_source.alias().unwrap_or_else(|| "outer".to_string());
-        let inner_alias_owned = inner_source.alias().unwrap_or_else(|| "inner".to_string());
+        let outer_alias_owned = outer_source
+            .alias()
+            .unwrap_or_else(|| JoinSource::default_alias(0).to_string());
+        let inner_alias_owned = inner_source
+            .alias()
+            .unwrap_or_else(|| JoinSource::default_alias(1).to_string());
         let outer_alias = outer_alias_owned.as_str();
         let inner_alias = inner_alias_owned.as_str();
 
@@ -240,16 +244,23 @@ fn build_clause_df<'a>(
                 join_level_sets.push(Arc::new(set));
             }
 
-            // Find the CTID column name for each source.
-            let mut source_ctid_cols = Vec::new();
+            // Create a map of RTI -> CTID column expression for join-level predicates
+            let mut ctid_map = crate::api::HashMap::default();
             for (i, source) in join_clause.sources.iter().enumerate() {
-                let alias = source.alias().unwrap_or_else(|| format!("source_{}", i));
-                let ctid_name = if let JoinSource::Base(info) = source {
-                    format!("ctid_{}", info.heap_rti.unwrap_or(0))
-                } else {
-                    WhichFastField::Ctid.name().to_string()
-                };
-                source_ctid_cols.push(make_col(&alias, &ctid_name));
+                let alias = source
+                    .alias()
+                    .unwrap_or_else(|| JoinSource::default_alias(i).to_string());
+
+                let mut base_relations = Vec::new();
+                source.collect_base_relations(&mut base_relations);
+
+                for base in base_relations {
+                    if let Some(rti) = base.heap_rti {
+                        let ctid_name = format!("ctid_{}", rti);
+                        let expr = make_col(&alias, &ctid_name);
+                        ctid_map.insert(rti, expr);
+                    }
+                }
             }
 
             let filter_expr = unsafe {
@@ -257,7 +268,8 @@ fn build_clause_df<'a>(
                     join_level_expr,
                     &translated_exprs,
                     &join_level_sets,
-                    &source_ctid_cols,
+                    &ctid_map,
+                    &join_clause.join_level_predicates,
                 )
             }
             .ok_or_else(|| {

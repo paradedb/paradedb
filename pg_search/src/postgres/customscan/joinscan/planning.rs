@@ -317,62 +317,252 @@ pub(super) unsafe fn extract_join_source(
     }
 
     // Case 2: Join Relation (multiple relids)
-    let pathlist = PgList::<pg_sys::Path>::from_pg((*rel).pathlist);
+    // We only inspect the cheapest path chosen by PostgreSQL.
+    // This allows us to build on top of whatever optimal plan PostgreSQL found for the children,
+    // whether it's an existing JoinScan or a standard join that we can reconstruct.
+    let path = (*rel).cheapest_total_path;
+    if path.is_null() {
+        return None;
+    }
 
-    for path in pathlist.iter_ptr() {
-        if !path.is_null() && (*path).type_ == pg_sys::NodeTag::T_CustomPath {
-            let custom_path = path as *mut pg_sys::CustomPath;
-            let methods = (*custom_path).methods;
+    if (*path).type_ == pg_sys::NodeTag::T_CustomPath {
+        let custom_path = path as *mut pg_sys::CustomPath;
+        let methods = (*custom_path).methods;
 
-            // Check if this is a JoinScan
-            let name_ptr = (*methods).CustomName;
-            if !name_ptr.is_null() {
-                let name_cstr = std::ffi::CStr::from_ptr(name_ptr);
-                if name_cstr.to_bytes() == b"ParadeDB Join Scan" {
-                    // Deserialize PrivateData to get the child clause
-                    let private_list =
-                        PgList::<pg_sys::Node>::from_pg((*custom_path).custom_private);
-                    if !private_list.is_empty() {
-                        let private_data = PrivateData::from((*custom_path).custom_private);
+        // Check if this is a JoinScan
+        let name_ptr = (*methods).CustomName;
+        if !name_ptr.is_null() {
+            let name_cstr = std::ffi::CStr::from_ptr(name_ptr);
+            if name_cstr.to_bytes() == b"ParadeDB Join Scan" {
+                // Deserialize PrivateData to get the child clause
+                let private_list = PgList::<pg_sys::Node>::from_pg((*custom_path).custom_private);
+                if !private_list.is_empty() {
+                    let private_data = PrivateData::from((*custom_path).custom_private);
 
-                        // Extract projection from path target
-                        let pathtarget = (*path).pathtarget;
-                        let exprs = PgList::<pg_sys::Node>::from_pg((*pathtarget).exprs);
-                        let mut projection = Vec::with_capacity(exprs.len());
+                    // Extract projection from path target
+                    let pathtarget = (*path).pathtarget;
+                    let exprs = PgList::<pg_sys::Node>::from_pg((*pathtarget).exprs);
+                    let mut projection = Vec::with_capacity(exprs.len());
 
-                        for expr in exprs.iter_ptr() {
-                            if let Some(var) = nodecast!(Var, T_Var, expr) {
-                                projection.push(ChildProjection {
-                                    rti: (*var).varno as pg_sys::Index,
-                                    attno: (*var).varattno,
-                                    is_score: false,
-                                });
-                            } else if let Some(rti) = get_score_func_rti(expr.cast()) {
-                                projection.push(ChildProjection {
-                                    rti,
-                                    attno: 0,
-                                    is_score: true,
-                                });
-                            } else {
-                                projection.push(ChildProjection {
-                                    rti: 0,
-                                    attno: 0,
-                                    is_score: false,
-                                });
-                            }
+                    for expr in exprs.iter_ptr() {
+                        if let Some(var) = nodecast!(Var, T_Var, expr) {
+                            projection.push(ChildProjection {
+                                rti: (*var).varno as pg_sys::Index,
+                                attno: (*var).varattno,
+                                is_score: false,
+                            });
+                        } else if let Some(rti) = get_score_func_rti(expr.cast()) {
+                            projection.push(ChildProjection {
+                                rti,
+                                attno: 0,
+                                is_score: true,
+                            });
+                        } else {
+                            projection.push(ChildProjection {
+                                rti: 0,
+                                attno: 0,
+                                is_score: false,
+                            });
                         }
-                        // Clone clause and add projection
-                        let mut child_clause = private_data.join_clause.clone();
-                        child_clause.output_projection = Some(projection.clone());
-
-                        return Some(JoinSource::Join(child_clause, projection, None));
                     }
+                    // Clone clause and add projection
+                    let mut child_clause = private_data.join_clause.clone();
+                    child_clause.output_projection = Some(projection.clone());
+
+                    return Some(JoinSource::Join(child_clause, projection, None));
                 }
             }
+        }
+    } else if is_join_path(path) {
+        // Reconstruct from standard join path
+        let join_path = path as *mut pg_sys::JoinPath;
+        let outer_path = (*join_path).outerjoinpath;
+        let inner_path = (*join_path).innerjoinpath;
+
+        if !outer_path.is_null() && !inner_path.is_null() {
+            let outer_rel = (*outer_path).parent;
+            let inner_rel = (*inner_path).parent;
+
+            let outer_source = extract_join_source(root, outer_rel)?;
+            let inner_source = extract_join_source(root, inner_rel)?;
+
+            // Reconstruct the join clause
+            let sources = vec![outer_source.clone(), inner_source.clone()];
+            let join_restrict_info = (*join_path).joinrestrictinfo;
+            let join_conditions = extract_join_conditions_from_list(join_restrict_info, &sources);
+
+            // Only support Inner Join for reconstruction for now
+            let jointype = (*join_path).jointype;
+            if jointype != pg_sys::JoinType::JOIN_INNER {
+                return None;
+            }
+
+            if join_conditions.equi_keys.is_empty() {
+                return None;
+            }
+
+            // Reject if there are other conditions (filters) we can't handle yet
+            if !join_conditions.other_conditions.is_empty() {
+                return None;
+            }
+
+            // Validate that all join keys are fast fields.
+            // If they aren't, we can't execute this join using JoinScan.
+            for jk in &join_conditions.equi_keys {
+                if !is_source_column_fast_field(&sources[0], jk.outer_attno)
+                    || !is_source_column_fast_field(&sources[1], jk.inner_attno)
+                {
+                    return None;
+                }
+            }
+
+            let mut join_clause = JoinCSClause::new()
+                .with_outer_side(sources[0].clone())
+                .with_inner_side(sources[1].clone())
+                .with_join_type(super::build::JoinType::Inner)
+                .with_limit(None); // Intermediate joins have no limit
+
+            join_clause.join_keys = join_conditions.equi_keys;
+
+            // Extract projection from path target
+            let pathtarget = (*path).pathtarget;
+            let exprs = PgList::<pg_sys::Node>::from_pg((*pathtarget).exprs);
+            let mut projection = Vec::with_capacity(exprs.len());
+
+            for expr in exprs.iter_ptr() {
+                if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    projection.push(ChildProjection {
+                        rti: (*var).varno as pg_sys::Index,
+                        attno: (*var).varattno,
+                        is_score: false,
+                    });
+                } else if let Some(rti) = get_score_func_rti(expr.cast()) {
+                    projection.push(ChildProjection {
+                        rti,
+                        attno: 0,
+                        is_score: true,
+                    });
+                } else {
+                    projection.push(ChildProjection {
+                        rti: 0,
+                        attno: 0,
+                        is_score: false,
+                    });
+                }
+            }
+
+            join_clause.output_projection = Some(projection.clone());
+            return Some(JoinSource::Join(join_clause, projection, None));
         }
     }
 
     None
+}
+
+unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
+    matches!(
+        (*path).type_,
+        pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
+    )
+}
+
+unsafe fn extract_join_conditions_from_list(
+    restrictlist: *mut pg_sys::List,
+    sources: &[JoinSource],
+) -> JoinConditions {
+    let mut result = JoinConditions {
+        equi_keys: Vec::new(),
+        other_conditions: Vec::new(),
+        has_search_predicate: false,
+    };
+
+    if restrictlist.is_null() || sources.len() < 2 {
+        return result;
+    }
+
+    let outer_side = &sources[0];
+    let inner_side = &sources[1];
+
+    let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
+    for ri in list.iter_ptr() {
+        let clause = (*ri).clause;
+        if clause.is_null() {
+            continue;
+        }
+
+        let search_op = anyelement_query_input_opoid();
+        if expr_contains_any_operator(clause.cast(), &[search_op]) {
+            result.has_search_predicate = true;
+        }
+
+        let mut is_equi_join = false;
+
+        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            let opexpr = clause as *mut pg_sys::OpExpr;
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+            if args.len() == 2 {
+                let arg0 = args.get_ptr(0).unwrap();
+                let arg1 = args.get_ptr(1).unwrap();
+
+                let opno = (*opexpr).opno;
+                let is_equality_op = lookup_operator(opno) == Some("=");
+
+                if is_equality_op
+                    && (*arg0).type_ == pg_sys::NodeTag::T_Var
+                    && (*arg1).type_ == pg_sys::NodeTag::T_Var
+                {
+                    let var0 = arg0 as *mut pg_sys::Var;
+                    let var1 = arg1 as *mut pg_sys::Var;
+
+                    let varno0 = (*var0).varno as pg_sys::Index;
+                    let varno1 = (*var1).varno as pg_sys::Index;
+                    let attno0 = (*var0).varattno;
+                    let attno1 = (*var1).varattno;
+
+                    if let (Some(outer_attno), Some(inner_attno)) = (
+                        outer_side.map_var(varno0, attno0),
+                        inner_side.map_var(varno1, attno1),
+                    ) {
+                        let type_oid = (*var0).vartype;
+                        let (typlen, typbyval) = get_type_info(type_oid);
+                        result.equi_keys.push(JoinKeyPair {
+                            outer_attno,
+                            inner_attno,
+                            type_oid,
+                            typlen,
+                            typbyval,
+                        });
+                        is_equi_join = true;
+                    } else if let (Some(outer_attno), Some(inner_attno)) = (
+                        outer_side.map_var(varno1, attno1),
+                        inner_side.map_var(varno0, attno0),
+                    ) {
+                        let type_oid = (*var1).vartype;
+                        let (typlen, typbyval) = get_type_info(type_oid);
+                        result.equi_keys.push(JoinKeyPair {
+                            outer_attno,
+                            inner_attno,
+                            type_oid,
+                            typlen,
+                            typbyval,
+                        });
+                        is_equi_join = true;
+                    }
+                }
+            }
+        }
+
+        if !is_equi_join {
+            let search_op = anyelement_query_input_opoid();
+            let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+            if !has_search_op {
+                result.other_conditions.push(ri);
+            }
+        }
+    }
+
+    result
 }
 
 /// Collect all required fields for execution.

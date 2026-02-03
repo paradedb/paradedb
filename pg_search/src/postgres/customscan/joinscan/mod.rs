@@ -51,8 +51,9 @@
 //!    - A BM25 index on the table
 //!    - A `@@@` search predicate in the WHERE clause
 //!
-//! 5. **Base relations**: Each side of the join must be a single base relation
-//!    - Join trees (e.g., `(A JOIN B) JOIN C`) on one side are not yet supported
+//! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
+//!    It achieves this by reconstructing the join tree from PostgreSQL's plan or by nesting
+//!    multiple JoinScan operators.
 //!
 //! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
 //!    respective BM25 indexes. This allows the join to be executed entirely within the index:
@@ -119,7 +120,8 @@
 //! ## Execution Strategy
 //!
 //! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into the join path list.
-//!    It identifies potential search joins, extracts predicates, and builds a `JoinCSClause`.
+//!    It identifies potential search joins (including reconstructing multi-level joins from
+//!    PostgreSQL's optimal paths), extracts predicates, and builds a `JoinCSClause`.
 //! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
 //!    This plan defines the join, filters, sorts, and limits.
 //! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
@@ -434,7 +436,16 @@ impl CustomScan for JoinScan {
 
             // Add heap condition clauses to custom_exprs so they get transformed by set_customscan_references.
             // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.
-            //
+            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+            let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(node.custom_exprs);
+            // Skip index 0 (PrivateData) and index 1 (restrictlist)
+            for i in 2..path_private_full.len() {
+                if let Some(node_ptr) = path_private_full.get_ptr(i) {
+                    custom_exprs_list.push(node_ptr);
+                }
+            }
+            node.custom_exprs = custom_exprs_list.into_pg();
+
             // Collect all required fields for execution
             collect_required_fields(
                 &mut private_data.join_clause,

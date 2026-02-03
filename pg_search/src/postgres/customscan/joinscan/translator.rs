@@ -22,7 +22,9 @@ use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
-use crate::postgres::customscan::joinscan::build::{JoinLevelExpr, JoinSource};
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
+};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS,
 };
@@ -62,15 +64,17 @@ impl<'a> PredicateTranslator<'a> {
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
         join_level_sets: &[Arc<Vec<u64>>],
-        source_ctid_cols: &[Expr],
+        ctid_map: &HashMap<pg_sys::Index, Expr>,
+        predicates: &[JoinLevelSearchPredicate],
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
-                source_idx,
+                source_idx: _,
                 predicate_idx,
             } => {
                 let set = join_level_sets.get(*predicate_idx)?.clone();
-                let col = source_ctid_cols.get(*source_idx)?;
+                let predicate = predicates.get(*predicate_idx)?;
+                let col = ctid_map.get(&predicate.rti)?;
                 let udf = datafusion::logical_expr::ScalarUDF::new_from_impl(RowInSetUDF::new(set));
                 Some(udf.call(vec![col.clone()]))
             }
@@ -85,14 +89,16 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    source_ctid_cols,
+                    ctid_map,
+                    predicates,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        source_ctid_cols,
+                        ctid_map,
+                        predicates,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -110,14 +116,16 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    source_ctid_cols,
+                    ctid_map,
+                    predicates,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        source_ctid_cols,
+                        ctid_map,
+                        predicates,
                     )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
@@ -132,7 +140,8 @@ impl<'a> PredicateTranslator<'a> {
                     child,
                     custom_exprs,
                     join_level_sets,
-                    source_ctid_cols,
+                    ctid_map,
+                    predicates,
                 )?;
                 Some(Expr::Not(Box::new(inner)))
             }

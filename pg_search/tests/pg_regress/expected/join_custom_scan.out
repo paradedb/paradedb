@@ -670,6 +670,11 @@ UPDATE products SET category_id = 301 WHERE id IN (201, 203, 205, 206);
 UPDATE products SET category_id = 302 WHERE id IN (202, 204, 208);
 UPDATE products SET category_id = 303 WHERE id = 207;
 -- 3-table join with LIMIT
+-- Note: The join between products and categories is on category_id.
+-- category_id was added via ALTER TABLE but was NOT added to the BM25 index on products.
+-- Therefore, the JoinScan cannot push down the join between products and categories
+-- because the join key is not a fast field. The JoinScan should fall back to a
+-- standard join for that level.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -2603,17 +2608,17 @@ JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 LIMIT 10;
-               QUERY PLAN               
-----------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.name, s.name, c.name
          Join Type: Inner
-         Outer Relation: categories (c)
+         Outer Relation: suppliers (s)
          Inner Relation: Join Result
-         Join Cond: c.id = inner.2
-         Inner Tantivy Query: Nested
+         Join Cond: s.id = inner.2
+         Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 10
 (10 rows)
 
@@ -2678,17 +2683,17 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
-                   QUERY PLAN                   
-------------------------------------------------
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: s.name, (paradedb.score(s.id))
    ->  Custom Scan (ParadeDB Join Scan)
          Output: s.name, (paradedb.score(s.id))
          Join Type: Inner
-         Outer Relation: categories (c)
+         Outer Relation: suppliers (s)
          Inner Relation: Join Result
-         Join Cond: c.id = inner.1
-         Inner Tantivy Query: Nested
+         Join Cond: s.id = inner.1
+         Outer Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 5
          Order By: pdb.score() desc
 (11 rows)

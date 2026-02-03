@@ -76,6 +76,8 @@ pub struct JoinKeyPair {
 /// A join-level search predicate - a search query that applies to a specific relation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinLevelSearchPredicate {
+    /// The RTI of the relation this predicate applies to (used for column resolution).
+    pub rti: pg_sys::Index,
     /// The OID of the BM25 index to use.
     pub indexrelid: pg_sys::Oid,
     /// The OID of the heap relation for visibility checks.
@@ -153,6 +155,14 @@ impl JoinSource {
         match self {
             JoinSource::Base(info) => info.alias.clone(),
             JoinSource::Join(_, _, alias) => alias.clone(),
+        }
+    }
+
+    pub fn default_alias(index: usize) -> &'static str {
+        if index == 0 {
+            "outer"
+        } else {
+            "inner"
         }
     }
 
@@ -340,12 +350,14 @@ impl JoinCSClause {
     /// Add a join-level predicate and return its index.
     pub fn add_join_level_predicate(
         &mut self,
+        rti: pg_sys::Index,
         indexrelid: pg_sys::Oid,
         heaprelid: pg_sys::Oid,
         query: SearchQueryInput,
     ) -> usize {
         let idx = self.join_level_predicates.len();
         self.join_level_predicates.push(JoinLevelSearchPredicate {
+            rti,
             indexrelid,
             heaprelid,
             query,

@@ -405,6 +405,11 @@ UPDATE products SET category_id = 302 WHERE id IN (202, 204, 208);
 UPDATE products SET category_id = 303 WHERE id = 207;
 
 -- 3-table join with LIMIT
+-- Note: The join between products and categories is on category_id.
+-- category_id was added via ALTER TABLE but was NOT added to the BM25 index on products.
+-- Therefore, the JoinScan cannot push down the join between products and categories
+-- because the join key is not a fast field. The JoinScan should fall back to a
+-- standard join for that level.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p

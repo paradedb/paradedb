@@ -101,12 +101,12 @@ static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(f
 /// Validate TopN scan eligibility for LIMIT queries
 static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Minimum number of estimated rows required to consider parallel execution.
-/// Below this threshold, parallel workers won't be used because the overhead of
-/// spawning workers typically exceeds any benefit from parallelism.
+/// Minimum number of rows per parallel worker.
+/// Controls how many workers are spawned based on estimated row count.
 /// Based on benchmarks, the crossover point where parallel becomes beneficial
-/// is around 200K-300K rows for warm cache queries.
-static MIN_ROWS_FOR_PARALLEL: GucSetting<i32> = GucSetting::<i32>::new(200000);
+/// is around 300K rows total. Setting to 300K ensures tables under ~300K rows
+/// won't use parallel, and larger tables scale workers appropriately.
+static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -315,12 +315,12 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.min_rows_for_parallel",
-        c"Minimum estimated rows required to use parallel workers",
-        c"Below this threshold, parallel workers won't be spawned because the overhead \
-          of worker startup typically exceeds any benefit from parallelism. Set to 0 to \
-          disable this check and always allow parallelism based on segment count.",
-        &MIN_ROWS_FOR_PARALLEL,
+        c"paradedb.min_rows_per_worker",
+        c"Minimum rows per parallel worker",
+        c"Controls how many parallel workers are used based on estimated row count. \
+          Workers are limited so each processes at least this many rows. \
+          Set to 0 to disable this check and use segment-based parallelism only.",
+        &MIN_ROWS_PER_WORKER,
         0,
         i32::MAX,
         GucContext::Userset,
@@ -474,8 +474,8 @@ pub fn check_topn_scan() -> bool {
     CHECK_TOPN_SCAN.get()
 }
 
-pub fn min_rows_for_parallel() -> i32 {
-    MIN_ROWS_FOR_PARALLEL.get()
+pub fn min_rows_per_worker() -> i32 {
+    MIN_ROWS_PER_WORKER.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

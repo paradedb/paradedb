@@ -721,24 +721,30 @@ impl CustomScan for BaseScan {
             // rows that we expect that scan to return: these may be different in the case of a
             // `limit`.
             //
-            // A total_rows value of -1.0 indicates that reltuples is unknown (table not analyzed),
-            // which signals to compute_nworkers() that it shouldn't trust the row estimate.
-            let total_rows = match table.reltuples() {
-                Some(reltuples) if reltuples > 0.0 => (reltuples as f64 * selectivity).max(1.0),
-                _ => -1.0, // Unknown - table hasn't been analyzed or reltuples is 0
+            // Use RowEstimate enum to distinguish between known and unknown row counts.
+            // Unknown is used when the table hasn't been ANALYZEd.
+            let row_estimate = match table.reltuples() {
+                Some(reltuples) if reltuples > 0.0 => {
+                    let estimated = (reltuples as f64 * selectivity).max(1.0) as u64;
+                    parallel::RowEstimate::Known(estimated)
+                }
+                _ => parallel::RowEstimate::Unknown,
             };
-            let mut result_rows = if total_rows > 0.0 {
-                total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0)
-            } else {
-                // For unknown row counts, use 1.0 as a conservative estimate for costing
-                limit.unwrap_or(1.0).max(1.0)
+            let mut result_rows = match row_estimate {
+                parallel::RowEstimate::Known(rows) => {
+                    (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0)
+                }
+                parallel::RowEstimate::Unknown => {
+                    // For unknown row counts, use 1.0 as a conservative estimate for costing
+                    limit.unwrap_or(1.0).max(1.0)
+                }
             };
 
             let nworkers = if (*builder.args().rel).consider_parallel {
                 compute_nworkers(
                     custom_private.exec_method_type(),
                     limit,
-                    total_rows,
+                    row_estimate,
                     segment_count,
                     quals.contains_external_var(),
                     quals.contains_correlated_param(builder.args().root),

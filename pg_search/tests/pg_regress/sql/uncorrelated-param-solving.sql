@@ -37,7 +37,7 @@ VALUES
 -- The subqueries here are uncorrelated, and should get InitPlan nodes which we can
 -- solve at `BeginCustomScan` time. They should NOT get a "heap filter" plan, as that would
 -- prevent index pushdown.
-EXPLAIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, status, created_at
 FROM items
 WHERE

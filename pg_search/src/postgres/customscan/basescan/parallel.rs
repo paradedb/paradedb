@@ -28,6 +28,16 @@ use crate::postgres::ParallelScanState;
 use pgrx::pg_sys::{self, shm_toc, ParallelContext, Size};
 use tantivy::index::SegmentId;
 
+/// Represents the estimated number of rows for a query.
+/// `Unknown` is used when the table hasn't been ANALYZEd (reltuples = -1 or 0).
+#[derive(Debug, Clone, Copy)]
+pub enum RowEstimate {
+    /// Known row estimate from pg_class.reltuples
+    Known(u64),
+    /// Unknown - table hasn't been analyzed
+    Unknown,
+}
+
 impl ParallelQueryCapable for BaseScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
@@ -98,31 +108,34 @@ impl ParallelQueryCapable for BaseScan {
 pub fn compute_nworkers(
     exec_method: &ExecMethodType,
     limit: Option<Cardinality>,
-    estimated_total_rows: Cardinality,
+    estimated_total_rows: RowEstimate,
     segment_count: usize,
     contains_external_var: bool,
     contains_correlated_param: bool,
 ) -> usize {
-    // Don't parallelize for small datasets - the worker startup overhead (typically ~10ms)
-    // exceeds any benefit from parallelism for small row counts.
+    // Calculate max workers based on rows per worker threshold.
     // See: https://github.com/paradedb/paradedb/issues/3055
     //
-    // Only apply this check when we have reliable row estimates. A value of -1.0 indicates
-    // that reltuples is unknown (table hasn't been ANALYZEd), so we should NOT apply the
-    // threshold since the actual table could be large.
-    let min_rows = crate::gucs::min_rows_for_parallel();
-    let has_reliable_estimate = estimated_total_rows > 0.0;
-    let below_threshold =
-        min_rows > 0 && has_reliable_estimate && estimated_total_rows < min_rows as f64;
+    // The worker startup overhead (~10ms) means we need enough rows per worker
+    // for parallelism to be worthwhile. Based on benchmarks, the crossover point
+    // is around 200K-300K rows total, or ~100K rows per worker with 2 workers.
+    let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
 
-    // We will try to parallelize based on the number of index segments. The leader is not included
-    // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
+    // Start with segment-based parallelism. The leader is not included in `nworkers`,
+    // so exclude it here. For example: if we expect to need to query 1 segment, then
     // we don't need any workers.
-    let mut nworkers = if below_threshold {
-        0
-    } else {
-        segment_count.saturating_sub(1)
-    };
+    let mut nworkers = segment_count.saturating_sub(1);
+
+    // Limit workers based on row estimate if we have reliable stats
+    if let RowEstimate::Known(total_rows) = estimated_total_rows {
+        if min_rows_per_worker > 0 {
+            // Calculate max workers such that each worker processes at least min_rows_per_worker
+            let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
+            nworkers = nworkers.min(max_workers_for_rows);
+        }
+    }
+    // When RowEstimate::Unknown, we don't limit workers based on rows since we can't
+    // trust the estimate - the table could be large.
 
     // parallel workers available to a gather node are limited by max_parallel_workers_per_gather
     // and max_parallel_workers
@@ -136,10 +149,10 @@ pub fn compute_nworkers(
     // limit the number of workers to the number of segments we expect to have to query to reach
     // the limit.
     //
-    // Only apply this optimization when we have reliable row estimates (estimated_total_rows > 0).
+    // Only apply this optimization when we have reliable row estimates.
     if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
-        if has_reliable_estimate {
-            let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
+        if let RowEstimate::Known(total_rows) = estimated_total_rows {
+            let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
             let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
             // See above re: the leader not being included in `nworkers`.
             let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);

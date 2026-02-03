@@ -56,12 +56,8 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::PgSearchRelation;
 
-<<<<<<< HEAD
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
-=======
 use chrono::{DateTime as ChronoDateTime, Utc};
-use pgrx::{pg_sys, IntoDatum, PgList, PgMemoryContexts, PgTupleDesc};
->>>>>>> 504212ce (fix: `GROUP BY` on `DateTime` fields in aggregate custom scan (#4068))
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
 

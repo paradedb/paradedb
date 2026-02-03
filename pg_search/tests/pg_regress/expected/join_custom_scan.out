@@ -1807,21 +1807,17 @@ LIMIT 10;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.description, a.holder_name, t.amount
-   ->  Nested Loop
+   ->  Result
          Output: t.description, a.holder_name, t.amount
-         Join Filter: (t.account_num = a.account_num)
-         ->  Seq Scan on public.numeric_accounts a
-               Output: a.account_num, a.holder_name, a.account_type
-         ->  Materialize
-               Output: t.description, t.amount, t.account_num
-               ->  Custom Scan (ParadeDB Scan) on public.numeric_transactions t
-                     Output: t.description, t.amount, t.account_num
-                     Table: numeric_transactions
-                     Index: numeric_trans_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: t.description, t.amount, a.holder_name
+               Join Type: Inner
+               Outer Relation: numeric_accounts (a)
+               Inner Relation: numeric_transactions (t)
+               Join Cond: a.account_num = t.account_num
+               Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+(12 rows)
 
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
@@ -2375,26 +2371,21 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Hash Join
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Hash Cond: (s.id = p.supplier_id)
-         Join Filter: (p.price >= s.min_order_value)
-         ->  Seq Scan on public.suppliers s
-               Output: s.name, s.min_order_value, s.id
-         ->  Hash
-               Output: p.id, p.name, p.price, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
-                     Output: p.id, p.name, p.price, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+         Join Type: Inner
+         Outer Relation: suppliers (s)
+         Inner Relation: products (p)
+         Join Cond: s.id = p.supplier_id
+         Heap Conditions: 1
+         Inner Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Limit: 10
+(12 rows)
 
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p

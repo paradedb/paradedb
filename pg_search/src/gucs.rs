@@ -104,7 +104,9 @@ static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Minimum number of estimated rows required to consider parallel execution.
 /// Below this threshold, parallel workers won't be used because the overhead of
 /// spawning workers typically exceeds any benefit from parallelism.
-static MIN_ROWS_FOR_PARALLEL: GucSetting<i32> = GucSetting::<i32>::new(5000);
+/// Based on benchmarks, the crossover point where parallel becomes beneficial
+/// is around 200K-300K rows for warm cache queries.
+static MIN_ROWS_FOR_PARALLEL: GucSetting<i32> = GucSetting::<i32>::new(200000);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.

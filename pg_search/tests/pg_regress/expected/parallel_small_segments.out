@@ -2,7 +2,10 @@
 --
 -- This test verifies that the paradedb.min_rows_for_parallel GUC correctly
 -- prevents unnecessary parallel worker spawning for small datasets where the
--- worker startup overhead (~2-4ms) exceeds any parallelism benefit.
+-- worker startup overhead (~10ms) exceeds any parallelism benefit.
+--
+-- Based on benchmarks, the crossover point where parallel becomes beneficial
+-- is around 200K-300K rows for warm cache queries. Default threshold is 200000.
 --
 -- See: https://github.com/paradedb/paradedb/issues/3055
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -36,33 +39,10 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
  items   |     10000
 (1 row)
 
--- Test 1: Default behavior (threshold=5000)
--- With 10000 rows >= 5000, parallel SHOULD be used
-SET paradedb.min_rows_for_parallel = 5000;
+-- Test 1: Default behavior (threshold=200000)
+-- With 10000 rows < 200000, parallel should be DISABLED
+SET paradedb.min_rows_for_parallel = 200000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) 
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: id, name
-   ->  Gather Merge
-         Output: id, name
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
-               Output: id, name
-               Table: items
-               Index: items_bm25_idx
-               Exec Method: TopNScanExecState
-               Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
--- Test 2: Set threshold above our row count (15000)
--- With 10000 rows < 15000, parallel should be DISABLED
-SET paradedb.min_rows_for_parallel = 15000;
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                                                                      QUERY PLAN                                                                     
 ----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -79,9 +59,9 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
--- Test 3: Set threshold below our row count (5)
--- With 10000 rows >= 5, parallel SHOULD be used
-SET paradedb.min_rows_for_parallel = 5;
+-- Test 2: Set threshold below our row count (5000)
+-- With 10000 rows >= 5000, parallel SHOULD be used
+SET paradedb.min_rows_for_parallel = 5000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                                                                         QUERY PLAN                                                                        
@@ -102,7 +82,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
--- Test 4: Disable threshold completely (0)
+-- Test 3: Disable threshold completely (0)
 -- Parallel SHOULD be used based on segment count
 SET paradedb.min_rows_for_parallel = 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -125,31 +105,28 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
--- Test 5: TopN query with ORDER BY score and LIMIT
--- This is the exact scenario from the issue report
-SET paradedb.min_rows_for_parallel = 5000;
+-- Test 4: TopN query with ORDER BY score and LIMIT
+-- With default threshold (200000), parallel should be disabled for 10000 rows
+SET paradedb.min_rows_for_parallel = 200000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items 
 WHERE name @@@ pdb.match('item')
 ORDER BY paradedb.score(id) DESC
 LIMIT 10;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name, (paradedb.score(id))
-   ->  Gather Merge
-         Output: id, name, (paradedb.score(id))
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
-               Output: id, name, paradedb.score(id)
-               Table: items
-               Index: items_bm25_idx
-               Exec Method: TopNScanExecState
-               Scores: true
-                  TopN Order By: pdb.score() desc
-                  TopN Limit: 10
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(14 rows)
+   ->  Custom Scan (ParadeDB Scan) on public.items
+         Output: id, name, paradedb.score(id)
+         Table: items
+         Index: items_bm25_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: pdb.score() desc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(11 rows)
 
 SELECT id, name FROM items 
 WHERE name @@@ pdb.match('item')
@@ -157,19 +134,19 @@ ORDER BY paradedb.score(id) DESC
 LIMIT 10;
   id  |   name    
 ------+-----------
+ 1001 | item 1001
  1002 | item 1002
- 6001 | item 6001
- 6002 | item 6002
- 6003 | item 6003
- 6004 | item 6004
- 6005 | item 6005
- 6006 | item 6006
- 6007 | item 6007
- 6008 | item 6008
- 6009 | item 6009
+ 1003 | item 1003
+ 1004 | item 1004
+ 1005 | item 1005
+ 1006 | item 1006
+ 1007 | item 1007
+ 1008 | item 1008
+ 1009 | item 1009
+ 1010 | item 1010
 (10 rows)
 
--- Test 6: Verify unanalyzed table behavior
+-- Test 5: Verify unanalyzed table behavior
 -- When reltuples is unknown (-1), parallel should still be allowed
 -- (we shouldn't assume small data just because stats are missing)
 DROP TABLE items;
@@ -190,10 +167,9 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
  items   |        -1
 (1 row)
 
--- Even with a high threshold that would normally disable parallel,
--- parallel should still be used because we don't have reliable row
--- estimates to apply the threshold (compare to Test 2 where 15000 disabled parallel)
-SET paradedb.min_rows_for_parallel = 15000;
+-- Even with the default threshold (200000) that would normally disable parallel,
+-- parallel should still be used because we don't have reliable row estimates
+SET paradedb.min_rows_for_parallel = 200000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
                                                                         QUERY PLAN                                                                        
@@ -215,7 +191,7 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 (14 rows)
 
 -- Now ANALYZE the table and run again - parallel should be DISABLED
--- because we now have reliable row estimates (10000 < 15000)
+-- because we now have reliable row estimates (10000 < 200000)
 ANALYZE items;
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
  relname | reltuples 

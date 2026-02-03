@@ -2,7 +2,10 @@
 --
 -- This test verifies that the paradedb.min_rows_for_parallel GUC correctly
 -- prevents unnecessary parallel worker spawning for small datasets where the
--- worker startup overhead (~2-4ms) exceeds any parallelism benefit.
+-- worker startup overhead (~10ms) exceeds any parallelism benefit.
+--
+-- Based on benchmarks, the crossover point where parallel becomes beneficial
+-- is around 200K-300K rows for warm cache queries. Default threshold is 200000.
 --
 -- See: https://github.com/paradedb/paradedb/issues/3055
 
@@ -41,37 +44,30 @@ ANALYZE items;
 -- Verify reltuples is set correctly
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
--- Test 1: Default behavior (threshold=5000)
--- With 10000 rows >= 5000, parallel SHOULD be used
-SET paradedb.min_rows_for_parallel = 5000;
+-- Test 1: Default behavior (threshold=200000)
+-- With 10000 rows < 200000, parallel should be DISABLED
+SET paradedb.min_rows_for_parallel = 200000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) 
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 
--- Test 2: Set threshold above our row count (15000)
--- With 10000 rows < 15000, parallel should be DISABLED
-SET paradedb.min_rows_for_parallel = 15000;
+-- Test 2: Set threshold below our row count (5000)
+-- With 10000 rows >= 5000, parallel SHOULD be used
+SET paradedb.min_rows_for_parallel = 5000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 
--- Test 3: Set threshold below our row count (5)
--- With 10000 rows >= 5, parallel SHOULD be used
-SET paradedb.min_rows_for_parallel = 5;
-
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-
--- Test 4: Disable threshold completely (0)
+-- Test 3: Disable threshold completely (0)
 -- Parallel SHOULD be used based on segment count
 SET paradedb.min_rows_for_parallel = 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 
--- Test 5: TopN query with ORDER BY score and LIMIT
--- This is the exact scenario from the issue report
-SET paradedb.min_rows_for_parallel = 5000;
+-- Test 4: TopN query with ORDER BY score and LIMIT
+-- With default threshold (200000), parallel should be disabled for 10000 rows
+SET paradedb.min_rows_for_parallel = 200000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items 
@@ -84,7 +80,7 @@ WHERE name @@@ pdb.match('item')
 ORDER BY paradedb.score(id) DESC
 LIMIT 10;
 
--- Test 6: Verify unanalyzed table behavior
+-- Test 5: Verify unanalyzed table behavior
 -- When reltuples is unknown (-1), parallel should still be allowed
 -- (we shouldn't assume small data just because stats are missing)
 DROP TABLE items;
@@ -105,16 +101,15 @@ INSERT INTO items (name) SELECT 'item ' || g FROM generate_series(5001, 10000) g
 -- Verify reltuples is -1 (unanalyzed)
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
--- Even with a high threshold that would normally disable parallel,
--- parallel should still be used because we don't have reliable row
--- estimates to apply the threshold (compare to Test 2 where 15000 disabled parallel)
-SET paradedb.min_rows_for_parallel = 15000;
+-- Even with the default threshold (200000) that would normally disable parallel,
+-- parallel should still be used because we don't have reliable row estimates
+SET paradedb.min_rows_for_parallel = 200000;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 
 -- Now ANALYZE the table and run again - parallel should be DISABLED
--- because we now have reliable row estimates (10000 < 15000)
+-- because we now have reliable row estimates (10000 < 200000)
 ANALYZE items;
 
 SELECT relname, reltuples FROM pg_class WHERE relname = 'items';

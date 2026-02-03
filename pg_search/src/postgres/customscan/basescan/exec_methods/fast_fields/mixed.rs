@@ -217,6 +217,20 @@ fn populate_slot_from_record_batch(
     for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
         let column = record_batch.column(i);
 
+        // Handle Junk columns first (before null check) - they use const_values, not Arrow data
+        if matches!(which_fast_field, WhichFastField::Junk(_)) {
+            if let Some((val, is_null)) = const_values.get(&i) {
+                datums[i] = *val;
+                isnull[i] = *is_null;
+            } else {
+                pgrx::error!(
+                    "Expression in target list is not yet supported. \
+                        Please file an issue at https://github.com/paradedb/paradedb/issues."
+                );
+            }
+            continue;
+        }
+
         // Check if this column has a null at this row
         if column.is_null(row_idx) {
             // Check for constant values
@@ -243,10 +257,6 @@ fn populate_slot_from_record_batch(
                     .into_datum()
                     .unwrap_or(pg_sys::Datum::null());
                 isnull[i] = false;
-                continue;
-            }
-            WhichFastField::Junk(_) => {
-                // Junk columns produce null
                 continue;
             }
             _ => {}

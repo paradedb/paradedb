@@ -299,6 +299,21 @@ impl From<SortDirection> for tantivy::aggregation::bucket::Order {
 pub enum OrderByFeature {
     Score,
     Field(FieldName),
+    /// A reference to a PostgreSQL variable (column) by its Range Table Index (RTI) and Attribute Number.
+    ///
+    /// This variant is primarily used by `JoinScan` to unambiguously identify columns across multiple
+    /// relations in a join. Unlike `Field(FieldName)`, which relies on string matching and can be ambiguous
+    /// (e.g., distinguishing `table.column` from `column.json_key`), `Var` provides a precise handle
+    /// that maps directly to the plan's `RangeTblEntry`.
+    ///
+    /// It also allows for "deferred resolution" of column names, which is crucial for integration with
+    /// execution engines like DataFusion where the final schema and aliases might not be fully resolved
+    /// until execution time.
+    Var {
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+        name: Option<String>,
+    },
 }
 
 /// Simple ORDER BY information for serialization in PrivateData

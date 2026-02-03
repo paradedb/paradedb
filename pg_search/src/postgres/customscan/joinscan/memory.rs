@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion_common::DataFusionError;
-use datafusion_execution::memory_pool::{MemoryPool, MemoryReservation};
+use datafusion::common::DataFusionError;
+use datafusion::execution::memory_pool::{MemoryPool, MemoryReservation};
 
 /// A memory pool that panics when the memory limit is exceeded.
 ///
@@ -28,14 +28,14 @@ use datafusion_execution::memory_pool::{MemoryPool, MemoryReservation};
 /// `work_mem` is exceeded.
 #[derive(Debug)]
 pub struct PanicOnOOMMemoryPool {
-    pool: datafusion_execution::memory_pool::GreedyMemoryPool,
+    pool: datafusion::execution::memory_pool::GreedyMemoryPool,
     limit: usize,
 }
 
 impl PanicOnOOMMemoryPool {
     pub fn new(limit: usize) -> Self {
         Self {
-            pool: datafusion_execution::memory_pool::GreedyMemoryPool::new(limit),
+            pool: datafusion::execution::memory_pool::GreedyMemoryPool::new(limit),
             limit,
         }
     }

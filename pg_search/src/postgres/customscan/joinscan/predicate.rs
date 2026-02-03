@@ -25,11 +25,12 @@
 //! - Cross-relation heap conditions (evaluated by PostgreSQL)
 //! - Boolean expression trees (AND/OR/NOT)
 
-use super::build::{JoinCSClause, JoinLevelExpr, JoinSide, JoinSideInfo};
+use super::build::{JoinCSClause, JoinLevelExpr, JoinSource, ScanInfo};
 use super::explain::format_expr_for_explain;
 use super::translator::PredicateTranslator;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
+use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -50,14 +51,13 @@ use pgrx::{pg_sys, PgList};
 pub(super) unsafe fn extract_join_level_conditions(
     root: *mut pg_sys::PlannerInfo,
     extra: *mut pg_sys::JoinPathExtraData,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    sources: &[JoinSource],
     other_conditions: &[*mut pg_sys::RestrictInfo],
     mut join_clause: JoinCSClause,
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
     let mut multi_table_predicate_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
-    if extra.is_null() {
+    if extra.is_null() || sources.is_empty() {
         return Ok((join_clause, multi_table_predicate_clauses));
     }
 
@@ -66,17 +66,14 @@ pub(super) unsafe fn extract_join_level_conditions(
         return Ok((join_clause, multi_table_predicate_clauses));
     }
 
-    let outer_rti = outer_side.heap_rti.unwrap_or(0);
-    let inner_rti = inner_side.heap_rti.unwrap_or(0);
     let search_op = anyelement_query_input_opoid();
-
     let restrict_infos = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
 
     // Collect all expressions into the expression tree
     let mut expr_trees: Vec<JoinLevelExpr> = Vec::new();
 
     // Track which RestrictInfos are heap conditions (by pointer) for index lookup
-    let other_cond_set: std::collections::HashSet<usize> =
+    let other_cond_set: crate::api::HashSet<usize> =
         other_conditions.iter().map(|&ri| ri as usize).collect();
 
     for ri in restrict_infos.iter_ptr() {
@@ -88,15 +85,10 @@ pub(super) unsafe fn extract_join_level_conditions(
         let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
 
         if has_search_op {
-            // Transform search predicate into expression tree
-            // This also collects sub-expression heap conditions
             if let Some(expr) = transform_to_search_expr(
                 root,
                 clause.cast(),
-                outer_rti,
-                inner_rti,
-                outer_side,
-                inner_side,
+                sources,
                 &mut join_clause,
                 &mut multi_table_predicate_clauses,
             ) {
@@ -110,13 +102,7 @@ pub(super) unsafe fn extract_join_level_conditions(
         } else if other_cond_set.contains(&(ri as usize)) {
             // This is a top-level heap condition (cross-relation, no search operator)
             // Only accept if all referenced columns are fast fields
-            if !all_vars_are_fast_fields(
-                clause.cast(),
-                outer_rti,
-                inner_rti,
-                outer_side,
-                inner_side,
-            ) {
+            if !all_vars_are_fast_fields_recursive(clause.cast(), sources) {
                 return Err(format!(
                     "Multi-table predicate '{}' references non-fast-field columns",
                     format_expr_for_explain(clause.cast())
@@ -124,7 +110,8 @@ pub(super) unsafe fn extract_join_level_conditions(
             }
 
             // Check if the predicate can be translated to DataFusion
-            let translator = PredicateTranslator::new(outer_side, inner_side, outer_rti, inner_rti);
+            let translator = PredicateTranslator::new(sources);
+
             if translator.translate(clause.cast()).is_none() {
                 return Err(format!(
                     "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
@@ -141,7 +128,7 @@ pub(super) unsafe fn extract_join_level_conditions(
         }
     }
 
-    // Combine all expressions with AND (since they're separate RestrictInfos)
+    // Combine all expressions with AND
     if !expr_trees.is_empty() {
         let final_expr = if expr_trees.len() == 1 {
             expr_trees.pop().unwrap()
@@ -166,10 +153,7 @@ pub(super) unsafe fn extract_join_level_conditions(
 pub(super) unsafe fn transform_to_search_expr(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    sources: &[JoinSource],
     join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Option<JoinLevelExpr> {
@@ -182,52 +166,43 @@ pub(super) unsafe fn transform_to_search_expr(
 
     // Check which tables this expression references
     let rtis = expr_collect_rtis(node);
-    let refs_outer = rtis.contains(&outer_rti);
-    let refs_inner = rtis.contains(&inner_rti);
+    let mut referenced_source_indices = Vec::new();
+
+    for (i, source) in sources.iter().enumerate() {
+        if rtis.iter().any(|&rti| source.contains_rti(rti)) {
+            referenced_source_indices.push(i);
+        }
+    }
 
     // If this is a single-table expression with search predicate, extract as Predicate
-    if has_search_op && rtis.len() == 1 && (refs_outer || refs_inner) {
-        let (rti, side, join_side) = if refs_outer {
-            (outer_rti, outer_side, JoinSide::Outer)
-        } else {
-            (inner_rti, inner_side, JoinSide::Inner)
-        };
+    if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
+        let rti = *rtis.iter().next().unwrap();
+        let source_idx = referenced_source_indices[0];
+        let source = &sources[source_idx];
 
         // Extract the Tantivy query for this expression
-        if let Some(predicate_idx) =
-            extract_single_table_predicate(root, rti, side, node, join_clause)
-        {
-            return Some(JoinLevelExpr::SingleTablePredicate {
-                side: join_side,
-                predicate_idx,
-            });
+        if let Some(base_info) = find_base_info_recursive(source, rti) {
+            if let Some(predicate_idx) =
+                extract_single_table_predicate(root, rti, base_info, node, join_clause)
+            {
+                return Some(JoinLevelExpr::SingleTablePredicate {
+                    source_idx,
+                    predicate_idx,
+                });
+            }
         }
         return None;
     }
 
     // If this is a cross-relation expression WITHOUT search predicate, create MultiTablePredicate
-    // but only if all referenced columns are fast fields
-    if !has_search_op && refs_outer && refs_inner {
-        // Check if all columns are fast fields - if not, we can't handle this predicate
-        if !all_vars_are_fast_fields(node, outer_rti, inner_rti, outer_side, inner_side) {
-            pgrx::debug1!(
-                "JoinScan: multi-table predicate '{}' references non-fast-field columns, rejecting",
-                format_expr_for_explain(node)
-            );
+    if !has_search_op && referenced_source_indices.len() > 1 {
+        if !all_vars_are_fast_fields_recursive(node, sources) {
             return None;
         }
 
-        // Check if the predicate can be translated to DataFusion
-        let translator = PredicateTranslator::new(outer_side, inner_side, outer_rti, inner_rti);
-        if translator.translate(node).is_none() {
-            pgrx::debug1!(
-                "JoinScan: multi-table predicate '{}' cannot be executed by DataFusion, rejecting",
-                format_expr_for_explain(node)
-            );
-            return None;
-        }
+        let translator = PredicateTranslator::new(sources);
+        translator.translate(node)?;
 
-        // Create a MultiTablePredicate and store the clause pointer for custom_exprs
         let description = format_expr_for_explain(node);
         let predicate_idx =
             join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
@@ -235,83 +210,45 @@ pub(super) unsafe fn transform_to_search_expr(
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
 
-    // Handle BoolExpr (AND/OR/NOT) by recursively processing children
+    // Handle BoolExpr
     let node_type = (*node).type_;
-
     if node_type == pg_sys::NodeTag::T_BoolExpr {
         let boolexpr = node as *mut pg_sys::BoolExpr;
         let boolop = (*boolexpr).boolop;
         let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
 
         match boolop {
-            pg_sys::BoolExprType::AND_EXPR => {
+            pg_sys::BoolExprType::AND_EXPR | pg_sys::BoolExprType::OR_EXPR => {
                 let mut children = Vec::new();
-                let mut all_transformed = true;
                 for arg in args.iter_ptr() {
                     if let Some(child_expr) = transform_to_search_expr(
                         root,
                         arg,
-                        outer_rti,
-                        inner_rti,
-                        outer_side,
-                        inner_side,
+                        sources,
                         join_clause,
                         multi_table_predicate_clauses,
                     ) {
                         children.push(child_expr);
                     } else {
-                        all_transformed = false;
-                        break;
+                        return None;
                     }
                 }
-                if !all_transformed || children.is_empty() {
+                if children.is_empty() {
                     None
                 } else if children.len() == 1 {
                     Some(children.pop().unwrap())
-                } else {
+                } else if boolop == pg_sys::BoolExprType::AND_EXPR {
                     Some(JoinLevelExpr::And(children))
-                }
-            }
-            pg_sys::BoolExprType::OR_EXPR => {
-                // For OR, we need ALL children to be transformable
-                // Otherwise we can't correctly evaluate the OR
-                let mut children = Vec::new();
-                let mut all_transformed = true;
-                for arg in args.iter_ptr() {
-                    if let Some(child_expr) = transform_to_search_expr(
-                        root,
-                        arg,
-                        outer_rti,
-                        inner_rti,
-                        outer_side,
-                        inner_side,
-                        join_clause,
-                        multi_table_predicate_clauses,
-                    ) {
-                        children.push(child_expr);
-                    } else {
-                        all_transformed = false;
-                        break;
-                    }
-                }
-                if !all_transformed || children.is_empty() {
-                    None
-                } else if children.len() == 1 {
-                    Some(children.pop().unwrap())
                 } else {
                     Some(JoinLevelExpr::Or(children))
                 }
             }
             pg_sys::BoolExprType::NOT_EXPR => {
-                // NOT has exactly one argument
                 if let Some(arg) = args.iter_ptr().next() {
                     if let Some(child_expr) = transform_to_search_expr(
                         root,
                         arg,
-                        outer_rti,
-                        inner_rti,
-                        outer_side,
-                        inner_side,
+                        sources,
                         join_clause,
                         multi_table_predicate_clauses,
                     ) {
@@ -323,7 +260,17 @@ pub(super) unsafe fn transform_to_search_expr(
             _ => None,
         }
     } else {
-        // Not a BoolExpr and not handled above - can't transform
+        None
+    }
+}
+
+pub(super) unsafe fn find_base_info_recursive(
+    source: &JoinSource,
+    rti: pg_sys::Index,
+) -> Option<&ScanInfo> {
+    if source.contains_rti(rti) {
+        Some(&source.scan_info)
+    } else {
         None
     }
 }
@@ -333,13 +280,12 @@ pub(super) unsafe fn transform_to_search_expr(
 pub(super) unsafe fn extract_single_table_predicate(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    side: &JoinSideInfo,
+    side: &ScanInfo,
     expr: *mut pg_sys::Node,
     join_clause: &mut JoinCSClause,
 ) -> Option<usize> {
     let indexrelid = side.indexrelid?;
     let heaprelid = side.heaprelid?;
-
     let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
 
     // Create a RestrictInfo wrapping the expression for extract_quals
@@ -353,7 +299,6 @@ pub(super) unsafe fn extract_single_table_predicate(
     let context = PlannerContext::from_planner(root);
     let mut state = QualExtractState::default();
 
-    // extract_quals handles BoolExpr (AND/OR/NOT) recursively, preserving the structure
     let qual = extract_quals(
         &context,
         rti,
@@ -363,41 +308,37 @@ pub(super) unsafe fn extract_single_table_predicate(
         &bm25_idx,
         false,
         &mut state,
-        false, // Don't attempt pushdown for join-level predicates
+        false,
     )?;
 
     let query = SearchQueryInput::from(&qual);
-    let idx = join_clause.add_join_level_predicate(indexrelid, heaprelid, query);
+    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query);
     Some(idx)
 }
 
 /// Check if all Var references in an expression are fast fields.
-///
-/// Returns true if every column referenced in the expression is available as a fast field
-/// in its respective relation's BM25 index. Returns false if any column is not a fast field
-/// or if the relation doesn't have a BM25 index.
-unsafe fn all_vars_are_fast_fields(
+unsafe fn all_vars_are_fast_fields_recursive(
     node: *mut pg_sys::Node,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
-    outer_side: &JoinSideInfo,
-    inner_side: &JoinSideInfo,
+    sources: &[JoinSource],
 ) -> bool {
     let vars = expr_collect_vars(node, false);
 
     for var_ref in vars {
-        // Determine which side this var belongs to
-        let side = if var_ref.rti == outer_rti {
-            outer_side
-        } else if var_ref.rti == inner_rti {
-            inner_side
-        } else {
-            // Unknown RTI - can't verify
-            return false;
-        };
-
-        // Check if this column is a fast field
-        if !is_column_fast_field(side, var_ref.attno) {
+        let mut source_found = false;
+        for source in sources {
+            if source.contains_rti(var_ref.rti) {
+                if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
+                    if !is_column_fast_field(base_info, var_ref.attno) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+                source_found = true;
+                break;
+            }
+        }
+        if !source_found {
             return false;
         }
     }
@@ -410,8 +351,7 @@ unsafe fn all_vars_are_fast_fields(
 /// Returns true if:
 /// - The column is explicitly marked as a fast field in the index schema, OR
 /// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
-pub(super) unsafe fn is_column_fast_field(side: &JoinSideInfo, attno: pg_sys::AttrNumber) -> bool {
-    // Need both heap and index relations
+pub(super) unsafe fn is_column_fast_field(side: &ScanInfo, attno: pg_sys::AttrNumber) -> bool {
     let Some(heaprelid) = side.heaprelid else {
         return false;
     };
@@ -419,32 +359,9 @@ pub(super) unsafe fn is_column_fast_field(side: &JoinSideInfo, attno: pg_sys::At
         return false;
     };
 
-    // Open relations to check schema
     let heaprel = PgSearchRelation::open(heaprelid);
     let indexrel = PgSearchRelation::open(indexrelid);
-
-    // Get tuple descriptor and attribute name
     let tupdesc = heaprel.tuple_desc();
-    let Some(att) = tupdesc.get((attno - 1) as usize) else {
-        return false;
-    };
-    let att_name = att.name();
 
-    // Check if this field is marked as fast in the index schema
-    let Ok(schema) = indexrel.schema() else {
-        return false;
-    };
-
-    // The key_field is always stored as a fast field in Tantivy for document retrieval
-    let key_field_name = schema.key_field_name();
-    if att_name == key_field_name.to_string().as_str() {
-        return true;
-    }
-
-    // Check if explicitly marked as fast
-    let Some(search_field) = schema.search_field(att_name) else {
-        return false;
-    };
-
-    search_field.is_fast()
+    resolve_fast_field(attno as i32, &tupdesc, &indexrel).is_some()
 }

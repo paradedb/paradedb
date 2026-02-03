@@ -473,11 +473,9 @@ pub unsafe fn field_name_from_node(
                     }
                     expr_no += 1;
                 } else if type_is_tokenizer(expr_type) {
-                    // Early return for non-tokenizable var types (preserves main branch behavior)
-                    if !type_can_be_tokenized((*var).vartype) {
-                        return None;
-                    }
-                    if var_matches_tokenizer_expr(var, expression.cast()) {
+                    if type_can_be_tokenized((*var).vartype)
+                        && var_matches_tokenizer_expr(var, expression.cast())
+                    {
                         return attname_from_var(heaprel, var);
                     }
                     expr_no += 1;

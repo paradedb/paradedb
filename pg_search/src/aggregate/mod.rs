@@ -572,12 +572,25 @@ fn set_missing_on_terms(
                 // theoretically collide with valid data values, though this is unlikely in practice.
                 // TODO: Consider improving Tantivy's NULL handling in aggregates to avoid this.
                 let sentinel = match schema.get_field_type(&terms.field) {
-                    Some(SearchFieldType::I64(_)) | Some(SearchFieldType::Date(_)) => {
+                    Some(SearchFieldType::I64(_)) => {
                         if use_min {
                             Key::I64(i64::MIN)
                         } else {
                             Key::I64(i64::MAX)
                         }
+                    }
+                    Some(SearchFieldType::Date(_)) => {
+                        // DateTime fields: Tantivy's terms aggregation doesn't accept Key::I64
+                        // for DateTime columns (it validates the Key type against column type).
+                        // We skip setting a missing value, which means NULL dates will be
+                        // excluded from GROUP BY results rather than appearing as a separate group.
+                        // This matches standard SQL behavior where NULLs are typically excluded
+                        // from aggregations unless explicitly handled.
+                        //
+                        // TODO: When Tantivy adds Key::Date support to its aggregation Key enum,
+                        // we should use that here to properly handle NULL datetime values in
+                        // GROUP BY, similar to how other types use sentinels.
+                        continue;
                     }
                     Some(SearchFieldType::U64(_)) => {
                         // For U64, 0 is a common value so we use string for MIN

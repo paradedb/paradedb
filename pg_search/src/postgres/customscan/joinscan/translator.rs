@@ -15,148 +15,39 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::any::Any;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
-use arrow_array::builder::BooleanBuilder;
-use arrow_array::{Array, RecordBatch, UInt64Array};
-use arrow_schema::{DataType, Schema};
-use datafusion_common::{Result, ScalarValue};
-use datafusion_expr::{ColumnarValue, Operator};
-use datafusion_physical_expr::expressions::{BinaryExpr, Column, Literal, NotExpr};
-use datafusion_physical_expr::PhysicalExpr;
+use datafusion::common::{Column, ScalarValue, TableReference};
+use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
 
 use crate::api::HashMap;
-use crate::postgres::customscan::joinscan::build::JoinLevelExpr;
-use crate::postgres::customscan::joinscan::build::JoinSideInfo;
+use crate::postgres::customscan::joinscan::build::{
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
+};
+use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
+use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
 use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OperatorAccepts, PostgresOperatorOid, TantivyOperator,
 };
 
 static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
 
-#[derive(Debug, Clone, Eq)]
-pub struct RowInSetExpr {
-    arg: Arc<dyn PhysicalExpr>,
-    set: Arc<Vec<u64>>, // Sorted set of valid ctids
+pub(super) trait ColumnMapper {
+    /// Map a PostgreSQL variable to a DataFusion Column expression
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
-impl Hash for RowInSetExpr {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.arg.hash(state);
-        self.set.hash(state);
-    }
-}
-
-impl PartialEq for RowInSetExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.arg.eq(&other.arg) && self.set == other.set
-    }
-}
-
-impl std::fmt::Display for RowInSetExpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RowInSetExpr(set_len={})", self.set.len())
-    }
-}
-
-impl PhysicalExpr for RowInSetExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-    fn data_type(&self, _input_schema: &Schema) -> Result<DataType> {
-        Ok(DataType::Boolean)
-    }
-    fn nullable(&self, _input_schema: &Schema) -> Result<bool> {
-        Ok(false)
-    }
-    fn evaluate(&self, batch: &RecordBatch) -> Result<ColumnarValue> {
-        let arg_val = self.arg.evaluate(batch)?;
-        match arg_val {
-            ColumnarValue::Array(array) => {
-                let ctids = array
-                    .as_any()
-                    .downcast_ref::<UInt64Array>()
-                    .expect("Expected UInt64Array for ctid");
-                let mut builder = BooleanBuilder::with_capacity(ctids.len());
-                for i in 0..ctids.len() {
-                    if ctids.is_null(i) {
-                        builder.append_null();
-                    } else {
-                        let ctid = ctids.value(i);
-                        // binary search since set is sorted
-                        builder.append_value(self.set.binary_search(&ctid).is_ok());
-                    }
-                }
-                Ok(ColumnarValue::Array(Arc::new(builder.finish())))
-            }
-            ColumnarValue::Scalar(scalar) => match scalar {
-                ScalarValue::UInt64(Some(ctid)) => {
-                    let is_present = self.set.binary_search(&ctid).is_ok();
-                    Ok(ColumnarValue::Scalar(ScalarValue::Boolean(Some(
-                        is_present,
-                    ))))
-                }
-                _ => Ok(ColumnarValue::Scalar(ScalarValue::Boolean(None))),
-            },
-        }
-    }
-    fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
-        vec![&self.arg]
-    }
-    fn with_new_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn PhysicalExpr>>,
-    ) -> Result<Arc<dyn PhysicalExpr>> {
-        Ok(Arc::new(RowInSetExpr {
-            arg: children[0].clone(),
-            set: self.set.clone(),
-        }))
-    }
-    fn fmt_sql(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} IN SET (size={})", self.arg, self.set.len())
-    }
-}
-
-pub trait ColumnMapper {
-    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<usize>;
-}
-
-/// Helper struct for translating PostgreSQL expression trees into DataFusion `PhysicalExpr`s.
-///
-/// This is used during planning to convert join conditions and filters into a format
-/// that DataFusion can execute. It handles:
-/// - Mapping PostgreSQL `Var` nodes to DataFusion column indices
-/// - Translating common operators and boolean expressions
-/// - Converting PostgreSQL constants to DataFusion `ScalarValue`s
-///
-/// It also handles the translation of the special `JoinLevelExpr` tree, which combines
-/// standard SQL predicates with Tantivy search results (bitmap scans).
-pub struct PredicateTranslator<'a> {
-    // We keep these for context, though they might be unused in simple validation
-    #[allow(dead_code)]
-    outer_side: &'a JoinSideInfo,
-    #[allow(dead_code)]
-    inner_side: &'a JoinSideInfo,
-    outer_rti: pg_sys::Index,
-    inner_rti: pg_sys::Index,
+/// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
+pub(super) struct PredicateTranslator<'a> {
+    pub sources: &'a [JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
 impl<'a> PredicateTranslator<'a> {
-    pub fn new(
-        outer_side: &'a JoinSideInfo,
-        inner_side: &'a JoinSideInfo,
-        outer_rti: pg_sys::Index,
-        inner_rti: pg_sys::Index,
-    ) -> Self {
+    pub fn new(sources: &'a [JoinSource]) -> Self {
         Self {
-            outer_side,
-            inner_side,
-            outer_rti,
-            inner_rti,
+            sources,
             mapper: None,
         }
     }
@@ -166,29 +57,24 @@ impl<'a> PredicateTranslator<'a> {
         self
     }
 
-    /// Translate a `JoinLevelExpr` tree to a DataFusion `PhysicalExpr`.
+    /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
-        custom_exprs: &[Arc<dyn PhysicalExpr>],
+        custom_exprs: &[Expr],
         join_level_sets: &[Arc<Vec<u64>>],
-        outer_ctid_col: &Arc<dyn PhysicalExpr>,
-        inner_ctid_col: &Arc<dyn PhysicalExpr>,
-    ) -> Option<Arc<dyn PhysicalExpr>> {
+        ctid_map: &HashMap<pg_sys::Index, Expr>,
+        predicates: &[JoinLevelSearchPredicate],
+    ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
-                side,
+                source_idx: _,
                 predicate_idx,
             } => {
                 let set = join_level_sets.get(*predicate_idx)?.clone();
-                let col = match side {
-                    crate::postgres::customscan::joinscan::build::JoinSide::Outer => {
-                        outer_ctid_col.clone()
-                    }
-                    crate::postgres::customscan::joinscan::build::JoinSide::Inner => {
-                        inner_ctid_col.clone()
-                    }
-                };
-                Some(Arc::new(RowInSetExpr { arg: col, set }))
+                let predicate = predicates.get(*predicate_idx)?;
+                let col = ctid_map.get(&predicate.rti)?;
+                let udf = datafusion::logical_expr::ScalarUDF::new_from_impl(RowInSetUDF::new(set));
+                Some(udf.call(vec![col.clone()]))
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 custom_exprs.get(*predicate_idx).cloned()
@@ -201,18 +87,22 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    ctid_map,
+                    predicates,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        outer_ctid_col,
-                        inner_ctid_col,
+                        ctid_map,
+                        predicates,
                     )?;
-                    result = Arc::new(BinaryExpr::new(result, Operator::And, right));
+                    result = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(result),
+                        Operator::And,
+                        Box::new(right),
+                    ));
                 }
                 Some(result)
             }
@@ -224,18 +114,22 @@ impl<'a> PredicateTranslator<'a> {
                     &children[0],
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    ctid_map,
+                    predicates,
                 )?;
                 for child in &children[1..] {
                     let right = Self::translate_join_level_expr(
                         child,
                         custom_exprs,
                         join_level_sets,
-                        outer_ctid_col,
-                        inner_ctid_col,
+                        ctid_map,
+                        predicates,
                     )?;
-                    result = Arc::new(BinaryExpr::new(result, Operator::Or, right));
+                    result = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(result),
+                        Operator::Or,
+                        Box::new(right),
+                    ));
                 }
                 Some(result)
             }
@@ -244,18 +138,18 @@ impl<'a> PredicateTranslator<'a> {
                     child,
                     custom_exprs,
                     join_level_sets,
-                    outer_ctid_col,
-                    inner_ctid_col,
+                    ctid_map,
+                    predicates,
                 )?;
-                Some(Arc::new(NotExpr::new(inner)))
+                Some(Expr::Not(Box::new(inner)))
             }
         }
     }
 
-    /// Translate a PostgreSQL expression to a DataFusion `PhysicalExpr`.
+    /// Translate a PostgreSQL expression to a DataFusion `Expr`.
     ///
     /// Returns `None` if the expression cannot be translated.
-    pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Arc<dyn PhysicalExpr>> {
+    pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             return None;
         }
@@ -265,16 +159,11 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
-            // T_RelabelType is common (casting), often safe to ignore if types are compatible
-            // For now, stricter is better.
             _ => None,
         }
     }
 
-    unsafe fn translate_op_expr(
-        &self,
-        op_expr: *mut pg_sys::OpExpr,
-    ) -> Option<Arc<dyn PhysicalExpr>> {
+    unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
         let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
         if args.len() != 2 {
             return None; // Only support binary operators for now
@@ -296,39 +185,37 @@ impl<'a> PredicateTranslator<'a> {
             _ => return None,
         };
 
-        Some(Arc::new(BinaryExpr::new(left, op, right)))
+        Some(Expr::BinaryExpr(BinaryExpr::new(
+            Box::new(left),
+            op,
+            Box::new(right),
+        )))
     }
 
-    unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Arc<dyn PhysicalExpr>> {
+    unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 
-        // Check if the var belongs to one of the relations we are handling.
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output,
-        // which contains the columns from both sides of the join.
-        if varno != self.outer_rti
-            && varno != self.inner_rti
-            && varno != pg_sys::INDEX_VAR as pg_sys::Index
+        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
+        if varno != pg_sys::INDEX_VAR as pg_sys::Index
+            && !self.sources.iter().any(|s| s.contains_rti(varno))
         {
-            // Reference to a relation outside the join?
             return None;
         }
 
         if let Some(ref mapper) = self.mapper {
-            if let Some(index) = mapper.map_var(varno, varattno) {
-                // TODO: Get actual column name from schema if possible, or just use "colX"
-                return Some(Arc::new(Column::new(&format!("col{index}"), index)));
+            if let Some(expr) = mapper.map_var(varno, varattno) {
+                return Some(expr);
             }
             return None;
         }
 
-        // For validation (no mapper), we just need to ensure it's a valid reference.
-        Some(Arc::new(Column::new("placeholder", 0)))
+        Some(col("placeholder"))
     }
 
-    unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Arc<dyn PhysicalExpr>> {
+    unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Expr> {
         if (*c).constisnull {
-            return Some(Arc::new(Literal::new(ScalarValue::Null)));
+            return Some(lit(ScalarValue::Null));
         }
 
         let type_oid = (*c).consttype;
@@ -360,17 +247,13 @@ impl<'a> PredicateTranslator<'a> {
                 let val = datum.value() != 0;
                 ScalarValue::Boolean(Some(val))
             }
-            // TODO: Add support for TEXT strings via pgrx utils
             _ => return None,
         };
 
-        Some(Arc::new(Literal::new(scalar_value)))
+        Some(lit(scalar_value))
     }
 
-    unsafe fn translate_bool_expr(
-        &self,
-        bool_expr: *mut pg_sys::BoolExpr,
-    ) -> Option<Arc<dyn PhysicalExpr>> {
+    unsafe fn translate_bool_expr(&self, bool_expr: *mut pg_sys::BoolExpr) -> Option<Expr> {
         let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
 
         match (*bool_expr).boolop {
@@ -381,7 +264,11 @@ impl<'a> PredicateTranslator<'a> {
                 let mut expr = self.translate(args.get_ptr(0)?)?;
                 for i in 1..args.len() {
                     let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Arc::new(BinaryExpr::new(expr, Operator::And, right));
+                    expr = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(expr),
+                        Operator::And,
+                        Box::new(right),
+                    ));
                 }
                 Some(expr)
             }
@@ -392,7 +279,11 @@ impl<'a> PredicateTranslator<'a> {
                 let mut expr = self.translate(args.get_ptr(0)?)?;
                 for i in 1..args.len() {
                     let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Arc::new(BinaryExpr::new(expr, Operator::Or, right));
+                    expr = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(expr),
+                        Operator::Or,
+                        Box::new(right),
+                    ));
                 }
                 Some(expr)
             }
@@ -401,7 +292,7 @@ impl<'a> PredicateTranslator<'a> {
                     return None;
                 }
                 let child = self.translate(args.get_ptr(0)?)?;
-                Some(Arc::new(NotExpr::new(child)))
+                Some(Expr::Not(Box::new(child)))
             }
             _ => None,
         }
@@ -411,5 +302,61 @@ impl<'a> PredicateTranslator<'a> {
         let lookup = OPERATOR_LOOKUP
             .get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) });
         lookup.get(&opno).copied()
+    }
+}
+
+/// Creates a DataFusion column expression with a bare table reference.
+/// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
+pub(super) fn make_col(relation: &str, name: &str) -> Expr {
+    Expr::Column(Column::new(
+        Some(TableReference::Bare {
+            table: relation.into(),
+        }),
+        name,
+    ))
+}
+
+pub(super) struct CombinedMapper<'a> {
+    pub sources: &'a [JoinSource],
+    pub output_columns: &'a [OutputColumnInfo],
+}
+
+impl<'a> ColumnMapper for CombinedMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        // 1. Resolve to (rti, attno, is_score)
+        let (rti, attno, is_score) = if varno == pg_sys::INDEX_VAR as pg_sys::Index {
+            let idx = (varattno - 1) as usize;
+            let info = self.output_columns.get(idx)?;
+            (info.rti, info.original_attno, info.is_score)
+        } else {
+            (varno, varattno, false)
+        };
+
+        // 2. Find the source
+        let (source_idx, source) = self
+            .sources
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.contains_rti(rti))?;
+
+        let alias = source.execution_alias(source_idx);
+
+        // 3. Resolve column name
+        if is_score {
+            // Try to resolve score via map_var(rti, 0) first (for nested joins)
+            if let Some(col_idx) = source.map_var(rti, 0) {
+                if let Some(name) = source.column_name(col_idx) {
+                    return Some(make_col(&alias, &name));
+                }
+            }
+            // Default to alias-specific score alias
+            return Some(make_col(&alias, SCORE_COL_NAME));
+        }
+
+        // Normal column
+        // We need to map the rti/attno to the source's output attno
+        let mapped_attno = source.map_var(rti, attno)?;
+        let col_name = source.column_name(mapped_attno)?;
+        Some(make_col(&alias, &col_name))
     }
 }

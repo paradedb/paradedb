@@ -551,8 +551,7 @@ async fn generated_joinscan(database: Db) {
     ];
 
     proptest!(|(
-        // Test 2-table joins only (JoinScan doesn't support 3+ table joins yet)
-        num_tables in 2..=2usize,
+        num_tables in 2..=3usize,
         // Outer table BM25 predicate (always present)
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // Inner table BM25 predicate (optional)
@@ -645,18 +644,16 @@ async fn generated_joinscan(database: Db) {
             "{from} WHERE {bm25_where} ORDER BY {order_by} LIMIT {limit}"
         );
 
-        // Verify JoinScan is actually used
+        // Verify JoinScan was actually used
         {
             let conn = &mut pool.pull();
             gucs.set().execute(conn);
             let explain_query = format!("EXPLAIN (FORMAT JSON) {bm25_query}");
             let (plan,): (Value,) = explain_query.fetch_one(conn);
-            let plan_str = format!("{:?}", plan);
+            let plan_str = format!("{plan:#?}");
             prop_assert!(
                 plan_str.contains("ParadeDB Join Scan"),
-                "Query should use ParadeDB Join Scan but got plan: {}\nQuery: {}",
-                plan_str,
-                bm25_query
+                "Query should use ParadeDB Join Scan but got plan: {plan_str}\nQuery: {bm25_query}",
             );
         }
 
@@ -667,6 +664,7 @@ async fn generated_joinscan(database: Db) {
             &mut pool.pull(),
             &setup_sql,
             |query, conn| {
+                "SET work_mem TO '16MB';".execute(conn);
                 // Use dynamic fetch since column count varies with HeapCondition
                 let rows = query.fetch_dynamic(conn);
                 // Convert to sorted string representation for comparison

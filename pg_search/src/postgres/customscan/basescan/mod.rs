@@ -1108,6 +1108,13 @@ impl CustomScan for BaseScan {
                             format!("{fieldname} {}", direction.as_ref())
                         }
                         OrderByInfo {
+                            feature: OrderByFeature::Var { name, .. },
+                            direction,
+                            ..
+                        } => {
+                            format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
+                        }
+                        OrderByInfo {
                             feature: OrderByFeature::Score,
                             direction,
                             ..

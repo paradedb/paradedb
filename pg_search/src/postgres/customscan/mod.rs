@@ -39,6 +39,7 @@ mod opexpr;
 pub mod orderby;
 mod path;
 pub mod projections;
+pub mod pullup;
 mod pushdown;
 pub mod qual_inspect;
 mod range_table;

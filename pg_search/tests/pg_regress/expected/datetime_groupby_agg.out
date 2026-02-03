@@ -1,0 +1,235 @@
+-- =====================================================================
+-- Test Suite for DateTime GROUP BY Aggregation
+-- =====================================================================
+-- This test verifies that GROUP BY on DateTime fields works correctly
+-- with the ParadeDB aggregate custom scan.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
+DROP TABLE IF EXISTS transactions CASCADE;
+CREATE TABLE transactions (
+    id SERIAL PRIMARY KEY,
+    organization_id TEXT,
+    live_mode BOOLEAN,
+    discarded_at TIMESTAMP,
+    internal_account_id TEXT,
+    unledgered_amount NUMERIC,
+    as_of_date DATE,
+    description TEXT
+);
+INSERT INTO transactions (organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description) VALUES
+    ('org1', TRUE, NULL, 'account1', 100, '2025-12-26', 'Transaction 1a'),
+    ('org1', TRUE, NULL, 'account1', 150, '2025-12-26', 'Transaction 1b'),
+    ('org1', TRUE, NULL, 'account1', 200, '2025-12-27', 'Transaction 2a'),
+    ('org1', TRUE, NULL, 'account1', 250, '2025-12-27', 'Transaction 2b'),
+    ('org1', TRUE, NULL, 'account1', 275, '2025-12-27', 'Transaction 2c'),
+    ('org1', TRUE, NULL, 'account1', 300, '2025-12-28', 'Transaction 3'),
+    ('org1', TRUE, NULL, 'account1', 0, '2025-12-29', 'Zero amount'),
+    ('org1', FALSE, NULL, 'account1', 400, '2025-12-30', 'Not live a'),
+    ('org1', FALSE, NULL, 'account1', 450, '2025-12-30', 'Not live b'),
+    ('org1', TRUE, '2025-01-01', 'account1', 500, '2025-12-31', 'Discarded'),
+    ('org1', TRUE, NULL, 'account1', 600, NULL, 'Null date');
+CREATE INDEX transactions_search_index ON transactions
+USING bm25 (id, organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',
+    boolean_fields='{"live_mode": {"fast": true}}',
+    numeric_fields='{"unledgered_amount": {"fast": true}}',
+    datetime_fields='{"as_of_date": {"fast": true}, "discarded_at": {"fast": true}}'
+);
+-- =====================================================================
+-- Test 1: Simple GROUP BY on DateTime field
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+GROUP BY transactions.as_of_date;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.transactions
+   Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
+   Index: transactions_search_index
+   Tantivy Query: {"with_index":{"query":"all"}}
+     Applies to Aggregates: COUNT(*)
+     Group By: as_of_date
+     Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+GROUP BY transactions.as_of_date
+ORDER BY as_of_date NULLS LAST;
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+         1 | 12-29-2025
+         2 | 12-30-2025
+         1 | 12-31-2025
+(6 rows)
+
+-- =====================================================================
+-- Test 2: GROUP BY DateTime with BETWEEN range filter
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.organization_id = 'org1'
+    AND transactions.live_mode = TRUE
+    AND transactions.discarded_at IS NULL
+    AND transactions.unledgered_amount != 0
+    AND transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
+GROUP BY transactions.as_of_date;
+                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                              
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.transactions
+   Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
+   Index: transactions_search_index
+   Tantivy Query: {"boolean":{"must":[{"term":{"field":"live_mode","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"discarded_at"}}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(unledgered_amount <> '0'::numeric)"}]}},{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":{"included":"2025-12-25T00:00:00Z"},"upper_bound":null,"is_datetime":true}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"included":"2026-02-01T00:00:00Z"},"is_datetime":true}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(organization_id = 'org1'::text)"}]}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: as_of_date
+     Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.organization_id = 'org1'
+    AND transactions.live_mode = TRUE
+    AND transactions.discarded_at IS NULL
+    AND transactions.unledgered_amount != 0
+    AND transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date BETWEEN '2025-12-25' AND '2026-02-01'
+GROUP BY transactions.as_of_date
+ORDER BY as_of_date;
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+(3 rows)
+
+-- =====================================================================
+-- Test 3: GROUP BY DateTime with < operator
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date < '2025-12-29'
+GROUP BY transactions.as_of_date;
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.transactions
+   Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
+   Index: transactions_search_index
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":null,"upper_bound":{"excluded":"2025-12-29T00:00:00Z"},"is_datetime":true}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: as_of_date
+     Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date < '2025-12-29'
+GROUP BY transactions.as_of_date
+ORDER BY as_of_date;
+ count_all | as_of_date 
+-----------+------------
+         2 | 12-26-2025
+         3 | 12-27-2025
+         1 | 12-28-2025
+(3 rows)
+
+-- =====================================================================
+-- Test 4: GROUP BY DateTime with > operator
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date > '2025-12-28'
+GROUP BY transactions.as_of_date;
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.transactions
+   Output: pdb.agg_fn('COUNT(*)'::text), as_of_date
+   Index: transactions_search_index
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"as_of_date","lower_bound":{"excluded":"2025-12-28T00:00:00Z"},"upper_bound":null,"is_datetime":true}}]}}
+     Applies to Aggregates: COUNT(*)
+     Group By: as_of_date
+     Aggregate Definition: {"grouped":{"terms":{"field":"as_of_date","segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT 
+    COUNT(*) AS count_all,
+    transactions.as_of_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.as_of_date > '2025-12-28'
+GROUP BY transactions.as_of_date
+ORDER BY as_of_date;
+ count_all | as_of_date 
+-----------+------------
+         1 | 12-29-2025
+         2 | 12-30-2025
+         1 | 12-31-2025
+(3 rows)
+
+-- =====================================================================
+-- Test 5: MIN/MAX aggregates on DateTime field
+-- =====================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    MIN(as_of_date) AS min_date,
+    MAX(as_of_date) AS max_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.live_mode = TRUE;
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.transactions
+   Output: pdb.agg_fn('MIN'::text), pdb.agg_fn('MAX'::text)
+   Index: transactions_search_index
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"live_mode","value":true,"is_datetime":false}}]}}
+     Applies to Aggregates: MIN(as_of_date), MAX(as_of_date)
+     Aggregate Definition: {"0":{"min":{"field":"as_of_date","missing":null}},"1":{"max":{"field":"as_of_date","missing":null}}}
+(6 rows)
+
+SELECT 
+    MIN(as_of_date) AS min_date,
+    MAX(as_of_date) AS max_date
+FROM transactions
+WHERE transactions.id @@@ paradedb.all()
+    AND transactions.live_mode = TRUE;
+  min_date  |  max_date  
+------------+------------
+ 12-26-2025 | 12-31-2025
+(1 row)
+
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE IF EXISTS transactions CASCADE;
+RESET paradedb.enable_aggregate_custom_scan;

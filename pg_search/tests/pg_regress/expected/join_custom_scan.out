@@ -123,9 +123,9 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 207 | Mouse Pad      | GlobalSupply
  201 | Wireless Mouse | TechCorp
  206 | Headphones     | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
 (3 rows)
 
 -- =============================================================================
@@ -336,8 +336,8 @@ LIMIT 5;
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
- 207 | Mouse Pad      | GlobalSupply  |  0.9080427
  206 | Headphones     | TechCorp      |  0.9080427
+ 207 | Mouse Pad      | GlobalSupply  |  0.9080427
 (3 rows)
 
 -- =============================================================================
@@ -847,8 +847,8 @@ WHERE p.description @@@ 'mouse'
 LIMIT 3;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 207 | Mouse Pad      | GlobalSupply
  201 | Wireless Mouse | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
 (2 rows)
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
@@ -887,8 +887,8 @@ ORDER BY p.price DESC
 LIMIT 3;
  id  |      name      | supplier_name 
 -----+----------------+---------------
- 207 | Mouse Pad      | GlobalSupply
  201 | Wireless Mouse | TechCorp
+ 207 | Mouse Pad      | GlobalSupply
 (2 rows)
 
 -- =============================================================================

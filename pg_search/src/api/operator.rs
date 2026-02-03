@@ -337,6 +337,7 @@ pub unsafe fn field_name_from_node(
                     panic!("expected expression for index attribute {expr_no}");
                 };
 
+<<<<<<< HEAD
                 if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
                     // this means we have a non-text/json field cast to `pdb.alias`
                     // in which case it's likely an expression not a var
@@ -360,6 +361,47 @@ pub unsafe fn field_name_from_node(
                                 return attname_from_var(heaprel, var);
                             }
                         }
+=======
+                // Check if the expression is a composite type (RowExpr like ROW(a,b)::my_type)
+                let expr_type = pg_sys::exprType(expression.cast());
+                let is_composite = crate::postgres::composite::is_composite_type(expr_type);
+
+                if is_composite {
+                    if let Some(row_expr) = row_expr_from_indexed_expr(expression) {
+                        let composite_oid = pg_sys::exprType(expression.cast());
+                        let Ok(fields) = get_composite_type_fields(composite_oid) else {
+                            expr_no += 1;
+                            continue;
+                        };
+
+                        let row_args = PgList::<pg_sys::Node>::from_pg((*row_expr).args);
+
+                        for (position, arg) in row_args.iter_ptr().enumerate() {
+                            if position >= fields.len() || fields[position].is_dropped {
+                                continue;
+                            }
+
+                            if let Some(arg_var) = simple_var_from_expr(arg.cast()) {
+                                if vars_equal_ignoring_varno(arg_var, var) {
+                                    return Some(FieldName::from(
+                                        fields[position].field_name.clone(),
+                                    ));
+                                }
+                                continue;
+                            }
+
+                            if var_matches_tokenizer_expr(var, arg.cast()) {
+                                return Some(FieldName::from(fields[position].field_name.clone()));
+                            }
+                        }
+                    }
+                    expr_no += 1;
+                } else if type_is_tokenizer(expr_type) {
+                    if type_can_be_tokenized((*var).vartype)
+                        && var_matches_tokenizer_expr(var, expression.cast())
+                    {
+                        return attname_from_var(heaprel, var);
+>>>>>>> 59fe3b99 (fix: Early return in fieldname extraction causes pushdown to not happen (#4071))
                     }
                     expr_no += 1;
                 }

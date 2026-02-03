@@ -50,7 +50,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (204, 'Monitor Stand', 'Adjustable monitor stand for ergonomic setup', 153, 49.99),
 (205, 'Webcam', 'HD webcam for video conferencing', 154, 59.99),
 (206, 'Headphones', 'Wireless noise-canceling headphones with premium sound', 151, 199.99),
-(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 29.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 39.69),
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 
 -- Create BM25 indexes on both tables
@@ -97,6 +97,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -198,7 +199,7 @@ SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 -- =============================================================================
@@ -299,6 +300,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -330,6 +332,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -494,6 +497,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
@@ -893,6 +897,7 @@ SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.title
 LIMIT 10;
 
 -- =============================================================================
@@ -1150,7 +1155,7 @@ INSERT INTO uuid_orders (customer_id, description, amount) VALUES
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Wireless keyboard order', 99.99),
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'USB hub purchase', 29.99),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
-('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.99);
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.69);
 
 -- Note: uuid_orders.customer_id must be a fast field for the join key
 -- UUID columns use key_field which is implicitly fast, or explicit text_fields config

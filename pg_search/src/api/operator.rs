@@ -340,12 +340,9 @@ pub unsafe fn field_name_from_node(
                     panic!("expected expression for index attribute {expr_no}");
                 };
 
-                if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
-                    // this means we have a non-text/json field cast to `pdb.alias`
-                    // in which case it's likely an expression not a var
-                    if !type_can_be_tokenized((*var).vartype) {
-                        return None;
-                    }
+                if type_is_tokenizer(pg_sys::exprType(expression.cast()))
+                    && type_can_be_tokenized((*var).vartype)
+                {
                     let vars = find_vars(expression.cast());
                     if vars.len() == 1 {
                         let expr_var = vars[0];

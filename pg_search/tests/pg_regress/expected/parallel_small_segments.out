@@ -64,23 +64,20 @@ SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
 SET paradedb.min_rows_for_parallel = 15000;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Gather Merge
+   ->  Custom Scan (ParadeDB Scan) on public.items
          Output: id, name
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
-               Output: id, name
-               Table: items
-               Index: items_bm25_idx
-               Exec Method: TopNScanExecState
-               Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+         Table: items
+         Index: items_bm25_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- Test 3: Set threshold below our row count (5)
 -- With 10000 rows >= 5, parallel SHOULD be used
@@ -228,23 +225,20 @@ SELECT relname, reltuples FROM pg_class WHERE relname = 'items';
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, name FROM items WHERE name @@@ 'item' ORDER BY id LIMIT 10;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: id, name
-   ->  Gather Merge
+   ->  Custom Scan (ParadeDB Scan) on public.items
          Output: id, name
-         Workers Planned: 2
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.items
-               Output: id, name
-               Table: items
-               Index: items_bm25_idx
-               Exec Method: TopNScanExecState
-               Scores: false
-                  TopN Order By: id asc
-                  TopN Limit: 10
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+         Table: items
+         Index: items_bm25_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"item","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- Clean up
 DROP TABLE items;

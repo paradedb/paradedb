@@ -101,6 +101,11 @@ static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(f
 /// Validate TopN scan eligibility for LIMIT queries
 static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Minimum number of estimated rows required to consider parallel execution.
+/// Below this threshold, parallel workers won't be used because the overhead of
+/// spawning workers typically exceeds any benefit from parallelism.
+static MIN_ROWS_FOR_PARALLEL: GucSetting<i32> = GucSetting::<i32>::new(5000);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -306,6 +311,19 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.min_rows_for_parallel",
+        c"Minimum estimated rows required to use parallel workers",
+        c"Below this threshold, parallel workers won't be spawned because the overhead \
+          of worker startup typically exceeds any benefit from parallelism. Set to 0 to \
+          disable this check and always allow parallelism based on segment count.",
+        &MIN_ROWS_FOR_PARALLEL,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -452,6 +470,10 @@ pub fn explain_recursive_estimates() -> bool {
 
 pub fn check_topn_scan() -> bool {
     CHECK_TOPN_SCAN.get()
+}
+
+pub fn min_rows_for_parallel() -> i32 {
+    MIN_ROWS_FOR_PARALLEL.get()
 }
 
 pub fn add_doc_count_to_aggs() -> bool {

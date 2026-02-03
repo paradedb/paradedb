@@ -720,9 +720,19 @@ impl CustomScan for BaseScan {
             // calculate the total number of rows that might match the query, and the number of
             // rows that we expect that scan to return: these may be different in the case of a
             // `limit`.
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let total_rows = (reltuples * selectivity).max(1.0);
-            let mut result_rows = total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0);
+            //
+            // A total_rows value of -1.0 indicates that reltuples is unknown (table not analyzed),
+            // which signals to compute_nworkers() that it shouldn't trust the row estimate.
+            let total_rows = match table.reltuples() {
+                Some(reltuples) if reltuples > 0.0 => (reltuples as f64 * selectivity).max(1.0),
+                _ => -1.0, // Unknown - table hasn't been analyzed or reltuples is 0
+            };
+            let mut result_rows = if total_rows > 0.0 {
+                total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0)
+            } else {
+                // For unknown row counts, use 1.0 as a conservative estimate for costing
+                limit.unwrap_or(1.0).max(1.0)
+            };
 
             let nworkers = if (*builder.args().rel).consider_parallel {
                 compute_nworkers(

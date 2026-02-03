@@ -103,6 +103,19 @@ pub fn compute_nworkers(
     contains_external_var: bool,
     contains_correlated_param: bool,
 ) -> usize {
+    // Don't parallelize for small datasets - the worker startup overhead (typically 2-4ms)
+    // exceeds any benefit from parallelism for small row counts.
+    // See: https://github.com/paradedb/paradedb/issues/3055
+    //
+    // Only apply this check when we have reliable row estimates. A value of -1.0 indicates
+    // that reltuples is unknown (table hasn't been ANALYZEd), so we should NOT apply the
+    // threshold since the actual table could be large.
+    let min_rows = crate::gucs::min_rows_for_parallel();
+    let has_reliable_estimate = estimated_total_rows > 0.0;
+    if min_rows > 0 && has_reliable_estimate && estimated_total_rows < min_rows as f64 {
+        return 0;
+    }
+
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
     // we don't need any workers.
@@ -119,12 +132,16 @@ pub fn compute_nworkers(
     // if we are not sorting the data (which always requires fetching data from all segments), then
     // limit the number of workers to the number of segments we expect to have to query to reach
     // the limit.
+    //
+    // Only apply this optimization when we have reliable row estimates (estimated_total_rows > 0).
     if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
-        let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
-        let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
-        // See above re: the leader not being included in `nworkers`.
-        let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
-        nworkers = nworkers.min(nworkers_for_limited_segments);
+        if has_reliable_estimate {
+            let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
+            let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
+            // See above re: the leader not being included in `nworkers`.
+            let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
+            nworkers = nworkers.min(nworkers_for_limited_segments);
+        }
     }
 
     if contains_external_var {

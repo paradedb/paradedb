@@ -18,7 +18,7 @@ use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
@@ -53,6 +53,7 @@ use std::ptr::NonNull;
 /// ```sql
 /// SELECT * FROM t WHERE key_field @@@ paradedb.with_index('bm25_idxt', paradedb.term('body', keywords));
 /// ```
+
 #[pg_extern(immutable, parallel_safe)]
 pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::WithIndex {
@@ -64,6 +65,7 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
 enum CacheEntry {
     All,
     Set(HashSet<TantivyValue>),
+    SetWithFieldTypes(HashSet<TantivyValue>, Vec<pgrx::PgOid>),
 }
 
 impl FromIterator<TantivyValue> for CacheEntry {
@@ -78,6 +80,14 @@ impl CacheEntry {
         match self {
             CacheEntry::All => true,
             CacheEntry::Set(set) => set.contains(value),
+            CacheEntry::SetWithFieldTypes(set, _) => set.contains(value),
+        }
+    }
+    
+    fn get_field_types(&self) -> Option<&Vec<pgrx::PgOid>> {
+        match self {
+            CacheEntry::SetWithFieldTypes(_, field_types) => Some(field_types),
+            _ => None,
         }
     }
 }
@@ -154,8 +164,10 @@ pub fn search_with_query_input(
         pgrx::varlena_to_byte_slice(varlena).to_vec()
     };
 
+    // Get field types first if we might need them for composite keys
+    let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
+    
     let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
-        let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
@@ -185,34 +197,91 @@ pub fn search_with_query_input(
         )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
-        let key_field_name = schema.key_field_name();
-        let key_field_type = schema.key_field_type().into();
-        let ff_helper =
-            FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
+        let key_fields = schema.key_fields();
+
+        // Create fast field entries for all key fields
+        let ff_entries: Vec<_> = key_fields
+            .iter()
+            .map(|kf| (kf.name.clone(), FastFieldType::from(kf.field_type)).into())
+            .collect();
+            
+        let ff_helper = FFHelper::with_fields(&search_reader, &ff_entries);
 
         // now, query the SearchReader and collect up the docs that match our query.
         // the matches are cached so that the same input query will return the same results
         // throughout the duration of the scan
-        let matches = search_reader
+        let matches: Vec<TantivyValue> = search_reader
             .search()
             .map(|(_, doc_address)| {
                 check_for_interrupts!();
-                ff_helper
-                    .value(0, doc_address)
-                    .expect("key_field value should not be null")
+                if ff_entries.len() == 1 {
+                    // Single key field - use TantivyValue directly
+                    ff_helper
+                        .value(0, doc_address)
+                        .expect("key_field value should not be null")
+                } else {
+                    // Composite key - create TantivyValue::Array
+                    let composite_values: Vec<TantivyValue> = (0..ff_entries.len())
+                        .map(|i| {
+                            ff_helper
+                                .value(i, doc_address)
+                                .expect("key_field value should not be null")
+                        })
+                        .collect();
+                    TantivyValue(tantivy::schema::OwnedValue::Array(
+                        composite_values.into_iter().map(|tv| tv.0).collect()
+                    ))
+                }
             })
             .collect();
 
-        (element_oid, matches)
+        // Store field types if we have composite keys
+        let cache_entry = if ff_entries.len() > 1 {
+            let field_oids: Vec<pgrx::PgOid> = key_fields.iter().map(|kf| kf.field_type.typeoid()).collect();
+            CacheEntry::SetWithFieldTypes(matches.into_iter().collect(), field_oids)
+        } else {
+            CacheEntry::Set(matches.into_iter().collect())
+        };
+
+        (element_oid, cache_entry)
     });
 
     // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")
     // is contained in the matches set
     unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
-        let user_value =
-            TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
-        matches.contains(&user_value)
+        
+        // Convert LHS element to TantivyValue for lookup
+        let user_value = if element_oid.value() == pg_sys::RECORDOID {
+            // Composite key: use cached field types for fast extraction if available
+            let field_oids = if let Some(cached_types) = matches.get_field_types() {
+                // Use cached field types
+                cached_types.clone()
+            } else {
+                // Fallback to schema lookup for cases where cache doesn't have field types
+                let search_query_input = SearchQueryInput::from_datum(query_datum, query_datum.is_null())
+                    .expect("the query argument cannot be NULL");
+                let index_oid = search_query_input
+                    .index_oid()
+                    .expect("composite key requires index context");
+                let index_relation =
+                    PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+                let schema = index_relation.schema().expect("index should have schema");
+                let key_field_types = schema.key_field_types();
+                key_field_types.iter().map(|ft| ft.typeoid()).collect()
+            };
+            
+            match TantivyValue::try_from_record(element, &field_oids) {
+                Ok(composite_value) => composite_value,
+                Err(e) => panic!("Failed to extract composite key: {:?}", e),
+            }
+        } else {
+            // Single key field, using try_from_datum
+            TantivyValue::try_from_datum(element, *element_oid).expect("no value present")
+        };
+        
+        let result = matches.contains(&user_value);
+        result
     }
 }
 
@@ -323,3 +392,4 @@ fn search_query_input_request_cost(arg: pg_sys::Datum) -> Option<ReturnedNodePoi
         Some(ReturnedNodePointer(NonNull::new(src.cast())))
     }
 }
+

@@ -33,7 +33,8 @@ pub struct Bm25ScanState {
     reader: SearchIndexReader,
     results: Option<MultiSegmentSearchResults>,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
-    key_field_oid: PgOid,
+    key_field_oids: Vec<PgOid>,
+    key_field_count: usize,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
 }
@@ -219,28 +220,44 @@ pub extern "C-unwind" fn amrescan(
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
             let schema = indexrel.schema().expect("indexrel should have a schema");
+            let key_field_names = schema.key_field_names();
+            let key_field_types = schema.key_field_types();
+            let key_field_count = key_field_names.len();
+            
+            // Create fast field entries for all key fields
+            let ff_entries: Vec<_> = key_field_names
+                .into_iter()
+                .zip(key_field_types.iter())
+                .map(|(name, typ)| (name, FastFieldType::from(*typ)).into())
+                .collect();
+            
+            // Collect key field OIDs from the tuple descriptor
+            let key_field_oids: Vec<PgOid> = (0..key_field_count)
+                .map(|i| {
+                    PgOid::from({
+                        #[cfg(any(
+                            feature = "pg15",
+                            feature = "pg16",
+                            feature = "pg17"
+                        ))]
+                        {
+                            (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[i].atttypid
+                        }
+                        #[cfg(feature = "pg18")]
+                        {
+                            (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, i as i32)).atttypid
+                        }
+                    })
+                })
+                .collect();
+            
             Bm25ScanState {
-                fast_fields: FFHelper::with_fields(
-                    &search_reader,
-                    &[(
-                        schema.key_field_name(),
-                        FastFieldType::from(schema.key_field_type()),
-                    )
-                        .into()],
-                ),
+                fast_fields: FFHelper::with_fields(&search_reader, &ff_entries),
                 reader: search_reader,
                 results,
                 itup: (vec![pg_sys::Datum::null(); natts], vec![true; natts]),
-                key_field_oid: PgOid::from({
-                    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-                    {
-                        (*(*scan).xs_hitupdesc).attrs.as_slice(natts)[0].atttypid
-                    }
-                    #[cfg(feature = "pg18")]
-                    {
-                        (*pg_sys::TupleDescAttr((*scan).xs_hitupdesc, 0)).atttypid
-                    }
-                }),
+                key_field_oids,
+                key_field_count,
                 ambulkdelete_epoch,
             }
         } else {
@@ -249,7 +266,8 @@ pub extern "C-unwind" fn amrescan(
                 reader: search_reader,
                 results,
                 itup: (vec![], vec![]),
-                key_field_oid: PgOid::Invalid,
+                key_field_oids: vec![],
+                key_field_count: 0,
                 ambulkdelete_epoch,
             }
         };
@@ -295,24 +313,27 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
 
                 if (*scan).xs_want_itup {
-                    let key = state
-                        .fast_fields
-                        .value(0, doc_address)
-                        .expect("key_field should be a fast_field");
-                    match key
-                        .try_into_datum(state.key_field_oid)
-                        .expect("key_field value should convert to a Datum")
-                    {
-                        // got a valid Datum
-                        Some(key_field_datum) => {
-                            state.itup.0[0] = key_field_datum;
-                            state.itup.1[0] = false;
-                        }
+                    // Handle all key fields
+                    for i in 0..state.key_field_count {
+                        let key = state
+                            .fast_fields
+                            .value(i, doc_address)
+                            .expect("key_field should be a fast_field");
+                        match key
+                            .try_into_datum(state.key_field_oids[i])
+                            .expect("key_field value should convert to a Datum")
+                        {
+                            // got a valid Datum
+                            Some(key_field_datum) => {
+                                state.itup.0[i] = key_field_datum;
+                                state.itup.1[i] = false;
+                            }
 
-                        // we got a NULL for the key_field.  Highly unlikely but definitely possible
-                        None => {
-                            state.itup.0[0] = pg_sys::Datum::null();
-                            state.itup.1[0] = true;
+                            // we got a NULL for the key_field.  Highly unlikely but definitely possible
+                            None => {
+                                state.itup.0[i] = pg_sys::Datum::null();
+                                state.itup.1[i] = true;
+                            }
                         }
                     }
 
@@ -461,15 +482,20 @@ unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) ->
 
 #[pg_guard]
 pub extern "C-unwind" fn amcanreturn(indexrel: pg_sys::Relation, attno: i32) -> bool {
-    if attno != 1 {
-        // currently, we only support returning the "key_field", which will always be the first
-        // index attribute
-        return false;
-    }
-
     unsafe {
         assert!(!indexrel.is_null());
         assert!(!(*indexrel).rd_att.is_null());
+        
+        // Get the key field count from the options (works for both regular and partitioned indexes)
+        let index_relation = crate::postgres::rel::PgSearchRelation::from_pg(indexrel);
+        let options = index_relation.options();
+        let key_field_count = options.key_field_names().len() as i32;
+        
+        // We can return any of the key field attributes (1-based indexing)
+        if attno < 1 || attno > key_field_count {
+            return false;
+        }
+        
         let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
 
         let att = tupdesc

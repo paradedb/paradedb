@@ -31,7 +31,7 @@ fn boolean_key(mut conn: PgConnection) {
 
     r#"
     CREATE TABLE test_table (
-        id BOOLEAN,
+        id BOOLEAN PRIMARY KEY,
         value TEXT
     );
 
@@ -67,7 +67,7 @@ fn boolean_key(mut conn: PgConnection) {
 fn uuid_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id UUID,
+        id UUID PRIMARY KEY,
         value TEXT
     );
 
@@ -148,7 +148,7 @@ fn uuid_key(mut conn: PgConnection) {
 fn i64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id BIGINT,
+        id BIGINT PRIMARY KEY,
         value TEXT
     );
 
@@ -211,7 +211,7 @@ fn i64_key(mut conn: PgConnection) {
 fn i32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id INT,
+        id INT PRIMARY KEY,
         value TEXT
     );
 
@@ -265,7 +265,7 @@ fn i32_key(mut conn: PgConnection) {
 fn i16_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id SMALLINT,
+        id SMALLINT PRIMARY KEY,
         value TEXT
     );
 
@@ -319,7 +319,7 @@ fn i16_key(mut conn: PgConnection) {
 fn f32_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id FLOAT4,
+        id FLOAT4 PRIMARY KEY,
         value TEXT
     );
 
@@ -373,7 +373,7 @@ fn f32_key(mut conn: PgConnection) {
 fn f64_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id FLOAT8,
+        id FLOAT8 PRIMARY KEY,
         value TEXT
     );
 
@@ -427,7 +427,7 @@ fn f64_key(mut conn: PgConnection) {
 fn numeric_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id NUMERIC,
+        id NUMERIC PRIMARY KEY,
         value TEXT
     );
 
@@ -481,7 +481,7 @@ fn numeric_key(mut conn: PgConnection) {
 fn string_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id TEXT,
+        id TEXT PRIMARY KEY,
         value TEXT
     );
 
@@ -553,7 +553,7 @@ fn string_key(mut conn: PgConnection) {
 fn date_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id DATE,
+        id DATE PRIMARY KEY,
         value TEXT
     );
 
@@ -607,7 +607,7 @@ fn date_key(mut conn: PgConnection) {
 fn time_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id TIME,
+        id TIME PRIMARY KEY,
         value TEXT
     );
 
@@ -661,7 +661,7 @@ fn time_key(mut conn: PgConnection) {
 fn timestamp_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id TIMESTAMP,
+        id TIMESTAMP PRIMARY KEY,
         value TEXT
     );
 
@@ -715,7 +715,7 @@ fn timestamp_key(mut conn: PgConnection) {
 fn timestamptz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id TIMESTAMP WITH TIME ZONE,
+        id TIMESTAMP WITH TIME ZONE PRIMARY KEY,
         value TEXT
     );
 
@@ -778,7 +778,7 @@ fn timestamptz_key(mut conn: PgConnection) {
 fn timetz_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id TIME WITH TIME ZONE,
+        id TIME WITH TIME ZONE PRIMARY KEY,
         value TEXT
     );
 
@@ -838,7 +838,7 @@ fn timetz_key(mut conn: PgConnection) {
 fn inet_key(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-        id INET,
+        id INET PRIMARY KEY,
         value TEXT
     );
 

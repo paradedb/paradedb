@@ -333,6 +333,110 @@ impl TantivyValue {
     ) -> Result<Self, TantivyValueError> {
         Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
     }
+
+    /// Convert a PostgreSQL composite record (tuple) to a TantivyValue::Array
+    pub unsafe fn try_from_record(
+        element: pgrx::pg_sys::Datum, 
+        field_types: &[pgrx::PgOid]
+    ) -> Result<Self, TantivyValueError> {
+        match pgrx::heap_tuple::PgHeapTuple::from_datum(element, false) {
+            Some(heap_tuple) => {
+                let composite_values: Result<Vec<TantivyValue>, TantivyValueError> = (0..field_types.len())
+                    .map(|i| {
+                        let field_index = std::num::NonZero::new(i + 1)
+                            .ok_or(TantivyValueError::InvalidOid)?;
+                        let pg_oid = field_types[i];
+                        
+                        // Extract field value using type-specific extraction, then convert to TantivyValue
+                        // Only support the types that can actually be key fields based on SearchFieldType
+                        // TODO: should we support all types here in case people want to pass tuples?
+           
+                        // I am not 100% that there isn't a better way to do this. Review pls.
+                        match pg_oid {
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::BOOLOID) => {
+                                match heap_tuple.get_by_index::<bool>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::INT2OID) => {
+                                match heap_tuple.get_by_index::<i16>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::INT4OID) => {
+                                match heap_tuple.get_by_index::<i32>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::INT8OID) => {
+                                match heap_tuple.get_by_index::<i64>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::FLOAT4OID) => {
+                                match heap_tuple.get_by_index::<f32>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::FLOAT8OID) => {
+                                match heap_tuple.get_by_index::<f64>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::TEXTOID) | pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::VARCHAROID) => {
+                                match heap_tuple.get_by_index::<String>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::UUIDOID) => {
+                                match heap_tuple.get_by_index::<pgrx::datum::Uuid>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::DATEOID) => {
+                                match heap_tuple.get_by_index::<pgrx::datum::Date>(field_index) {
+                                    Ok(Some(value)) => Self::try_from(value),
+                                    Ok(None) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                    Err(_) => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                                }
+                            },
+                            pgrx::PgOid::BuiltIn(pgrx::PgBuiltInOids::INETOID) => {
+                                // INET type might not support heap_tuple.get_by_index, so fall back to Null for now
+                                // TODO: Implement proper INET extraction if needed
+                                Ok(TantivyValue(tantivy::schema::OwnedValue::Null))
+                            },
+                            // For unsupported types (JSON, Range types that may have extraction issues), return Null
+                            _ => Ok(TantivyValue(tantivy::schema::OwnedValue::Null)),
+                        }
+                    })
+                    .collect();
+                
+                match composite_values {
+                    Ok(values) => Ok(TantivyValue(tantivy::schema::OwnedValue::Array(
+                        values.into_iter().map(|tv| tv.0).collect()
+                    ))),
+                    Err(e) => Err(e),
+                }
+            },
+            None => Err(TantivyValueError::DatumDeref),
+        }
+    }
 }
 
 impl fmt::Display for TantivyValue {
@@ -356,6 +460,16 @@ impl fmt::Display for TantivyValue {
             tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{addr}"),
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             tantivy::schema::OwnedValue::Null => write!(f, "<null>"),
+            tantivy::schema::OwnedValue::Array(values) => {
+                write!(f, "[")?;
+                for (i, value) in values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", TantivyValue(value.clone()))?;
+                }
+                write!(f, "]")
+            },
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -372,6 +486,15 @@ impl Hash for TantivyValue {
             tantivy::schema::OwnedValue::Date(datetime) => datetime.hash(state),
             tantivy::schema::OwnedValue::Bytes(bytes) => bytes.hash(state),
             tantivy::schema::OwnedValue::Null => 0_u8.hash(state),
+            tantivy::schema::OwnedValue::Array(values) => {
+                // Hash array discriminant and length first
+                "Array".hash(state);
+                values.len().hash(state);
+                // Hash each value in the array sequentially
+                for value in values {
+                    TantivyValue(value.clone()).hash(state);
+                }
+            },
             _ => panic!("tantivy owned value not supported"),
         }
     }

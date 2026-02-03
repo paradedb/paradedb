@@ -436,8 +436,8 @@ pub(super) unsafe fn is_column_fast_field(side: &ScanInfo, attno: pg_sys::AttrNu
     };
 
     // The key_field is always stored as a fast field in Tantivy for document retrieval
-    let key_field_name = schema.key_field_name();
-    if att_name == key_field_name.to_string().as_str() {
+    let key_field_names = schema.key_field_names();
+    if key_field_names.iter().any(|name| att_name == name.to_string().as_str()) {
         return true;
     }
 

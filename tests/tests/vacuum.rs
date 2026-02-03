@@ -38,7 +38,7 @@ fn manual_vacuum(mut conn: PgConnection) {
 
     create table sadvac
         (
-            id   serial8,
+            id   serial8 PRIMARY KEY,
             data text
         );
     alter table sadvac set (autovacuum_enabled = 'off');".execute(&mut conn);

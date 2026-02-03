@@ -1,0 +1,7 @@
+[32m[1m       Using[0m[39m [37m[1mDefaultFeature("pg18")[0m[39m and `pg_config` from [36m/Users/jamesblackwood-sewell/.pgrx/18.1/pgrx-install/bin/pg_config[39m
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+[32m[1m  Discovered[0m[39m [36m[1m534[0m[39m SQL entities: [36m[1m10[0m[39m schemas ([36m[1m1[0m[39m unique), [36m[1m418[0m[39m functions, [36m[1m5[0m[39m types, [36m[1m2[0m[39m enums, [36m[1m96[0m[39m sqls, [36m[1m0[0m[39m ords, [36m[1m0[0m[39m hashes, [36m[1m3[0m[39m aggregates, [36m[1m0[0m[39m triggers
+[32m[1m  Rebuilding[0m[39m [36mpgrx_embed[39m, in debug mode, for SQL generation with features [36mpg18[39m
+   Compiling pg_search v0.21.4 (/Users/jamesblackwood-sewell/paradedb/pg_search)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.83s
+[32m[1m     Writing[0m[39m SQL entities to /Users/jamesblackwood-sewell/.pgrx/18.1/pgrx-install/share/postgresql/extension/pg_search--0.21.4.sql

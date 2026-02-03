@@ -330,6 +330,7 @@ struct LazyInfo {
     json: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
+    computed_key_field_names: Rc<RefCell<Option<Vec<FieldName>>>>,
 
     attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
@@ -341,11 +342,11 @@ pub struct BM25IndexOptions {
 }
 
 impl BM25IndexOptions {
-    pub const MISSING_KEY_FIELD_CONFIG: &'static str =
-        "index should have a `WITH (key_field='...')` option";
+    pub const MISSING_KEY_FIELD_CONFIG: &'static str = "index key field is corrupt";
 
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
+
         Self {
             indexrel,
             lazy: LazyInfo::default(),
@@ -384,10 +385,19 @@ impl BM25IndexOptions {
         }
     }
 
-    pub fn key_field_name(&self) -> FieldName {
-        self.options_data()
-            .key_field_name()
-            .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    pub fn key_field_names(&self) -> Vec<FieldName> {
+        if self.lazy.computed_key_field_names.borrow().is_none() {
+            let computed_names = unsafe { get_key_fields_from_relation(&PgRelation::from_pg(self.indexrel)) }
+                .expect(Self::MISSING_KEY_FIELD_CONFIG);
+            *self.lazy.computed_key_field_names.borrow_mut() = Some(computed_names);
+        }
+        // Return the cached result
+        self.lazy
+            .computed_key_field_names
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .clone()
     }
 
     /// Returns the sort_by configuration.
@@ -398,9 +408,26 @@ impl BM25IndexOptions {
         self.options_data().sort_by()
     }
 
-    pub fn key_field_type(&self) -> SearchFieldType {
-        self.get_field_type(&self.key_field_name())
-            .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    pub fn key_field_types(&self) -> Vec<SearchFieldType> {
+        self.key_field_names()
+            .into_iter()
+            .map(|name| {
+                self.get_field_type(&name)
+                    .expect(Self::MISSING_KEY_FIELD_CONFIG)
+            })
+            .collect()
+    }
+
+    pub fn key_fields(&self) -> Vec<crate::schema::KeyField> {
+        self.key_field_names()
+            .into_iter()
+            .map(|name| {
+                let field_type = self
+                    .get_field_type(&name)
+                    .expect(Self::MISSING_KEY_FIELD_CONFIG);
+                crate::schema::KeyField::new(name, field_type)
+            })
+            .collect()
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -469,16 +496,20 @@ impl BM25IndexOptions {
     }
 
     /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
+    /// (except for key_field which is deprecated)
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
-        let data = self.options_data();
         if field_name.is_ctid() {
             return Some(SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
             });
         }
-
-        if field_name.root() == data.key_field_name()?.root() {
+        // use key_field from self, not Options
+        let is_key_field = self
+            .key_field_names()
+            .iter()
+            .any(|kf| field_name.root() == kf.root());
+        if is_key_field {
             return match self.text_config().as_ref().unwrap().get(field_name) {
                 // if the key_field is TEXT then we'll use the config for it
                 config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
@@ -490,7 +521,7 @@ impl BM25IndexOptions {
 
         let field_type = self.get_field_type(field_name);
 
-        if field_name.root() == data.key_field_name()?.root() {
+        if is_key_field {
             return field_type.map(key_field_config);
         } else if let Some(SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid)) =
             field_type
@@ -642,10 +673,32 @@ impl BM25IndexOptions {
     }
 
     #[inline(always)]
-    fn options_data(&self) -> &BM25IndexOptionsData {
+    pub fn options_data(&self) -> &BM25IndexOptionsData {
         unsafe {
-            assert!(!(*self.indexrel).rd_options.is_null());
-            &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            // Needed to set defaults when there is no rd_options (no WITH clause)
+            // We might want to think about putting these on the struct as defaults
+            // in the future
+            if (*self.indexrel).rd_options.is_null() {
+                static EMPTY_OPTIONS: BM25IndexOptionsData = BM25IndexOptionsData {
+                    vl_len_: std::mem::size_of::<BM25IndexOptionsData>() as i32,
+                    text_fields_offset: 0,
+                    numeric_fields_offset: 0,
+                    boolean_fields_offset: 0,
+                    json_fields_offset: 0,
+                    range_fields_offset: 0,
+                    datetime_fields_offset: 0,
+                    key_field_offset: 0,
+                    layer_sizes_offset: 0,
+                    inet_fields_offset: 0,
+                    target_segment_count: 0,
+                    background_layer_sizes_offset: 0,
+                    mutable_segment_rows: DEFAULT_MUTABLE_SEGMENT_ROWS as i32,
+                    sort_by_offset: 0,
+                };
+                &EMPTY_OPTIONS
+            } else {
+                &*((*self.indexrel).rd_options as *const BM25IndexOptionsData)
+            }
         }
     }
 }
@@ -653,7 +706,7 @@ impl BM25IndexOptions {
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-struct BM25IndexOptionsData {
+pub struct BM25IndexOptionsData {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -708,6 +761,9 @@ impl BM25IndexOptionsData {
         }
     }
 
+    /// DEPRECATED: This method is kept for backward compatibility to check if key_field was
+    /// explicitly set in WITH options. The deprecation warning system still needs this.
+    /// This will be removed once key_field support is completely removed.
     pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {
@@ -1094,8 +1150,10 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             normalizer: SearchNormalizer::Raw,
             column: None,
         },
-        SearchFieldType::Tokenized(..) => {
-            panic!("the key_field cannot use a custom tokenizer configuration")
+        SearchFieldType::Tokenized(tokenizer_oid, typmod, inner_typoid) => {
+            // Allow tokenized key fields, but use the tokenizer configuration
+            search_field_config_from_type(tokenizer_oid, typmod, inner_typoid)
+                .unwrap_or_else(|| panic!("invalid tokenizer configuration for key field"))
         }
         SearchFieldType::Inet(_) => SearchFieldConfig::Inet {
             indexed: true,
@@ -1122,6 +1180,36 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             fast: true,
         },
     }
+}
+
+pub fn extract_bm25_columns(index_relation: &PgRelation) -> Vec<String> {
+    index_relation
+        .tuple_desc()
+        .iter()
+        .map(|attr| attr.name().to_string())
+        .collect()
+}
+
+pub unsafe fn get_key_fields_from_relation(
+    index_relation: &PgRelation,
+) -> Result<Vec<FieldName>, &'static str> {
+    // Use the shared function to find the smallest matching unique index
+    let key_fields = if let Some(matched_columns) =
+        crate::postgres::build::find_smallest_matching_unique_index(index_relation)
+    {
+        matched_columns.into_iter().map(|col| col.into()).collect()
+    } else {
+        // Fallback to first column if no unique index matches
+        // Backwards compatible, but not sure if this is correct
+        // TODO: fix
+        let bm25_columns = extract_bm25_columns(index_relation);
+        if bm25_columns.is_empty() {
+            return Err("index has no fields");
+        }
+        vec![bm25_columns[0].clone().into()]
+    };
+
+    Ok(key_fields)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

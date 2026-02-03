@@ -24,11 +24,15 @@ CREATE TABLE transactions (
 );
 
 INSERT INTO transactions (organization_id, live_mode, discarded_at, internal_account_id, unledgered_amount, as_of_date, description) VALUES
-    ('org1', TRUE, NULL, 'account1', 100, '2025-12-26', 'Transaction 1'),
-    ('org1', TRUE, NULL, 'account1', 200, '2025-12-27', 'Transaction 2'),
+    ('org1', TRUE, NULL, 'account1', 100, '2025-12-26', 'Transaction 1a'),
+    ('org1', TRUE, NULL, 'account1', 150, '2025-12-26', 'Transaction 1b'),
+    ('org1', TRUE, NULL, 'account1', 200, '2025-12-27', 'Transaction 2a'),
+    ('org1', TRUE, NULL, 'account1', 250, '2025-12-27', 'Transaction 2b'),
+    ('org1', TRUE, NULL, 'account1', 275, '2025-12-27', 'Transaction 2c'),
     ('org1', TRUE, NULL, 'account1', 300, '2025-12-28', 'Transaction 3'),
     ('org1', TRUE, NULL, 'account1', 0, '2025-12-29', 'Zero amount'),
-    ('org1', FALSE, NULL, 'account1', 400, '2025-12-30', 'Not live'),
+    ('org1', FALSE, NULL, 'account1', 400, '2025-12-30', 'Not live a'),
+    ('org1', FALSE, NULL, 'account1', 450, '2025-12-30', 'Not live b'),
     ('org1', TRUE, '2025-01-01', 'account1', 500, '2025-12-31', 'Discarded'),
     ('org1', TRUE, NULL, 'account1', 600, NULL, 'Null date');
 

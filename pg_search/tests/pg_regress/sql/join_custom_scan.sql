@@ -97,6 +97,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -299,6 +300,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -330,6 +332,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -494,6 +497,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
@@ -893,6 +897,7 @@ SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.title
 LIMIT 10;
 
 -- =============================================================================

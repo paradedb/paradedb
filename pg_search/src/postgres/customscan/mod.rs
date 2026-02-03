@@ -34,6 +34,7 @@ pub mod explain;
 mod explainer;
 mod hook;
 mod opexpr;
+pub mod orderby;
 mod path;
 pub mod pdbscan;
 mod pushdown;

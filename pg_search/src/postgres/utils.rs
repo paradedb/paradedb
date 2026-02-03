@@ -23,7 +23,7 @@ use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
 use crate::postgres::build::is_bm25_index;
-use crate::postgres::customscan::pdbscan::text_lower_funcoid;
+use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;

@@ -41,7 +41,7 @@ use crate::postgres::customscan::joinscan::build::{
 };
 
 use crate::postgres::customscan::joinscan::privdat::{
-    OutputColumnInfo, PrivateData, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS,
+    OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
 use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper};
 use crate::postgres::customscan::CustomScanState;
@@ -52,6 +52,8 @@ use crate::scan::{PgSearchTableProvider, Scanner};
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
+    /// Keeps the relation open and locked during the scan.
+    /// The relation is closed/unlocked when this struct is dropped.
     pub _heaprel: PgSearchRelation,
     pub visibility_checker: VisibilityChecker,
     pub fetch_slot: *mut pg_sys::TupleTableSlot,
@@ -144,69 +146,101 @@ fn build_clause_df<'a>(
             ));
         }
 
-        let outer_source = &join_clause.sources[0];
-        let inner_source = &join_clause.sources[1];
+        // 1. Start with the first source
+        let mut df = build_source_df(ctx, &join_clause.sources[0]).await?;
+        let alias0 = join_clause.sources[0].execution_alias(0);
+        df = df.alias(&alias0)?;
 
-        let outer_df = build_source_df(ctx, outer_source, 0).await?;
-        let inner_df = build_source_df(ctx, inner_source, 1).await?;
-
-        // Prepare join keys
-        let mut on: Vec<Expr> = Vec::new();
-        let outer_alias_owned = outer_source
-            .alias()
-            .unwrap_or_else(|| JoinSource::default_alias(0).to_string());
-        let inner_alias_owned = inner_source
-            .alias()
-            .unwrap_or_else(|| JoinSource::default_alias(1).to_string());
-        let outer_alias = outer_alias_owned.as_str();
-        let inner_alias = inner_alias_owned.as_str();
-
-        let outer_df = outer_df.alias(outer_alias)?;
-        let inner_df = inner_df.alias(inner_alias)?;
-
-        for jk in &join_clause.join_keys {
-            let left_name = match outer_source {
-                JoinSource::Base(info) => {
-                    let res = outer_source.column_name(jk.outer_attno);
-                    if res.is_none() {
-                        pgrx::warning!("Failed to resolve outer field name for attno {} in base {:?}. Available fields: {:?}", jk.outer_attno, info.alias, info.fields.iter().map(|f| f.attno).collect::<Vec<_>>());
-                    }
-                    res.ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "Failed to resolve outer join key field name for attno {} in source with alias '{}' and info {:?}",
-                            jk.outer_attno,
-                            outer_alias,
-                            info
-                        ))
-                    })?
-                }
-                JoinSource::Join(..) => format!("col_{}", jk.outer_attno),
-            };
-            let right_name = match inner_source {
-                JoinSource::Base(info) => {
-                    let res = inner_source.column_name(jk.inner_attno);
-                    if res.is_none() {
-                        pgrx::warning!("Failed to resolve inner field name for attno {} in base {:?}. Available fields: {:?}", jk.inner_attno, info.alias, info.fields.iter().map(|f| f.attno).collect::<Vec<_>>());
-                    }
-                    res.ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "Failed to resolve inner join key field name for attno {} in source with alias '{}' and info {:?}",
-                            jk.inner_attno,
-                            inner_alias,
-                            info
-                        ))
-                    })?
-                }
-                JoinSource::Join(..) => format!("col_{}", jk.inner_attno),
-            };
-
-            let left_col = make_col(outer_alias, &left_name);
-            let right_col = make_col(inner_alias, &right_name);
-
-            on.push(left_col.eq(right_col));
+        // Maintain a set of RTIs that are currently in 'df' (the left side)
+        let mut left_rtis = std::collections::HashSet::new();
+        if let Some(rti) = join_clause.sources[0].scan_info.heap_rti {
+            left_rtis.insert(rti);
         }
 
-        let mut df = outer_df.join_on(inner_df, JoinType::Inner, on)?;
+        // 2. Iteratively join subsequent sources
+        for i in 1..join_clause.sources.len() {
+            let right_source = &join_clause.sources[i];
+            let right_df = build_source_df(ctx, right_source).await?;
+            let alias_right = right_source.execution_alias(i);
+            let right_df = right_df.alias(&alias_right)?;
+
+            let right_rti = right_source.scan_info.heap_rti.ok_or_else(|| {
+                DataFusionError::Internal("JoinScan source missing heap_rti".into())
+            })?;
+
+            // Find join keys connecting 'df' (left) and 'right_df' (right)
+            let mut on: Vec<Expr> = Vec::new();
+
+            for jk in &join_clause.join_keys {
+                // Case 1: Key connects Left(outer) -> Right(inner)
+                if left_rtis.contains(&jk.outer_rti) && jk.inner_rti == right_rti {
+                    let left_source = join_clause
+                        .sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(jk.outer_rti));
+                    if let Some((left_idx, left_src)) = left_source {
+                        let left_alias = left_src.execution_alias(left_idx);
+                        let left_col_name =
+                            left_src.column_name(jk.outer_attno).ok_or_else(|| {
+                                DataFusionError::Internal("Missing column name".into())
+                            })?;
+
+                        let right_col_name =
+                            right_source.column_name(jk.inner_attno).ok_or_else(|| {
+                                DataFusionError::Internal("Missing column name".into())
+                            })?;
+
+                        on.push(
+                            make_col(&left_alias, &left_col_name)
+                                .eq(make_col(&alias_right, &right_col_name)),
+                        );
+                    }
+                }
+                // Case 2: Key connects Left(inner) -> Right(outer) (swap)
+                // The JoinKeyPair stores 'outer' and 'inner' from Postgres perspective, but for our join chain:
+                // One side must be in 'left_rtis', the other must be 'right_rti'.
+                else if left_rtis.contains(&jk.inner_rti) && jk.outer_rti == right_rti {
+                    let left_source = join_clause
+                        .sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(jk.inner_rti));
+                    if let Some((left_idx, left_src)) = left_source {
+                        let left_alias = left_src.execution_alias(left_idx);
+                        let left_col_name =
+                            left_src.column_name(jk.inner_attno).ok_or_else(|| {
+                                DataFusionError::Internal("Missing column name".into())
+                            })?;
+
+                        let right_col_name =
+                            right_source.column_name(jk.outer_attno).ok_or_else(|| {
+                                DataFusionError::Internal("Missing column name".into())
+                            })?;
+
+                        on.push(
+                            make_col(&left_alias, &left_col_name)
+                                .eq(make_col(&alias_right, &right_col_name)),
+                        );
+                    }
+                }
+            }
+
+            if on.is_empty() {
+                // Fallback: cross join if no keys found?
+                // But JoinScan requires equi-keys.
+                // If we have (A,B,C) and A=C, B=C.
+                // Step 1: A.
+                // Step 2: Join B. No keys A=B? Cross join?
+                // Or we rely on the planner having ordered them such that there is connectivity.
+                // If not connected, it's a cross join.
+                df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
+            } else {
+                df = df.join_on(right_df, JoinType::Inner, on)?;
+            }
+
+            left_rtis.insert(right_rti);
+        }
 
         // 3. Apply Filter
         if let Some(ref join_level_expr) = join_clause.join_level_expr {
@@ -247,9 +281,7 @@ fn build_clause_df<'a>(
             // Create a map of RTI -> CTID column expression for join-level predicates
             let mut ctid_map = crate::api::HashMap::default();
             for (i, source) in join_clause.sources.iter().enumerate() {
-                let alias = source
-                    .alias()
-                    .unwrap_or_else(|| JoinSource::default_alias(i).to_string());
+                let alias = source.execution_alias(i);
 
                 let mut base_relations = Vec::new();
                 source.collect_base_relations(&mut base_relations);
@@ -288,36 +320,20 @@ fn build_clause_df<'a>(
             for info in &join_clause.order_by {
                 let expr = match &info.feature {
                     OrderByFeature::Score => {
-                        let ordering_is_outer = join_clause.ordering_side_is_outer();
-                        let source_idx = if ordering_is_outer { 0 } else { 1 };
-                        let source = &join_clause.sources[source_idx];
-                        let alias = source.alias().unwrap_or_else(|| {
-                            if source_idx == 0 {
-                                "outer".to_string()
-                            } else {
-                                "inner".to_string()
-                            }
-                        });
+                        // For N-way, 'ordering_side_is_outer' is insufficient.
+                        // We need the index of the ordering side.
+                        let ordering_idx = join_clause.ordering_side_index();
+                        if let Some(idx) = ordering_idx {
+                            let source = &join_clause.sources[idx];
+                            let alias = source.execution_alias(idx);
 
-                        let ordering_rti = source.ordering_rti().unwrap_or(0);
-                        if let Some(col_idx) = source.map_var(ordering_rti, 0) {
-                            if let Some(field_name) = source.column_name(col_idx) {
-                                make_col(&alias, &field_name)
-                            } else {
-                                let score_alias = if ordering_is_outer {
-                                    OUTER_SCORE_ALIAS
-                                } else {
-                                    INNER_SCORE_ALIAS
-                                };
-                                make_col(&alias, score_alias)
-                            }
+                            // Try to find the score column
+                            // Logic similar to build_projection_expr
+                            // Default to SCORE_COL_NAME
+                            make_col(&alias, SCORE_COL_NAME)
                         } else {
-                            let score_alias = if ordering_is_outer {
-                                OUTER_SCORE_ALIAS
-                            } else {
-                                INNER_SCORE_ALIAS
-                            };
-                            make_col(&alias, score_alias)
+                            // Fallback
+                            col("unknown_score")
                         }
                     }
                     OrderByFeature::Field(name) => col(name.as_ref()),
@@ -331,13 +347,7 @@ fn build_clause_df<'a>(
                         for (i, source) in join_clause.sources.iter().enumerate() {
                             if let Some(mapped_attno) = source.map_var(*rti, *attno) {
                                 if let Some(field_name) = source.column_name(mapped_attno) {
-                                    let alias = source.alias().unwrap_or_else(|| {
-                                        if i == 0 {
-                                            "outer".to_string()
-                                        } else {
-                                            "inner".to_string()
-                                        }
-                                    });
+                                    let alias = source.execution_alias(i);
                                     resolved_expr = Some(make_col(&alias, &field_name));
                                     break;
                                 }
@@ -410,33 +420,17 @@ fn build_projection_expr(
     join_clause: &JoinCSClause,
 ) -> Expr {
     for (i, source) in join_clause.sources.iter().enumerate() {
-        let alias = source.alias().unwrap_or_else(|| {
-            if i == 0 {
-                "outer".to_string()
-            } else {
-                "inner".to_string()
-            }
-        });
+        let alias = source.execution_alias(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
                 if let Some(name) = source.column_name(attno) {
                     return make_col(&alias, &name);
                 } else {
-                    let score_alias = if i == 0 {
-                        OUTER_SCORE_ALIAS
-                    } else {
-                        INNER_SCORE_ALIAS
-                    };
-                    return make_col(&alias, score_alias);
+                    return make_col(&alias, SCORE_COL_NAME);
                 }
             } else if source.contains_rti(proj.rti) {
-                let score_alias = if i == 0 {
-                    OUTER_SCORE_ALIAS
-                } else {
-                    INNER_SCORE_ALIAS
-                };
-                return make_col(&alias, score_alias);
+                return make_col(&alias, SCORE_COL_NAME);
             }
         } else if let Some(attno) = source.map_var(proj.rti, proj.attno) {
             if let Some(field_name) = source.column_name(attno) {
@@ -455,56 +449,36 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
-    source_idx: usize,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
-        match source {
-            JoinSource::Base(scan_info) => {
-                let alias = scan_info.alias.as_deref().unwrap_or("base");
-                let fields: Vec<WhichFastField> =
-                    scan_info.fields.iter().map(|f| f.field.clone()).collect();
-                let provider = Arc::new(PgSearchTableProvider::new(
-                    scan_info.clone(),
-                    fields.clone(),
-                ));
-                ctx.register_table(alias, provider)?;
+        let scan_info = &source.scan_info;
+        let alias = scan_info.alias.as_deref().unwrap_or("base");
+        let fields: Vec<WhichFastField> =
+            scan_info.fields.iter().map(|f| f.field.clone()).collect();
+        let provider = Arc::new(PgSearchTableProvider::new(
+            scan_info.clone(),
+            fields.clone(),
+        ));
+        ctx.register_table(alias, provider)?;
 
-                let mut df = ctx.table(alias).await?;
+        let mut df = ctx.table(alias).await?;
 
-                // Select fields AND ensure CTID is aliased uniquely
-                let mut exprs = Vec::new();
-                for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
-                    let expr = match field_type {
-                        WhichFastField::Ctid => {
-                            let rti = scan_info.heap_rti.unwrap_or(0);
-                            make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
-                        }
-                        WhichFastField::Score => {
-                            let score_alias = if source_idx == 0 {
-                                OUTER_SCORE_ALIAS
-                            } else {
-                                INNER_SCORE_ALIAS
-                            };
-                            make_col(alias, df_field.name()).alias(score_alias)
-                        }
-                        _ => make_col(alias, df_field.name()),
-                    };
-                    exprs.push(expr);
+        // Select fields AND ensure CTID is aliased uniquely
+        let mut exprs = Vec::new();
+        for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
+            let expr = match field_type {
+                WhichFastField::Ctid => {
+                    let rti = scan_info.heap_rti.unwrap_or(0);
+                    make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
                 }
-                df = df.select(exprs)?;
-
-                Ok(df)
-            }
-            JoinSource::Join(clause, _, _) => {
-                build_clause_df(
-                    ctx,
-                    clause,
-                    &PrivateData::new(clause.clone()),
-                    std::ptr::null_mut(),
-                )
-                .await
-            }
+                WhichFastField::Score => make_col(alias, df_field.name()).alias(SCORE_COL_NAME),
+                _ => make_col(alias, df_field.name()),
+            };
+            exprs.push(expr);
         }
+        df = df.select(exprs)?;
+
+        Ok(df)
     }
     .boxed_local()
 }

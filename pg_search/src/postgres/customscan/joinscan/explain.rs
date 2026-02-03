@@ -68,7 +68,11 @@ pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSC
             source_idx,
             predicate_idx,
         } => {
-            let label = if *source_idx == 0 { "outer" } else { "inner" };
+            let label = if let Some(source) = join_clause.sources.get(*source_idx) {
+                source.execution_alias(*source_idx)
+            } else {
+                format!("source_{}", source_idx)
+            };
             if let Some(pred) = join_clause.join_level_predicates.get(*predicate_idx) {
                 format!("{}:{}", label, pred.query.explain_format())
             } else {

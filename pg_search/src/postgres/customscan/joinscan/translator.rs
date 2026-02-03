@@ -25,9 +25,7 @@ use crate::api::HashMap;
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
 };
-use crate::postgres::customscan::joinscan::privdat::{
-    OutputColumnInfo, INNER_SCORE_ALIAS, OUTER_SCORE_ALIAS,
-};
+use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
 use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
 use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OperatorAccepts, PostgresOperatorOid, TantivyOperator,
@@ -341,13 +339,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
             .enumerate()
             .find(|(_, s)| s.contains_rti(rti))?;
 
-        let alias = source.alias().unwrap_or_else(|| {
-            if source_idx == 0 {
-                "outer".to_string()
-            } else {
-                "inner".to_string()
-            }
-        });
+        let alias = source.execution_alias(source_idx);
 
         // 3. Resolve column name
         if is_score {
@@ -358,12 +350,7 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
                 }
             }
             // Default to alias-specific score alias
-            let score_alias = if source_idx == 0 {
-                OUTER_SCORE_ALIAS
-            } else {
-                INNER_SCORE_ALIAS
-            };
-            return Some(make_col(&alias, score_alias));
+            return Some(make_col(&alias, SCORE_COL_NAME));
         }
 
         // Normal column

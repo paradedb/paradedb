@@ -149,13 +149,13 @@ mod scan_state;
 mod translator;
 mod udf;
 
-use self::build::{JoinCSClause, JoinType};
+use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
 use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
-    collect_required_fields, ensure_score_bubbling, expr_uses_scores_from_source,
-    extract_join_conditions, extract_join_source, extract_orderby, extract_score_pathkey,
-    get_score_func_rti, is_source_column_fast_field, order_by_columns_are_fast_fields_recursive,
+    collect_join_sources, collect_required_fields, ensure_score_bubbling,
+    expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
+    get_score_func_rti, is_source_column_fast_field, order_by_columns_are_fast_fields,
 };
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
@@ -216,9 +216,10 @@ impl CustomScan for JoinScan {
                 return None;
             };
 
-            let outer_side = extract_join_source(root, outerrel)?;
-            let inner_side = extract_join_source(root, innerrel)?;
-            let sources = vec![outer_side, inner_side];
+            let (mut sources, mut join_keys) = collect_join_sources(root, outerrel)?;
+            let (inner_sources, inner_keys) = collect_join_sources(root, innerrel)?;
+            sources.extend(inner_sources);
+            join_keys.extend(inner_keys);
 
             let join_conditions = extract_join_conditions(extra, &sources);
 
@@ -232,48 +233,71 @@ impl CustomScan for JoinScan {
 
             // Check if all ORDER BY columns are fast fields
             // JoinScan requires fast field access for efficient sorting
-            if !order_by_columns_are_fast_fields_recursive(root, &sources[0], &sources[1]) {
+            if !order_by_columns_are_fast_fields(root, &sources) {
                 return None;
             }
 
             let mut join_clause = JoinCSClause::new()
-                .with_outer_side(sources[0].clone())
-                .with_inner_side(sources[1].clone())
                 .with_join_type(jointype.into())
                 .with_limit(limit);
+            join_clause.sources = sources;
 
-            join_clause.join_keys = join_conditions.equi_keys;
+            // Validate ONLY the new keys added at this level (the recursive ones were validated during collection)
+            for jk in &join_conditions.equi_keys {
+                // All equi-join key columns must be fast fields in their respective BM25 indexes
+                // We need to find the source for each RTI involved in the join key
+                let outer_source = join_clause
+                    .sources
+                    .iter()
+                    .find(|s| s.contains_rti(jk.outer_rti));
+                let inner_source = join_clause
+                    .sources
+                    .iter()
+                    .find(|s| s.contains_rti(jk.inner_rti));
 
-            // Determine ordering side: the side with a search predicate is the ordering side
-            let ordering_side_is_outer = join_clause.ordering_side_is_outer();
-            let score_pathkey = extract_score_pathkey(root, join_clause.ordering_side());
+                match (outer_source, inner_source) {
+                    (Some(outer), Some(inner)) => {
+                        if !is_source_column_fast_field(outer, jk.outer_attno)
+                            || !is_source_column_fast_field(inner, jk.inner_attno)
+                        {
+                            return None;
+                        }
+                    }
+                    _ => return None, // Should not happen if extraction logic is correct
+                }
+            }
+
+            // Add collected keys first
+            join_clause.join_keys = join_keys;
+            // Add current level keys
+            join_clause.join_keys.extend(join_conditions.equi_keys);
+
+            // Determine ordering side index
+            let ordering_idx = join_clause.ordering_side_index();
+            let score_pathkey = if let Some(side) = join_clause.ordering_side() {
+                extract_score_pathkey(root, side)
+            } else {
+                None
+            };
 
             for (i, source) in join_clause.sources.iter_mut().enumerate() {
                 // Check if paradedb.score() is used anywhere in the query for each side.
                 // This includes ORDER BY, SELECT list, or any other expression.
-                // We need to check BOTH sides, not just the ordering side, because:
+                // We need to check ALL sides because:
                 // - Ordering side: scores come from the streaming executor
                 // - Non-ordering side: scores come from the pre-materialized search results
                 let score_in_tlist =
                     expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
-                let score_needed = if i == 0 {
-                    ordering_side_is_outer && score_pathkey.is_some() || score_in_tlist
+
+                let score_needed = if let Some(ord_idx) = ordering_idx {
+                    (i == ord_idx && score_pathkey.is_some()) || score_in_tlist
                 } else {
-                    !ordering_side_is_outer && score_pathkey.is_some() || score_in_tlist
+                    score_in_tlist
                 };
 
                 if score_needed {
                     // Record score_needed for each side
                     ensure_score_bubbling(source);
-                }
-            }
-
-            for jk in &join_clause.join_keys {
-                // All equi-join key columns must be fast fields in their respective BM25 indexes
-                if !is_source_column_fast_field(&join_clause.sources[0], jk.outer_attno)
-                    || !is_source_column_fast_field(&join_clause.sources[1], jk.inner_attno)
-                {
-                    return None;
                 }
             }
 
@@ -313,7 +337,7 @@ impl CustomScan for JoinScan {
             // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Extract ORDER BY info for DataFusion execution
-            let order_by = extract_orderby(root, &join_clause.sources, ordering_side_is_outer);
+            let order_by = extract_orderby(root, &join_clause.sources, ordering_idx);
             join_clause = join_clause.with_order_by(order_by);
 
             // Use simple fixed costs since we force the path anyway.
@@ -483,34 +507,20 @@ impl CustomScan for JoinScan {
         explainer: &mut Explainer,
     ) {
         let join_clause = &state.custom_state().join_clause;
-        explainer.add_text(
-            "Join Type",
-            match join_clause.join_type {
-                JoinType::Inner => "Inner",
-                JoinType::Left => "Left",
-                JoinType::Right => "Right",
-                JoinType::Full => "Full",
-                JoinType::Semi => "Semi",
-                JoinType::Anti => "Anti",
-            },
-        );
+        explainer.add_text("Join Type", join_clause.join_type.to_string());
 
-        for (i, source) in join_clause.sources.iter().enumerate() {
-            let rel_name = source
-                .as_base()
-                .and_then(|s| {
-                    s.heaprelid
-                        .map(|oid| PgSearchRelation::open(oid).name().to_string())
-                })
-                .unwrap_or_else(|| "Join Result".to_string());
-            let alias = source.alias().unwrap_or_else(|| rel_name.clone());
+        let mut base_relations = Vec::new();
+        join_clause.collect_base_relations(&mut base_relations);
+
+        for (i, base) in base_relations.iter().enumerate() {
+            let rel_name = base
+                .heaprelid
+                .map(|oid| PgSearchRelation::open(oid).name().to_string())
+                .unwrap_or_else(|| "Unknown".to_string());
+            let alias = base.alias.as_ref().unwrap_or(&rel_name);
             explainer.add_text(
-                if i == 0 {
-                    "Outer Relation"
-                } else {
-                    "Inner Relation"
-                },
-                if alias != rel_name {
+                &format!("Relation {}", i),
+                if alias != &rel_name {
                     format!("{} ({})", rel_name, alias)
                 } else {
                     rel_name
@@ -519,22 +529,30 @@ impl CustomScan for JoinScan {
         }
 
         if !join_clause.join_keys.is_empty() {
-            let outer_alias = join_clause.sources[0]
-                .alias()
-                .unwrap_or_else(|| "outer".to_string());
-            let inner_alias = join_clause.sources[1]
-                .alias()
-                .unwrap_or_else(|| "inner".to_string());
             let keys_str: Vec<_> = join_clause
                 .join_keys
                 .iter()
                 .map(|k| {
-                    let outer_relid = join_clause.sources[0].as_base().and_then(|s| s.heaprelid);
-                    let inner_relid = join_clause.sources[1].as_base().and_then(|s| s.heaprelid);
+                    let (outer_relid, outer_alias_name) = join_clause
+                        .sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(k.outer_rti))
+                        .map(|(i, s)| (s.scan_info.heaprelid, s.execution_alias(i)))
+                        .expect("Outer source not found");
+
+                    let (inner_relid, inner_alias_name) = join_clause
+                        .sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(k.inner_rti))
+                        .map(|(i, s)| (s.scan_info.heaprelid, s.execution_alias(i)))
+                        .expect("Inner source not found");
+
                     format!(
                         "{} = {}",
-                        get_attname_safe(outer_relid, k.outer_attno, &outer_alias),
-                        get_attname_safe(inner_relid, k.inner_attno, &inner_alias)
+                        get_attname_safe(outer_relid, k.outer_attno, &outer_alias_name),
+                        get_attname_safe(inner_relid, k.inner_attno, &inner_alias_name)
                     )
                 })
                 .collect();
@@ -543,17 +561,11 @@ impl CustomScan for JoinScan {
 
         for (i, source) in join_clause.sources.iter().enumerate() {
             if source.has_search_predicate() {
-                let label = if i == 0 {
-                    "Outer Tantivy Query"
+                let label = format!("Tantivy Query {}", i);
+                if let Some(ref query) = source.scan_info.query {
+                    explainer.add_explainable(&label, query);
                 } else {
-                    "Inner Tantivy Query"
-                };
-                if let Some(base) = source.as_base() {
-                    if let Some(ref query) = base.query {
-                        explainer.add_explainable(label, query);
-                    }
-                } else {
-                    explainer.add_text(label, "Nested");
+                    explainer.add_text(&label, "Nested");
                 }
             }
         }
@@ -567,9 +579,6 @@ impl CustomScan for JoinScan {
         }
 
         if !join_clause.order_by.is_empty() {
-            let mut base_relations = Vec::new();
-            join_clause.collect_base_relations(&mut base_relations);
-
             explainer.add_text(
                 "Order By",
                 join_clause

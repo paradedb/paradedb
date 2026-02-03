@@ -22,8 +22,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;
 use serde::{Deserialize, Serialize};
 
-pub const OUTER_SCORE_ALIAS: &str = "outer_score";
-pub const INNER_SCORE_ALIAS: &str = "inner_score";
+pub const SCORE_COL_NAME: &str = "score";
 
 /// Describes which relation a column comes from and its original attribute number.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

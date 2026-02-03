@@ -268,22 +268,10 @@ pub(super) unsafe fn find_base_info_recursive(
     source: &JoinSource,
     rti: pg_sys::Index,
 ) -> Option<&ScanInfo> {
-    match source {
-        JoinSource::Base(info) => {
-            if info.heap_rti == Some(rti) {
-                Some(info)
-            } else {
-                None
-            }
-        }
-        JoinSource::Join(clause, _, _) => {
-            for s in &clause.sources {
-                if let Some(info) = find_base_info_recursive(s, rti) {
-                    return Some(info);
-                }
-            }
-            None
-        }
+    if source.contains_rti(rti) {
+        Some(&source.scan_info)
+    } else {
+        None
     }
 }
 

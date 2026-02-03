@@ -294,7 +294,9 @@ unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var
         && (*a).varcollid == (*b).varcollid
 }
 
-unsafe fn row_expr_from_indexed_expr(mut expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
+pub(crate) unsafe fn row_expr_from_indexed_expr(
+    mut expr: *mut pg_sys::Expr,
+) -> Option<*mut pg_sys::RowExpr> {
     loop {
         if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
             return Some(row_expr);

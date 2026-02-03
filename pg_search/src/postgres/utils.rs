@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::tokenizers::definitions::pdb::AliasDatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
@@ -451,6 +452,10 @@ pub unsafe fn extract_field_attributes(
                     // Get composite fields (validates for nested composites, etc.)
                     let composite_fields =
                         get_composite_fields_for_index(typoid).unwrap_or_else(|e| panic!("{e}"));
+                    let row_args =
+                        row_expr_from_indexed_expr(expression.cast()).map(|row_expr| unsafe {
+                            PgList::<pg_sys::Node>::from_pg((*row_expr).args)
+                        });
 
                     // Add each field from the composite to the index
                     for comp_field in composite_fields {
@@ -486,7 +491,14 @@ pub unsafe fn extract_field_attributes(
                                 },
                                 pg_type,
                                 tantivy_type,
-                                inner_typoid: comp_field.type_oid,
+                                inner_typoid: row_args
+                                    .as_ref()
+                                    .and_then(|args| args.get_ptr(comp_field.field_index))
+                                    .map(|arg| {
+                                        let inner_node = strip_tokenizer_cast(arg.cast());
+                                        pg_sys::exprType(inner_node)
+                                    })
+                                    .unwrap_or(comp_field.type_oid),
                                 normalizer: None,
                             },
                         );

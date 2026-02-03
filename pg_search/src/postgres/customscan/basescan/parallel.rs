@@ -103,7 +103,7 @@ pub fn compute_nworkers(
     contains_external_var: bool,
     contains_correlated_param: bool,
 ) -> usize {
-    // Don't parallelize for small datasets - the worker startup overhead (typically 2-4ms)
+    // Don't parallelize for small datasets - the worker startup overhead (typically ~10ms)
     // exceeds any benefit from parallelism for small row counts.
     // See: https://github.com/paradedb/paradedb/issues/3055
     //
@@ -112,14 +112,17 @@ pub fn compute_nworkers(
     // threshold since the actual table could be large.
     let min_rows = crate::gucs::min_rows_for_parallel();
     let has_reliable_estimate = estimated_total_rows > 0.0;
-    if min_rows > 0 && has_reliable_estimate && estimated_total_rows < min_rows as f64 {
-        return 0;
-    }
+    let below_threshold =
+        min_rows > 0 && has_reliable_estimate && estimated_total_rows < min_rows as f64;
 
     // We will try to parallelize based on the number of index segments. The leader is not included
     // in `nworkers`, so exclude it here. For example: if we expect to need to query 1 segment, then
     // we don't need any workers.
-    let mut nworkers = segment_count.saturating_sub(1);
+    let mut nworkers = if below_threshold {
+        0
+    } else {
+        segment_count.saturating_sub(1)
+    };
 
     // parallel workers available to a gather node are limited by max_parallel_workers_per_gather
     // and max_parallel_workers

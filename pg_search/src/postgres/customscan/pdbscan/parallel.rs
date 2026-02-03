@@ -19,7 +19,7 @@ use std::os::raw::c_void;
 
 use crate::api::Cardinality;
 use crate::api::HashSet;
-use crate::customscan::pdbscan::ExecMethodType;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::pdbscan::PdbScan;

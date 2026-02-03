@@ -275,8 +275,28 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
         reader_handles.push(handle);
     }
 
-    // Run for a fixed duration
-    sleep(Duration::from_secs(5)).await;
+    // Run until we have enough updates and queries, or timeout
+    let start = std::time::Instant::now();
+    let timeout = Duration::from_secs(30);
+    let target_updates = 50;
+    let target_queries = 50;
+
+    loop {
+        if update_count.load(Ordering::Relaxed) >= target_updates
+            && query_count.load(Ordering::Relaxed) >= target_queries
+        {
+            break;
+        }
+        if start.elapsed() > timeout {
+            eprintln!(
+                "Test timed out waiting for activity. Current stats - Updates: {}, Queries: {}",
+                update_count.load(Ordering::Relaxed),
+                query_count.load(Ordering::Relaxed)
+            );
+            break; // Let the assertions fail below
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
 
     // Signal stop
     stop_flag.store(true, Ordering::Relaxed);
@@ -306,8 +326,18 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
     );
 
     // Verify we actually did work
-    assert!(total_updates > 50, "Expected at least 50 updates");
-    assert!(total_queries > 20, "Expected at least 20 queries");
+    assert!(
+        total_updates >= target_updates,
+        "Expected at least {} updates, got {}",
+        target_updates,
+        total_updates
+    );
+    assert!(
+        total_queries >= target_queries,
+        "Expected at least {} queries, got {}",
+        target_queries,
+        total_queries
+    );
 
     Ok(())
 }

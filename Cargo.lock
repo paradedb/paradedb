@@ -2237,7 +2237,8 @@ dependencies = [
 [[package]]
 name = "decimal-bytes"
 version = "0.3.1"
-source = "git+https://github.com/paradedb/decimal-bytes.git?rev=d4932bcd91e5bc45c7dd47c1dd0e0c301728821b#d4932bcd91e5bc45c7dd47c1dd0e0c301728821b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d16d4b35b28fbc84a6bed2f1ded5be71afc4ad7fa8909ef2b59b3e250a66153"
 dependencies = [
  "serde",
  "thiserror 2.0.17",

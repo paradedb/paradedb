@@ -68,6 +68,19 @@ LIMIT 5;
 
 -- Test 2: EXISTS (semi-join) + ORDER BY pdb.score() + LIMIT
 -- IDs 1-500 have entries for user1, so EXISTS should return IDs <= 500
+-- Verify the plan uses a Semi Join
+EXPLAIN (COSTS OFF)
+SELECT id
+FROM score_aj_items AS s
+WHERE s.id @@@ paradedb.term('state', 'active')
+AND EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
 WHERE s.id @@@ paradedb.term('state', 'active')
@@ -80,6 +93,30 @@ ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
 
 -- Test 3: NOT EXISTS with multiple @@@ predicates
+-- Verify the plan uses an Anti Join with combined predicates
+EXPLAIN (COSTS OFF)
+SELECT id
+FROM score_aj_items AS s
+WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
+AND s.id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.disjunction_max(
+            tie_breaker => 0.75,
+            disjuncts => ARRAY[
+                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
+            ]
+        )
+    ]
+)
+AND NOT EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
 WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb

@@ -84,6 +84,36 @@ LIMIT 5;
 
 -- Test 2: EXISTS (semi-join) + ORDER BY pdb.score() + LIMIT
 -- IDs 1-500 have entries for user1, so EXISTS should return IDs <= 500
+-- Verify the plan uses a Semi Join
+EXPLAIN (COSTS OFF)
+SELECT id
+FROM score_aj_items AS s
+WHERE s.id @@@ paradedb.term('state', 'active')
+AND EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(s.id)) DESC, s.id
+         ->  Nested Loop Semi Join
+               Join Filter: (s.id = score_aj_entries.item_id)
+               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+                     Table: score_aj_items
+                     Index: score_aj_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active","is_datetime":false}}}}
+               ->  Materialize
+                     ->  Seq Scan on score_aj_entries
+                           Filter: (user_id = 'user1'::text)
+(14 rows)
+
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
 WHERE s.id @@@ paradedb.term('state', 'active')
@@ -104,6 +134,47 @@ LIMIT 5;
 (5 rows)
 
 -- Test 3: NOT EXISTS with multiple @@@ predicates
+-- Verify the plan uses an Anti Join with combined predicates
+EXPLAIN (COSTS OFF)
+SELECT id
+FROM score_aj_items AS s
+WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb
+AND s.id @@@ paradedb.boolean(
+    should => ARRAY[
+        paradedb.disjunction_max(
+            tie_breaker => 0.75,
+            disjuncts => ARRAY[
+                paradedb.boost(2.0, paradedb.match('title', 'Item', prefix => false, conjunction_mode => true, distance => 1)),
+                paradedb.match('title', 'Item', prefix => false, conjunction_mode => true)
+            ]
+        )
+    ]
+)
+AND NOT EXISTS (
+    SELECT 1 FROM score_aj_entries
+    WHERE score_aj_entries.item_id = s.id
+    AND score_aj_entries.user_id = 'user1'
+)
+ORDER BY pdb.score(s.id) DESC, id
+LIMIT 5;
+                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (pdb.score(s.id)) DESC, s.id
+         ->  Nested Loop Anti Join
+               Join Filter: (score_aj_entries.item_id = s.id)
+               ->  Custom Scan (ParadeDB Scan) on score_aj_items s
+                     Table: score_aj_items
+                     Index: score_aj_items_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"term":{"field":"state","value":"active","is_datetime":false}}]}}}},{"with_index":{"query":{"boolean":{"should":[{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}]}}}}]}}
+               ->  Materialize
+                     ->  Seq Scan on score_aj_entries
+                           Filter: (user_id = 'user1'::text)
+(14 rows)
+
 SELECT id, title, pdb.score(s.id) AS score
 FROM score_aj_items AS s
 WHERE s.id @@@ '{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}'::jsonb

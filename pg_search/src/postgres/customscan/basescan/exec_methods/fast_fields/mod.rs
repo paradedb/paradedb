@@ -250,14 +250,6 @@ unsafe fn find_matching_fast_field(
         None
     };
 
-    let try_match =
-        |candidate: *mut pg_sys::Node, search_field: &SearchField, data: &CategorizedFieldData| {
-            if matches_node(candidate) {
-                return to_fast_field(search_field, data);
-            }
-            None
-        };
-
     for (i, expr) in index_expressions.iter_ptr().enumerate() {
         if let Some(row_expr) = row_expr_from_indexed_expr(expr) {
             // ROW(...) composite: match each arg as if it were an independent expression.
@@ -283,16 +275,20 @@ unsafe fn find_matching_fast_field(
                         } if expression_idx == i && idx == field_idx
                     )
                 }) {
-                    if let Some(ff) = try_match(arg as *mut pg_sys::Node, search_field, data) {
-                        return Some(ff);
+                    if matches_node(arg as *mut pg_sys::Node) {
+                        if let Some(ff) = to_fast_field(search_field, data) {
+                            return Some(ff);
+                        }
                     }
                 }
             }
         } else if let Some((search_field, data)) = categorized_fields.iter().find(
             |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
         ) {
-            if let Some(ff) = try_match(expr as *mut pg_sys::Node, search_field, data) {
-                return Some(ff);
+            if matches_node(expr as *mut pg_sys::Node) {
+                if let Some(ff) = to_fast_field(search_field, data) {
+                    return Some(ff);
+                }
             }
         }
     }

@@ -39,7 +39,7 @@ use crate::postgres::customscan::basescan::exec_methods::{
 };
 use crate::postgres::customscan::basescan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::basescan::privdat::PrivateData;
-use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
+use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
 };
@@ -49,7 +49,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -57,6 +57,9 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::orderby::{
+    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
+};
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
@@ -74,10 +77,9 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::filter_implied_predicates;
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
@@ -1891,52 +1893,14 @@ unsafe fn replace_window_agg_with_const(
     (node, None)
 }
 
-/// Reason why pathkeys cannot be used for TopN execution
-#[derive(Debug, Clone)]
-pub enum UnusableReason {
-    /// ORDER BY has too many columns (more than MAX_TOPN_FEATURES)
-    TooManyColumns { count: usize, max: usize },
-    /// Only a prefix of the ORDER BY columns can be pushed down
-    PrefixOnly { matched: usize },
-    /// Columns are not indexed with fast=true or not sortable
-    NotSortable,
-}
-
-#[derive(Debug, Clone)]
-pub enum PathKeyInfo {
-    /// There are no PathKeys at all.
-    None,
-    /// There were PathKeys, but we cannot execute them.
-    Unusable(UnusableReason),
-    /// There were PathKeys, but we can only execute a non-empty prefix of them.
-    UsablePrefix(Vec<OrderByStyle>),
-    /// There are some PathKeys, and we can execute all of them.
-    UsableAll(Vec<OrderByStyle>),
-}
-
-impl PathKeyInfo {
-    pub fn is_usable(&self) -> bool {
-        match self {
-            PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
-            PathKeyInfo::None | PathKeyInfo::Unusable(_) => false,
-        }
-    }
-
-    pub fn pathkeys(&self) -> Option<&Vec<OrderByStyle>> {
-        match self {
-            PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
-                Some(pathkeys)
-            }
-            PathKeyInfo::None | PathKeyInfo::Unusable(_) => None,
-        }
-    }
-}
-
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down
 /// ordering in TopN.
 ///
 /// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
 /// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
+///
+/// This function must be kept in sync with `validate_topn_compatibility` in `hook.rs` to ensure
+/// that queries validated during the planner hook phase can be executed by the custom scan.
 unsafe fn pullup_topn_pathkeys(
     builder: &mut CustomPathBuilder<BaseScan>,
     rti: pg_sys::Index,
@@ -1970,166 +1934,6 @@ unsafe fn pullup_topn_pathkeys(
             })
         }
         pki @ (PathKeyInfo::None | PathKeyInfo::Unusable(_)) => pki,
-    }
-}
-
-/// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
-/// This function handles score functions, lower functions, relabel types, and regular variables
-///
-/// Returns PathKeyInfo indicating whether any PathKeys existed at all, and if so, whether they
-/// might be usable via fast fields.
-///
-/// TODO: Used by both custom scans: move up one module.
-pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-    regular_sortability_check: F1,
-    lower_sortability_check: F2,
-) -> PathKeyInfo
-where
-    F1: Fn(&SearchField) -> bool,
-    F2: Fn(&SearchField) -> bool,
-{
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    if pathkeys.is_empty() {
-        return PathKeyInfo::None;
-    }
-
-    let mut pathkey_styles = Vec::new();
-    for pathkey_ptr in pathkeys.iter_ptr() {
-        let pathkey = pathkey_ptr;
-        let equivclass = (*pathkey).pk_eclass;
-        let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-        let mut found_valid_member = false;
-
-        for member in members.iter_ptr() {
-            let expr = (*member).em_expr;
-
-            // Check if this is a PlaceHolderVar containing a score function
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
-                    if is_score_func(funcexpr.cast(), rti) {
-                        pathkey_styles.push(OrderByStyle::Score(pathkey));
-                        found_valid_member = true;
-                        break;
-                    }
-                }
-            }
-            // Check if this is a score function
-            else if is_score_func(expr.cast(), rti) {
-                pathkey_styles.push(OrderByStyle::Score(pathkey));
-                found_valid_member = true;
-                break;
-            }
-            // Check if this is a lower function
-            else if let Some(var) = is_lower_func(expr.cast(), rti) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid != pg_sys::InvalidOid {
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if lower_sortability_check(&search_field) {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                found_valid_member = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            // Check if this is a RelabelType expression
-            else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid != pg_sys::InvalidOid {
-                        let heaprel =
-                            PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                        let tupdesc = heaprel.tuple_desc();
-                        if let Some(att) = tupdesc.get(attno as usize - 1) {
-                            if let Some(search_field) = schema.search_field(att.name()) {
-                                if regular_sortability_check(&search_field) {
-                                    pathkey_styles
-                                        .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                    found_valid_member = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Check if this is a regular Var (column reference)
-            else if let Some((var, field_name)) = find_one_var_and_fieldname(
-                VarContext::from_planner(root),
-                expr as *mut pg_sys::Node,
-            ) {
-                let (heaprelid, _, _) = find_var_relation(var, root);
-                if heaprelid != pg_sys::Oid::INVALID {
-                    if let Some(search_field) = schema.search_field(field_name.root()) {
-                        if regular_sortability_check(&search_field) {
-                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
-                            found_valid_member = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // If we couldn't find any valid member for this pathkey, then we can't handle this series
-        // of pathkeys.
-        if !found_valid_member {
-            if pathkey_styles.is_empty() {
-                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
-            } else {
-                return PathKeyInfo::UsablePrefix(pathkey_styles);
-            }
-        }
-    }
-
-    PathKeyInfo::UsableAll(pathkey_styles)
-}
-
-/// Check if a node is a lower() function call for a specific relation
-unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> Option<*mut pg_sys::Var> {
-    let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
-    if (*funcexpr).funcid == text_lower_funcoid() {
-        let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-        assert!(
-            args.len() == 1,
-            "`lower(text)` function must have 1 argument"
-        );
-        if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-            if (*var).varno as i32 == rti as i32 {
-                return Some(var);
-            }
-        } else if let Some(relabel) =
-            nodecast!(RelabelType, T_RelabelType, args.get_ptr(0).unwrap())
-        {
-            if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                if (*var).varno as i32 == rti as i32 {
-                    return Some(var);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Helper function to get the OID of the text lower function
-pub fn text_lower_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"pg_catalog.lower(text)".into_datum()],
-        )
-        .expect("the `pg_catalog.lower(text)` function should exist")
     }
 }
 
@@ -2515,20 +2319,4 @@ unsafe fn where_clause_only_references_left(
 
     // If walker returns true, it found a reference to another relation
     !walker(quals, &rti as *const _ as *mut _)
-}
-
-/// Extract FuncExpr from PlaceHolderVar node
-unsafe fn extract_funcexpr_from_placeholder(
-    phv: *mut pg_sys::PlaceHolderVar,
-) -> Option<*mut pg_sys::FuncExpr> {
-    if phv.is_null() || (*phv).phexpr.is_null() {
-        return None;
-    }
-
-    // The phexpr should contain our FuncExpr
-    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-        return Some(funcexpr);
-    }
-
-    None
 }

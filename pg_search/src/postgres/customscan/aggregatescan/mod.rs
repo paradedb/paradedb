@@ -53,9 +53,10 @@ use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::PgSearchRelation;
 
+use chrono::{DateTime as ChronoDateTime, Utc};
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
@@ -235,7 +236,9 @@ impl CustomScan for AggregateScan {
                         // Check if this is a NULL sentinel (handles both MIN and MAX sentinels)
                         // Note: U64/Bool use string sentinel for MIN (since 0 is valid).
                         // Bool uses 2 as MAX sentinel (0=false, 1=true, 2=null).
+                        // DateTime columns don't have a missing sentinel (NULLs are excluded).
                         let is_bool_type = expected_typoid == pg_sys::BOOLOID;
+                        let is_datetime = is_datetime_type(expected_typoid);
                         let is_null_sentinel = match &key.0 {
                             OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
                             OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
@@ -245,6 +248,46 @@ impl CustomScan for AggregateScan {
                         };
                         if is_null_sentinel {
                             None
+                        } else if is_datetime {
+                            // For datetime types, Tantivy's terms aggregation returns the date as
+                            // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
+                            // this string and convert it to the appropriate PostgreSQL date type.
+                            match &key.0 {
+                                OwnedValue::Str(date_str) => {
+                                    // Parse ISO 8601 datetime string using chrono
+                                    match date_str.parse::<ChronoDateTime<Utc>>() {
+                                        Ok(chrono_dt) => {
+                                            // Convert to nanoseconds since epoch for Tantivy DateTime
+                                            let nanos =
+                                                chrono_dt.timestamp_nanos_opt().unwrap_or(0);
+                                            let datetime =
+                                                tantivy::DateTime::from_timestamp_nanos(nanos);
+                                            TantivyValue(OwnedValue::Date(datetime))
+                                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                                .expect(
+                                                    "should be able to convert datetime to datum",
+                                                )
+                                        }
+                                        Err(e) => {
+                                            pgrx::error!(
+                                                "Failed to parse datetime string '{}': {}",
+                                                date_str,
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                OwnedValue::I64(nanos) => {
+                                    // Fallback for I64 (nanoseconds timestamp)
+                                    let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
+                                    TantivyValue(OwnedValue::Date(datetime))
+                                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                        .expect("should be able to convert datetime to datum")
+                                }
+                                _ => key
+                                    .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                                    .expect("should be able to convert to datum"),
+                            }
                         } else {
                             key.try_into_datum(pgrx::PgOid::from(expected_typoid))
                                 .expect("should be able to convert to datum")

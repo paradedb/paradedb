@@ -17,6 +17,7 @@
 
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
+use crate::postgres::catalog::type_is_ltree;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -321,6 +322,18 @@ impl TantivyValue {
             PgOid::Custom(custom) if type_is_tokenizer(*custom) => TantivyValue::try_from(
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
+
+            PgOid::Custom(custom) if type_is_ltree(*custom) => {
+                // ltree is an extension type - we need to use PostgreSQL's output function
+                // to convert it to its text representation
+                let mut typoutput: pg_sys::Oid = pg_sys::InvalidOid;
+                let mut is_varlena: bool = false;
+                pg_sys::getTypeOutputInfo(*custom, &mut typoutput, &mut is_varlena);
+                let cstring_ptr = pg_sys::OidOutputFunctionCall(typoutput, datum);
+                let cstr = std::ffi::CStr::from_ptr(cstring_ptr);
+                let text = cstr.to_str().map_err(|_| TantivyValueError::DatumDeref)?;
+                TantivyValue::try_from(text.to_string())
+            }
 
             PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
 

@@ -229,6 +229,12 @@ impl SearchFieldConfig {
         config
     }
 
+    pub fn default_ltree() -> Self {
+        // ltree should use the same configuration as UUID: Text with Keyword tokenizer and fast=true
+        // This stores the full ltree path as a single term for exact matching
+        Self::default_uuid()
+    }
+
     pub fn default_inet() -> Self {
         Self::from_json(json!({"Inet": {}}))
     }

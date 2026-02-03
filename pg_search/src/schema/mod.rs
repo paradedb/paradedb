@@ -34,6 +34,7 @@ use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
+use crate::postgres::catalog::type_is_ltree;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::QueryError;
 use anyhow::Result;
@@ -54,6 +55,7 @@ pub enum SearchFieldType {
     Tokenized(pg_sys::Oid, Typmod, pg_sys::Oid),
     Uuid(pg_sys::Oid),
     Inet(pg_sys::Oid),
+    Ltree(pg_sys::Oid),
     I64(pg_sys::Oid),
     F64(pg_sys::Oid),
     U64(pg_sys::Oid),
@@ -73,6 +75,7 @@ impl SearchFieldType {
             }
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
             SearchFieldType::Inet(_) => SearchFieldConfig::default_inet(),
+            SearchFieldType::Ltree(_) => SearchFieldConfig::default_ltree(),
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
@@ -89,6 +92,7 @@ impl SearchFieldType {
             SearchFieldType::Tokenized(oid, ..) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
             SearchFieldType::Inet(oid) => *oid,
+            SearchFieldType::Ltree(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
             SearchFieldType::F64(oid) => *oid,
             SearchFieldType::U64(oid) => *oid,
@@ -179,6 +183,10 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => Ok(
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
+
+            PgOid::Custom(ltree_oid) if type_is_ltree(*ltree_oid) => {
+                Ok(SearchFieldType::Ltree(*ltree_oid))
+            }
 
             PgOid::Custom(_) => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
 

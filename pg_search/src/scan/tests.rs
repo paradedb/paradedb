@@ -26,8 +26,8 @@ mod tests {
     use crate::query::SearchQueryInput;
     use crate::scan::datafusion_plan::ScanPlan;
     use crate::scan::Scanner;
-    use datafusion_execution::TaskContext;
-    use datafusion_physical_plan::ExecutionPlan;
+    use datafusion::execution::TaskContext;
+    use datafusion::physical_plan::ExecutionPlan;
     use futures::StreamExt;
     use pgrx::prelude::*;
     use std::sync::Arc;

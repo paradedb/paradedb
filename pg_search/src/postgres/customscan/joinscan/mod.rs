@@ -493,9 +493,8 @@ impl CustomScan for JoinScan {
                     node.custom_exprs,
                 ))
                 .expect("Failed to build DataFusion logical plan");
-            let codec = PgSearchExtensionCodec;
             private_data.logical_plan = Some(
-                logical_plan_to_bytes_with_extension_codec(&logical_plan, &codec)
+                logical_plan_to_bytes_with_extension_codec(&logical_plan, &PgSearchExtensionCodec)
                     .expect("Failed to serialize DataFusion logical plan")
                     .to_vec(),
             );

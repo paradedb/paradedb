@@ -160,10 +160,7 @@ use self::planning::{
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
 
-use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, register_source_tables,
-    JoinScanState,
-};
+use self::scan_state::{build_joinscan_logical_plan, build_joinscan_physical_plan, JoinScanState};
 use crate::api::OrderByFeature;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -709,13 +706,8 @@ impl CustomScan for JoinScan {
                     .as_ref()
                     .expect("Logical plan is required");
 
-                // Create a SessionContext and register tables
-                let ctx = SessionContext::new();
-                runtime
-                    .block_on(register_source_tables(&ctx, &join_clause))
-                    .expect("Failed to register source tables");
-
                 // Deserialize the logical plan
+                let ctx = SessionContext::new();
                 let logical_plan = logical_plan_from_bytes_with_extension_codec(
                     plan_bytes,
                     &ctx.task_ctx(),

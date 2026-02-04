@@ -136,18 +136,6 @@ pub async fn build_joinscan_physical_plan(
     }
 }
 
-/// Register source tables with the SessionContext.
-/// This must be called before deserializing/executing a logical plan.
-pub async fn register_source_tables(
-    ctx: &SessionContext,
-    join_clause: &JoinCSClause,
-) -> Result<()> {
-    for source in join_clause.sources.iter() {
-        build_source_df(ctx, source).await?;
-    }
-    Ok(())
-}
-
 /// Recursively builds a DataFusion `DataFrame` for a given join clause.
 ///
 /// This function constructs the logical plan for a join by:

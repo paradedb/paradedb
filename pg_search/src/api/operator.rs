@@ -276,6 +276,25 @@ pub unsafe fn tantivy_field_name_from_node(
     Some((indexrel, Some(field_name)))
 }
 
+pub(crate) unsafe fn row_expr_from_indexed_expr(
+    mut expr: *mut pg_sys::Expr,
+) -> Option<*mut pg_sys::RowExpr> {
+    loop {
+        if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
+            return Some(row_expr);
+        }
+        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
+            expr = (*coerce).arg.cast();
+            continue;
+        }
+        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+            expr = (*relabel).arg.cast();
+            continue;
+        }
+        return None;
+    }
+}
+
 unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys::Expr) -> bool {
     if !type_is_tokenizer(pg_sys::exprType(expr.cast())) {
         return false;

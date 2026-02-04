@@ -17,10 +17,12 @@
 
 pub mod mixed;
 
+use crate::api::operator::row_expr_from_indexed_expr;
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
+use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::basescan::BaseScan;
@@ -32,7 +34,7 @@ use crate::postgres::customscan::score_funcoids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
-use crate::schema::{FieldSource, SearchIndexSchema};
+use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
 use pgrx::{pg_sys, PgList};
 
@@ -110,38 +112,75 @@ unsafe fn find_matching_fast_field(
     schema: SearchIndexSchema,
     rti: pg_sys::Index,
 ) -> Option<WhichFastField> {
-    for (i, expr) in index_expressions.iter_ptr().enumerate() {
-        let expr = expr as *mut pg_sys::Node;
-        // Check if the unwrapped index expression matches the target node
-        let unwrapped_index_expr = strip_tokenizer_cast(expr);
+    let categorized_fields = schema.categorized_fields();
 
-        // Adjust varno in index expression to match query rti
-        fix_varno_in_place(unwrapped_index_expr, 1, rti as i32);
-
-        if pg_sys::equal(
+    let matches_node = |candidate: *mut pg_sys::Node| {
+        let unwrapped = strip_tokenizer_cast(candidate);
+        fix_varno_in_place(unwrapped, 1, rti as i32);
+        pg_sys::equal(
             node as *const core::ffi::c_void,
-            unwrapped_index_expr as *const core::ffi::c_void,
-        ) {
-            // Find the search field corresponding to this expression index
-            let categorized_fields = schema.categorized_fields();
-            let field_data = categorized_fields.iter().find(|(sf, data)| {
-                matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i)
-            });
+            unwrapped as *const core::ffi::c_void,
+        )
+    };
 
-            if let Some((search_field, data)) = field_data {
-                if search_field.is_fast() {
-                    if let Some(ff_type) =
-                        fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
-                    {
-                        return Some(WhichFastField::Named(
-                            search_field.field_name().to_string(),
-                            ff_type,
-                        ));
+    let to_fast_field = |search_field: &SearchField,
+                         data: &CategorizedFieldData|
+     -> Option<WhichFastField> {
+        if search_field.is_fast() {
+            if let Some(ff_type) = fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
+            {
+                return Some(WhichFastField::Named(
+                    search_field.field_name().to_string(),
+                    ff_type,
+                ));
+            }
+        }
+        None
+    };
+
+    for (i, expr) in index_expressions.iter_ptr().enumerate() {
+        if let Some(row_expr) = row_expr_from_indexed_expr(expr) {
+            // ROW(...) composite: match each arg as if it were an independent expression.
+            let composite_oid = pg_sys::exprType(expr.cast());
+            let Ok(fields) = get_composite_type_fields(composite_oid) else {
+                continue;
+            };
+
+            let row_args = PgList::<pg_sys::Node>::from_pg((*row_expr).args);
+            for (position, arg) in row_args.iter_ptr().enumerate() {
+                if position >= fields.len() || fields[position].is_dropped {
+                    continue;
+                }
+
+                let field_idx = fields[position].field_index;
+                if let Some((search_field, data)) = categorized_fields.iter().find(|(_, data)| {
+                    matches!(
+                        data.source,
+                        FieldSource::CompositeField {
+                            expression_idx,
+                            field_idx: idx,
+                            ..
+                        } if expression_idx == i && idx == field_idx
+                    )
+                }) {
+                    if matches_node(arg as *mut pg_sys::Node) {
+                        if let Some(ff) = to_fast_field(search_field, data) {
+                            return Some(ff);
+                        }
                     }
+                }
+            }
+        } else if let Some((search_field, data)) = categorized_fields.iter().find(
+            |(_, data)| matches!(data.source, FieldSource::Expression { att_idx } if att_idx == i),
+        ) {
+            if matches_node(expr as *mut pg_sys::Node) {
+                if let Some(ff) = to_fast_field(search_field, data) {
+                    return Some(ff);
                 }
             }
         }
     }
+
     None
 }
 

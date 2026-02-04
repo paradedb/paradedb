@@ -23,6 +23,11 @@ USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
 WITH (key_field = 'id');
 ```
 
+<Note>
+  The `columnar` option for tokenizers is available in versions `0.22.0` and
+  above.
+</Note>
+
 Columnar defaults to `false` for all tokenizers besides [literal](/documentation/tokenizers/available-tokenizers/literal) and
 [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized), which default to
 `true` and do not require an explicit setting.

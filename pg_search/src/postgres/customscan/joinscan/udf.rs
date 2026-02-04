@@ -23,11 +23,13 @@ use arrow_array::{Array, UInt64Array};
 use arrow_schema::DataType;
 use datafusion::common::{Result, ScalarValue};
 use datafusion::logical_expr::{ColumnarValue, ScalarUDFImpl, Signature, Volatility};
+use serde::{Deserialize, Serialize};
 
 /// User Defined Function to check if a row's ctid exists in a sorted set of ctids.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RowInSetUDF {
     set: Arc<Vec<u64>>, // Sorted set of valid ctids
+    #[serde(skip, default = "RowInSetUDF::make_signature")]
     signature: Signature,
 }
 
@@ -35,8 +37,12 @@ impl RowInSetUDF {
     pub fn new(set: Arc<Vec<u64>>) -> Self {
         Self {
             set,
-            signature: Signature::exact(vec![DataType::UInt64], Volatility::Immutable),
+            signature: Self::make_signature(),
         }
+    }
+
+    fn make_signature() -> Signature {
+        Signature::exact(vec![DataType::UInt64], Volatility::Immutable)
     }
 }
 

@@ -88,6 +88,10 @@ pub struct JoinScanState {
     // === Memory tracking ===
     /// Maximum allowed memory for execution (from work_mem, in bytes).
     pub max_memory: usize,
+
+    // === Serialized Plan ===
+    /// Serialized DataFusion LogicalPlan from planning phase.
+    pub logical_plan: Option<Vec<u8>>,
 }
 
 impl JoinScanState {
@@ -105,24 +109,43 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Build the DataFusion execution plan for the join.
+/// Build the DataFusion logical plan for the join.
+/// Returns a LogicalPlan that can be serialized with datafusion_proto.
 pub async fn build_joinscan_logical_plan(
     join_clause: &JoinCSClause,
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
-) -> Result<Arc<dyn ExecutionPlan>> {
+) -> Result<datafusion::logical_expr::LogicalPlan> {
     let ctx = SessionContext::new();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
+    df.into_optimized_plan()
+}
 
+/// Convert a LogicalPlan to an ExecutionPlan.
+pub async fn logical_plan_to_execution_plan(
+    ctx: &SessionContext,
+    plan: datafusion::logical_expr::LogicalPlan,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    let df = ctx.execute_logical_plan(plan).await?;
     let plan = df.create_physical_plan().await?;
 
     if plan.output_partitioning().partition_count() > 1 {
-        Ok::<_, DataFusionError>(
-            Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>
-        )
+        Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
     } else {
         Ok(plan)
     }
+}
+
+/// Register source tables with the SessionContext.
+/// This must be called before deserializing/executing a logical plan.
+pub async fn register_source_tables(
+    ctx: &SessionContext,
+    join_clause: &JoinCSClause,
+) -> Result<()> {
+    for source in join_clause.sources.iter() {
+        build_source_df(ctx, source).await?;
+    }
+    Ok(())
 }
 
 /// Recursively builds a DataFusion `DataFrame` for a given join clause.

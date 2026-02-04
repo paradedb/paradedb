@@ -16,15 +16,24 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::any::Any;
-use std::sync::Arc;
+use std::fmt::Debug;
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
+use datafusion::common::TableReference;
 use datafusion::common::{DataFusionError, Result, Statistics};
-use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
+use datafusion::execution::TaskContext;
+use datafusion::logical_expr::{
+    Expr, Extension, LogicalPlan, ScalarUDF, TableProviderFilterPushDown, TableType,
+};
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion_proto::logical_plan::LogicalExtensionCodec;
+
+use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
 use pgrx::pg_sys;
+use serde::{Deserialize, Serialize};
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -36,22 +45,28 @@ use crate::scan::datafusion_plan::ScanPlan;
 use crate::scan::info::ScanInfo;
 use crate::scan::Scanner;
 
-/// DataFusion TableProvider for scanning a ParadeDB index.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
-    schema: SchemaRef,
+    #[serde(skip)]
+    schema: OnceLock<SchemaRef>,
 }
 
 impl PgSearchTableProvider {
     pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>) -> Self {
-        let schema = build_schema(&fields);
         Self {
             scan_info,
             fields,
-            schema,
+            schema: OnceLock::new(),
         }
+    }
+
+    /// Get the schema, lazily building it from fields if needed.
+    fn get_schema(&self) -> SchemaRef {
+        self.schema
+            .get_or_init(|| build_schema(&self.fields))
+            .clone()
     }
 }
 
@@ -92,7 +107,7 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.get_schema()
     }
 
     fn table_type(&self) -> TableType {
@@ -171,5 +186,101 @@ impl TableProvider for PgSearchTableProvider {
             ffhelper,
             Box::new(visibility),
         )))
+    }
+}
+
+/// Codec for serializing/deserializing PgSearchTableProvider in DataFusion logical plans.
+#[derive(Debug, Default)]
+pub struct PgSearchExtensionCodec;
+
+impl LogicalExtensionCodec for PgSearchExtensionCodec {
+    fn try_decode(
+        &self,
+        _buf: &[u8],
+        _inputs: &[LogicalPlan],
+        _ctx: &TaskContext,
+    ) -> Result<Extension> {
+        Err(DataFusionError::NotImplemented(
+            "Extension node decoding not implemented".to_string(),
+        ))
+    }
+
+    fn try_encode(&self, _node: &Extension, _buf: &mut Vec<u8>) -> Result<()> {
+        Err(DataFusionError::NotImplemented(
+            "Extension node encoding not implemented".to_string(),
+        ))
+    }
+
+    fn try_decode_table_provider(
+        &self,
+        buf: &[u8],
+        _table_ref: &TableReference,
+        _schema: SchemaRef,
+        _ctx: &TaskContext,
+    ) -> Result<Arc<dyn TableProvider>> {
+        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
+        })?;
+        Ok(Arc::new(provider))
+    }
+
+    fn try_encode_table_provider(
+        &self,
+        _table_ref: &TableReference,
+        node: Arc<dyn TableProvider>,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        let provider = node
+            .as_any()
+            .downcast_ref::<PgSearchTableProvider>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "TableProvider is not a PgSearchTableProvider".to_string(),
+                )
+            })?;
+        let bytes = serde_json::to_vec(provider).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to serialize PgSearchTableProvider: {e}"))
+        })?;
+        buf.extend_from_slice(&bytes);
+        Ok(())
+    }
+
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        match name {
+            "row_in_set" => {
+                let udf: RowInSetUDF = serde_json::from_slice(buf).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to deserialize RowInSetUDF: {e}"))
+                })?;
+                Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "UDF '{}' deserialization not implemented",
+                name
+            ))),
+        }
+    }
+
+    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
+        let name = node.name();
+        match name {
+            "row_in_set" => {
+                let udf = node
+                    .inner()
+                    .as_any()
+                    .downcast_ref::<RowInSetUDF>()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal("UDF is not a RowInSetUDF".to_string())
+                    })?;
+                let bytes = serde_json::to_vec(udf).map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to serialize RowInSetUDF: {e}"))
+                })?;
+                buf.extend_from_slice(&bytes);
+                Ok(())
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "UDF '{}' serialization not implemented",
+                name
+            ))),
+        }
     }
 }

@@ -75,6 +75,7 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 datafusion = { version = "=52.0.0", default-features = false }
+datafusion-proto = "=52.0.0"
 futures = "0.3"
 
 [dev-dependencies]

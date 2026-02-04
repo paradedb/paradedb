@@ -47,6 +47,8 @@ pub struct PrivateData {
     /// Mapping of output column positions to their source relation and original attribute numbers.
     /// This is populated during planning (before setrefs) and used during execution.
     pub output_columns: Vec<OutputColumnInfo>,
+    /// Serialized DataFusion LogicalPlan from planning phase.
+    pub logical_plan: Option<Vec<u8>>,
 }
 
 impl PrivateData {
@@ -54,6 +56,7 @@ impl PrivateData {
         Self {
             join_clause,
             output_columns: Vec::new(),
+            logical_plan: None,
         }
     }
 
@@ -65,6 +68,11 @@ impl PrivateData {
     /// Returns a mutable reference to the join clause.
     pub fn join_clause_mut(&mut self) -> &mut JoinCSClause {
         &mut self.join_clause
+    }
+
+    /// Returns a reference to the logical plan.
+    pub fn logical_plan(&self) -> &Option<Vec<u8>> {
+        &self.logical_plan
     }
 }
 

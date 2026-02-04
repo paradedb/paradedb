@@ -24,7 +24,7 @@ mod tests;
 
 pub use batch_scanner::{Batch, Scanner};
 pub use info::ScanInfo;
-pub use table_provider::PgSearchTableProvider;
+pub use table_provider::{PgSearchExtensionCodec, PgSearchTableProvider};
 
 /// A trait for checking visibility of rows.
 pub trait VisibilityChecker {

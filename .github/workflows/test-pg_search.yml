@@ -185,13 +185,9 @@ jobs:
       - name: Source LLVM coverage environment (pgrx)
         if: matrix.pg_impl == 'pgrx'
         run: |
+          cargo llvm-cov show-env >> "$GITHUB_ENV"
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
-          echo "RUSTFLAGS=${RUSTFLAGS}" >> $GITHUB_ENV
-          echo "LLVM_PROFILE_FILE=${LLVM_PROFILE_FILE}" >> $GITHUB_ENV
-          echo "CARGO_LLVM_COV=1" >> $GITHUB_ENV
-          echo "CARGO_LLVM_COV_SHOW_ENV=1" >> $GITHUB_ENV
-          echo "CARGO_LLVM_COV_TARGET_DIR=${CARGO_LLVM_COV_TARGET_DIR}" >> $GITHUB_ENV
 
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'

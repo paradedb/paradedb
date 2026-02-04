@@ -163,6 +163,45 @@ pub trait CustomScan: ExecMethod + Default + Sized {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
+    /// Add a planner warning associated with this CustomScan type.
+    ///
+    /// The warning will be deduplicated and emitted at the end of the planning phase.
+    /// The category is automatically set to `Self::NAME`.
+    fn add_planner_warning<
+        S: Into<String>,
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        message: S,
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::add_planner_warning(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            message,
+            contexts,
+        )
+    }
+
+    /// Clear planner warnings for the specified contexts (e.g., table aliases).
+    ///
+    /// This should be called when a CustomScan is successfully planned for a set of tables,
+    /// to suppress any "failure" warnings that might have been generated during the
+    /// exploration of alternative (rejected) paths for these tables.
+    /// The category is automatically set to `Self::NAME`.
+    fn clear_planner_warnings_for_contexts<
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::clear_planner_warnings_for_contexts(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            contexts,
+        )
+    }
 }
 
 pub trait ExecMethod {

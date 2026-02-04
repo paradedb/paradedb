@@ -196,6 +196,26 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
+            let (mut sources, mut join_keys) = collect_join_sources(root, outerrel)?;
+            let (inner_sources, inner_keys) = collect_join_sources(root, innerrel)?;
+            sources.extend(inner_sources);
+            join_keys.extend(inner_keys);
+
+            // Collect aliases for warnings
+            let aliases: Vec<String> = sources
+                .iter()
+                .enumerate()
+                .map(|(i, s)| s.execution_alias(i))
+                .collect();
+
+            // A join is "potentially interesting" if at least one side has a BM25 index and a search predicate.
+            // We use this flag to decide whether to emit user-friendly warnings explaining why the JoinScan
+            // wasn't chosen (e.g., missing LIMIT, missing fast fields). If the user hasn't tried to search,
+            // we don't want to spam them with warnings about standard Postgres joins.
+            let is_interesting = sources
+                .iter()
+                .any(|s| s.has_bm25_index() && s.has_search_predicate());
+
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
@@ -204,6 +224,12 @@ impl CustomScan for JoinScan {
             // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
             // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
             if jointype != pg_sys::JoinType::JOIN_INNER {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: only INNER JOIN is currently supported",
+                        (),
+                    );
+                }
                 return None;
             }
 
@@ -213,13 +239,14 @@ impl CustomScan for JoinScan {
             let limit = if (*root).limit_tuples > -1.0 {
                 Some((*root).limit_tuples as usize)
             } else {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: query must have a LIMIT clause",
+                        (),
+                    );
+                }
                 return None;
             };
-
-            let (mut sources, mut join_keys) = collect_join_sources(root, outerrel)?;
-            let (inner_sources, inner_keys) = collect_join_sources(root, innerrel)?;
-            sources.extend(inner_sources);
-            join_keys.extend(inner_keys);
 
             let join_conditions = extract_join_conditions(extra, &sources);
 
@@ -228,12 +255,24 @@ impl CustomScan for JoinScan {
             // where join complexity explodes. PostgreSQL's native join
             // handles cartesian products more efficiently.
             if join_conditions.equi_keys.is_empty() {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+                        &aliases,
+                    );
+                }
                 return None;
             }
 
             // Check if all ORDER BY columns are fast fields
             // JoinScan requires fast field access for efficient sorting
             if !order_by_columns_are_fast_fields(root, &sources) {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
+                        (),
+                    );
+                }
                 return None;
             }
 
@@ -260,6 +299,12 @@ impl CustomScan for JoinScan {
                         if !is_source_column_fast_field(outer, jk.outer_attno)
                             || !is_source_column_fast_field(inner, jk.inner_attno)
                         {
+                            if is_interesting {
+                                Self::add_planner_warning(
+                                    "JoinScan not used: join key columns must be fast fields",
+                                    &aliases,
+                                );
+                            }
                             return None;
                         }
                     }
@@ -315,7 +360,15 @@ impl CustomScan for JoinScan {
                     join_clause.clone(),
                 ) {
                     Ok(result) => result,
-                    Err(_) => return None,
+                    Err(_) => {
+                        if is_interesting {
+                            Self::add_planner_warning(
+                                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+                                &aliases,
+                            );
+                        }
+                        return None;
+                    }
                 };
 
             // Check if this is a valid join for JoinScan
@@ -380,6 +433,11 @@ impl CustomScan for JoinScan {
                 private_list.push(clause.cast());
             }
             custom_path.custom_private = private_list.into_pg();
+
+            // We successfully created a JoinScan path for these tables, so we can clear any
+            // "failure" warnings that might have been generated for them (e.g. from failed
+            // attempts with different join orders or conditions).
+            Self::clear_planner_warnings_for_contexts(&aliases);
 
             Some(custom_path)
         }

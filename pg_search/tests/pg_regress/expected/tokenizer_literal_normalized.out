@@ -31,7 +31,7 @@ SELECT text, pdb.agg('{"value_count": {"field": "id"}}') FROM test_table WHERE i
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM test_table WHERE id @@@ pdb.all() ORDER BY text LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: test_table)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit

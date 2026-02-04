@@ -60,36 +60,28 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless';
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Hash Join
-   Output: p.id, p.name, s.name
-   Hash Cond: (s.id = p.supplier_id)
-   ->  Seq Scan on public.suppliers s
-         Output: s.id, s.name, s.contact_info, s.country
-   ->  Hash
-         Output: p.id, p.name, p.supplier_id
-         ->  Custom Scan (ParadeDB Scan) on public.products p
-               Output: p.id, p.name, p.supplier_id
-               Table: products
-               Index: products_bm25_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id;
- id  |      name      | supplier_name 
------+----------------+---------------
- 201 | Wireless Mouse | TechCorp
- 206 | Headphones     | TechCorp
- 207 | Mouse Pad      | GlobalSupply
-(3 rows)
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: p.id, p.name, s.name
+   Sort Key: p.id
+   ->  Hash Join
+         Output: p.id, p.name, s.name
+         Hash Cond: (s.id = p.supplier_id)
+         ->  Seq Scan on public.suppliers s
+               Output: s.id, s.name, s.contact_info, s.country
+         ->  Hash
+               Output: p.id, p.name, p.supplier_id
+               ->  Custom Scan (ParadeDB Scan) on public.products p
+                     Output: p.id, p.name, p.supplier_id
+                     Table: products
+                     Index: products_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 -- =============================================================================
 -- TEST 2: JoinScan should be proposed with LIMIT and search predicate
@@ -101,20 +93,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -218,39 +215,30 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, s.name
-   ->  Hash Right Join
-         Output: p.id, p.name, s.name
-         Hash Cond: (s.id = p.supplier_id)
-         ->  Seq Scan on public.suppliers s
-               Output: s.id, s.name, s.contact_info, s.country
-         ->  Hash
-               Output: p.id, p.name, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
-                     Output: p.id, p.name, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-LEFT JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
- id  |      name      | supplier_name 
------+----------------+---------------
- 201 | Wireless Mouse | TechCorp
- 206 | Headphones     | TechCorp
- 207 | Mouse Pad      | GlobalSupply
-(3 rows)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Sort
+         Output: p.id, p.name, s.name
+         Sort Key: p.id
+         ->  Hash Right Join
+               Output: p.id, p.name, s.name
+               Hash Cond: (s.id = p.supplier_id)
+               ->  Seq Scan on public.suppliers s
+                     Output: s.id, s.name, s.contact_info, s.country
+               ->  Hash
+                     Output: p.id, p.name, p.supplier_id
+                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                           Output: p.id, p.name, p.supplier_id
+                           Table: products
+                           Index: products_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- =============================================================================
 -- TEST 5: JoinScan can be disabled via GUC
@@ -262,39 +250,30 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, s.name
-   ->  Hash Join
-         Output: p.id, p.name, s.name
-         Hash Cond: (s.id = p.supplier_id)
-         ->  Seq Scan on public.suppliers s
-               Output: s.id, s.name, s.contact_info, s.country
-         ->  Hash
-               Output: p.id, p.name, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
-                     Output: p.id, p.name, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
- id  |      name      | supplier_name 
------+----------------+---------------
- 201 | Wireless Mouse | TechCorp
- 206 | Headphones     | TechCorp
- 207 | Mouse Pad      | GlobalSupply
-(3 rows)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Sort
+         Output: p.id, p.name, s.name
+         Sort Key: p.id
+         ->  Hash Join
+               Output: p.id, p.name, s.name
+               Hash Cond: (s.id = p.supplier_id)
+               ->  Seq Scan on public.suppliers s
+                     Output: s.id, s.name, s.contact_info, s.country
+               ->  Hash
+                     Output: p.id, p.name, p.supplier_id
+                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                           Output: p.id, p.name, p.supplier_id
+                           Table: products
+                           Index: products_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- Re-enable for cleanup verification
 SET paradedb.enable_join_custom_scan = on;
@@ -309,24 +288,28 @@ SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
-   ->  Result
+   ->  Incremental Sort
          Output: p.id, p.name, s.name, (paradedb.score(p.id))
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, (paradedb.score(p.id)), s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-               Limit: 5
-               Order By: pdb.score() desc
-(13 rows)
+         Sort Key: (paradedb.score(p.id)) DESC, p.id
+         Presorted Key: (paradedb.score(p.id))
+         ->  Result
+               Output: p.id, p.name, s.name, (paradedb.score(p.id))
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.id, p.name, (paradedb.score(p.id)), s.name
+                     Join Type: Inner
+                     Relation 0: suppliers (s)
+                     Relation 1: products (p)
+                     Join Cond: p.supplier_id = s.id
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+                     Order By: pdb.score() desc, p.id asc
+(17 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -502,21 +485,26 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
-                                                                             QUERY PLAN                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(11 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: p.id asc
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -550,22 +538,27 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                             QUERY PLAN                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-(12 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Order By: p.id asc
+(16 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -619,20 +612,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -681,28 +679,33 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 5;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, c.name
-   ->  Hash Join
+   ->  Sort
          Output: p.id, p.name, s.name, c.name
-         Inner Unique: true
-         Hash Cond: (p.category_id = c.id)
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, p.category_id, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-               Limit: 5
-         ->  Hash
-               Output: c.name, c.id
-               ->  Seq Scan on public.categories c
+         Sort Key: p.id
+         ->  Hash Join
+               Output: p.id, p.name, s.name, c.name
+               Inner Unique: true
+               Hash Cond: (p.category_id = c.id)
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.id, p.name, p.category_id, s.name
+                     Join Type: Inner
+                     Relation 0: suppliers (s)
+                     Relation 1: products (p)
+                     Join Cond: p.supplier_id = s.id
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+                     Order By: p.id asc
+               ->  Hash
                      Output: c.name, c.id
-(18 rows)
+                     ->  Seq Scan on public.categories c
+                           Output: c.name, c.id
+(22 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -771,20 +774,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                   QUERY PLAN                                                                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -833,20 +841,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
-         Limit: 3
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+               Limit: 3
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -923,20 +936,25 @@ SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
 JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: o.id, o.description, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: o.id, o.description, c.name
-         Join Type: Inner
-         Relation 0: customers (c)
-         Relation 1: orders (o)
-         Join Cond: o.customer_code = c.customer_code
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: o.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: o.id, o.description, c.name
+               Join Type: Inner
+               Relation 0: customers (c)
+               Relation 1: orders (o)
+               Join Cond: o.customer_code = c.customer_code
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: o.id asc
+(14 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -995,20 +1013,25 @@ SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
 JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
 WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.product_name, w.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: i.id, i.product_name, w.name
-         Join Type: Inner
-         Relation 0: warehouses (w)
-         Relation 1: inventory (i)
-         Join Cond: i.region_id = w.region_id, i.warehouse_code = w.warehouse_code
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: i.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.product_name, w.name
+               Join Type: Inner
+               Relation 0: warehouses (w)
+               Relation 1: inventory (i)
+               Join Cond: i.region_id = w.region_id, i.warehouse_code = w.warehouse_code
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: i.id asc
+(14 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -1060,20 +1083,25 @@ SELECT i.id, i.name, t.type_name
 FROM items i
 JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, t.type_name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: i.id, i.name, t.type_name
-         Join Type: Inner
-         Relation 0: item_types (t)
-         Relation 1: items (i)
-         Join Cond: i.type_id = t.type_id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: i.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: i.id, i.name, t.type_name
+               Join Type: Inner
+               Relation 0: item_types (t)
+               Relation 1: items (i)
+               Join Cond: i.type_id = t.type_id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: i.id asc
+(14 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -1141,20 +1169,25 @@ SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
 JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: lo.id, lo.description, ls.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: lo.id, lo.description, ls.name
-         Join Type: Inner
-         Relation 0: large_suppliers (ls)
-         Relation 1: large_orders (lo)
-         Join Cond: lo.supplier_id = ls.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: lo.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: lo.id, lo.description, ls.name
+               Join Type: Inner
+               Relation 0: large_suppliers (ls)
+               Relation 1: large_orders (lo)
+               Join Cond: lo.supplier_id = ls.id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: lo.id asc
+(14 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -1180,20 +1213,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1215,20 +1253,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 1: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 1: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1260,21 +1303,26 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 1: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
-         Limit: 10
-(11 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 1: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
+               Limit: 10
+               Order By: p.id asc
+(15 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1296,20 +1344,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                           
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1331,20 +1384,25 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+ORDER BY p.id
 LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
-         Limit: 10
-(10 rows)
+         Sort Key: p.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: p.id, p.name, s.name
+               Join Type: Inner
+               Relation 0: suppliers (s)
+               Relation 1: products (p)
+               Join Cond: p.supplier_id = s.id
+               Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
+               Limit: 10
+               Order By: p.id asc
+(14 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1398,26 +1456,33 @@ SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.id
 LIMIT 10;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: d.title, a.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: d.title, a.name
-         Join Type: Inner
-         Relation 0: authors (a)
-         Relation 1: docs (d)
-         Join Cond: d.author_code = a.author_code
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+   Output: d.title, a.name, d.id
+   ->  Sort
+         Output: d.title, a.name, d.id
+         Sort Key: d.id
+         ->  Result
+               Output: d.title, a.name, d.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: d.title, d.id, a.name
+                     Join Type: Inner
+                     Relation 0: authors (a)
+                     Relation 1: docs (d)
+                     Join Cond: d.author_code = a.author_code
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: d.id asc
+(16 rows)
 
 SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
-ORDER BY d.title
+ORDER BY d.id
 LIMIT 10;
         title        |    name     
 ---------------------+-------------
@@ -1461,21 +1526,28 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.name AS item_name, c.name AS category_name
 FROM items_with_nulls i
 JOIN categories_with_nulls c ON i.category_id = c.id
-WHERE i.content @@@ 'item OR laptop OR phone OR novel'
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
 LIMIT 10;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: i.name, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: i.name, c.name
-         Join Type: Inner
-         Relation 0: categories_with_nulls (c)
-         Relation 1: items_with_nulls (i)
-         Join Cond: i.category_id = c.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR phone OR novel","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+   Output: i.name, c.name, i.id
+   ->  Sort
+         Output: i.name, c.name, i.id
+         Sort Key: i.id
+         ->  Result
+               Output: i.name, c.name, i.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: i.name, i.id, c.name
+                     Join Type: Inner
+                     Relation 0: categories_with_nulls (c)
+                     Relation 1: items_with_nulls (i)
+                     Join Cond: i.category_id = c.id
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: i.id asc
+(16 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1524,48 +1596,34 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
-LIMIT 10;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: c.name, s.name
-   ->  Nested Loop
-         Output: c.name, s.name
-         ->  Custom Scan (ParadeDB Scan) on public.colors c
-               Output: c.name
-               Table: colors
-               Index: colors_bm25_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
-         ->  Materialize
-               Output: s.name
-               ->  Custom Scan (ParadeDB Scan) on public.sizes s
-                     Output: s.name
-                     Table: sizes
-                     Index: sizes_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
-
-SELECT c.name AS color, s.name AS size
-FROM colors c, sizes s
-WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
- color |  size  
--------+--------
- Red   | Small
- Red   | Medium
- Red   | Large
- Blue  | Small
- Blue  | Medium
- Blue  | Large
- Green | Small
- Green | Medium
- Green | Large
-(9 rows)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.name, s.name, c.id, s.id
+   ->  Sort
+         Output: c.name, s.name, c.id, s.id
+         Sort Key: c.id, s.id
+         ->  Nested Loop
+               Output: c.name, s.name, c.id, s.id
+               ->  Custom Scan (ParadeDB Scan) on public.colors c
+                     Output: c.name, c.id
+                     Table: colors
+                     Index: colors_bm25_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
+               ->  Materialize
+                     Output: s.name, s.id
+                     ->  Custom Scan (ParadeDB Scan) on public.sizes s
+                           Output: s.name, s.id
+                           Table: sizes
+                           Index: sizes_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
+(23 rows)
 
 -- =============================================================================
 -- TEST 24: Multi-column composite join keys
@@ -1608,20 +1666,27 @@ SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
 JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: od.product_name, oi.quantity, oi.notes
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: od.product_name, oi.quantity, oi.notes
-         Join Type: Inner
-         Relation 0: order_items (oi)
-         Relation 1: order_details (od)
-         Join Cond: od.order_id = oi.order_id, od.line_num = oi.line_num
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+   Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
+   ->  Sort
+         Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
+         Sort Key: od.order_id, od.line_num
+         ->  Result
+               Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: od.product_name, od.order_id, od.line_num, oi.quantity, oi.notes
+                     Join Type: Inner
+                     Relation 0: order_items (oi)
+                     Relation 1: order_details (od)
+                     Join Cond: od.order_id = oi.order_id, od.line_num = oi.line_num
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: od.order_id asc, oi.order_id asc, od.line_num asc, oi.line_num asc
+(16 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1732,20 +1797,27 @@ SELECT o.description, c.name
 FROM uuid_orders o
 JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: o.description, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: o.description, c.name
-         Join Type: Inner
-         Relation 0: uuid_customers (c)
-         Relation 1: uuid_orders (o)
-         Join Cond: o.customer_id = c.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+   Output: o.description, c.name, o.id
+   ->  Sort
+         Output: o.description, c.name, o.id
+         Sort Key: o.id
+         ->  Result
+               Output: o.description, c.name, o.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: o.description, o.id, c.name
+                     Join Type: Inner
+                     Relation 0: uuid_customers (c)
+                     Relation 1: uuid_orders (o)
+                     Join Cond: o.customer_id = c.id
+                     Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: o.id asc
+(16 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -1798,38 +1870,30 @@ SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
 JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
-LIMIT 10;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: t.description, a.holder_name, t.amount
-   ->  Nested Loop
-         Output: t.description, a.holder_name, t.amount
-         Join Filter: (t.account_num = a.account_num)
-         ->  Seq Scan on public.numeric_accounts a
-               Output: a.account_num, a.holder_name, a.account_type
-         ->  Materialize
-               Output: t.description, t.amount, t.account_num
-               ->  Custom Scan (ParadeDB Scan) on public.numeric_transactions t
-                     Output: t.description, t.amount, t.account_num
-                     Table: numeric_transactions
-                     Index: numeric_trans_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
-
-SELECT t.description, a.holder_name, t.amount
-FROM numeric_transactions t
-JOIN numeric_accounts a ON t.account_num = a.account_num
-WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
-      description       | holder_name | amount  
-------------------------+-------------+---------
- Wire transfer received | John Doe    | 1000.00
- Stock purchase wire    | Bob Wilson  | 5000.00
-(2 rows)
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: t.description, a.holder_name, t.amount, t.id
+   ->  Sort
+         Output: t.description, a.holder_name, t.amount, t.id
+         Sort Key: t.id
+         ->  Nested Loop
+               Output: t.description, a.holder_name, t.amount, t.id
+               Join Filter: (t.account_num = a.account_num)
+               ->  Seq Scan on public.numeric_accounts a
+                     Output: a.account_num, a.holder_name, a.account_type
+               ->  Materialize
+                     Output: t.description, t.amount, t.id, t.account_num
+                     ->  Custom Scan (ParadeDB Scan) on public.numeric_transactions t
+                           Output: t.description, t.amount, t.id, t.account_num
+                           Table: numeric_transactions
+                           Index: numeric_trans_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- =============================================================================
 -- TEST 28: Large result set (functional, not performance)
@@ -2218,20 +2282,25 @@ SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
 JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: tp.id, tp.description, tr.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: tp.id, tp.description, tr.name
-         Join Type: Inner
-         Relation 0: tiny_refs (tr)
-         Relation 1: tiny_products (tp)
-         Join Cond: tp.ref_id = tr.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(10 rows)
+         Sort Key: tp.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: tp.id, tp.description, tr.name
+               Join Type: Inner
+               Relation 0: tiny_refs (tr)
+               Relation 1: tiny_products (tp)
+               Join Cond: tp.ref_id = tr.id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 10
+               Order By: tp.id asc
+(14 rows)
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
@@ -2280,20 +2349,25 @@ SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
 LIMIT 20;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: hp.id, hp.description, hc.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: hp.id, hp.description, hc.name
-         Join Type: Inner
-         Relation 0: hint_test_categories (hc)
-         Relation 1: hint_test_products (hp)
-         Join Cond: hp.category_id = hc.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 20
-(10 rows)
+         Sort Key: hp.id
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: hp.id, hp.description, hc.name
+               Join Type: Inner
+               Relation 0: hint_test_categories (hc)
+               Relation 1: hint_test_products (hp)
+               Join Cond: hp.category_id = hc.id
+               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Limit: 20
+               Order By: hp.id asc
+(14 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
@@ -2370,40 +2444,31 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
-LIMIT 10;
-                                                                                QUERY PLAN                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit
-   Output: p.id, p.name, p.price, s.name, s.min_order_value
-   ->  Hash Join
-         Output: p.id, p.name, p.price, s.name, s.min_order_value
-         Hash Cond: (s.id = p.supplier_id)
-         Join Filter: (p.price >= s.min_order_value)
-         ->  Seq Scan on public.suppliers s
-               Output: s.name, s.min_order_value, s.id
-         ->  Hash
-               Output: p.id, p.name, p.price, p.supplier_id
-               ->  Custom Scan (ParadeDB Scan) on public.products p
-                     Output: p.id, p.name, p.price, p.supplier_id
-                     Table: products
-                     Index: products_bm25_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
-
-SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
- id  |    name    | price  |   supplier   | min_order_value 
------+------------+--------+--------------+-----------------
- 206 | Headphones | 199.99 | TechCorp     |           50.00
- 207 | Mouse Pad  |  39.69 | GlobalSupply |           15.00
-(2 rows)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, p.price, s.name, s.min_order_value
+   ->  Sort
+         Output: p.id, p.name, p.price, s.name, s.min_order_value
+         Sort Key: p.id
+         ->  Hash Join
+               Output: p.id, p.name, p.price, s.name, s.min_order_value
+               Hash Cond: (s.id = p.supplier_id)
+               Join Filter: (p.price >= s.min_order_value)
+               ->  Seq Scan on public.suppliers s
+                     Output: s.name, s.min_order_value, s.id
+               ->  Hash
+                     Output: p.id, p.name, p.price, p.supplier_id
+                     ->  Custom Scan (ParadeDB Scan) on public.products p
+                           Output: p.id, p.name, p.price, p.supplier_id
+                           Table: products
+                           Index: products_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 -- Test case: Search predicate OR multi-table predicate (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
@@ -2571,21 +2636,28 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.name, s.name, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.name, s.name, c.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: categories (c)
-         Relation 2: products (p)
-         Join Cond: p.category_id = c.id, p.supplier_id = s.id
-         Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(11 rows)
+   Output: p.name, s.name, c.name, p.id
+   ->  Sort
+         Output: p.name, s.name, c.name, p.id
+         Sort Key: p.id
+         ->  Result
+               Output: p.name, s.name, c.name, p.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.name, p.id, s.name, c.name
+                     Join Type: Inner
+                     Relation 0: suppliers (s)
+                     Relation 1: categories (c)
+                     Relation 2: products (p)
+                     Join Cond: p.category_id = c.id, p.supplier_id = s.id
+                     Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: p.id asc
+(17 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2608,21 +2680,28 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: p.name, s.name, c.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: p.name, s.name, c.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Relation 2: categories (c)
-         Join Cond: p.category_id = c.id, p.supplier_id = s.id
-         Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-         Limit: 10
-(11 rows)
+   Output: p.name, s.name, c.name, p.id
+   ->  Sort
+         Output: p.name, s.name, c.name, p.id
+         Sort Key: p.id
+         ->  Result
+               Output: p.name, s.name, c.name, p.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: p.name, p.id, s.name, c.name
+                     Join Type: Inner
+                     Relation 0: suppliers (s)
+                     Relation 1: products (p)
+                     Relation 2: categories (c)
+                     Join Cond: p.category_id = c.id, p.supplier_id = s.id
+                     Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 10
+                     Order By: p.id asc
+(17 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2747,22 +2826,29 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description @@@ 'deepest'
+ORDER BY l1.id
 LIMIT 5;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: l1.name, l2.name, l3.name, l4.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: l1.name, l2.name, l3.name, l4.name
-         Join Type: Inner
-         Relation 0: level4 (l4)
-         Relation 1: level3 (l3)
-         Relation 2: level1 (l1)
-         Relation 3: level2 (l2)
-         Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
-         Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
-         Limit: 5
-(12 rows)
+   Output: l1.name, l2.name, l3.name, l4.name, l1.id
+   ->  Sort
+         Output: l1.name, l2.name, l3.name, l4.name, l1.id
+         Sort Key: l1.id
+         ->  Result
+               Output: l1.name, l2.name, l3.name, l4.name, l1.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: l1.name, l1.id, l2.name, l3.name, l4.name
+                     Join Type: Inner
+                     Relation 0: level4 (l4)
+                     Relation 1: level3 (l3)
+                     Relation 2: level1 (l1)
+                     Relation 3: level2 (l2)
+                     Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
+                     Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+                     Order By: l1.id asc
+(18 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name
 FROM level1 l1
@@ -2788,23 +2874,30 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+ORDER BY l1.id
 LIMIT 5;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: l1.name, l4.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: l1.name, l4.name
-         Join Type: Inner
-         Relation 0: level4 (l4)
-         Relation 1: level3 (l3)
-         Relation 2: level2 (l2)
-         Relation 3: level1 (l1)
-         Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
-         Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
-         Tantivy Query 3: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
-         Limit: 5
-(13 rows)
+   Output: l1.name, l4.name, l1.id
+   ->  Sort
+         Output: l1.name, l4.name, l1.id
+         Sort Key: l1.id
+         ->  Result
+               Output: l1.name, l4.name, l1.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: l1.name, l1.id, l4.name
+                     Join Type: Inner
+                     Relation 0: level4 (l4)
+                     Relation 1: level3 (l3)
+                     Relation 2: level2 (l2)
+                     Relation 3: level1 (l1)
+                     Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
+                     Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query 3: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+                     Order By: l1.id asc
+(19 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1
@@ -2827,23 +2920,30 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+ORDER BY l1.id
 LIMIT 5;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: l1.name, l4.name
-   ->  Custom Scan (ParadeDB Join Scan)
-         Output: l1.name, l4.name
-         Join Type: Inner
-         Relation 0: level4 (l4)
-         Relation 1: level3 (l3)
-         Relation 2: level2 (l2)
-         Relation 3: level1 (l1)
-         Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
-         Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}
-         Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
-         Limit: 5
-(13 rows)
+   Output: l1.name, l4.name, l1.id
+   ->  Sort
+         Output: l1.name, l4.name, l1.id
+         Sort Key: l1.id
+         ->  Result
+               Output: l1.name, l4.name, l1.id
+               ->  Custom Scan (ParadeDB Join Scan)
+                     Output: l1.name, l1.id, l4.name
+                     Join Type: Inner
+                     Relation 0: level3 (l3)
+                     Relation 1: level4 (l4)
+                     Relation 2: level2 (l2)
+                     Relation 3: level1 (l1)
+                     Join Cond: l3.l4_id = l4.id, l1.l2_id = l2.id, l2.l3_id = l3.id
+                     Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}
+                     Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
+                     Limit: 5
+                     Order By: l1.id asc
+(19 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1

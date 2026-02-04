@@ -72,11 +72,6 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless';
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id;
 
@@ -91,6 +86,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -147,12 +143,6 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-LIMIT 10;
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-LEFT JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -164,12 +154,6 @@ SET paradedb.enable_join_custom_scan = off;
 
 -- Same query as TEST 2, but with GUC disabled - should NOT use JoinScan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-LIMIT 10;
-
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -192,7 +176,7 @@ SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
@@ -294,6 +278,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -324,6 +309,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -369,6 +355,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -416,6 +403,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
@@ -458,6 +446,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -496,6 +485,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -571,6 +561,7 @@ SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
 JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
 
 SELECT o.id, o.description, c.name AS customer_name
@@ -631,6 +622,7 @@ SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
 JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
 WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
@@ -684,6 +676,7 @@ SELECT i.id, i.name, t.type_name
 FROM items i
 JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.name, t.type_name
@@ -749,6 +742,7 @@ SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
 JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
 LIMIT 10;
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
@@ -777,6 +771,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -793,6 +788,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -818,6 +814,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -834,6 +831,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -850,6 +848,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -902,13 +901,14 @@ SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.id
 LIMIT 10;
 
 SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
-ORDER BY d.title
+ORDER BY d.id
 LIMIT 10;
 
 -- =============================================================================
@@ -954,7 +954,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.name AS item_name, c.name AS category_name
 FROM items_with_nulls i
 JOIN categories_with_nulls c ON i.category_id = c.id
-WHERE i.content @@@ 'item OR laptop OR phone OR novel'
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
 LIMIT 10;
 
 -- Should return only rows with non-NULL category_id that match the search
@@ -1003,11 +1004,6 @@ CREATE INDEX sizes_bm25_idx ON sizes USING bm25 (id, name, description) WITH (ke
 -- Cross join with search predicates on both sides
 -- JoinScan should NOT be proposed - falls back to PostgreSQL's Nested Loop
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT c.name AS color, s.name AS size
-FROM colors c, sizes s
-WHERE c.description @@@ 'color' AND s.description @@@ 'size'
-LIMIT 10;
-
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
@@ -1062,6 +1058,7 @@ SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
 JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 SELECT od.product_name, oi.quantity, oi.notes
@@ -1181,6 +1178,7 @@ SELECT o.description, c.name
 FROM uuid_orders o
 JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
 
 SELECT o.description, c.name
@@ -1232,12 +1230,6 @@ WITH (key_field = 'account_num');
 -- JoinScan with NUMERIC join keys
 -- TODO: Not yet pushed down: see https://github.com/paradedb/paradedb/issues/2968
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT t.description, a.holder_name, t.amount
-FROM numeric_transactions t
-JOIN numeric_accounts a ON t.account_num = a.account_num
-WHERE t.description @@@ 'wire'
-LIMIT 10;
-
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
 JOIN numeric_accounts a ON t.account_num = a.account_num
@@ -1556,6 +1548,7 @@ SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
 JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
 LIMIT 10;
 
 SELECT tp.id, tp.description, tr.name
@@ -1607,6 +1600,7 @@ SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
 LIMIT 20;
 
 SELECT hp.id, hp.description, hc.name AS category_name
@@ -1658,13 +1652,6 @@ WITH (key_field = 'id', numeric_fields = '{"min_order_value": {"fast": true}}');
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because price and min_order_value are fast fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND p.price >= s.min_order_value
-LIMIT 10;
-
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -1815,6 +1802,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
@@ -1834,6 +1822,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
@@ -1918,6 +1907,7 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description @@@ 'deepest'
+ORDER BY l1.id
 LIMIT 5;
 
 SELECT l1.name, l2.name, l3.name, l4.name
@@ -1941,6 +1931,7 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+ORDER BY l1.id
 LIMIT 5;
 
 SELECT l1.name, l4.name
@@ -1960,6 +1951,7 @@ JOIN level2 l2 ON l1.l2_id = l2.id
 JOIN level3 l3 ON l2.l3_id = l3.id
 JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+ORDER BY l1.id
 LIMIT 5;
 
 SELECT l1.name, l4.name

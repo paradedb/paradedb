@@ -308,4 +308,12 @@ impl PgSearchRelation {
             Err(e) => Err(e.clone()),
         }
     }
+
+    /// Check if a field supports aggregate pushdown.
+    ///
+    /// Returns `Ok(false)` for NUMERIC fields, `Ok(true)` for other fields,
+    /// or an error if the schema cannot be loaded.
+    pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
+        self.schema().map(|s| s.field_supports_aggregate(field))
+    }
 }

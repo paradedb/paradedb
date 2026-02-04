@@ -9,8 +9,8 @@ CREATE TABLE products (
     description TEXT,
     category TEXT,
     brand TEXT,
-    price NUMERIC,
-    rating NUMERIC,
+    price FLOAT,
+    rating FLOAT,
     in_stock BOOLEAN,
     sales INTEGER
 );
@@ -559,11 +559,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | rating |     moving_avg     
-----+-------------+--------+--------------------
-  1 | MacBook Pro |    4.8 | 4.7500000000000000
-  5 | ASUS ROG    |    4.7 | 4.6666666666666667
-  3 | ThinkPad X1 |    4.5 | 4.5333333333333333
+ id |    name     | rating |    moving_avg     
+----+-------------+--------+-------------------
+  1 | MacBook Pro |    4.8 |              4.75
+  5 | ASUS ROG    |    4.7 | 4.666666666666667
+  3 | ThinkPad X1 |    4.5 | 4.533333333333333
 (3 rows)
 
 -- Test 7: MIN and MAX window aggregates
@@ -814,7 +814,7 @@ LIMIT 3;
          Sort Key: products.rating DESC
          ->  WindowAgg
                Output: id, name, rating, price, sum(price) OVER w1
-               Window: w1 AS (ORDER BY products.rating RANGE BETWEEN 0.5 PRECEDING AND 0.5 FOLLOWING)
+               Window: w1 AS (ORDER BY products.rating RANGE BETWEEN '0.5'::double precision PRECEDING AND '0.5'::double precision FOLLOWING)
                ->  Sort
                      Output: rating, id, name, price
                      Sort Key: products.rating
@@ -970,8 +970,8 @@ FROM products
 WHERE rating > 4.5
 ORDER BY rating DESC
 LIMIT 3;
-                        QUERY PLAN                        
-----------------------------------------------------------
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
  Limit
    Output: id, name, rating, (count(*) OVER w1)
    ->  Sort
@@ -982,7 +982,7 @@ LIMIT 3;
                Window: w1 AS ()
                ->  Seq Scan on public.products
                      Output: id, name, rating
-                     Filter: (products.rating > 4.5)
+                     Filter: (products.rating > '4.5'::double precision)
 (11 rows)
 
 SELECT 
@@ -1185,24 +1185,24 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
+   Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
    ->  Sort
-         Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
+         Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), (count(*) OVER w2), (count(*) OVER w1), rating
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, price, (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER w2, (count(*) OVER w1), rating
+               Output: id, name, price, (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), count(*) OVER w2, (count(*) OVER w1), rating
                Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER w1
-                     Window: w1 AS (PARTITION BY (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END))
+                     Output: (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.price < '1000'::double precision) THEN 'Budget'::text WHEN (products.price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END))
                      ->  Sort
-                           Output: (CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
-                           Sort Key: (CASE WHEN (products.price < '1000'::numeric) THEN 'Budget'::text WHEN (products.price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END)
+                           Output: (CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END), id, name, price, rating
+                           Sort Key: (CASE WHEN (products.price < '1000'::double precision) THEN 'Budget'::text WHEN (products.price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END)
                            ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: CASE WHEN (price < '1000'::numeric) THEN 'Budget'::text WHEN (price < '1500'::numeric) THEN 'Mid-range'::text ELSE 'Premium'::text END, id, name, price, rating
+                                 Output: CASE WHEN (price < '1000'::double precision) THEN 'Budget'::text WHEN (price < '1500'::double precision) THEN 'Mid-range'::text ELSE 'Premium'::text END, id, name, price, rating
                                  Table: products
                                  Index: products_idx
                                  Exec Method: NormalScanExecState
@@ -1288,11 +1288,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | total_results | brand_count |    avg_brand_price    
-----+-------------+--------+-------+---------------+-------------+-----------------------
-  1 | MacBook Pro | Apple  |  2499 |             4 |           1 | 2499.0000000000000000
-  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 | 1899.0000000000000000
-  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 | 1599.0000000000000000
+ id |    name     | brand  | price | total_results | brand_count | avg_brand_price 
+----+-------------+--------+-------+---------------+-------------+-----------------
+  1 | MacBook Pro | Apple  |  2499 |             4 |           1 |            2499
+  5 | ASUS ROG    | ASUS   |  1899 |             4 |           1 |            1899
+  3 | ThinkPad X1 | Lenovo |  1599 |             4 |           1 |            1599
 (3 rows)
 
 -- Test 21: Facet with aggregates - MIN/MAX price per category
@@ -1484,24 +1484,24 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 5;
-                                                                                                                                 QUERY PLAN                                                                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
+   Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
    ->  Sort
-         Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
+         Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), (count(*) OVER w2), (count(*) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER w2, (count(*) OVER w1)
+               Output: id, name, rating, (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), count(*) OVER w2, (count(*) OVER w1)
                Window: w2 AS ()
                ->  WindowAgg
-                     Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER w1
-                     Window: w1 AS (PARTITION BY (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END))
+                     Output: (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating, count(*) OVER w1
+                     Window: w1 AS (PARTITION BY (CASE WHEN (products.rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END))
                      ->  Sort
-                           Output: (CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
-                           Sort Key: (CASE WHEN (products.rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
+                           Output: (CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END), id, name, rating
+                           Sort Key: (CASE WHEN (products.rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (products.rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (products.rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END)
                            ->  Custom Scan (ParadeDB Scan) on public.products
-                                 Output: CASE WHEN (rating >= 4.7) THEN 'Excellent (4.7+)'::text WHEN (rating >= 4.5) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= 4.0) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, id, name, rating
+                                 Output: CASE WHEN (rating >= '4.7'::double precision) THEN 'Excellent (4.7+)'::text WHEN (rating >= '4.5'::double precision) THEN 'Very Good (4.5-4.7)'::text WHEN (rating >= '4'::double precision) THEN 'Good (4.0-4.5)'::text ELSE 'Fair (<4.0)'::text END, id, name, rating
                                  Table: products
                                  Index: products_idx
                                  Exec Method: NormalScanExecState
@@ -1564,36 +1564,36 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
-                                                                                                                                  QUERY PLAN                                                                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                       QUERY PLAN                                                                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+   Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
    ->  Sort
-         Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+         Output: id, name, brand, price, rating, in_stock, (count(*) OVER w4), (avg(price) OVER w4), (avg(rating) OVER w4), (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, brand, price, rating, in_stock, count(*) OVER w4, avg(price) OVER w4, avg(rating) OVER w4, (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+               Output: id, name, brand, price, rating, in_stock, count(*) OVER w4, avg(price) OVER w4, avg(rating) OVER w4, (count(*) OVER w3), (count(*) OVER w2), (count(*) OVER w1), (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                Window: w4 AS ()
                ->  WindowAgg
-                     Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2), count(*) OVER w3
+                     Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2), count(*) OVER w3
                      Window: w3 AS (PARTITION BY products.brand)
                      ->  Sort
-                           Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2)
+                           Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), (count(*) OVER w2)
                            Sort Key: products.brand
                            ->  WindowAgg
-                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), count(*) OVER w2
-                                 Window: w2 AS (PARTITION BY (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END))
+                                 Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1), count(*) OVER w2
+                                 Window: w2 AS (PARTITION BY (CASE WHEN (products.price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END))
                                  ->  Sort
-                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1)
-                                       Sort Key: (CASE WHEN (products.price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END)
+                                       Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, (count(*) OVER w1)
+                                       Sort Key: (CASE WHEN (products.price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END)
                                        ->  WindowAgg
-                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER w1
+                                             Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating, count(*) OVER w1
                                              Window: w1 AS (PARTITION BY products.in_stock)
                                              ->  Sort
-                                                   Output: brand, in_stock, (CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating
+                                                   Output: brand, in_stock, (CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END), id, name, price, rating
                                                    Sort Key: products.in_stock
                                                    ->  Custom Scan (ParadeDB Scan) on public.products
-                                                         Output: brand, in_stock, CASE WHEN (price < '1500'::numeric) THEN 'Under $1500'::text ELSE '$1500+'::text END, id, name, price, rating
+                                                         Output: brand, in_stock, CASE WHEN (price < '1500'::double precision) THEN 'Under $1500'::text ELSE '$1500+'::text END, id, name, price, rating
                                                          Table: products
                                                          Index: products_idx
                                                          Exec Method: NormalScanExecState
@@ -1625,11 +1625,11 @@ FROM products
 WHERE description @@@ 'laptop'
 ORDER BY rating DESC
 LIMIT 3;
- id |    name     | brand  | price | rating | in_stock | total_results |       avg_price       |     avg_rating     | brand_count | price_range_count | stock_count 
-----+-------------+--------+-------+--------+----------+---------------+-----------------------+--------------------+-------------+-------------------+-------------
-  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
-  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 | 1849.0000000000000000 | 4.6000000000000000 |           1 |                 3 |           4
+ id |    name     | brand  | price | rating | in_stock | total_results | avg_price | avg_rating | brand_count | price_range_count | stock_count 
+----+-------------+--------+-------+--------+----------+---------------+-----------+------------+-------------+-------------------+-------------
+  1 | MacBook Pro | Apple  |  2499 |    4.8 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
+  5 | ASUS ROG    | ASUS   |  1899 |    4.7 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
+  3 | ThinkPad X1 | Lenovo |  1599 |    4.5 | t        |             4 |      1849 |        4.6 |           1 |                 3 |           4
 (3 rows)
 
 -- =============================================================================
@@ -1661,7 +1661,7 @@ LIMIT 3;
                ->  GroupAggregate
                      Output: category, avg(price)
                      Group Key: products.category
-                     Filter: (avg(products.price) > '1000'::numeric)
+                     Filter: (avg(products.price) > '1000'::double precision)
                      ->  Sort
                            Output: category, price
                            Sort Key: products.category
@@ -1684,9 +1684,9 @@ GROUP BY category
 HAVING AVG(price) > 1000
 ORDER BY avg_price DESC
 LIMIT 3;
- category |       avg_price       | total_count 
-----------+-----------------------+-------------
- Laptops  | 1849.0000000000000000 |           1
+ category | avg_price | total_count 
+----------+-----------+-------------
+ Laptops  |      1849 |           1
 (1 row)
 
 -- Test 27: Window function with JOIN (should NOT use custom scan - JOIN_SUPPORT=false)
@@ -1918,7 +1918,7 @@ LIMIT 2;
                ->  GroupAggregate
                      Output: p.category, pc.description, avg(p.price)
                      Group Key: p.category, pc.description
-                     Filter: (avg(p.price) > '1000'::numeric)
+                     Filter: (avg(p.price) > '1000'::double precision)
                      ->  Sort
                            Output: p.category, pc.description, p.price
                            Sort Key: p.category, pc.description
@@ -1948,9 +1948,9 @@ GROUP BY p.category, pc.description
 HAVING AVG(p.price) > 1000
 ORDER BY avg_price DESC
 LIMIT 2;
- category |        description         |       avg_price       | total_count 
-----------+----------------------------+-----------------------+-------------
- Laptops  | Portable computing devices | 1849.0000000000000000 |           1
+ category |        description         | avg_price | total_count 
+----------+----------------------------+-----------+-------------
+ Laptops  | Portable computing devices |      1849 |           1
 (1 row)
 
 -- Test 31: Window function with FILTER clause in different contexts
@@ -1969,12 +1969,12 @@ LIMIT 3;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
+   Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1)
    ->  Sort
-         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > 4.5)) OVER w1)
+         Output: id, name, rating, in_stock, (count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1)
          Sort Key: products.rating DESC
          ->  WindowAgg
-               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > 4.5)) OVER w1
+               Output: id, name, rating, in_stock, count(*) FILTER (WHERE (rating > '4.5'::double precision)) OVER w1
                Window: w1 AS ()
                ->  Custom Scan (ParadeDB Scan) on public.products
                      Output: id, name, rating, in_stock

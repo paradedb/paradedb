@@ -830,6 +830,7 @@ impl CustomScan for BaseScan {
                         );
 
                         // Validate that all fields in window aggregates exist in the index schema
+                        // and are supported for aggregate pushdown (not NUMERIC)
                         if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
                             for window_agg in &window_aggregates {
                                 for agg_type in window_agg.targetlist.aggregates() {
@@ -1122,6 +1123,13 @@ impl CustomScan for BaseScan {
                             ..
                         } => {
                             format!("{fieldname} {}", direction.as_ref())
+                        }
+                        OrderByInfo {
+                            feature: OrderByFeature::Var { name, .. },
+                            direction,
+                            ..
+                        } => {
+                            format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
                         }
                         OrderByInfo {
                             feature: OrderByFeature::Score,

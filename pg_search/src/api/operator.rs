@@ -40,6 +40,9 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::composite::get_composite_type_fields;
+use crate::postgres::customscan::opexpr::{
+    expr_matches_node, vars_equal_ignoring_varno, UnwrapFromExpr,
+};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
@@ -273,61 +276,6 @@ pub unsafe fn tantivy_field_name_from_node(
     Some((indexrel, Some(field_name)))
 }
 
-/// Compare two Vars for equality, ignoring varno and other context-dependent fields.
-///
-/// In CTE contexts, several fields may legitimately differ:
-/// - varno: points to different range table entries (CTE vs original table)
-/// - varnosyn, varattnosyn: syntactic variants that may differ in query rewriting
-/// - varlevelsup: may differ in nested subquery contexts
-/// - varnullingrels: nulling relationships may vary
-/// - location: source location in the query text
-///
-/// The essential fields that must match for the Vars to represent the same column:
-/// - varattno: the actual column number in the table
-/// - vartype: the column's data type
-/// - vartypmod: type modifier (e.g., varchar length)
-/// - varcollid: collation (important for text comparisons)
-unsafe fn vars_equal_ignoring_varno(a: *const pg_sys::Var, b: *const pg_sys::Var) -> bool {
-    (*a).varattno == (*b).varattno
-        && (*a).vartype == (*b).vartype
-        && (*a).vartypmod == (*b).vartypmod
-        && (*a).varcollid == (*b).varcollid
-}
-
-unsafe fn row_expr_from_indexed_expr(mut expr: *mut pg_sys::Expr) -> Option<*mut pg_sys::RowExpr> {
-    loop {
-        if let Some(row_expr) = nodecast!(RowExpr, T_RowExpr, expr) {
-            return Some(row_expr);
-        }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
-            expr = (*coerce).arg.cast();
-            continue;
-        }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            expr = (*relabel).arg.cast();
-            continue;
-        }
-        return None;
-    }
-}
-
-unsafe fn simple_var_from_expr(mut expr: *mut pg_sys::Expr) -> Option<*const pg_sys::Var> {
-    loop {
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            return Some(var);
-        }
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, expr) {
-            expr = (*coerce).arg.cast();
-            continue;
-        }
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            expr = (*relabel).arg.cast();
-            continue;
-        }
-        return None;
-    }
-}
-
 unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys::Expr) -> bool {
     if !type_is_tokenizer(pg_sys::exprType(expr.cast())) {
         return false;
@@ -352,43 +300,6 @@ unsafe fn var_matches_tokenizer_expr(var: *const pg_sys::Var, expr: *mut pg_sys:
         .unwrap_or_else(|e| panic!("{e}"))
         .alias();
     alias.is_none()
-}
-
-unsafe fn expr_matches_node(node: *mut pg_sys::Node, indexed_expr: *mut pg_sys::Expr) -> bool {
-    let mut reduced_expression = indexed_expr;
-    loop {
-        let inner_expression =
-            if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, reduced_expression) {
-                (*coerce).arg
-            } else {
-                reduced_expression
-            };
-
-        if pg_sys::equal(node.cast(), inner_expression.cast()) {
-            return true;
-        }
-
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, reduced_expression) {
-            reduced_expression = (*relabel).arg.cast();
-            continue;
-        }
-
-        // a cast to `pdb.alias` can make it a `FuncExpr` that we need to unwrap
-        // Only unwrap pdb.alias casts; unwrapping other FuncExprs like abs() causes false index matches (#3760).
-        if let Some(func) = nodecast!(FuncExpr, T_FuncExpr, reduced_expression) {
-            if type_is_alias((*func).funcresulttype) {
-                let args = PgList::<pg_sys::Node>::from_pg((*func).args);
-                if args.len() == 1 {
-                    if let Some(arg) = args.get_ptr(0) {
-                        reduced_expression = arg.cast();
-                        continue;
-                    }
-                }
-            }
-        }
-
-        return false;
-    }
 }
 
 pub unsafe fn field_name_from_node(
@@ -443,7 +354,8 @@ pub unsafe fn field_name_from_node(
                 let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
                 if is_composite {
-                    if let Some(row_expr) = row_expr_from_indexed_expr(expression) {
+                    if let Some(row_expr) = <*mut pg_sys::RowExpr>::unwrap_from_coercion(expression)
+                    {
                         let composite_oid = pg_sys::exprType(expression.cast());
                         let Ok(fields) = get_composite_type_fields(composite_oid) else {
                             expr_no += 1;
@@ -457,7 +369,9 @@ pub unsafe fn field_name_from_node(
                                 continue;
                             }
 
-                            if let Some(arg_var) = simple_var_from_expr(arg.cast()) {
+                            if let Some(arg_var) =
+                                <*mut pg_sys::Var>::unwrap_from_coercion(arg.cast())
+                            {
                                 if vars_equal_ignoring_varno(arg_var, var) {
                                     return Some(FieldName::from(
                                         fields[position].field_name.clone(),
@@ -505,7 +419,9 @@ pub unsafe fn field_name_from_node(
             let is_composite = crate::postgres::composite::is_composite_type(expr_type);
 
             if is_composite {
-                if let Some(row_expr) = row_expr_from_indexed_expr(indexed_expression) {
+                if let Some(row_expr) =
+                    <*mut pg_sys::RowExpr>::unwrap_from_coercion(indexed_expression)
+                {
                     let composite_oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };
                     let Ok(fields) = get_composite_type_fields(composite_oid) else {
                         continue;
@@ -518,12 +434,12 @@ pub unsafe fn field_name_from_node(
                             continue;
                         }
 
-                        if expr_matches_node(node, arg.cast()) {
+                        if expr_matches_node(node, arg.cast(), type_is_alias) {
                             return Some(FieldName::from(fields[position].field_name.clone()));
                         }
                     }
                 }
-            } else if expr_matches_node(node, indexed_expression) {
+            } else if expr_matches_node(node, indexed_expression, type_is_alias) {
                 let field_name =
                     if type_is_tokenizer(unsafe { pg_sys::exprType(indexed_expression.cast()) }) {
                         let oid = unsafe { pg_sys::exprType(indexed_expression.cast()) };

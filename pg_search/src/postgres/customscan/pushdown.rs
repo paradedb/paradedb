@@ -180,8 +180,8 @@ pub unsafe fn try_pushdown_inner(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
-            // can't push down tokenized text
-            if (search_field.is_text() || opexpr.is_text_binary()) && !search_field.is_keyword() {
+            // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)
+            if (search_field.is_text() || opexpr.is_text_binary()) && !search_field.is_keyword() && !search_field.is_numeric_bytes() {
                 return None;
             }
 

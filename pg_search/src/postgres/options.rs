@@ -476,6 +476,7 @@ impl BM25IndexOptions {
             return Some(SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
+                scale: None,
             });
         }
 
@@ -1079,8 +1080,19 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             SearchFieldConfig::Numeric {
                 indexed: true,
                 fast: true,
+                scale: None,
             }
         }
+        SearchFieldType::Numeric64(_, scale) => SearchFieldConfig::Numeric {
+            indexed: true,
+            fast: true,
+            scale: Some(scale),
+        },
+        SearchFieldType::NumericBytes(_) => SearchFieldConfig::Numeric {
+            indexed: true,
+            fast: true,
+            scale: None,
+        },
         SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => SearchFieldConfig::Text {
             indexed: true,
             fast: true,

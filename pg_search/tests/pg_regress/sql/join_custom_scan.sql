@@ -50,7 +50,7 @@ INSERT INTO products (id, name, description, supplier_id, price) VALUES
 (204, 'Monitor Stand', 'Adjustable monitor stand for ergonomic setup', 153, 49.99),
 (205, 'Webcam', 'HD webcam for video conferencing', 154, 59.99),
 (206, 'Headphones', 'Wireless noise-canceling headphones with premium sound', 151, 199.99),
-(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 29.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad with wireless charging', 152, 39.69),
 (208, 'Cable Organizer', 'Desktop cable organizer for clean setup', 153, 14.99);
 
 -- Create BM25 indexes on both tables
@@ -72,11 +72,6 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless';
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id;
 
@@ -91,12 +86,14 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -146,12 +143,6 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-LIMIT 10;
-
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-LEFT JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
 
@@ -163,12 +154,6 @@ SET paradedb.enable_join_custom_scan = off;
 
 -- Same query as TEST 2, but with GUC disabled - should NOT use JoinScan
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-LIMIT 10;
-
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -191,14 +176,14 @@ SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-ORDER BY paradedb.score(p.id) DESC
+ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
 
 -- =============================================================================
@@ -293,12 +278,14 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -322,6 +309,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -330,6 +318,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
+ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
@@ -366,6 +355,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -402,12 +392,18 @@ UPDATE products SET category_id = 302 WHERE id IN (202, 204, 208);
 UPDATE products SET category_id = 303 WHERE id = 207;
 
 -- 3-table join with LIMIT
+-- Note: The join between products and categories is on category_id.
+-- category_id was added via ALTER TABLE but was NOT added to the BM25 index on products.
+-- Therefore, the JoinScan cannot push down the join between products and categories
+-- because the join key is not a fast field. The JoinScan should fall back to a
+-- standard join for that level.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
+ORDER BY p.id
 LIMIT 5;
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
@@ -450,6 +446,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -488,22 +485,30 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
+ORDER BY p.id
 LIMIT 3;
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
-EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, s.name AS supplier_name
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'mouse'
-ORDER BY p.price DESC
-LIMIT 3;
+--
+-- TODO: This query does NOT get a JoinScan because 'price' is DECIMAL (NUMERIC).
+-- While it is indexed as a fast field, we cannot safely pull it up from the index
+-- without potential precision loss, so fast field execution is disabled for NUMERIC.
+-- See: https://github.com/paradedb/paradedb/issues/2968
+--
+-- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+-- SELECT p.id, p.name, s.name AS supplier_name
+-- FROM products p
+-- JOIN suppliers s ON p.supplier_id = s.id
+-- WHERE p.description @@@ 'mouse'
+-- ORDER BY p.price DESC
+-- LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -556,6 +561,7 @@ SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
 JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
 
 SELECT o.id, o.description, c.name AS customer_name
@@ -616,6 +622,7 @@ SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
 JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehouse_code
 WHERE i.product_name @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
@@ -669,6 +676,7 @@ SELECT i.id, i.name, t.type_name
 FROM items i
 JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
+ORDER BY i.id
 LIMIT 10;
 
 SELECT i.id, i.name, t.type_name
@@ -734,6 +742,7 @@ SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
 JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
+ORDER BY lo.id
 LIMIT 10;
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
@@ -762,6 +771,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -778,6 +788,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -803,6 +814,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -819,6 +831,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -835,6 +848,7 @@ SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
+ORDER BY p.id
 LIMIT 10;
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -845,7 +859,7 @@ ORDER BY p.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 15: Different join key types - TEXT keys
+-- TEST 21: Different join key types - TEXT keys
 -- =============================================================================
 -- Verify JoinScan works with TEXT join keys, not just INTEGER
 
@@ -887,16 +901,18 @@ SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.id
 LIMIT 10;
 
 SELECT d.title, a.name
 FROM docs d
 JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
+ORDER BY d.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 16: NULL key handling
+-- TEST 22: NULL key handling
 -- =============================================================================
 -- Verify that NULL join keys are correctly excluded (standard SQL semantics)
 
@@ -938,7 +954,8 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT i.name AS item_name, c.name AS category_name
 FROM items_with_nulls i
 JOIN categories_with_nulls c ON i.category_id = c.id
-WHERE i.content @@@ 'item OR laptop OR phone OR novel'
+WHERE i.content @@@ 'item OR laptop OR novel'
+ORDER BY i.id
 LIMIT 10;
 
 -- Should return only rows with non-NULL category_id that match the search
@@ -951,7 +968,7 @@ ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 17: Cross join (no equi-join keys) - JoinScan NOT proposed
+-- TEST 23: Cross join (no equi-join keys) - JoinScan NOT proposed
 -- =============================================================================
 -- Verify JoinScan does NOT handle cross joins (no equi-join conditions).
 -- Cross joins require O(N*M) comparisons and are better handled by PostgreSQL.
@@ -990,16 +1007,11 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT c.name AS color, s.name AS size
 FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
-LIMIT 10;
-
-SELECT c.name AS color, s.name AS size
-FROM colors c, sizes s
-WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 18: Multi-column composite join keys
+-- TEST 24: Multi-column composite join keys
 -- =============================================================================
 -- Verify JoinScan handles composite (multi-column) join keys
 
@@ -1046,6 +1058,7 @@ SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
 JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
+ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 SELECT od.product_name, oi.quantity, oi.notes
@@ -1056,7 +1069,7 @@ ORDER BY od.order_id, od.line_num
 LIMIT 10;
 
 -- =============================================================================
--- TEST 19: Memory Limit Enforcement (Expect OOM)
+-- TEST 25: Memory Limit Enforcement (Expect OOM)
 -- =============================================================================
 -- Verify JoinScan handles memory overflow by erroring out (OOM)
 -- Note: This is a functional test to ensure we don't crash when memory is exceeded.
@@ -1120,7 +1133,7 @@ LIMIT 5;
 RESET work_mem;
 
 -- =============================================================================
--- TEST 20: UUID join keys
+-- TEST 26: UUID join keys
 -- =============================================================================
 -- Verify JoinScan works with UUID join keys
 
@@ -1150,7 +1163,7 @@ INSERT INTO uuid_orders (customer_id, description, amount) VALUES
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'Wireless keyboard order', 99.99),
 ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', 'USB hub purchase', 29.99),
 ('b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22', 'Monitor stand order', 49.99),
-('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.99);
+('c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33', 'Wireless mouse order', 39.69);
 
 -- Note: uuid_orders.customer_id must be a fast field for the join key
 -- UUID columns use key_field which is implicitly fast, or explicit text_fields config
@@ -1165,6 +1178,7 @@ SELECT o.description, c.name
 FROM uuid_orders o
 JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
+ORDER BY o.id
 LIMIT 10;
 
 SELECT o.description, c.name
@@ -1175,7 +1189,7 @@ ORDER BY o.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 21: NUMERIC join keys
+-- TEST 27: NUMERIC join keys
 -- =============================================================================
 -- Verify JoinScan works with NUMERIC (decimal) join keys
 
@@ -1220,17 +1234,11 @@ SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
 JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
-LIMIT 10;
-
-SELECT t.description, a.holder_name, t.amount
-FROM numeric_transactions t
-JOIN numeric_accounts a ON t.account_num = a.account_num
-WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 22: Large result set (functional, not performance)
+-- TEST 28: Large result set (functional, not performance)
 -- =============================================================================
 -- Verify JoinScan handles larger result sets correctly
 -- This is a functional test, not a benchmark
@@ -1289,7 +1297,7 @@ ORDER BY li.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 23: Visibility after multiple UPDATEs
+-- TEST 29: Visibility after multiple UPDATEs
 -- =============================================================================
 -- Verify JoinScan handles visibility correctly after multiple UPDATE cycles
 -- Note: True concurrent update testing requires multiple connections,
@@ -1365,7 +1373,7 @@ ORDER BY i.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 24: Qgen-style setup - Index before data with NOT operator
+-- TEST 30: Qgen-style setup - Index before data with NOT operator
 -- =============================================================================
 -- This test replicates the qgen test setup which revealed a bug:
 -- 1. Create index BEFORE inserting data (creates multiple segments)
@@ -1451,7 +1459,7 @@ FROM generate_series(1, 100);
 ANALYZE qgen_users;
 ANALYZE qgen_products;
 
--- TEST 24A: Simple query without NOT (baseline - should work)
+-- TEST 30A: Simple query without NOT (baseline - should work)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -1467,7 +1475,7 @@ WHERE qgen_users.name @@@ 'bob'
 ORDER BY qgen_users.id 
 LIMIT 5;
 
--- TEST 24B: Query with NOT operator (this is where the bug occurred)
+-- TEST 30B: Query with NOT operator (this is where the bug occurred)
 -- Error was: "could not read blocks 65536..65536: read only 0 of 8192 bytes"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
@@ -1484,7 +1492,7 @@ WHERE NOT (qgen_users.name @@@ 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
 
--- TEST 24C: OR with predicates spanning both tables
+-- TEST 30C: OR with predicates spanning both tables
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -1501,7 +1509,7 @@ ORDER BY qgen_users.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 25: Execution hints - small build side (nested loop preference)
+-- TEST 31: Execution hints - small build side (nested loop preference)
 -- =============================================================================
 -- This test verifies that execution hints work for very small joins.
 -- When estimated_build_rows < 10, the planner hints to prefer nested loop
@@ -1540,6 +1548,7 @@ SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
 JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
+ORDER BY tp.id
 LIMIT 10;
 
 SELECT tp.id, tp.description, tr.name
@@ -1550,7 +1559,7 @@ ORDER BY tp.id
 LIMIT 10;
 
 -- =============================================================================
--- TEST 26: Execution hints - verify hash table pre-sizing (functional test)
+-- TEST 32: Execution hints - verify hash table pre-sizing (functional test)
 -- =============================================================================
 -- This test verifies that the execution hints system works with larger datasets.
 -- The planner should estimate build rows and pass hints to the executor.
@@ -1591,6 +1600,7 @@ SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
+ORDER BY hp.id
 LIMIT 20;
 
 SELECT hp.id, hp.description, hc.name AS category_name
@@ -1607,7 +1617,7 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless';
 
 -- =============================================================================
--- TEST 27: Multi-table predicates with fast fields
+-- TEST 33: Multi-table predicates with fast fields
 -- =============================================================================
 -- This test demonstrates JoinScan handling multi-table predicates (conditions
 -- that reference columns from both tables) when ALL referenced columns are
@@ -1642,13 +1652,6 @@ WITH (key_field = 'id', numeric_fields = '{"min_order_value": {"fast": true}}');
 -- Products where description matches 'wireless' AND price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because price and min_order_value are fast fields
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
-FROM products p
-JOIN suppliers s ON p.supplier_id = s.id
-WHERE p.description @@@ 'wireless'
-  AND p.price >= s.min_order_value
-LIMIT 10;
-
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -1691,7 +1694,7 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
 
 -- =============================================================================
--- TEST 25: Mixed-case column names (regression test for quoting issues)
+-- TEST 34: Mixed-case column names (regression test for quoting issues)
 -- =============================================================================
 -- Verify JoinScan handles mixed-case column names correctly in join keys and sort
 DROP TABLE IF EXISTS "MixedCaseTable" CASCADE;
@@ -1727,10 +1730,248 @@ LIMIT 5;
 DROP TABLE "MixedCaseTable";
 
 -- =============================================================================
+-- TEST 35A: Multi-table join - Star Schema (3 tables)
+-- =============================================================================
+
+-- Setup specific data for these tests
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS suppliers CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+
+-- Create test tables
+CREATE TABLE categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    contact_info TEXT,
+    country TEXT
+);
+
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER,
+    category_id INTEGER,
+    price DECIMAL(10,2)
+);
+
+-- Insert test data
+INSERT INTO categories (id, name) VALUES
+(10, 'Electronics'),
+(11, 'Accessories'),
+(12, 'Office');
+
+INSERT INTO suppliers (id, name, contact_info, country) VALUES
+(151, 'TechCorp', 'contact@techcorp.com wireless technology', 'USA'),
+(152, 'GlobalSupply', 'info@globalsupply.com international shipping', 'UK'),
+(153, 'FastParts', 'sales@fastparts.com quick delivery', 'Germany');
+
+INSERT INTO products (id, name, description, supplier_id, category_id, price) VALUES
+(201, 'Wireless Mouse', 'Ergonomic wireless mouse', 151, 11, 29.99),
+(202, 'USB Cable', 'High-speed USB-C cable', 152, 11, 9.99),
+(203, 'Keyboard', 'Mechanical keyboard', 151, 10, 89.99),
+(204, 'Monitor Stand', 'Adjustable monitor stand', 153, 12, 49.99),
+(206, 'Headphones', 'Wireless noise-canceling headphones', 151, 10, 199.99),
+(207, 'Mouse Pad', 'Large gaming mouse pad', 152, 11, 29.99);
+
+-- Create BM25 indexes
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, category_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "category_id": {"fast": true}, "price": {"fast": true}}');
+
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, contact_info, country)
+WITH (key_field = 'id');
+
+CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name)
+WITH (key_field = 'id');
+
+-- Enable JoinScan
+SET paradedb.enable_join_custom_scan = on;
+
+-- Query joining Products, Suppliers, and Categories.
+-- Search predicate on Products.
+-- Should produce nested JoinScans.
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- Search predicate on Suppliers.
+-- Products joins Suppliers, then Categories.
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.name AS product, s.name AS supplier, c.name AS category
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY p.id
+LIMIT 10;
+
+-- Order by score from the nested relation (Products).
+-- Products is in the child join (p join c).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+
+SELECT p.name, paradedb.score(p.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE p.description @@@ 'wireless'
+ORDER BY paradedb.score(p.id) DESC
+LIMIT 5;
+
+-- Order by score from the top outer relation (Suppliers).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
+
+SELECT s.name, paradedb.score(s.id)
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+JOIN categories c ON p.category_id = c.id
+WHERE s.contact_info @@@ 'wireless'
+ORDER BY paradedb.score(s.id) DESC
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 35B: Multi-table join - Chain Schema (4 tables)
+-- =============================================================================
+
+DROP TABLE IF EXISTS level1 CASCADE;
+DROP TABLE IF EXISTS level2 CASCADE;
+DROP TABLE IF EXISTS level3 CASCADE;
+DROP TABLE IF EXISTS level4 CASCADE;
+
+CREATE TABLE level1 (id INTEGER PRIMARY KEY, l2_id INTEGER, name TEXT);
+CREATE TABLE level2 (id INTEGER PRIMARY KEY, l3_id INTEGER, name TEXT);
+CREATE TABLE level3 (id INTEGER PRIMARY KEY, l4_id INTEGER, name TEXT);
+CREATE TABLE level4 (id INTEGER PRIMARY KEY, name TEXT, description TEXT);
+
+INSERT INTO level4 VALUES (1, 'L4-A', 'Deepest level item');
+INSERT INTO level3 VALUES (1, 1, 'L3-A');
+INSERT INTO level2 VALUES (1, 1, 'L2-A');
+INSERT INTO level1 VALUES (1, 1, 'L1-A');
+
+INSERT INTO level4 VALUES (2, 'L4-B', 'Another deep item');
+INSERT INTO level3 VALUES (2, 2, 'L3-B');
+INSERT INTO level2 VALUES (2, 2, 'L2-B');
+INSERT INTO level1 VALUES (2, 2, 'L1-B');
+
+CREATE INDEX l1_bm25 ON level1 USING bm25 (id, l2_id, name) WITH (key_field='id', numeric_fields='{"l2_id": {"fast": true}}');
+CREATE INDEX l2_bm25 ON level2 USING bm25 (id, l3_id, name) WITH (key_field='id', numeric_fields='{"l3_id": {"fast": true}}');
+CREATE INDEX l3_bm25 ON level3 USING bm25 (id, l4_id, name) WITH (key_field='id', numeric_fields='{"l4_id": {"fast": true}}');
+CREATE INDEX l4_bm25 ON level4 USING bm25 (id, name, description) WITH (key_field='id');
+
+-- Join 4 tables, driving predicate on level4
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT l1.name, l2.name, l3.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l4.description @@@ 'deepest'
+ORDER BY l1.id
+LIMIT 5;
+
+SELECT l1.name, l2.name, l3.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l4.description @@@ 'deepest'
+ORDER BY l1.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 35C: Chain Schema - Mixed Predicates
+-- =============================================================================
+
+-- Predicates on level1 (outermost) and level4 (innermost)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT l1.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+ORDER BY l1.id
+LIMIT 5;
+
+SELECT l1.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
+ORDER BY l1.id
+LIMIT 5;
+
+-- Predicates on intermediate levels (level2 and level3)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT l1.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+ORDER BY l1.id
+LIMIT 5;
+
+SELECT l1.name, l4.name
+FROM level1 l1
+JOIN level2 l2 ON l1.l2_id = l2.id
+JOIN level3 l3 ON l2.l3_id = l3.id
+JOIN level4 l4 ON l3.l4_id = l4.id
+WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
+ORDER BY l1.id
+LIMIT 5;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
 DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS level1 CASCADE;
+DROP TABLE IF EXISTS level2 CASCADE;
+DROP TABLE IF EXISTS level3 CASCADE;
+DROP TABLE IF EXISTS level4 CASCADE;
 DROP TABLE IF EXISTS suppliers CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;

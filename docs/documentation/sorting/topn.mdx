@@ -91,3 +91,16 @@ WHERE description ||| 'sleek running shoes'
 ORDER BY lower(description)
 LIMIT 5;
 ```
+
+## Sorting by JSON
+
+Ordering by JSON subfield is on the roadmap but not yet supported. For example, this query will not receive an optimized
+Top N scan:
+
+```sql
+SELECT id, description, metadata
+FROM mock_items
+WHERE description ||| 'sleek running shoes'
+ORDER BY metadata->'weight'
+LIMIT 5;
+```

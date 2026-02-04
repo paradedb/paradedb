@@ -14,7 +14,7 @@ CREATE TABLE products (
     description TEXT,
     rating INTEGER,
     category TEXT,
-    price NUMERIC,
+    price FLOAT,
     in_stock BOOLEAN
 );
 INSERT INTO products (description, rating, category, price, in_stock) VALUES
@@ -66,9 +66,9 @@ SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
 (6 rows)
 
 SELECT SUM(price) FROM products WHERE description @@@ 'laptop';
-   sum   
----------
- 2799.97
+        sum         
+--------------------
+ 2799.9700000000003
 (1 row)
 
 -- Test 1.3: AVG aggregate
@@ -85,9 +85,9 @@ SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
 (6 rows)
 
 SELECT AVG(price) FROM products WHERE description @@@ 'laptop';
-       avg        
-------------------
- 933.323333333333
+        avg        
+-------------------
+ 933.3233333333334
 (1 row)
 
 -- Test 1.4: MIN aggregate
@@ -144,9 +144,9 @@ FROM products WHERE description @@@ 'laptop';
 
 SELECT COUNT(*), SUM(price), AVG(price), MIN(price), MAX(price)
 FROM products WHERE description @@@ 'laptop';
- count |   sum   |       avg        |  min   |   max   
--------+---------+------------------+--------+---------
-     3 | 2799.97 | 933.323333333333 | 499.99 | 1299.99
+ count |        sum         |        avg        |  min   |   max   
+-------+--------------------+-------------------+--------+---------
+     3 | 2799.9700000000003 | 933.3233333333334 | 499.99 | 1299.99
 (1 row)
 
 -- =====================================================================
@@ -366,7 +366,7 @@ CREATE TABLE type_test (
     int_val INTEGER,
     bigint_val BIGINT,
     smallint_val SMALLINT,
-    numeric_val NUMERIC(10,2),
+    numeric_val FLOAT,
     float_val FLOAT,
     double_val DOUBLE PRECISION,
     text_val TEXT
@@ -443,17 +443,18 @@ WHERE description @@@ 'laptop';
                Output: category, price
                Table: products
                Index: products_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: price, category
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(13 rows)
 
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products
 WHERE description @@@ 'laptop';
- count |   sum   
--------+---------
-     2 | 2799.97
+ count |        sum         
+-------+--------------------
+     2 | 2799.9700000000003
 (1 row)
 
 -- Test 4.2: Aggregate on non-fast field (should fall back)
@@ -578,16 +579,16 @@ WHERE id @@@ paradedb.all();
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products
 WHERE id @@@ paradedb.all();
- count |       avg        | min | max 
--------+------------------+-----+-----
-     9 | 367.768888888889 |   0 |   5
+ count |        avg        | min | max 
+-------+-------------------+-----+-----
+     9 | 367.7688888888889 |   0 |   5
 (1 row)
 
 SELECT COUNT(*), AVG(COALESCE(price, 0)), MIN(COALESCE(rating, 0)), MAX(COALESCE(rating, 0))
 FROM products;
- count |         avg          | min | max 
--------+----------------------+-----+-----
-     9 | 367.7688888888888889 |   0 |   5
+ count |        avg        | min | max 
+-------+-------------------+-----+-----
+     9 | 367.7688888888888 |   0 |   5
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -614,9 +615,9 @@ WHERE id @@@ paradedb.all();
 
 SELECT COUNT(*), AVG(COALESCE(price, 1)), MIN(COALESCE(rating, 1)), MAX(COALESCE(rating, 1))
 FROM products;
- count |         avg          | min | max 
--------+----------------------+-----+-----
-     9 | 367.8800000000000000 |   1 |   5
+ count |        avg        | min | max 
+-------+-------------------+-----+-----
+     9 | 367.8799999999999 |   1 |   5
 (1 row)
 
 -- =====================================================================

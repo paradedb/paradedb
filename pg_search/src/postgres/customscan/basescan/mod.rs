@@ -727,15 +727,31 @@ impl CustomScan for BaseScan {
             // calculate the total number of rows that might match the query, and the number of
             // rows that we expect that scan to return: these may be different in the case of a
             // `limit`.
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let total_rows = (reltuples * selectivity).max(1.0);
-            let mut result_rows = total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0);
+            //
+            // Use RowEstimate enum to distinguish between known and unknown row counts.
+            // Unknown is used when the table hasn't been ANALYZEd.
+            let row_estimate = match table.reltuples() {
+                Some(reltuples) if reltuples > 0.0 => {
+                    let estimated = (reltuples as f64 * selectivity).max(1.0) as u64;
+                    parallel::RowEstimate::Known(estimated)
+                }
+                _ => parallel::RowEstimate::Unknown,
+            };
+            let mut result_rows = match row_estimate {
+                parallel::RowEstimate::Known(rows) => {
+                    (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0)
+                }
+                parallel::RowEstimate::Unknown => {
+                    // For unknown row counts, use 1.0 as a conservative estimate for costing
+                    limit.unwrap_or(1.0).max(1.0)
+                }
+            };
 
             let nworkers = if (*builder.args().rel).consider_parallel {
                 compute_nworkers(
                     custom_private.exec_method_type(),
                     limit,
-                    total_rows,
+                    row_estimate,
                     segment_count,
                     quals.contains_external_var(),
                     quals.contains_correlated_param(builder.args().root),
@@ -879,6 +895,7 @@ impl CustomScan for BaseScan {
                         );
 
                         // Validate that all fields in window aggregates exist in the index schema
+                        // and are supported for aggregate pushdown (not NUMERIC)
                         if let Ok(schema) = crate::schema::SearchIndexSchema::open(&bm25_index) {
                             for window_agg in &window_aggregates {
                                 for agg_type in window_agg.targetlist.aggregates() {
@@ -1171,6 +1188,13 @@ impl CustomScan for BaseScan {
                             ..
                         } => {
                             format!("{fieldname} {}", direction.as_ref())
+                        }
+                        OrderByInfo {
+                            feature: OrderByFeature::Var { name, .. },
+                            direction,
+                            ..
+                        } => {
+                            format!("{} {}", name.as_deref().unwrap_or("?"), direction.as_ref())
                         }
                         OrderByInfo {
                             feature: OrderByFeature::Score,

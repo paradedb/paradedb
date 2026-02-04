@@ -117,6 +117,12 @@ impl Scanner {
     ///
     /// `batch_size_hint` is an optional hint for the batch size. It will be clamped to
     /// `MAX_BATCH_SIZE`.
+    ///
+    /// Note: `batch_size_hint` should only be provided when we have a very good idea of how
+    /// many total rows will be requested (e.g. `LIMIT` queries where `MixedFastFieldExecState`
+    /// is the top-level node). In all other cases (e.g. `JoinScan`, `TableProvider`), it
+    /// should be `None` to allow the default batch size to be used, which is optimized for
+    /// mixed fast field string lookups.
     pub fn new(
         search_results: MultiSegmentSearchResults,
         batch_size_hint: Option<usize>,

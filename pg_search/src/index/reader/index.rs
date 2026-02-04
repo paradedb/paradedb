@@ -175,7 +175,7 @@ pub struct MultiSegmentSearchResults {
 
 /// A score which sorts in ascending direction.
 #[derive(PartialEq, Clone, Debug)]
-pub struct AscendingScore {
+struct AscendingScore {
     score: Score,
 }
 
@@ -691,6 +691,9 @@ impl SearchIndexReader {
                             aux_collector,
                         ),
                     ),
+                    tantivy::schema::Type::Facet => {
+                        unimplemented!("Cannot sort by facet field")
+                    }
                     x => {
                         // NOTE: This list of supported field types must be synced with
                         // `SearchField::is_sortable`.
@@ -698,6 +701,10 @@ impl SearchIndexReader {
                     }
                 }
             }
+            OrderByInfo {
+                feature: OrderByFeature::Var { .. },
+                ..
+            } => unimplemented!("Sorting by variable is not supported in raw index search"),
             OrderByInfo {
                 feature: OrderByFeature::Score,
                 direction,
@@ -1132,6 +1139,10 @@ impl SearchIndexReader {
                 } => {
                     erased_features.push_score_feature(*direction);
                 }
+                OrderByInfo {
+                    feature: OrderByFeature::Var { .. },
+                    ..
+                } => unimplemented!("Sorting by variable is not supported in raw index search"),
             }
         }
 

@@ -7,8 +7,7 @@ inputs:
     required: true
   rows:
     description: "Number of rows to generate (optional, uses dataset defaults if not specified)"
-    required: false
-    default: ""
+    required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true

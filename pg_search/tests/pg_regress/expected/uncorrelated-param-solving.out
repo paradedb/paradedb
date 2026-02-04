@@ -31,7 +31,7 @@ VALUES
 -- The subqueries here are uncorrelated, and should get InitPlan nodes which we can
 -- solve at `BeginCustomScan` time. They should NOT get a "heap filter" plan, as that would
 -- prevent index pushdown.
-EXPLAIN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT id, status, created_at
 FROM items
 WHERE
@@ -48,26 +48,30 @@ ORDER BY created_at DESC, id DESC
 LIMIT 100;
                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=34.50..34.51 rows=1 width=72)
+ Limit
+   Output: items.id, items.status, items.created_at
    InitPlan 1
-     ->  Index Scan using items_pkey on items items_1  (cost=0.15..8.17 rows=1 width=8)
-           Index Cond: (id = '4'::text)
+     ->  Index Scan using items_pkey on public.items items_1
+           Output: items_1.created_at
+           Index Cond: (items_1.id = '4'::text)
    InitPlan 2
-     ->  Index Scan using items_pkey on items items_2  (cost=0.15..8.17 rows=1 width=8)
-           Index Cond: (id = '4'::text)
+     ->  Index Scan using items_pkey on public.items items_2
+           Output: items_2.created_at
+           Index Cond: (items_2.id = '4'::text)
    InitPlan 3
-     ->  Index Scan using items_pkey on items items_3  (cost=0.15..8.17 rows=1 width=8)
-           Index Cond: (id = '4'::text)
-   ->  Custom Scan (ParadeDB Scan) on items  (cost=10.00..10.01 rows=1 width=72)
+     ->  Index Scan using items_pkey on public.items items_3
+           Output: items_3.created_at
+           Index Cond: (items_3.id = '4'::text)
+   ->  Custom Scan (ParadeDB Scan) on public.items
+         Output: items.id, items.status, items.created_at
          Table: items
          Index: items_idx
-         Segment Count: 1
          Exec Method: TopNScanExecState
          Scores: false
             TopN Order By: created_at desc, id desc
             TopN Limit: 100
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"IN [posted pending]","lenient":null,"conjunction_mode":null}}}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<='::text, $1)"}}},{"boolean":{"should":[{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '<'::text, $2)"}}},{"boolean":{"must":[{"range":{"field":"id","lower_bound":null,"upper_bound":{"excluded":"4"},"is_datetime":false}},{"postgres_expression":{"expr":{"expr_desc":"paradedb.term_with_operator('created_at'::paradedb.fieldname, '='::text, $3)"}}}]}}]}},{"term":{"field":"group_id","value":"g1","is_datetime":false}}]}}
-(19 rows)
+(23 rows)
 
 SELECT id, status, created_at
 FROM items

@@ -172,17 +172,10 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::{
-    estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
-    reinitialize_dsm_custom_scan, ParallelQueryCapable,
-};
-use crate::postgres::customscan::exec::{
-    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
-    shutdown_custom_scan,
-};
+use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::parallel::{compute_nworkers, RowEstimate};
-use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs};
+use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
@@ -194,7 +187,7 @@ use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
 use futures::StreamExt;
-use pgrx::{pg_sys, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -1184,31 +1177,4 @@ impl JoinScan {
     }
 }
 
-impl ExecMethod for JoinScan {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: None,
-                        RestrPosCustomScan: None,
-                        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
-                        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
-                        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
-                        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-}
+crate::impl_custom_scan! { JoinScan }

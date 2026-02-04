@@ -113,29 +113,28 @@ pub fn compute_nworkers(
     contains_external_var: bool,
     contains_correlated_param: bool,
 ) -> usize {
-    // Calculate max workers based on rows per worker threshold.
-    // See: https://github.com/paradedb/paradedb/issues/3055
-    //
-    // The worker startup overhead (~10ms) means we need enough rows per worker
-    // for parallelism to be worthwhile. Based on benchmarks, the crossover point
-    // is around 200K-300K rows total, or ~100K rows per worker with 2 workers.
-    let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
-
     // Start with segment-based parallelism. The leader is not included in `nworkers`,
     // so exclude it here. For example: if we expect to need to query 1 segment, then
     // we don't need any workers.
     let mut nworkers = segment_count.saturating_sub(1);
 
-    // Limit workers based on row estimate if we have reliable stats
+    // Limit workers based on row estimate if we have reliable stats.
+    // See: https://github.com/paradedb/paradedb/issues/3055
+    //
+    // The worker startup overhead (~10ms) means we need enough rows per worker
+    // for parallelism to be worthwhile. Based on benchmarks, the crossover point
+    // is around 300K rows total.
+    //
+    // When RowEstimate::Unknown, we don't limit workers based on rows since we can't
+    // trust the estimate - the table could be large.
     if let RowEstimate::Known(total_rows) = estimated_total_rows {
+        let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
         if min_rows_per_worker > 0 {
             // Calculate max workers such that each worker processes at least min_rows_per_worker
             let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
             nworkers = nworkers.min(max_workers_for_rows);
         }
     }
-    // When RowEstimate::Unknown, we don't limit workers based on rows since we can't
-    // trust the estimate - the table could be large.
 
     // parallel workers available to a gather node are limited by max_parallel_workers_per_gather
     // and max_parallel_workers

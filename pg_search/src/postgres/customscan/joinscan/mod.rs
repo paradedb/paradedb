@@ -484,8 +484,7 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
-            // Build and serialize the DataFusion logical plan.
-            // This must happen AFTER custom_exprs is populated since the plan uses them.
+            // Build, serialize and store the logical plan
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");

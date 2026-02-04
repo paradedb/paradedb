@@ -150,7 +150,7 @@ SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GRO
 -- Order by JSON not supported
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Limit
@@ -165,7 +165,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). R
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}

@@ -31,10 +31,10 @@ use tantivy::{DocAddress, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
 use super::pre_filter::{apply_pre_filter, PreFilter};
-use super::VisibilityChecker;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -201,7 +201,7 @@ impl Scanner {
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
+        visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
@@ -223,7 +223,7 @@ impl Scanner {
 
         // Filter out invisible rows.
         self.visibility_results.resize(ctids.len(), None);
-        visibility.check_batch(&ctids, &mut self.visibility_results);
+        visibility.check_batch(&ctids[..], &mut self.visibility_results);
 
         let mut write_idx = 0;
         for (read_idx, maybe_visible_ctid) in self.visibility_results.iter().enumerate() {
@@ -341,7 +341,7 @@ impl Scanner {
     pub fn prefetch_next(
         &mut self,
         ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
+        visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
     ) {
         if self.prefetched.is_none() {

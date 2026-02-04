@@ -663,8 +663,6 @@ pub mod mvcc_collector {
                 ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
                 ctids_buffer: Vec::new(),
                 filtered_buffer: Vec::new(),
-                compact_ctids: Vec::new(),
-                compact_indices: Vec::new(),
                 visibility_results: Vec::new(),
             })
         }
@@ -697,8 +695,6 @@ pub mod mvcc_collector {
         ctid_ff: FFType,
         ctids_buffer: Vec<Option<u64>>,
         filtered_buffer: Vec<u32>,
-        compact_ctids: Vec<u64>,
-        compact_indices: Vec<usize>,
         visibility_results: Vec<Option<u64>>,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
@@ -716,35 +712,24 @@ pub mod mvcc_collector {
 
         fn collect_block(&mut self, docs: &[DocId]) {
             // Get the ctids for these docs.
-            if self.ctids_buffer.len() < docs.len() {
-                self.ctids_buffer.resize(docs.len(), None);
-            }
-            self.ctid_ff
-                .as_u64s(docs, &mut self.ctids_buffer[..docs.len()]);
+            self.ctids_buffer.resize(docs.len(), None);
+            self.ctid_ff.as_u64s(docs, &mut self.ctids_buffer);
 
             // Determine which ctids are visible.
             self.filtered_buffer.clear();
             let mut vischeck = self.lock.lock();
 
-            // Extract valid ctids for checking
-            self.compact_ctids.clear();
-            self.compact_indices.clear();
+            self.visibility_results.resize(docs.len(), None);
 
-            for (i, ctid_opt) in self.ctids_buffer[..docs.len()].iter().enumerate() {
-                if let Some(ctid) = ctid_opt {
-                    self.compact_ctids.push(*ctid);
-                    self.compact_indices.push(i);
-                }
-            }
+            // We pass slices to check_batch to ensure lengths match and avoid processing extra buffer capacity
+            vischeck.check_batch(
+                &self.ctids_buffer[..docs.len()],
+                &mut self.visibility_results,
+            );
 
-            self.visibility_results
-                .resize(self.compact_ctids.len(), None);
-            vischeck.check_batch(&self.compact_ctids, &mut self.visibility_results);
-
-            for (i, is_visible) in self.visibility_results.iter().enumerate() {
-                if is_visible.is_some() {
-                    let doc_idx = self.compact_indices[i];
-                    self.filtered_buffer.push(docs[doc_idx]);
+            for (i, visible_ctid) in self.visibility_results.iter().enumerate() {
+                if visible_ctid.is_some() {
+                    self.filtered_buffer.push(docs[i]);
                 }
             }
             drop(vischeck);

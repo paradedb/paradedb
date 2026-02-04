@@ -33,14 +33,14 @@ use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
-use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
-use crate::scan::{Scanner, VisibilityChecker};
+use crate::scan::Scanner;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
@@ -139,7 +139,7 @@ impl PgSearchTableProvider {
         reader: &SearchIndexReader,
         segment_id: SegmentId,
         ffhelper: &Arc<FFHelper>,
-        visibility: &HeapVisibilityChecker,
+        visibility: &VisibilityChecker,
         heap_relid: pg_sys::Oid,
     ) -> ScanState {
         let search_results = reader.search_segments(std::iter::once(segment_id));
@@ -147,7 +147,7 @@ impl PgSearchTableProvider {
         (
             scanner,
             Arc::clone(ffhelper),
-            Box::new(visibility.clone()) as Box<dyn VisibilityChecker>,
+            Box::new(visibility.clone()) as Box<VisibilityChecker>,
         )
     }
 
@@ -187,7 +187,7 @@ impl PgSearchTableProvider {
         parallel_state: *mut ParallelScanState,
         reader: &SearchIndexReader,
         ffhelper: FFHelper,
-        visibility: HeapVisibilityChecker,
+        visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
@@ -206,7 +206,7 @@ impl PgSearchTableProvider {
             let mut partition =
                 self.create_scan_partition(reader, segment_id, &ffhelper, &visibility, heap_relid);
             // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut *partition.2, &[]);
+            partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
 
             segments.push(partition);
         }
@@ -222,7 +222,7 @@ impl PgSearchTableProvider {
         &self,
         reader: &SearchIndexReader,
         ffhelper: FFHelper,
-        visibility: HeapVisibilityChecker,
+        visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
@@ -367,7 +367,7 @@ impl TableProvider for PgSearchTableProvider {
 
         let ffhelper = FFHelper::with_fields(&reader, &self.fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();
 
         if let Some(parallel_state) = self.parallel_state {

@@ -31,13 +31,3 @@ pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;
 pub use table_provider::PgSearchTableProvider;
-
-/// A trait for checking visibility of rows.
-pub trait VisibilityChecker {
-    /// Checks visibility for a batch of ctids.
-    ///
-    /// Writes results into `results`, which must be the same length as `ctids`.
-    /// Each result is `Some(ctid)` if visible (potentially updated, e.g. following a HOT chain),
-    /// or `None` if not.
-    fn check_batch(&mut self, ctids: &[u64], results: &mut [Option<u64>]);
-}

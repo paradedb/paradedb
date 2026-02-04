@@ -109,21 +109,6 @@ impl SegmentPlan {
         }
     }
 
-    /// Creates a new SegmentPlan with declared sort ordering.
-    ///
-    /// When `sort_order` is provided, the plan's `EquivalenceProperties` will declare
-    /// that the output is sorted by the specified field. This allows DataFusion's
-    /// optimizer to leverage the sort order for downstream operations like merge joins.
-    #[allow(dead_code)]
-    pub fn new_sorted(
-        scanner: Scanner,
-        ffhelper: FFHelper,
-        visibility: Box<dyn VisibilityChecker>,
-        sort_order: Option<&SortByField>,
-    ) -> Self {
-        Self::new_sorted_with_shared_ffhelper(scanner, Arc::new(ffhelper), visibility, sort_order)
-    }
-
     /// Creates a new SegmentPlan with a shared FFHelper.
     ///
     /// This variant accepts an `Arc<FFHelper>` allowing the FFHelper to be shared
@@ -136,28 +121,6 @@ impl SegmentPlan {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
             EquivalenceProperties::new(schema),
-            Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        );
-        Self {
-            state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
-            properties,
-        }
-    }
-
-    /// Creates a new SegmentPlan with a shared FFHelper and declared sort ordering.
-    #[allow(dead_code)]
-    pub fn new_sorted_with_shared_ffhelper(
-        scanner: Scanner,
-        ffhelper: Arc<FFHelper>,
-        visibility: Box<dyn VisibilityChecker>,
-        sort_order: Option<&SortByField>,
-    ) -> Self {
-        let schema = scanner.schema();
-        let eq_properties = build_equivalence_properties(schema.clone(), sort_order);
-        let properties = PlanProperties::new(
-            eq_properties,
             Partitioning::UnknownPartitioning(1),
             EmissionType::Incremental,
             Boundedness::Bounded,

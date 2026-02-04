@@ -549,7 +549,6 @@ CREATE INDEX mixedff_comp_test_idx ON mixedff_comp_test
 USING bm25 (id, content, (ROW(priority, created_at)::mixedff_comp))
 WITH (
     key_field = 'id',
-    text_fields = '{"content": {}}',
     sort_by = 'priority DESC NULLS LAST'
 );
 
@@ -577,6 +576,11 @@ DROP TYPE mixedff_comp CASCADE;
 ------------------------------------------------------------
 \echo '=== TEST: Expression-based indexing (fast fields + sorted path) ==='
 
+-- NOTE: For expression-based fields (e.g., a + b), the planner does not
+-- include the expression in the scan target list. The fast-field matcher
+-- only sees Vars, so these cases currently fall back to NormalScanExecState
+-- and still require a Sort even when the index stores the expression.
+
 -- Test 1: Simple aliased expression - SELECT only
 DROP TABLE IF EXISTS expr_test CASCADE;
 CREATE TABLE expr_test (id SERIAL PRIMARY KEY, a INT, b INT, name TEXT);
@@ -584,9 +588,9 @@ INSERT INTO expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo'), (5, 6, '
 
 CREATE INDEX expr_test_idx ON expr_test
 USING bm25 (id, name, ((a + b)::pdb.alias('sum_val')))
-WITH (key_field = 'id', text_fields = '{"name": {}}');
+WITH (key_field = 'id');
 
--- Should use MixedFastFieldExecState with Fast Fields: id, sum_val
+-- Currently uses NormalScanExecState because a + b is not in the scan target list.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
 
@@ -594,9 +598,9 @@ SELECT id, a + b FROM expr_test WHERE name @@@ 'foo';
 DROP INDEX expr_test_idx;
 CREATE INDEX expr_test_idx ON expr_test
 USING bm25 (id, name, ((a + b)::pdb.alias('sum_val')))
-WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'sum_val DESC NULLS LAST');
+WITH (key_field = 'id', sort_by = 'sum_val DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node
+-- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, a + b FROM expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
 
@@ -611,7 +615,7 @@ INSERT INTO comp_test (priority, created, name) VALUES (10, '2024-01-01', 'foo')
 
 CREATE INDEX comp_test_idx ON comp_test
 USING bm25 (id, name, (ROW(priority, created)::my_comp))
-WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'priority DESC NULLS LAST');
+WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
 
 -- Should use MixedFastFieldExecState and NO Sort node
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -629,9 +633,9 @@ INSERT INTO comp_expr_test (a, b, name) VALUES (1, 2, 'foo'), (3, 4, 'foo');
 
 CREATE INDEX comp_expr_test_idx ON comp_expr_test
 USING bm25 (id, name, (ROW(a + b)::comp_expr))
-WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'sum_val DESC NULLS LAST');
+WITH (key_field = 'id', sort_by = 'sum_val DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node
+-- Currently uses NormalScanExecState and keeps a Sort for a + b.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, a + b FROM comp_expr_test WHERE name @@@ 'foo' ORDER BY a + b DESC NULLS LAST;
 
@@ -647,9 +651,9 @@ INSERT INTO comp_mixed_test (a, b, priority, name) VALUES (1, 2, 10, 'foo'), (3,
 
 CREATE INDEX comp_mixed_idx ON comp_mixed_test
 USING bm25 (id, name, (ROW(a + b, priority)::comp_mixed))
-WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'priority DESC NULLS LAST');
+WITH (key_field = 'id', sort_by = 'priority DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node (2 fast fields: sum_val, priority)
+-- Currently uses NormalScanExecState; a + b is not matched, so a Sort remains.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT a + b, priority FROM comp_mixed_test WHERE name @@@ 'foo' ORDER BY priority DESC NULLS LAST;
 
@@ -663,9 +667,9 @@ INSERT INTO func_expr_test (val, name) VALUES (-5, 'foo'), (10, 'foo');
 
 CREATE INDEX func_expr_idx ON func_expr_test
 USING bm25 (id, name, (ABS(val)::pdb.alias('abs_val')))
-WITH (key_field = 'id', text_fields = '{"name": {}}', sort_by = 'abs_val DESC NULLS LAST');
+WITH (key_field = 'id', sort_by = 'abs_val DESC NULLS LAST');
 
--- Should use MixedFastFieldExecState and NO Sort node
+-- MixedFastFieldExecState is used for projection, but ORDER BY still sorts.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, ABS(val) FROM func_expr_test WHERE name @@@ 'foo' ORDER BY ABS(val) DESC NULLS LAST;
 

@@ -182,6 +182,17 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
+      - name: Source LLVM coverage environment (pgrx)
+        if: matrix.pg_impl == 'pgrx'
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov clean --workspace
+          echo "RUSTFLAGS=${RUSTFLAGS}" >> $GITHUB_ENV
+          echo "LLVM_PROFILE_FILE=${LLVM_PROFILE_FILE}" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV=1" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV_SHOW_ENV=1" >> $GITHUB_ENV
+          echo "CARGO_LLVM_COV_TARGET_DIR=${CARGO_LLVM_COV_TARGET_DIR}" >> $GITHUB_ENV
+
       - name: Compile & install pg_search extension (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: pg_search/
@@ -220,7 +231,10 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo llvm-cov --jobs $(nproc) --no-default-features --package tests --package tokenizers --lcov --output-path coverage-integration-pgrx-${{ matrix.pg_version }}.lcov -- --skip replication --skip ephemeral
+        run: |
+          RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search \
+            cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers \
+            -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
@@ -230,6 +244,15 @@ jobs:
             git diff
             exit 1
           fi
+
+      - name: Stop PostgreSQL to flush coverage data (pgrx)
+        if: matrix.pg_impl == 'pgrx' && always()
+        working-directory: pg_search/
+        run: cargo pgrx stop pg${{ matrix.pg_version }}
+
+      - name: Generate combined LCOV report (pgrx)
+        if: matrix.pg_impl == 'pgrx' && always()
+        run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
       - name: Upload Coverage Artifact
         if: always()

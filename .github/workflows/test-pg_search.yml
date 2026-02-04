@@ -227,8 +227,7 @@ jobs:
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
-        run: |
-          RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
+        run: RUST_BACKTRACE=1 DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search cargo test --jobs $(nproc) --no-default-features --package tests --package tokenizers -- --skip replication --skip ephemeral
 
       - name: Run pg_search Regression Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'

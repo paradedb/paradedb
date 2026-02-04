@@ -69,11 +69,6 @@ impl PrivateData {
     pub fn join_clause_mut(&mut self) -> &mut JoinCSClause {
         &mut self.join_clause
     }
-
-    /// Returns a reference to the logical plan.
-    pub fn logical_plan(&self) -> &Option<Vec<u8>> {
-        &self.logical_plan
-    }
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

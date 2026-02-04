@@ -701,7 +701,7 @@ impl CustomScan for JoinScan {
                     .block_on(register_source_tables(&ctx, &join_clause))
                     .expect("Failed to register source tables");
 
-                // Deserialize the logical plan using our extension codec
+                // Deserialize the logical plan
                 let codec = PgSearchExtensionCodec;
                 let task_ctx = ctx.task_ctx();
                 let logical_plan =

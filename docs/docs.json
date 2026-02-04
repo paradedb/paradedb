@@ -178,6 +178,16 @@
             ]
           },
           {
+            "anchor": "ORMs & Integrations",
+            "icon": "plug",
+            "groups": [
+              {
+                "group": "ORMs & Integrations",
+                "pages": ["documentation/orms/django-orm"]
+              }
+            ]
+          },
+          {
             "anchor": "Legacy Docs",
             "icon": "hourglass",
             "groups": [

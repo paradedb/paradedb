@@ -1,0 +1,118 @@
+---
+title: Django ORM
+description: Use ParadeDB with Django ORM via django-paradedb
+canonical: https://docs.paradedb.com/documentation/orms/django-orm
+---
+
+`django-paradedb` integrates ParadeDB search and analytics features directly into Django's ORM.
+
+## Install
+
+```bash
+pip install django-paradedb
+```
+
+## Define a BM25 Index
+
+Add `ParadeDBManager` to your model and define a `BM25Index` in `Meta.indexes`:
+
+```python
+from django.db import models
+from paradedb.indexes import BM25Index
+from paradedb.queryset import ParadeDBManager
+
+class Product(models.Model):
+    description = models.TextField()
+    category = models.CharField(max_length=100)
+    rating = models.IntegerField(default=0)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    "id": {},
+                    "description": {"tokenizer": "default"},
+                    "category": {"tokenizer": "keyword"},
+                    "rating": {},
+                },
+                key_field="id",
+                name="product_search_idx",
+            ),
+        ]
+```
+
+Then run migrations as usual:
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+## Query with Django ORM
+
+Use `ParadeDB` expressions in normal queryset filters:
+
+```python
+from paradedb.search import ParadeDB
+
+Product.objects.filter(description=ParadeDB("shoes"))
+```
+
+This composes naturally with standard Django filters:
+
+```python
+from paradedb.functions import Score
+
+results = (
+    Product.objects.filter(
+        description=ParadeDB("shoes"),
+        rating__gte=4,
+    )
+    .annotate(score=Score())
+    .order_by("-score")[:10]
+)
+```
+
+## Highlight Matches
+
+Annotate highlighted snippets for matched fields:
+
+```python
+from paradedb.functions import Snippet
+
+Product.objects.filter(
+    description=ParadeDB("running")
+).annotate(
+    snippet=Snippet("description", start_sel="<b>", stop_sel="</b>")
+)
+```
+
+## Faceted Search
+
+Use `.facets()` to return rows and aggregation buckets together:
+
+```python
+rows, facets = (
+    Product.objects.filter(description=ParadeDB("shoes"))
+    .order_by("id")[:10]
+    .facets("category", "rating")
+)
+```
+
+When `include_rows=True` (default), `.facets()` requires:
+
+1. A ParadeDB search filter.
+2. `order_by()` on the queryset.
+3. A slice (`LIMIT`).
+
+## Examples
+
+`django-paradedb` includes runnable examples for common patterns:
+
+- [Quickstart](https://github.com/paradedb/django-paradedb/blob/main/examples/quickstart/quickstart.py)
+- [Faceted Search](https://github.com/paradedb/django-paradedb/blob/main/examples/faceted_search/faceted_search.py)
+- [Autocomplete](https://github.com/paradedb/django-paradedb/blob/main/examples/autocomplete/autocomplete.py)
+- [More Like This](https://github.com/paradedb/django-paradedb/blob/main/examples/more_like_this/more_like_this.py)
+- [Hybrid Search (RRF)](https://github.com/paradedb/django-paradedb/blob/main/examples/hybrid_rrf/hybrid_rrf.py)

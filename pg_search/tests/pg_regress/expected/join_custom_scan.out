@@ -111,7 +111,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -153,7 +164,18 @@ LIMIT 5;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=5
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -191,7 +213,17 @@ LIMIT 5;
                Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: p.supplier_id asc, s.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: NULL AS col_1, NULL AS col_2, NULL AS col_3, s.id AS col_4, s.ctid_2, p.ctid_1
+                 :   Sort: p.supplier_id ASC NULLS LAST, s.id ASC NULLS LAST, fetch=5
+                 :     Inner Join: s.id = p.supplier_id
+                 :       SubqueryAlias: s
+                 :         Projection: s.ctid AS ctid_2, s.id
+                 :           TableScan: s projection=[ctid, id]
+                 :       SubqueryAlias: p
+                 :         Projection: p.ctid AS ctid_1, p.supplier_id
+                 :           TableScan: p projection=[ctid, supplier_id]
+(24 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -309,7 +341,18 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: pdb.score() desc, p.id asc
-(17 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: p.id AS col_1, NULL AS col_2, p.score AS col_3, NULL AS col_4, s.ctid_2, p.ctid_1
+                       :   Sort: p.score DESC NULLS FIRST, p.id ASC NULLS LAST, fetch=5
+                       :     Projection: s.ctid_2, p.score, p.ctid_1, p.id
+                       :       Inner Join: s.id = p.supplier_id
+                       :         SubqueryAlias: s
+                       :           Projection: s.ctid AS ctid_2, s.id
+                       :             TableScan: s projection=[ctid, id]
+                       :         SubqueryAlias: p
+                       :           Projection: p.pdb.score() AS score, p.ctid AS ctid_1, p.supplier_id, p.id
+                       :             TableScan: p projection=[pdb.score(), ctid, supplier_id, id]
+(28 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -357,7 +400,18 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: p.id asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: p.id AS col_1, NULL AS col_2, p.score AS col_3, NULL AS col_4, s.ctid_2, p.ctid_1
+                       :   Sort: p.id ASC NULLS LAST, fetch=5
+                       :     Projection: s.ctid_2, p.score, p.ctid_1, p.id
+                       :       Inner Join: s.id = p.supplier_id
+                       :         SubqueryAlias: s
+                       :           Projection: s.ctid AS ctid_2, s.id
+                       :             TableScan: s projection=[ctid, id]
+                       :         SubqueryAlias: p
+                       :           Projection: p.pdb.score() AS score, p.ctid AS ctid_1, p.supplier_id, p.id
+                       :             TableScan: p projection=[pdb.score(), ctid, supplier_id, id]
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -407,7 +461,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.score AS col_4, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.score, s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.pdb.score() AS score, s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[pdb.score(), ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
@@ -459,7 +524,18 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: p.id AS col_1, NULL AS col_2, p.score AS col_3, NULL AS col_4, s.score AS col_5, s.ctid_2, p.ctid_1
+                       :   Sort: p.id ASC NULLS LAST, fetch=10
+                       :     Projection: s.score, s.ctid_2, p.score, p.ctid_1, p.id
+                       :       Inner Join: s.id = p.supplier_id
+                       :         SubqueryAlias: s
+                       :           Projection: s.pdb.score() AS score, s.ctid AS ctid_2, s.id
+                       :             TableScan: s projection=[pdb.score(), ctid, id]
+                       :         SubqueryAlias: p
+                       :           Projection: p.pdb.score() AS score, p.ctid AS ctid_1, p.supplier_id, p.id
+                       :             TableScan: p projection=[pdb.score(), ctid, supplier_id, id]
+(28 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(p.id) AS product_score,
@@ -504,7 +580,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -558,7 +645,18 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(16 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(s.ctid_2)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -630,7 +728,18 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(s.ctid_2)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -701,11 +810,22 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: p.id asc
+                     DataFusion Logical Plan: 
+                       : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, NULL AS col_4, s.ctid_2, p.ctid_1
+                       :   Sort: p.id ASC NULLS LAST, fetch=5
+                       :     Projection: s.ctid_2, p.ctid_1, p.id
+                       :       Inner Join: s.id = p.supplier_id
+                       :         SubqueryAlias: s
+                       :           Projection: s.ctid AS ctid_2, s.id
+                       :             TableScan: s projection=[ctid, id]
+                       :         SubqueryAlias: p
+                       :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                       :             TableScan: p projection=[ctid, supplier_id, id]
                ->  Hash
                      Output: c.name, c.id
                      ->  Seq Scan on public.categories c
                            Output: c.name, c.id
-(22 rows)
+(33 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -792,7 +912,18 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(s.ctid_2)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -859,7 +990,18 @@ LIMIT 3;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                Limit: 3
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=3
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -954,7 +1096,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: o.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: o.id AS col_1, NULL AS col_2, NULL AS col_3, c.ctid_2, o.ctid_1
+                 :   Sort: o.id ASC NULLS LAST, fetch=10
+                 :     Projection: c.ctid_2, o.ctid_1, o.id
+                 :       Inner Join: c.customer_code = o.customer_code
+                 :         SubqueryAlias: c
+                 :           Projection: c.ctid AS ctid_2, c.customer_code
+                 :             TableScan: c projection=[ctid, customer_code]
+                 :         SubqueryAlias: o
+                 :           Projection: o.ctid AS ctid_1, o.customer_code, o.id
+                 :             TableScan: o projection=[ctid, customer_code, id]
+(25 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -1031,7 +1184,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: i.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: i.id AS col_1, NULL AS col_2, NULL AS col_3, w.ctid_2, i.ctid_1
+                 :   Sort: i.id ASC NULLS LAST, fetch=10
+                 :     Projection: w.ctid_2, i.ctid_1, i.id
+                 :       Inner Join: w.region_id = i.region_id, w.warehouse_code = i.warehouse_code
+                 :         SubqueryAlias: w
+                 :           Projection: w.ctid AS ctid_2, w.region_id, w.warehouse_code
+                 :             TableScan: w projection=[ctid, region_id, warehouse_code]
+                 :         SubqueryAlias: i
+                 :           Projection: i.ctid AS ctid_1, i.region_id, i.warehouse_code, i.id
+                 :             TableScan: i projection=[ctid, region_id, warehouse_code, id]
+(25 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -1101,7 +1265,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: i.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: i.id AS col_1, NULL AS col_2, NULL AS col_3, t.ctid_2, i.ctid_1
+                 :   Sort: i.id ASC NULLS LAST, fetch=10
+                 :     Projection: t.ctid_2, i.ctid_1, i.id
+                 :       Inner Join: t.type_id = i.type_id
+                 :         SubqueryAlias: t
+                 :           Projection: t.ctid AS ctid_2, t.type_id
+                 :             TableScan: t projection=[ctid, type_id]
+                 :         SubqueryAlias: i
+                 :           Projection: i.ctid AS ctid_1, i.type_id, i.id
+                 :             TableScan: i projection=[ctid, type_id, id]
+(25 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -1187,7 +1362,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: lo.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: lo.id AS col_1, NULL AS col_2, NULL AS col_3, ls.ctid_2, lo.ctid_1
+                 :   Sort: lo.id ASC NULLS LAST, fetch=10
+                 :     Projection: ls.ctid_2, lo.ctid_1, lo.id
+                 :       Inner Join: ls.id = lo.supplier_id
+                 :         SubqueryAlias: ls
+                 :           Projection: ls.ctid AS ctid_2, ls.id
+                 :             TableScan: ls projection=[ctid, id]
+                 :         SubqueryAlias: lo
+                 :           Projection: lo.ctid AS ctid_1, lo.supplier_id, lo.id
+                 :             TableScan: lo projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -1231,7 +1417,18 @@ LIMIT 10;
                Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(s.ctid_2)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1271,7 +1468,18 @@ LIMIT 10;
                Tantivy Query 1: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1322,7 +1530,19 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(p.ctid_1) OR row_in_set(s.ctid_2) AND row_in_set(p.ctid_1)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             Filter: row_in_set(p.ctid) OR row_in_set(p.ctid) OR row_in_set(p.ctid)
+                 :               TableScan: p projection=[ctid, supplier_id, id]
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1362,7 +1582,18 @@ LIMIT 10;
                Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id Filter: row_in_set(p.ctid_1) OR row_in_set(s.ctid_2)
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1402,7 +1633,18 @@ LIMIT 10;
                Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: p.id AS col_1, NULL AS col_2, NULL AS col_3, s.ctid_2, p.ctid_1
+                 :   Sort: p.id ASC NULLS LAST, fetch=10
+                 :     Projection: s.ctid_2, p.ctid_1, p.id
+                 :       Inner Join: s.id = p.supplier_id
+                 :         SubqueryAlias: s
+                 :           Projection: s.ctid AS ctid_2, s.id
+                 :             TableScan: s projection=[ctid, id]
+                 :         SubqueryAlias: p
+                 :           Projection: p.ctid AS ctid_1, p.supplier_id, p.id
+                 :             TableScan: p projection=[ctid, supplier_id, id]
+(25 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1476,7 +1718,18 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: d.id asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, d.id AS col_2, NULL AS col_3, a.ctid_2, d.ctid_1
+                       :   Sort: d.id ASC NULLS LAST, fetch=10
+                       :     Projection: a.ctid_2, d.ctid_1, d.id
+                       :       Inner Join: a.author_code = d.author_code
+                       :         SubqueryAlias: a
+                       :           Projection: a.ctid AS ctid_2, a.author_code
+                       :             TableScan: a projection=[ctid, author_code]
+                       :         SubqueryAlias: d
+                       :           Projection: d.ctid AS ctid_1, d.author_code, d.id
+                       :             TableScan: d projection=[ctid, author_code, id]
+(27 rows)
 
 SELECT d.title, a.name
 FROM docs d
@@ -1547,7 +1800,18 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: i.id asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, i.id AS col_2, NULL AS col_3, c.ctid_2, i.ctid_1
+                       :   Sort: i.id ASC NULLS LAST, fetch=10
+                       :     Projection: c.ctid_2, i.ctid_1, i.id
+                       :       Inner Join: c.id = i.category_id
+                       :         SubqueryAlias: c
+                       :           Projection: c.ctid AS ctid_2, c.id
+                       :             TableScan: c projection=[ctid, id]
+                       :         SubqueryAlias: i
+                       :           Projection: i.ctid AS ctid_1, i.category_id, i.id
+                       :             TableScan: i projection=[ctid, category_id, id]
+(27 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1686,7 +1950,17 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: od.order_id asc, oi.order_id asc, od.line_num asc, oi.line_num asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, od.order_id AS col_2, od.line_num AS col_3, NULL AS col_4, NULL AS col_5, oi.ctid_2, od.ctid_1
+                       :   Sort: od.order_id ASC NULLS LAST, oi.order_id ASC NULLS LAST, od.line_num ASC NULLS LAST, oi.line_num ASC NULLS LAST, fetch=10
+                       :     Inner Join: oi.order_id = od.order_id, oi.line_num = od.line_num
+                       :       SubqueryAlias: oi
+                       :         Projection: oi.ctid AS ctid_2, oi.order_id, oi.line_num
+                       :           TableScan: oi projection=[ctid, order_id, line_num]
+                       :       SubqueryAlias: od
+                       :         Projection: od.ctid AS ctid_1, od.order_id, od.line_num
+                       :           TableScan: od projection=[ctid, order_id, line_num]
+(26 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1817,7 +2091,18 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: o.id asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, o.id AS col_2, NULL AS col_3, c.ctid_2, o.ctid_1
+                       :   Sort: o.id ASC NULLS LAST, fetch=10
+                       :     Projection: c.ctid_2, o.ctid_1, o.id
+                       :       Inner Join: c.id = o.customer_id
+                       :         SubqueryAlias: c
+                       :           Projection: c.ctid AS ctid_2, c.id
+                       :             TableScan: c projection=[ctid, id]
+                       :         SubqueryAlias: o
+                       :           Projection: o.ctid AS ctid_1, o.customer_id, o.id
+                       :             TableScan: o projection=[ctid, customer_id, id]
+(27 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -2149,7 +2434,18 @@ LIMIT 5;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: qgen_users.id AS col_1, NULL AS col_2, qgen_products.ctid_2, qgen_users.ctid_1
+                 :   Sort: qgen_users.id ASC NULLS LAST, fetch=5
+                 :     Projection: qgen_products.ctid_2, qgen_users.ctid_1, qgen_users.id
+                 :       Inner Join: qgen_products.age = qgen_users.age
+                 :         SubqueryAlias: qgen_products
+                 :           Projection: qgen_products.ctid AS ctid_2, qgen_products.age
+                 :             TableScan: qgen_products projection=[ctid, age]
+                 :         SubqueryAlias: qgen_users
+                 :           Projection: qgen_users.ctid AS ctid_1, qgen_users.age, qgen_users.id
+                 :             TableScan: qgen_users projection=[ctid, age, id]
+(25 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2191,7 +2487,18 @@ LIMIT 5;
                Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: qgen_users.id AS col_1, NULL AS col_2, qgen_products.ctid_2, qgen_users.ctid_1
+                 :   Sort: qgen_users.id ASC NULLS LAST, fetch=5
+                 :     Projection: qgen_products.ctid_2, qgen_users.ctid_1, qgen_users.id
+                 :       Inner Join: qgen_products.age = qgen_users.age
+                 :         SubqueryAlias: qgen_products
+                 :           Projection: qgen_products.ctid AS ctid_2, qgen_products.age
+                 :             TableScan: qgen_products projection=[ctid, age]
+                 :         SubqueryAlias: qgen_users
+                 :           Projection: qgen_users.ctid AS ctid_1, qgen_users.age, qgen_users.id
+                 :             TableScan: qgen_users projection=[ctid, age, id]
+(25 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2232,7 +2539,18 @@ LIMIT 5;
                Join Predicate: (qgen_products:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}} OR qgen_users:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: qgen_users.id AS col_1, NULL AS col_2, qgen_products.ctid_2, qgen_users.ctid_1
+                 :   Sort: qgen_users.id ASC NULLS LAST, fetch=5
+                 :     Projection: qgen_products.ctid_2, qgen_users.ctid_1, qgen_users.id
+                 :       Inner Join: qgen_products.age = qgen_users.age Filter: row_in_set(qgen_products.ctid_2) OR row_in_set(qgen_users.ctid_1)
+                 :         SubqueryAlias: qgen_products
+                 :           Projection: qgen_products.ctid AS ctid_2, qgen_products.age
+                 :             TableScan: qgen_products projection=[ctid, age]
+                 :         SubqueryAlias: qgen_users
+                 :           Projection: qgen_users.ctid AS ctid_1, qgen_users.age, qgen_users.id
+                 :             TableScan: qgen_users projection=[ctid, age, id]
+(25 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2300,7 +2618,18 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: tp.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: tp.id AS col_1, NULL AS col_2, NULL AS col_3, tr.ctid_2, tp.ctid_1
+                 :   Sort: tp.id ASC NULLS LAST, fetch=10
+                 :     Projection: tr.ctid_2, tp.ctid_1, tp.id
+                 :       Inner Join: tr.id = tp.ref_id
+                 :         SubqueryAlias: tr
+                 :           Projection: tr.ctid AS ctid_2, tr.id
+                 :             TableScan: tr projection=[ctid, id]
+                 :         SubqueryAlias: tp
+                 :           Projection: tp.ctid AS ctid_1, tp.ref_id, tp.id
+                 :             TableScan: tp projection=[ctid, ref_id, id]
+(25 rows)
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
@@ -2367,7 +2696,18 @@ LIMIT 20;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 20
                Order By: hp.id asc
-(14 rows)
+               DataFusion Logical Plan: 
+                 : Projection: hp.id AS col_1, NULL AS col_2, NULL AS col_3, hc.ctid_2, hp.ctid_1
+                 :   Sort: hp.id ASC NULLS LAST, fetch=20
+                 :     Projection: hc.ctid_2, hp.ctid_1, hp.id
+                 :       Inner Join: hc.id = hp.category_id
+                 :         SubqueryAlias: hc
+                 :           Projection: hc.ctid AS ctid_2, hc.id
+                 :             TableScan: hc projection=[ctid, id]
+                 :         SubqueryAlias: hp
+                 :           Projection: hp.ctid AS ctid_1, hp.category_id, hp.id
+                 :             TableScan: hp projection=[ctid, category_id, id]
+(25 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
@@ -2562,7 +2902,18 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: m.ID asc
-(16 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, m.ID AS col_2, NULL AS col_3, s.ctid_2, m.ctid_1
+                       :   Sort: m.ID ASC NULLS LAST, fetch=5
+                       :     Projection: s.ctid_2, m.ctid_1, m.ID
+                       :       Inner Join: s.id = m.JoinKey
+                       :         SubqueryAlias: s
+                       :           Projection: s.ctid AS ctid_2, s.id
+                       :             TableScan: s projection=[ctid, id]
+                       :         SubqueryAlias: m
+                       :           Projection: m.ctid AS ctid_1, m.JoinKey, m.ID
+                       :             TableScan: m projection=[ctid, JoinKey, ID]
+(27 rows)
 
 SELECT m."Content", s.name
 FROM "MixedCaseTable" m
@@ -2657,7 +3008,23 @@ LIMIT 10;
                      Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, p.id AS col_2, NULL AS col_3, NULL AS col_4, s.ctid_2, c.ctid_4, p.ctid_1
+                       :   Sort: p.id ASC NULLS LAST, fetch=10
+                       :     Projection: s.ctid_2, c.ctid_4, p.ctid_1, p.id
+                       :       Inner Join: p.category_id = c.id
+                       :         Projection: s.ctid_2, p.ctid_1, p.category_id, p.id
+                       :           Inner Join: s.id = p.supplier_id
+                       :             SubqueryAlias: s
+                       :               Projection: s.ctid AS ctid_2, s.id
+                       :                 TableScan: s projection=[ctid, id]
+                       :             SubqueryAlias: p
+                       :               Projection: p.ctid AS ctid_1, p.category_id, p.supplier_id, p.id
+                       :                 TableScan: p projection=[ctid, category_id, supplier_id, id]
+                       :         SubqueryAlias: c
+                       :           Projection: c.ctid AS ctid_4, c.id
+                       :             TableScan: c projection=[ctid, id]
+(33 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2701,7 +3068,23 @@ LIMIT 10;
                      Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, p.id AS col_2, NULL AS col_3, NULL AS col_4, s.ctid_2, p.ctid_1, c.ctid_4
+                       :   Sort: p.id ASC NULLS LAST, fetch=10
+                       :     Projection: s.ctid_2, p.ctid_1, p.id, c.ctid_4
+                       :       Inner Join: p.category_id = c.id
+                       :         Projection: s.ctid_2, p.ctid_1, p.category_id, p.id
+                       :           Inner Join: s.id = p.supplier_id
+                       :             SubqueryAlias: s
+                       :               Projection: s.ctid AS ctid_2, s.id
+                       :                 TableScan: s projection=[ctid, id]
+                       :             SubqueryAlias: p
+                       :               Projection: p.ctid AS ctid_1, p.category_id, p.supplier_id, p.id
+                       :                 TableScan: p projection=[ctid, category_id, supplier_id, id]
+                       :         SubqueryAlias: c
+                       :           Projection: c.ctid AS ctid_4, c.id
+                       :             TableScan: c projection=[ctid, id]
+(33 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2741,7 +3124,23 @@ LIMIT 5;
          Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 5
          Order By: pdb.score() desc
-(12 rows)
+         DataFusion Logical Plan: 
+           : Projection: NULL AS col_1, p.score AS col_2, s.ctid_2, c.ctid_4, p.ctid_1
+           :   Sort: p.score DESC NULLS FIRST, fetch=5
+           :     Projection: s.ctid_2, c.ctid_4, p.score, p.ctid_1
+           :       Inner Join: p.category_id = c.id
+           :         Projection: s.ctid_2, p.score, p.ctid_1, p.category_id
+           :           Inner Join: s.id = p.supplier_id
+           :             SubqueryAlias: s
+           :               Projection: s.ctid AS ctid_2, s.id
+           :                 TableScan: s projection=[ctid, id]
+           :             SubqueryAlias: p
+           :               Projection: p.pdb.score() AS score, p.ctid AS ctid_1, p.category_id, p.supplier_id
+           :                 TableScan: p projection=[pdb.score(), ctid, category_id, supplier_id]
+           :         SubqueryAlias: c
+           :           Projection: c.ctid AS ctid_4, c.id
+           :             TableScan: c projection=[ctid, id]
+(28 rows)
 
 SELECT p.name, paradedb.score(p.id)
 FROM products p
@@ -2779,7 +3178,23 @@ LIMIT 5;
          Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 5
          Order By: pdb.score() desc
-(12 rows)
+         DataFusion Logical Plan: 
+           : Projection: NULL AS col_1, s.score AS col_2, s.ctid_2, p.ctid_1, c.ctid_4
+           :   Sort: s.score DESC NULLS FIRST, fetch=5
+           :     Projection: s.score, s.ctid_2, p.ctid_1, c.ctid_4
+           :       Inner Join: p.category_id = c.id
+           :         Projection: s.score, s.ctid_2, p.ctid_1, p.category_id
+           :           Inner Join: s.id = p.supplier_id
+           :             SubqueryAlias: s
+           :               Projection: s.pdb.score() AS score, s.ctid AS ctid_2, s.id
+           :                 TableScan: s projection=[pdb.score(), ctid, id]
+           :             SubqueryAlias: p
+           :               Projection: p.ctid AS ctid_1, p.category_id, p.supplier_id
+           :                 TableScan: p projection=[ctid, category_id, supplier_id]
+           :         SubqueryAlias: c
+           :           Projection: c.ctid AS ctid_4, c.id
+           :             TableScan: c projection=[ctid, id]
+(28 rows)
 
 SELECT s.name, paradedb.score(s.id)
 FROM products p
@@ -2848,7 +3263,28 @@ LIMIT 5;
                      Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(18 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, l1.id AS col_2, NULL AS col_3, NULL AS col_4, NULL AS col_5, l4.ctid_6, l3.ctid_4, l1.ctid_1, l2.ctid_2
+                       :   Sort: l1.id ASC NULLS LAST, fetch=5
+                       :     Projection: l4.ctid_6, l3.ctid_4, l1.ctid_1, l1.id, l2.ctid_2
+                       :       Inner Join: l2.id = l1.l2_id
+                       :         Projection: l4.ctid_6, l3.ctid_4, l2.ctid_2, l2.id
+                       :           Inner Join: l3.id = l2.l3_id
+                       :             Projection: l4.ctid_6, l3.ctid_4, l3.id
+                       :               Inner Join: l4.id = l3.l4_id
+                       :                 SubqueryAlias: l4
+                       :                   Projection: l4.ctid AS ctid_6, l4.id
+                       :                     TableScan: l4 projection=[ctid, id]
+                       :                 SubqueryAlias: l3
+                       :                   Projection: l3.ctid AS ctid_4, l3.l4_id, l3.id
+                       :                     TableScan: l3 projection=[ctid, l4_id, id]
+                       :             SubqueryAlias: l2
+                       :               Projection: l2.ctid AS ctid_2, l2.id, l2.l3_id
+                       :                 TableScan: l2 projection=[ctid, id, l3_id]
+                       :         SubqueryAlias: l1
+                       :           Projection: l1.ctid AS ctid_1, l1.l2_id, l1.id
+                       :             TableScan: l1 projection=[ctid, l2_id, id]
+(39 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name
 FROM level1 l1
@@ -2897,7 +3333,28 @@ LIMIT 5;
                      Tantivy Query 3: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(19 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, l1.id AS col_2, NULL AS col_3, l4.ctid_6, l3.ctid_4, l2.ctid_2, l1.ctid_1
+                       :   Sort: l1.id ASC NULLS LAST, fetch=5
+                       :     Projection: l4.ctid_6, l3.ctid_4, l2.ctid_2, l1.ctid_1, l1.id
+                       :       Inner Join: l2.id = l1.l2_id
+                       :         Projection: l4.ctid_6, l3.ctid_4, l2.ctid_2, l2.id
+                       :           Inner Join: l3.id = l2.l3_id
+                       :             Projection: l4.ctid_6, l3.ctid_4, l3.id
+                       :               Inner Join: l4.id = l3.l4_id
+                       :                 SubqueryAlias: l4
+                       :                   Projection: l4.ctid AS ctid_6, l4.id
+                       :                     TableScan: l4 projection=[ctid, id]
+                       :                 SubqueryAlias: l3
+                       :                   Projection: l3.ctid AS ctid_4, l3.l4_id, l3.id
+                       :                     TableScan: l3 projection=[ctid, l4_id, id]
+                       :             SubqueryAlias: l2
+                       :               Projection: l2.ctid AS ctid_2, l2.id, l2.l3_id
+                       :                 TableScan: l2 projection=[ctid, id, l3_id]
+                       :         SubqueryAlias: l1
+                       :           Projection: l1.ctid AS ctid_1, l1.l2_id, l1.id
+                       :             TableScan: l1 projection=[ctid, l2_id, id]
+(40 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1
@@ -2943,7 +3400,28 @@ LIMIT 5;
                      Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(19 rows)
+                     DataFusion Logical Plan: 
+                       : Projection: NULL AS col_1, l1.id AS col_2, NULL AS col_3, l3.ctid_4, l4.ctid_6, l2.ctid_2, l1.ctid_1
+                       :   Sort: l1.id ASC NULLS LAST, fetch=5
+                       :     Projection: l3.ctid_4, l4.ctid_6, l2.ctid_2, l1.ctid_1, l1.id
+                       :       Inner Join: l2.id = l1.l2_id
+                       :         Projection: l3.ctid_4, l4.ctid_6, l2.ctid_2, l2.id
+                       :           Inner Join: l3.id = l2.l3_id
+                       :             Projection: l3.ctid_4, l3.id, l4.ctid_6
+                       :               Inner Join: l3.l4_id = l4.id
+                       :                 SubqueryAlias: l3
+                       :                   Projection: l3.ctid AS ctid_4, l3.l4_id, l3.id
+                       :                     TableScan: l3 projection=[ctid, l4_id, id]
+                       :                 SubqueryAlias: l4
+                       :                   Projection: l4.ctid AS ctid_6, l4.id
+                       :                     TableScan: l4 projection=[ctid, id]
+                       :             SubqueryAlias: l2
+                       :               Projection: l2.ctid AS ctid_2, l2.id, l2.l3_id
+                       :                 TableScan: l2 projection=[ctid, id, l3_id]
+                       :         SubqueryAlias: l1
+                       :           Projection: l1.ctid AS ctid_1, l1.l2_id, l1.id
+                       :             TableScan: l1 projection=[ctid, l2_id, id]
+(40 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1

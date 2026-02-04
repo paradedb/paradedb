@@ -177,6 +177,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
+use datafusion::prelude::SessionContext;
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
@@ -636,6 +637,20 @@ impl CustomScan for JoinScan {
                     .join(", "),
             );
         }
+
+        if let Some(ref logical_plan) = state.custom_state().logical_plan {
+            let ctx = SessionContext::new();
+            let plan = logical_plan_from_bytes_with_extension_codec(
+                logical_plan,
+                &ctx.task_ctx(),
+                &PgSearchExtensionCodec,
+            )
+            .expect("Failed to deserialize logical plan");
+            explainer.add_text("DataFusion Logical Plan", "");
+            for line in plan.to_string().lines() {
+                explainer.add_text("  ", line);
+            }
+        }
     }
 
     fn begin_custom_scan(
@@ -692,20 +707,21 @@ impl CustomScan for JoinScan {
                     .custom_state()
                     .logical_plan
                     .as_ref()
-                    .expect("logical plan is required");
+                    .expect("Logical plan is required");
 
                 // Create a SessionContext and register tables
-                let ctx = datafusion::prelude::SessionContext::new();
+                let ctx = SessionContext::new();
                 runtime
                     .block_on(register_source_tables(&ctx, &join_clause))
                     .expect("Failed to register source tables");
 
                 // Deserialize the logical plan
-                let codec = PgSearchExtensionCodec;
-                let task_ctx = ctx.task_ctx();
-                let logical_plan =
-                    logical_plan_from_bytes_with_extension_codec(plan_bytes, &task_ctx, &codec)
-                        .expect("Failed to deserialize logical plan");
+                let logical_plan = logical_plan_from_bytes_with_extension_codec(
+                    plan_bytes,
+                    &ctx.task_ctx(),
+                    &PgSearchExtensionCodec,
+                )
+                .expect("Failed to deserialize logical plan");
 
                 // Convert logical plan to physical plan
                 let plan = runtime

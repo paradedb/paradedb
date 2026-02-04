@@ -44,6 +44,45 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 
 ------------------------------------------------------------
+-- TEST: MixedFastFieldExecState with ROW expression fields
+------------------------------------------------------------
+
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+
+-- Composite type using pdb.literal to enable fast fields
+CREATE TYPE fast_article_search AS (
+    title pdb.literal,
+    body pdb.literal
+);
+
+CREATE TABLE articles_fast (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+
+CREATE INDEX idx_articles_fast_bm25
+ON articles_fast
+USING bm25 (id, (ROW(title, body)::fast_article_search))
+WITH (key_field='id');
+
+INSERT INTO articles_fast (title, body) VALUES
+    ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
+    ('Search_Tutorial', 'Full_text_search_techniques');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+
+RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
+
+------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
 ------------------------------------------------------------
 

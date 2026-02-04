@@ -75,6 +75,70 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 (1 row)
 
 ------------------------------------------------------------
+-- TEST: MixedFastFieldExecState with ROW expression fields
+------------------------------------------------------------
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+-- Composite type using pdb.literal to enable fast fields
+CREATE TYPE fast_article_search AS (
+    title pdb.literal,
+    body pdb.literal
+);
+CREATE TABLE articles_fast (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+CREATE INDEX idx_articles_fast_bm25
+ON articles_fast
+USING bm25 (id, (ROW(title, body)::fast_article_search))
+WITH (key_field='id');
+INSERT INTO articles_fast (title, body) VALUES
+    ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
+    ('Search_Tutorial', 'Full_text_search_techniques');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on articles_fast
+   Table: articles_fast
+   Index: idx_articles_fast_bm25
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: body, title
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL_Guide","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+      title       |          body           
+------------------+-------------------------
+ PostgreSQL_Guide | Learn_PostgreSQL_basics
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on articles_fast
+         Table: articles_fast
+         Index: idx_articles_fast_bm25
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, body, title
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:Full_text_search_techniques","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+      title      |            body             
+-----------------+-----------------------------
+ Search_Tutorial | Full_text_search_techniques
+(1 row)
+
+RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
+------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
 ------------------------------------------------------------
 -- Create composite type with 35 text fields
@@ -1666,10 +1730,11 @@ ORDER BY count DESC, category;
          ->  Custom Scan (ParadeDB Scan) on smoke_test
                Table: smoke_test
                Index: smoke_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(10 rows)
+(11 rows)
 
 SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
 FROM smoke_test
@@ -2782,10 +2847,11 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
  id | price 
@@ -2801,10 +2867,11 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
  id | price 

@@ -46,12 +46,11 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{
-    range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
-};
+use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::PgSearchRelation;
@@ -63,6 +62,36 @@ use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
 pub struct AggregateScan;
+
+impl ParallelQueryCapable for AggregateScan {
+    fn estimate_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+    ) -> pg_sys::Size {
+        0
+    }
+
+    fn initialize_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+    }
+
+    fn reinitialize_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+    }
+
+    fn initialize_worker_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _toc: *mut pg_sys::shm_toc,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+    }
+}
 
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
@@ -485,13 +514,7 @@ impl CustomScan for AggregateScan {
     }
 }
 
-impl ExecMethod for AggregateScan {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        <AggregateScan as PlainExecCapable>::exec_methods()
-    }
-}
-
-impl PlainExecCapable for AggregateScan {}
+crate::impl_custom_scan! { AggregateScan }
 
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;

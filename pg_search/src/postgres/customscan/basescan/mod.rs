@@ -54,7 +54,6 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
@@ -70,9 +69,7 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{
-    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
-};
+use crate::postgres::customscan::{range_table, CustomScan, CustomScanState, RelPathlistHookArgs};
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -84,7 +81,6 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
-use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -310,11 +306,7 @@ impl BaseScan {
     }
 }
 
-impl customscan::ExecMethod for BaseScan {
-    fn exec_methods() -> *const CustomExecMethods {
-        <BaseScan as ParallelQueryCapable>::exec_methods()
-    }
-}
+crate::impl_custom_scan! { BaseScan }
 
 /// Check if the query's target list contains window_agg() function calls
 ///

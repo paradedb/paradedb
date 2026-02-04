@@ -47,10 +47,6 @@ mod scan;
 pub mod solve_expr;
 
 use crate::api::HashMap;
-use crate::postgres::customscan::exec::{
-    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
-    mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
-};
 
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -208,37 +204,34 @@ pub trait ExecMethod {
     fn exec_methods() -> *const pg_sys::CustomExecMethods;
 }
 
-#[allow(dead_code)]
-pub trait PlainExecCapable: ExecMethod
-where
-    Self: CustomScan,
-{
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: None,
-                        RestrPosCustomScan: None,
-                        EstimateDSMCustomScan: None,
-                        InitializeDSMCustomScan: None,
-                        ReInitializeDSMCustomScan: None,
-                        InitializeWorkerCustomScan: None,
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
+/// Macro to implement the `ExecMethod` trait for a custom scan type.
+///
+/// This macro generates a unique `static mut` storage for the `CustomExecMethods` vtable
+/// for each type it is invoked on. This prevents different custom scan implementations
+/// from accidentally sharing the same vtable pointer due to linker folding or
+/// monomorphization issues with generic statics.
+///
+/// # Usage
+/// ```rust
+/// impl_custom_scan!(MyCustomScan);
+/// ```
+#[macro_export]
+macro_rules! impl_custom_scan {
+    ($t:ty) => {
+        impl $crate::postgres::customscan::ExecMethod for $t {
+            fn exec_methods() -> *const pgrx::pg_sys::CustomExecMethods {
+                unsafe {
+                    static mut METHODS: *mut pgrx::pg_sys::CustomExecMethods = std::ptr::null_mut();
+                    if METHODS.is_null() {
+                        // Use the generic helper to build the struct, but store it in THIS static
+                        METHODS =
+                            $crate::postgres::customscan::dsm::create_custom_exec_methods::<$t>();
+                    }
+                    METHODS
+                }
             }
-            METHODS
         }
-    }
+    };
 }
 
 #[allow(dead_code)]
@@ -246,33 +239,6 @@ pub trait MarkRestoreCapable: ExecMethod
 where
     Self: CustomScan,
 {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
-                        RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
-                        EstimateDSMCustomScan: None,
-                        InitializeDSMCustomScan: None,
-                        ReInitializeDSMCustomScan: None,
-                        InitializeWorkerCustomScan: None,
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-
     fn mark_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);

@@ -1835,7 +1835,7 @@ ORDER BY id;
          Table: float8_test
          Index: float8_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, value
+         Fast Fields: value, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":100.5,"is_datetime":false}}]}}
 (11 rows)
@@ -1865,7 +1865,7 @@ ORDER BY id;
          Table: float8_test
          Index: float8_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, value
+         Fast Fields: value, id
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"excluded":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"excluded":500.0},"is_datetime":false}}]}}
 (11 rows)

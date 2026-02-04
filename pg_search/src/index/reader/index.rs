@@ -39,7 +39,8 @@ use anyhow::Result;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::sort_key::{
-    ComparatorEnum, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue, SortByString,
+    ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
+    SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, SegmentId};
@@ -649,6 +650,17 @@ impl SearchIndexReader {
                                 SortByStaticFastValue::<DateTime>::for_field(sort_field),
                                 order,
                             ),
+                            erased_features,
+                            n,
+                            offset,
+                            aux_collector,
+                        ),
+                    ),
+                    tantivy::schema::Type::Bytes => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            (SortByBytes::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,

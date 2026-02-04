@@ -22,7 +22,7 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 
 use serde::{Deserialize, Serialize};
-use tantivy::columnar::StrColumn;
+use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::SegmentOrdinal;
@@ -107,6 +107,7 @@ impl FFHelper {
 pub enum FFType {
     Junk,
     Text(StrColumn),
+    Bytes(BytesColumn),
     I64(Column<i64>),
     F64(Column<f64>),
     U64(Column<u64>),
@@ -129,6 +130,8 @@ impl FFType {
             Self::I64(ff)
         } else if let Ok(Some(ff)) = ffr.str(field_name) {
             Self::Text(ff)
+        } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
+            Self::Bytes(ff)
         } else if let Ok(ff) = ffr.u64(field_name) {
             Self::U64(ff)
         } else if let Ok(ff) = ffr.f64(field_name) {
@@ -156,6 +159,16 @@ impl FFType {
                 ff.ord_to_str(ord, &mut s)
                     .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
+            }
+            FFType::Bytes(ff) => {
+                let mut bytes = Vec::new();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_bytes(ord, &mut bytes)
+                    .expect("bytes should be retrievable for term ord");
+                TantivyValue(OwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => TantivyValue(
                 ff.first(doc)
@@ -238,6 +251,7 @@ pub enum WhichFastField {
 #[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
+    Bytes,
     Int64,
     UInt64,
     Float64,
@@ -261,7 +275,7 @@ impl From<SearchFieldType> for FastFieldType {
             SearchFieldType::Date(_) => FastFieldType::Date,
             SearchFieldType::Range(_) => FastFieldType::String,
             SearchFieldType::Numeric64(_, _) => FastFieldType::Int64,
-            SearchFieldType::NumericBytes(_) => FastFieldType::String,
+            SearchFieldType::NumericBytes(_) => FastFieldType::Bytes,
         }
     }
 }

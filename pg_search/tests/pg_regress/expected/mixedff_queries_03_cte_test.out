@@ -152,7 +152,7 @@ ORDER BY document_title, file_title, page_number;
                  Table: files
                  Index: files_search
                  Exec Method: MixedFastFieldExecState
-                 Fast Fields: file_path, title, id, documentid, file_size
+                 Fast Fields: file_path, file_size, id, documentid, title
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}}
            ->  CTE Scan on searchable_docs sd_1

@@ -410,7 +410,7 @@ WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed ins
                Table: score_test
                Index: score_test_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, id, views, rating, title
+               Fast Fields: author, rating, id, views, title
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
 (10 rows)

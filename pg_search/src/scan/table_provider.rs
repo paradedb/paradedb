@@ -70,6 +70,7 @@ fn build_schema(fields: &[WhichFastField]) -> SchemaRef {
                     FastFieldType::Float64 => arrow_schema::DataType::Float64,
                     FastFieldType::Bool => arrow_schema::DataType::Boolean,
                     FastFieldType::String => arrow_schema::DataType::Utf8View,
+                    FastFieldType::Bytes => arrow_schema::DataType::BinaryView,
                     FastFieldType::Date => {
                         arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
                     }

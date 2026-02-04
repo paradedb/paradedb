@@ -167,6 +167,9 @@ fn populate_slot(
                     WhichFastField::Named(_, FastFieldType::String) => {
                         panic!("String fast field {which_fast_field:?} should already have been extracted.");
                     }
+                    WhichFastField::Named(_, FastFieldType::Bytes) => {
+                        panic!("Bytes fast field {which_fast_field:?} should already have been extracted.");
+                    }
                     WhichFastField::Named(_, FastFieldType::Int64)
                     | WhichFastField::Named(_, FastFieldType::UInt64)
                     | WhichFastField::Named(_, FastFieldType::Float64)

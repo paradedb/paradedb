@@ -154,6 +154,9 @@ impl Scanner {
                         crate::index::fast_fields_helper::FastFieldType::String => {
                             DataType::Utf8View
                         }
+                        crate::index::fast_fields_helper::FastFieldType::Bytes => {
+                            DataType::BinaryView
+                        }
                         crate::index::fast_fields_helper::FastFieldType::Int64 => DataType::Int64,
                         crate::index::fast_fields_helper::FastFieldType::UInt64 => DataType::UInt64,
                         crate::index::fast_fields_helper::FastFieldType::Float64 => {

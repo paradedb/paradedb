@@ -7,6 +7,9 @@
 
 \i common/common_setup.sql
 
+-- Explicitly enable mixed fast field sorted paths for this test suite
+SET paradedb.enable_mixed_fast_field_sort = true;
+
 -- =============================================================================
 -- MAIN TEST TABLE: sorted_scan_test
 -- Used for most sorted index tests (pathkey, projection, LIMIT, aggregates, etc.)
@@ -81,6 +84,7 @@ WHERE content @@@ 'searchable'
 ORDER BY priority DESC NULLS LAST;
 
 \echo 'Test 1.6: ORDER BY prefix + extra key (parallel) - Gather Merge with worker Sort expected'
+SET paradedb.min_rows_per_worker = 0;
 SET max_parallel_workers_per_gather = 2;
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0;
@@ -104,6 +108,7 @@ RESET min_parallel_index_scan_size;
 RESET min_parallel_table_scan_size;
 RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
+RESET paradedb.min_rows_per_worker;
 SET max_parallel_workers_per_gather = 0;
 
 \echo 'Test 1.8: ORDER BY prefix + extra key (single worker) - Incremental Sort expected'
@@ -671,6 +676,7 @@ SELECT
 FROM paradedb.index_info('parallel_sorted_test_idx');
 
 \echo 'Test 14.2: Parallel sorted scan should use Gather Merge (not plain Gather)'
+SET paradedb.min_rows_per_worker = 0;
 SET max_parallel_workers_per_gather = 4;
 SET parallel_setup_cost = 0;
 SET parallel_tuple_cost = 0;
@@ -714,6 +720,7 @@ RESET min_parallel_index_scan_size;
 RESET min_parallel_table_scan_size;
 RESET parallel_tuple_cost;
 RESET parallel_setup_cost;
+RESET paradedb.min_rows_per_worker;
 SET max_parallel_workers_per_gather = 0;
 
 DROP TABLE parallel_sorted_test CASCADE;
@@ -783,3 +790,5 @@ DROP TABLE lazy_checkout_test CASCADE;
 DROP TABLE IF EXISTS sorted_scan_test CASCADE;
 
 \echo '=== All sorted index scan tests completed ==='
+
+RESET paradedb.enable_mixed_fast_field_sort;

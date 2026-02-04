@@ -21,7 +21,7 @@ use std::sync::Arc;
 use arrow_schema::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
@@ -36,7 +36,7 @@ use crate::scan::datafusion_plan::ScanPlan;
 use crate::scan::info::ScanInfo;
 use crate::scan::Scanner;
 
-/// DataFusion TableProvider for scanning a ParadeDB table.
+/// DataFusion TableProvider for scanning a ParadeDB index.
 #[derive(Debug)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
@@ -99,6 +99,12 @@ impl TableProvider for PgSearchTableProvider {
         TableType::Base
     }
 
+    fn statistics(&self) -> Option<Statistics> {
+        // TODO: Provide a useful implementation of statistics to allow DataFusion to
+        // re-order joins effectively.
+        None
+    }
+
     fn supports_filters_pushdown(
         &self,
         filters: &[&Expr],
@@ -118,6 +124,9 @@ impl TableProvider for PgSearchTableProvider {
         _filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        // TODO: See TODO in supports_filters_pushdown. We should support limit pushdown here
+        // to allow providing a batch size hint to the Scanner.
+        //
         // Ignore projection, filters, limit for now as they are handled by the join logic
         // or effectively pre-calculated in `fields`.
 
@@ -155,12 +164,7 @@ impl TableProvider for PgSearchTableProvider {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(
-            search_results,
-            Some(100), // batch size
-            self.fields.clone(),
-            heap_relid.into(),
-        );
+        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
 
         Ok(Arc::new(ScanPlan::new(
             scanner,

@@ -278,6 +278,11 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             // We use text storage instead of bytes because Tantivy's FastFieldReaders
             // doesn't support bytes columns for join pushdown and other fast field operations.
             // Hex encoding preserves lexicographic byte ordering.
+            //
+            // TODO: Consider using Tantivy's native Bytes field instead of Text with hex encoding.
+            // This would skip UTF-8 validation overhead and avoid hex encoding/decoding.
+            // However, BytesColumn currently doesn't support range queries or TopN sorting.
+            // Since StringColumn wraps BytesColumn, adding these features should be straightforward.
             SearchFieldType::NumericBytes(_) => {
                 builder.add_text_field(name.as_ref(), config.clone())
             }

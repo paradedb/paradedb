@@ -135,37 +135,40 @@ impl SearchFieldType {
     }
 }
 
-/// Reconcile a computed SearchFieldType with the stored tantivy schema for backwards compatibility.
+/// Derive the SearchFieldType from the tantivy schema, using PostgreSQL metadata for OID/scale.
 ///
-/// When upgrading pg_search, new code computes Numeric64/NumericBytes for NUMERIC columns,
-/// but old indexes stored NUMERIC as F64. This function detects this mismatch and returns
-/// the correct field type based on what's actually stored in the index.
-fn reconcile_field_type_with_schema(
-    computed_type: SearchFieldType,
+/// This function determines the correct SearchFieldType by examining what's actually
+/// stored in the tantivy schema, then augmenting with PostgreSQL metadata (OID, scale).
+///
+/// This ensures backwards compatibility: legacy indexes that stored NUMERIC as F64
+/// will be correctly identified as F64, while new indexes use Numeric64/NumericBytes
+/// based on the actual tantivy field type.
+fn derive_field_type_from_schema(
     field_entry: &FieldEntry,
+    options: &BM25IndexOptions,
+    field_name: &FieldName,
 ) -> SearchFieldType {
     use tantivy::schema::FieldType;
 
-    // Only reconcile NUMERIC types (Numeric64 and NumericBytes)
-    if !computed_type.is_numeric() {
-        return computed_type;
-    }
+    // Get the computed type from options - this has the PostgreSQL metadata we need
+    let computed_type = options.get_field_type(field_name).unwrap_or_else(|| {
+        panic!("`{field_name}`'s configuration not found in index WITH options")
+    });
 
-    // Get the actual tantivy field type from the stored schema
-    let stored_field_type = field_entry.field_type();
-
-    // If computed type is Numeric64/NumericBytes but stored type is F64, use F64 (legacy index)
-    match (&computed_type, stored_field_type) {
-        (SearchFieldType::Numeric64(oid, _), FieldType::F64(_)) => {
-            // Legacy index: NUMERIC was stored as F64
-            SearchFieldType::F64(*oid)
-        }
-        (SearchFieldType::NumericBytes(oid), FieldType::F64(_)) => {
-            // Legacy index: NUMERIC was stored as F64
-            SearchFieldType::F64(*oid)
+    // For most types, the tantivy schema matches what we computed.
+    // The exception is NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    match field_entry.field_type() {
+        FieldType::F64(_) => {
+            // If computed type was Numeric64/NumericBytes but stored type is F64,
+            // this is a legacy index - use F64
+            if computed_type.is_numeric() {
+                SearchFieldType::F64(computed_type.typeoid().value())
+            } else {
+                computed_type
+            }
         }
         _ => {
-            // No mismatch, use the computed type
+            // For all other types, the computed type is correct
             computed_type
         }
     }
@@ -524,14 +527,10 @@ impl SearchField {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let field_config = options.field_config_or_default(&field_name);
-        let computed_field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
-            panic!("`{field_name}`'s configuration not found in index WITH options")
-        });
 
-        // Reconcile computed field type with stored tantivy schema for backwards compatibility.
-        // If the current code computes Numeric64/NumericBytes but the stored schema is F64,
-        // use F64 (this is a legacy index where NUMERIC was stored as f64).
-        let field_type = reconcile_field_type_with_schema(computed_field_type, &field_entry);
+        // Derive field type from the tantivy schema, using PostgreSQL metadata for OID/scale.
+        // This ensures backwards compatibility with legacy indexes.
+        let field_type = derive_field_type_from_schema(&field_entry, options, &field_name);
 
         Self {
             field,

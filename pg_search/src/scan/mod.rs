@@ -17,7 +17,7 @@
 
 pub mod batch_scanner;
 pub mod codec;
-pub mod datafusion_plan;
+pub mod execution_plan;
 pub mod info;
 pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]

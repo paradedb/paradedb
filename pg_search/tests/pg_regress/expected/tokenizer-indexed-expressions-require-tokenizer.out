@@ -27,7 +27,7 @@ SELECT * FROM paradedb.schema('idxexpr') ORDER BY name;
 ------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
  ctid | U64        | f      | t       | t    | f          |             |                          |        | 
  id   | I64        | f      | t       | t    | f          |             |                          |        | 
- t    | Str        | f      | t       | t    | t          |             | keyword[lowercase=false] | basic  | lowercase
+ t    | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | lowercase
 (3 rows)
 
 SELECT * FROM expr WHERE lower(t) &&& 'This is a TEST';

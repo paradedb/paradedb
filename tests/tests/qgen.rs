@@ -747,7 +747,7 @@ async fn generated_numeric_pushdown(database: Db) {
         // We need a BM25 predicate to trigger the custom scan
         // Use an OR clause to match all possible name values in the test data
         let bm25_predicate = format!(
-            "{table_name}.name @@@ 'alice OR bob OR cloe OR sally OR brandy OR brisket OR anchovy'"
+            "{table_name}.name @@@ pdb.all()"
         );
 
         // PostgreSQL query: uses only the numeric predicate

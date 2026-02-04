@@ -37,7 +37,6 @@ use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
-use crate::postgres::customscan::basescan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
@@ -61,6 +60,7 @@ use crate::postgres::customscan::orderby::{
     extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
     UnusableReason,
 };
+use crate::postgres::customscan::parallel::{compute_nworkers, list_segment_ids, RowEstimate};
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
@@ -111,7 +111,7 @@ impl BaseScan {
     ///    scan runs inside a worker context (e.g., on the inner side of a Parallel Hash Join).
     ///    In this case, every worker executes the full scan independently using its own
     ///    transaction snapshot (`MvccSatisfies::Snapshot`).
-    fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
+    pub(crate) fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
         state
@@ -719,15 +719,13 @@ impl CustomScan for BaseScan {
             let row_estimate = match table.reltuples() {
                 Some(reltuples) if reltuples > 0.0 => {
                     let estimated = (reltuples as f64 * selectivity).max(1.0) as u64;
-                    parallel::RowEstimate::Known(estimated)
+                    RowEstimate::Known(estimated)
                 }
-                _ => parallel::RowEstimate::Unknown,
+                _ => RowEstimate::Unknown,
             };
             let base_result_rows = match row_estimate {
-                parallel::RowEstimate::Known(rows) => {
-                    (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0)
-                }
-                parallel::RowEstimate::Unknown => {
+                RowEstimate::Known(rows) => (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0),
+                RowEstimate::Unknown => {
                     // For unknown row counts, use 1.0 as a conservative estimate for costing
                     limit.unwrap_or(1.0).max(1.0)
                 }
@@ -785,8 +783,8 @@ impl CustomScan for BaseScan {
                     path_builder = path_builder.set_parallel_safe(true);
 
                     compute_nworkers(
-                        &method,
-                        limit.map(|l| l as f64),
+                        is_sorted,
+                        limit,
                         row_estimate,
                         segment_count,
                         quals.contains_external_var(),

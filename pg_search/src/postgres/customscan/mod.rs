@@ -36,6 +36,7 @@ mod hook;
 pub mod joinscan;
 pub mod opexpr;
 pub mod orderby;
+pub mod parallel;
 mod path;
 pub mod projections;
 pub mod pullup;

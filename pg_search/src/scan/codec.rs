@@ -32,7 +32,17 @@ use crate::scan::table_provider::PgSearchTableProvider;
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
 /// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec;
+pub struct PgSearchExtensionCodec {
+    /// Shared state for parallel scans, containing the list of segments to be processed.
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    /// The OID of the index being parallelized. In a JoinScan, only the first table
+    /// is partitioned using `parallel_state`, while subsequent tables are fully replicated.
+    /// This OID ensures `parallel_state` is only injected into the correct `PgSearchTableProvider`.
+    pub parallel_index_relid: Option<pgrx::pg_sys::Oid>,
+}
+
+unsafe impl Send for PgSearchExtensionCodec {}
+unsafe impl Sync for PgSearchExtensionCodec {}
 
 /// Generated code for `try_decode_udf` for a list of UDF types.
 macro_rules! decode_udfs {
@@ -121,9 +131,13 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         _schema: SchemaRef,
         _ctx: &TaskContext,
     ) -> Result<Arc<dyn TableProvider>> {
-        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+        let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
+        // Only inject parallel state if this provider matches the index we parallelized (the first one)
+        if provider.index_relid() == self.parallel_index_relid {
+            provider.set_parallel_state(self.parallel_state);
+        }
         Ok(Arc::new(provider))
     }
 

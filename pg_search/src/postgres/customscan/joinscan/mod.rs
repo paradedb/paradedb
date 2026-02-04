@@ -164,15 +164,27 @@ use self::scan_state::{
     JoinScanState,
 };
 use crate::api::OrderByFeature;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::dsm::{
+    estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
+    reinitialize_dsm_custom_scan, ParallelQueryCapable,
+};
+use crate::postgres::customscan::exec::{
+    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
+    shutdown_custom_scan,
+};
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
+use crate::postgres::customscan::parallel::{compute_nworkers, RowEstimate};
+use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
@@ -181,12 +193,114 @@ use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
 use futures::StreamExt;
-use pgrx::{pg_sys, PgList};
-use std::ffi::CStr;
+use pgrx::{pg_sys, PgList, PgMemoryContexts};
+use std::ffi::{c_void, CStr};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tantivy::Index;
 
 #[derive(Default)]
 pub struct JoinScan;
+
+impl ParallelQueryCapable for JoinScan {
+    fn estimate_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+    ) -> pg_sys::Size {
+        // We only partition the first source (outermost table)
+        // Accessing segments requires opening the index.
+        let join_clause = &state.custom_state().join_clause;
+        if join_clause.sources.is_empty() {
+            return 0;
+        }
+        let source = &join_clause.sources[0];
+        let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
+        let query = source.scan_info.query.clone();
+
+        let index_rel = PgSearchRelation::open(index_relid);
+        // Open reader to get segments count. We don't need scores for estimation.
+        // We use MvccSatisfies::Snapshot because we are the leader estimating size.
+        let reader = SearchIndexReader::open_with_context(
+            &index_rel,
+            query.unwrap_or(crate::query::SearchQueryInput::All),
+            false,
+            MvccSatisfies::Snapshot,
+            None,
+            None,
+        )
+        .expect("Failed to open reader for DSM estimation");
+
+        let segments = reader.segment_readers();
+        // JoinScan doesn't currently support aggregates in the scan
+        ParallelScanState::size_of(segments.len(), &[], false)
+    }
+
+    fn initialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut c_void,
+    ) {
+        let pscan_state = coordinate.cast::<ParallelScanState>();
+        assert!(!pscan_state.is_null(), "coordinate is null");
+
+        // Initialize shared state with segments from the first source
+        let join_clause = &state.custom_state().join_clause;
+        if join_clause.sources.is_empty() {
+            return;
+        }
+        let source = &join_clause.sources[0];
+        let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
+        let query = source.scan_info.query.clone();
+
+        let index_rel = PgSearchRelation::open(index_relid);
+        let reader = SearchIndexReader::open_with_context(
+            &index_rel,
+            query.unwrap_or(crate::query::SearchQueryInput::All),
+            false,
+            MvccSatisfies::Snapshot,
+            None,
+            None,
+        )
+        .expect("Failed to open reader for DSM initialization");
+
+        let args = ParallelScanArgs {
+            segment_readers: reader.segment_readers(),
+            query: vec![], // We don't need to pass query bytes for JoinScan (handled by plan)
+            with_aggregates: false,
+        };
+
+        unsafe {
+            (*pscan_state).create_and_populate(args);
+            state.custom_state_mut().parallel_state = Some(pscan_state);
+        }
+    }
+
+    fn reinitialize_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut c_void,
+    ) {
+        let pscan_state = coordinate.cast::<ParallelScanState>();
+        assert!(!pscan_state.is_null(), "coordinate is null");
+        unsafe {
+            (*pscan_state).reset();
+        }
+    }
+
+    fn initialize_worker_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _toc: *mut pg_sys::shm_toc,
+        coordinate: *mut c_void,
+    ) {
+        let pscan_state = coordinate.cast::<ParallelScanState>();
+        assert!(!pscan_state.is_null(), "coordinate is null");
+
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        // We don't need to deserialize query from parallel state for JoinScan
+        // because the full plan (including query) is serialized in PrivateData
+        // and available to the worker via the plan.
+    }
+}
 
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
@@ -240,6 +354,10 @@ impl CustomScan for JoinScan {
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
             // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
             // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
+            //
+            // WARNING: If enabling other join types, you MUST review the parallel partitioning
+            // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
+            // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
             if jointype != pg_sys::JoinType::JOIN_INNER {
                 if is_interesting {
                     Self::add_planner_warning(
@@ -413,7 +531,56 @@ impl CustomScan for JoinScan {
             // Cost estimation is deferred to DataFusion integration.
             let startup_cost = crate::DEFAULT_STARTUP_COST;
             let total_cost = startup_cost + 1.0;
-            let result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
+            let mut result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
+
+            // Calculate parallel workers based on the first (partitioning) source
+            let (segment_count, row_estimate) = if let Some(first_source) =
+                join_clause.sources.first()
+            {
+                if let (Some(index_oid), Some(heap_oid)) = (
+                    first_source.scan_info.indexrelid,
+                    first_source.scan_info.heaprelid,
+                ) {
+                    let index_rel = PgSearchRelation::open(index_oid);
+                    let heap_rel = PgSearchRelation::open(heap_oid);
+
+                    let directory = MvccSatisfies::LargestSegment.directory(&index_rel);
+                    let segment_count = directory.total_segment_count();
+                    // Just to ensure segment count is loaded
+                    let _index = Index::open(directory).ok();
+                    let segment_count = segment_count.load(Ordering::Relaxed);
+
+                    let row_estimate = match heap_rel.reltuples() {
+                        Some(reltuples) if reltuples > 0.0 => RowEstimate::Known(reltuples as u64),
+                        _ => RowEstimate::Unknown,
+                    };
+                    (segment_count, row_estimate)
+                } else {
+                    (0, RowEstimate::Unknown)
+                }
+            } else {
+                (0, RowEstimate::Unknown)
+            };
+
+            let nworkers = if (*outerrel).consider_parallel {
+                // JoinScan always has a limit (required).
+                // It declares sorted output if there is an ORDER BY clause.
+                let declares_sorted_output = !join_clause.order_by.is_empty();
+                // We pass `contains_external_var = false` because we handle joins internally
+                // and don't want to suppress parallelism based on standard Postgres join logic rules.
+                // We pass `contains_correlated_param = false` for now (TODO: check this).
+                compute_nworkers(
+                    declares_sorted_output,
+                    limit.map(|l| l as f64),
+                    row_estimate,
+                    segment_count,
+                    false,
+                    false,
+                    true,
+                )
+            } else {
+                0
+            };
 
             // Force the path to be chosen when we have a valid join opportunity.
             // TODO: Once cost model is well-tuned, consider removing Flags::Force
@@ -421,7 +588,24 @@ impl CustomScan for JoinScan {
             let mut builder = builder
                 .set_flag(Flags::Force)
                 .set_startup_cost(startup_cost)
-                .set_total_cost(total_cost)
+                .set_total_cost(total_cost);
+
+            if nworkers > 0 {
+                builder = builder.set_parallel(nworkers);
+                // Adjust result rows per worker for better costing
+                let processes = std::cmp::max(
+                    1,
+                    nworkers
+                        + if pg_sys::parallel_leader_participation {
+                            1
+                        } else {
+                            0
+                        },
+                );
+                result_rows /= processes as f64;
+            }
+
+            builder = builder
                 .set_rows(result_rows)
                 .add_custom_path((*outerrel).cheapest_total_path)
                 .add_custom_path((*innerrel).cheapest_total_path);
@@ -571,8 +755,11 @@ impl CustomScan for JoinScan {
                 ))
                 .expect("Failed to build DataFusion logical plan");
             private_data.logical_plan = Some(
-                logical_plan_to_bytes_with_extension_codec(&logical_plan, &PgSearchExtensionCodec)
-                    .expect("Failed to serialize DataFusion logical plan"),
+                logical_plan_to_bytes_with_extension_codec(
+                    &logical_plan,
+                    &PgSearchExtensionCodec::default(),
+                )
+                .expect("Failed to serialize DataFusion logical plan"),
             );
 
             // Convert PrivateData back to a list and preserve the restrictlist
@@ -707,7 +894,7 @@ impl CustomScan for JoinScan {
             let logical_plan = logical_plan_from_bytes_with_extension_codec(
                 logical_plan,
                 &ctx.task_ctx(),
-                &PgSearchExtensionCodec,
+                &PgSearchExtensionCodec::default(),
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -779,10 +966,19 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan
                 let ctx = create_session_context();
+                let parallel_index_relid = if !join_clause.sources.is_empty() {
+                    join_clause.sources[0].scan_info.indexrelid
+                } else {
+                    None
+                };
+                let codec = PgSearchExtensionCodec {
+                    parallel_state: state.custom_state().parallel_state,
+                    parallel_index_relid,
+                };
                 let logical_plan = logical_plan_from_bytes_with_extension_codec(
                     plan_bytes,
                     &ctx.task_ctx(),
-                    &PgSearchExtensionCodec,
+                    &codec,
                 )
                 .expect("Failed to deserialize logical plan");
 
@@ -984,8 +1180,29 @@ impl JoinScan {
 
 impl ExecMethod for JoinScan {
     fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        <JoinScan as PlainExecCapable>::exec_methods()
+        unsafe {
+            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
+
+            if METHODS.is_null() {
+                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                    pg_sys::CustomExecMethods {
+                        CustomName: Self::NAME.as_ptr(),
+                        BeginCustomScan: Some(begin_custom_scan::<Self>),
+                        ExecCustomScan: Some(exec_custom_scan::<Self>),
+                        EndCustomScan: Some(end_custom_scan::<Self>),
+                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
+                        MarkPosCustomScan: None,
+                        RestrPosCustomScan: None,
+                        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
+                        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
+                        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
+                        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
+                    },
+                );
+            }
+            METHODS
+        }
     }
 }
-
-impl PlainExecCapable for JoinScan {}

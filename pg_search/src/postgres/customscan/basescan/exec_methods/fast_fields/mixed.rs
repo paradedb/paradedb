@@ -28,12 +28,12 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::datafusion_plan::{create_sorted_scan, make_checkout_factory, SegmentPlan};
+use crate::scan::execution_plan::{create_sorted_scan, make_checkout_factory, SegmentPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -473,7 +473,7 @@ impl MixedFastFieldExecState {
         &mut self,
         state: &mut BaseScanState,
     ) -> Option<SendableRecordBatchStream> {
-        use crate::scan::datafusion_plan::ScanState;
+        use crate::scan::execution_plan::ScanState;
         use std::cell::RefCell;
 
         if self.inner.did_query {

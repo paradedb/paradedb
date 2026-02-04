@@ -31,13 +31,15 @@ use serde::{Deserialize, Serialize};
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::datafusion_plan::SegmentPlan;
+use crate::scan::execution_plan::{ParallelSegmentPlan, SegmentPlan};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::ScanInfo;
-use crate::scan::Scanner;
+use crate::scan::{Scanner, VisibilityChecker};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
@@ -45,15 +47,33 @@ pub struct PgSearchTableProvider {
     fields: Vec<WhichFastField>,
     #[serde(skip)]
     schema: OnceLock<SchemaRef>,
+    #[serde(skip)]
+    parallel_state: Option<*mut ParallelScanState>,
 }
 
+unsafe impl Send for PgSearchTableProvider {}
+unsafe impl Sync for PgSearchTableProvider {}
+
 impl PgSearchTableProvider {
-    pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>) -> Self {
+    pub fn new(
+        scan_info: ScanInfo,
+        fields: Vec<WhichFastField>,
+        parallel_state: Option<*mut ParallelScanState>,
+    ) -> Self {
         Self {
             scan_info,
             fields,
             schema: OnceLock::new(),
+            parallel_state,
         }
+    }
+
+    pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
+        self.parallel_state = parallel_state;
+    }
+
+    pub(crate) fn index_relid(&self) -> Option<pg_sys::Oid> {
+        self.scan_info.indexrelid
     }
 
     fn get_schema(&self) -> SchemaRef {
@@ -183,29 +203,61 @@ impl TableProvider for PgSearchTableProvider {
         // Convert pushed-down filters to SearchQueryInput and combine with base query
         let query = self.combine_query_with_filters(base_query, filters);
 
+        // Determine MVCC strategy based on whether we are running in parallel mode
+        let mvcc_style = if let Some(parallel_state) = self.parallel_state {
+            unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // Leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // Workers see all segments listed in shared state
+                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                }
+            }
+        } else {
+            MvccSatisfies::Snapshot
+        };
+
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             self.scan_info.score_needed,
-            MvccSatisfies::Snapshot,
+            mvcc_style,
             None,
             None,
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        let search_results = reader.search();
         let ffhelper = FFHelper::with_fields(&reader, &self.fields);
-
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+        if let Some(parallel_state) = self.parallel_state {
+            let parts = (
+                parallel_state,
+                reader,
+                Arc::new(ffhelper),
+                Box::new(visibility) as Box<dyn VisibilityChecker>,
+                self.fields.clone(),
+                heap_relid.into(),
+            );
+            // TODO: In joinscan, only the "partitioning source" (the first source) needs to use
+            // ParallelSegmentPlan to dynamically claim segments. Subsequent sources (inner sides
+            // of the join) are fully replicated and should likely use MultiSegmentPlan to
+            // expose sorted partitions to DataFusion, allowing for sorted merge joins.
+            // See https://github.com/paradedb/paradedb/issues/4062
+            Ok(Arc::new(ParallelSegmentPlan::new(parts, self.get_schema())))
+        } else {
+            let search_results = reader.search();
+            let scanner =
+                Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
 
-        Ok(Arc::new(SegmentPlan::new(
-            scanner,
-            ffhelper,
-            Box::new(visibility),
-            query,
-        )))
+            Ok(Arc::new(SegmentPlan::new(
+                scanner,
+                ffhelper,
+                Box::new(visibility),
+                query,
+            )))
+        }
     }
 }

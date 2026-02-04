@@ -122,7 +122,7 @@ pub async fn build_joinscan_logical_plan(
 }
 
 /// Convert a LogicalPlan to an ExecutionPlan.
-pub async fn logical_plan_to_execution_plan(
+pub async fn build_joinscan_physical_plan(
     ctx: &SessionContext,
     plan: datafusion::logical_expr::LogicalPlan,
 ) -> Result<Arc<dyn ExecutionPlan>> {

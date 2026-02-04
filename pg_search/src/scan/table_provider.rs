@@ -189,7 +189,9 @@ impl TableProvider for PgSearchTableProvider {
     }
 }
 
-/// Codec for serializing/deserializing PgSearchTableProvider in DataFusion logical plans.
+/// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
+/// Because our custom table provider is part of the `LogicalPlan`, it must also be
+/// protobuf serializable/deserializable -- this is the extension point to do so.
 #[derive(Debug, Default)]
 pub struct PgSearchExtensionCodec;
 

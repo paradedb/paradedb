@@ -161,7 +161,7 @@ use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, logical_plan_to_execution_plan, register_source_tables,
+    build_joinscan_logical_plan, build_joinscan_physical_plan, register_source_tables,
     JoinScanState,
 };
 use crate::api::OrderByFeature;
@@ -695,7 +695,7 @@ impl CustomScan for JoinScan {
                     .as_ref()
                     .expect("logical plan is required");
 
-                // Create a SessionContext and register source tables for deserialization
+                // Create a SessionContext and register tables
                 let ctx = datafusion::prelude::SessionContext::new();
                 runtime
                     .block_on(register_source_tables(&ctx, &join_clause))
@@ -708,9 +708,9 @@ impl CustomScan for JoinScan {
                     logical_plan_from_bytes_with_extension_codec(plan_bytes, &task_ctx, &codec)
                         .expect("Failed to deserialize logical plan");
 
-                // Convert logical plan to execution plan
+                // Convert logical plan to physical plan
                 let plan = runtime
-                    .block_on(logical_plan_to_execution_plan(&ctx, logical_plan))
+                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
                 let memory_pool =

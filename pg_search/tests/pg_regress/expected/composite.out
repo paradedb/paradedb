@@ -2847,10 +2847,11 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
  id | price 
@@ -2866,10 +2867,11 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
  id | price 

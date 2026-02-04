@@ -230,20 +230,35 @@ jobs:
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
-      - name: Benchmark "logs" Dataset
+      # Small workload benchmarks (100K rows) - catches regressions on small datasets
+      - name: Benchmark "logs" Dataset (100K rows)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
+          rows: 100000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark "docs" Dataset
+      # Large workload benchmarks (default row counts)
+      - name: Benchmark "logs" Dataset (100M rows)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "docs" Dataset (25M rows)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: docs
+          rows: 25000000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}

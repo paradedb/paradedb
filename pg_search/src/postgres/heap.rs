@@ -18,10 +18,41 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
-use crate::scan;
 use pgrx::pg_sys;
 use pgrx::PgList;
 use std::ops::Deref;
+
+/// A trait for providing a batch of ctids to be checked for visibility.
+///
+/// This trait abstracts over different container types (like `[u64]` or `[Option<u64>]`)
+/// allowing the visibility checker to process them efficiently without reallocation.
+pub trait CtidBatch {
+    fn len(&self) -> usize;
+    fn get_ctid(&self, index: usize) -> Option<u64>;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl CtidBatch for [u64] {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn get_ctid(&self, index: usize) -> Option<u64> {
+        Some(self[index])
+    }
+}
+
+impl CtidBatch for [Option<u64>] {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn get_ctid(&self, index: usize) -> Option<u64> {
+        self[index]
+    }
+}
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
@@ -249,22 +280,32 @@ impl VisibilityChecker {
     /// Checks if a batch of rows are visible.
     ///
     /// See [`check`](Self::check) for details on visibility checking logic.
-    pub fn check_batch(&mut self, ctids: &[u64], results: &mut [Option<u64>]) {
+    pub fn check_batch<B: CtidBatch + ?Sized>(&mut self, ctids: &B, results: &mut [Option<u64>]) {
         if ctids.is_empty() {
             return;
         }
         assert_eq!(ctids.len(), results.len());
 
+        // Initialize results to None
+        results.fill(None);
+
         let mut sorted_indices = std::mem::take(&mut self.sort_scratch);
         sorted_indices.clear();
-        sorted_indices.extend(0..ctids.len());
-        sorted_indices.sort_unstable_by_key(|&i| ctids[i]);
+
+        // Only consider valid ctids
+        for i in 0..ctids.len() {
+            if ctids.get_ctid(i).is_some() {
+                sorted_indices.push(i);
+            }
+        }
+
+        sorted_indices.sort_unstable_by_key(|&i| ctids.get_ctid(i).unwrap());
 
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
         let mut current_block = pg_sys::InvalidBlockNumber;
 
         for &idx in &sorted_indices {
-            let mut ctid = ctids[idx];
+            let mut ctid = ctids.get_ctid(idx).unwrap();
             let blockno = (ctid >> 16) as pg_sys::BlockNumber;
 
             if self.is_block_all_visible(blockno) {
@@ -289,17 +330,11 @@ impl VisibilityChecker {
                 results[idx] = Some(ctid);
             } else {
                 self.invisible_tuple_count += 1;
-                results[idx] = None;
+                // results[idx] remains None
             }
         }
 
         self.sort_scratch = sorted_indices;
-    }
-}
-
-impl scan::VisibilityChecker for VisibilityChecker {
-    fn check_batch(&mut self, ctids: &[u64], results: &mut [Option<u64>]) {
-        VisibilityChecker::check_batch(self, ctids, results)
     }
 }
 

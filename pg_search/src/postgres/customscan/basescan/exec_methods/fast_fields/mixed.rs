@@ -30,6 +30,7 @@ use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
@@ -534,7 +535,7 @@ impl MixedFastFieldExecState {
                 segments.push(Some((
                     scanner,
                     Arc::clone(&ffhelper),
-                    Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                    Box::new(visibility) as Box<VisibilityChecker>,
                 )));
             }
 
@@ -564,7 +565,7 @@ impl MixedFastFieldExecState {
                     Some((
                         scanner,
                         Arc::clone(&ffhelper),
-                        Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
+                        Box::new(visibility) as Box<VisibilityChecker>,
                     ))
                 })
                 .collect()

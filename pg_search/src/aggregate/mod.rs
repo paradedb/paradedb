@@ -663,6 +663,7 @@ pub mod mvcc_collector {
                 ctid_ff: FFType::new(segment.fast_fields(), "ctid"),
                 ctids_buffer: Vec::new(),
                 filtered_buffer: Vec::new(),
+                visibility_buffer: Vec::new(),
             })
         }
 
@@ -693,7 +694,8 @@ pub mod mvcc_collector {
         lock: Arc<Mutex<VisibilityChecker>>,
         ctid_ff: FFType,
         ctids_buffer: Vec<Option<u64>>,
-        filtered_buffer: Vec<u32>,
+        visibility_buffer: Vec<Option<u64>>,
+        filtered_buffer: Vec<DocId>,
     }
     unsafe impl<C: SegmentCollector> Send for MVCCFilterSegmentCollector<C> {}
     unsafe impl<C: SegmentCollector> Sync for MVCCFilterSegmentCollector<C> {}
@@ -708,24 +710,26 @@ pub mod mvcc_collector {
             }
         }
 
+        /// TODO: The default `collect_block` size is COLLECT_BLOCK_BUFFER_LEN: 64, which does not
+        /// give us much to work with here.
         fn collect_block(&mut self, docs: &[DocId]) {
             // Get the ctids for these docs.
-            if self.ctids_buffer.len() < docs.len() {
-                self.ctids_buffer.resize(docs.len(), None);
-            }
-            self.ctid_ff
-                .as_u64s(docs, &mut self.ctids_buffer[..docs.len()]);
+            self.ctids_buffer.resize(docs.len(), None);
+            self.ctid_ff.as_u64s(docs, &mut self.ctids_buffer);
 
             // Determine which ctids are visible.
-            self.filtered_buffer.clear();
             let mut vischeck = self.lock.lock();
-            for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
-                let ctid = ctid.expect("ctid should be present");
-                if vischeck.check(ctid).is_some() {
-                    self.filtered_buffer.push(*doc);
+            self.visibility_buffer.resize(docs.len(), None);
+            vischeck.check_batch(&self.ctids_buffer, &mut self.visibility_buffer);
+            drop(vischeck);
+
+            // And push doc ids for those ctids.
+            self.filtered_buffer.clear();
+            for (i, visible_ctid) in self.visibility_buffer.iter().enumerate() {
+                if visible_ctid.is_some() {
+                    self.filtered_buffer.push(docs[i]);
                 }
             }
-            drop(vischeck);
 
             self.inner.collect_block(&self.filtered_buffer);
         }

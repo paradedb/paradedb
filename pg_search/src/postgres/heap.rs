@@ -18,10 +18,9 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils;
-use crate::scan;
-use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgList;
+use std::ops::Deref;
 
 /// Helper to validate that a "ctid" is currently visible to a snapshot.
 ///
@@ -32,9 +31,6 @@ use pgrx::PgList;
 /// The visibility checker uses `table_index_fetch_tuple` which:
 /// - Verifies the tuple exists and is visible (following HOT chains if needed)
 /// - Returns the tuple at its current heap location
-///
-/// Use [`get_current_ctid`](Self::get_current_ctid) to resolve an index ctid to the
-/// tuple's current heap location.
 pub struct VisibilityChecker {
     scan: *mut pg_sys::IndexFetchTableData,
     snapshot: pg_sys::Snapshot,
@@ -149,25 +145,6 @@ impl VisibilityChecker {
         }
     }
 
-    /// Check if a ctid from an index is visible, and return its current heap location.
-    ///
-    /// This handles the case where a tuple has been updated (moving to a new ctid) but
-    /// the index hasn't been vacuumed yet. The index ctid may be stale, but
-    /// `table_index_fetch_tuple` follows HOT chains to find the current tuple location.
-    ///
-    /// Returns `Some(current_ctid)` if the tuple is visible, `None` if deleted/not visible.
-    /// The returned ctid may differ from the input ctid if the tuple moved.
-    pub fn get_current_ctid(
-        &mut self,
-        index_ctid: u64,
-        slot: *mut pg_sys::TupleTableSlot,
-    ) -> Option<u64> {
-        self.exec_if_visible(index_ctid, slot, |_| {
-            // The slot's tts_tid contains the current heap location of the tuple
-            unsafe { utils::item_pointer_to_u64((*slot).tts_tid) }
-        })
-    }
-
     /// Returns true if the block is all visible.
     pub fn is_block_all_visible(&mut self, blockno: pg_sys::BlockNumber) -> bool {
         if blockno == self.blockvis.0 {
@@ -184,29 +161,22 @@ impl VisibilityChecker {
 
     /// If the specified `ctid` is visible in the heap, return the visible `ctid`.
     /// The returned `ctid` might differ from the input `ctid` if a HOT chain was followed.
-    fn check_visibility(&mut self, ctid: u64) -> Option<u64> {
+    fn check_visibility_with_buffer(&mut self, ctid: u64, buffer: pg_sys::Buffer) -> Option<u64> {
         unsafe {
             utils::u64_to_item_pointer(ctid, &mut self.tid);
-
-            let block_num = item_pointer_get_block_number(&self.tid);
 
             let mut heap_tuple_data: pg_sys::HeapTupleData = std::mem::zeroed();
             let mut all_dead = false;
 
-            // get_buffer acquires a pin and a share lock, and will release them on Drop
-            // TODO: Consider exposing a method for bulk filtering of ctids which holds buffers
-            // across multiple ctids.
-            let buffer = self.bman.get_buffer(block_num);
             let found = pg_sys::heap_hot_search_buffer(
                 &mut self.tid,
                 self.heaprel.as_ptr(),
-                *buffer,
+                buffer,
                 self.snapshot,
                 &mut heap_tuple_data,
                 &mut all_dead,
                 true, // first_call
             );
-            std::mem::drop(buffer);
 
             if found {
                 Some(utils::item_pointer_to_u64(self.tid))
@@ -216,38 +186,54 @@ impl VisibilityChecker {
         }
     }
 
-    /// Checks if a row is visible (and returns its new ctid if so), without actually fetching
-    /// it into a slot. Uses the visibility map and consults the heap if necessary.
+    /// Checks if a batch of rows are visible, and computes their updated ctid (by following a HOT
+    /// chain) if so. Panics if any ctids are absent.
     ///
-    /// Returns `Some(ctid)` if the row is visible, potentially updating the ctid
-    /// (e.g. if following a HOT chain). Returns `None` if the row is not visible.
-    pub fn check(&mut self, mut ctid: u64) -> Option<u64> {
-        unsafe {
-            utils::u64_to_item_pointer(ctid, &mut self.tid);
-            let blockno = item_pointer_get_block_number(&self.tid);
-            let is_visible = self.is_block_all_visible(blockno);
+    /// See [`check`](Self::check) for details on visibility checking logic.
+    pub fn check_batch(&mut self, ctids: &[Option<u64>], results: &mut [Option<u64>]) {
+        if ctids.is_empty() {
+            return;
+        }
+        assert_eq!(ctids.len(), results.len());
 
-            if is_visible {
-                Some(ctid)
-            } else {
-                self.heap_tuple_check_count += 1;
-                if let Some(visible_ctid) = self.check_visibility(ctid) {
-                    if visible_ctid != ctid {
-                        ctid = visible_ctid;
-                    }
-                    Some(ctid)
-                } else {
-                    self.invisible_tuple_count += 1;
-                    None
+        let mut sorted_indices: Vec<(usize, u64)> = ctids
+            .iter()
+            .map(|maybe_ctid| maybe_ctid.expect("All rows must have ctids."))
+            .enumerate()
+            .collect();
+        sorted_indices.sort_unstable_by_key(|(_, ctid)| *ctid);
+
+        let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
+        let mut current_block = pg_sys::InvalidBlockNumber;
+
+        for (idx, mut ctid) in sorted_indices {
+            let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+
+            if self.is_block_all_visible(blockno) {
+                results[idx] = Some(ctid);
+                continue;
+            }
+
+            self.heap_tuple_check_count += 1;
+
+            if current_block != blockno {
+                drop(current_buffer.take());
+                current_buffer = Some(self.bman.get_buffer(blockno));
+                current_block = blockno;
+            }
+
+            if let Some(visible_ctid) =
+                self.check_visibility_with_buffer(ctid, *current_buffer.as_ref().unwrap().deref())
+            {
+                if visible_ctid != ctid {
+                    ctid = visible_ctid;
                 }
+                results[idx] = Some(ctid);
+            } else {
+                self.invisible_tuple_count += 1;
+                results[idx] = None;
             }
         }
-    }
-}
-
-impl scan::VisibilityChecker for VisibilityChecker {
-    fn check(&mut self, ctid: u64) -> Option<u64> {
-        VisibilityChecker::check(self, ctid)
     }
 }
 

@@ -22,19 +22,19 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::PgList;
 use serde::{Deserialize, Serialize};
 
-pub const OUTER_SCORE_ALIAS: &str = "outer_score";
-pub const INNER_SCORE_ALIAS: &str = "inner_score";
+pub const SCORE_COL_NAME: &str = "score";
 
 /// Describes which relation a column comes from and its original attribute number.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OutputColumnInfo {
-    /// True if the column comes from the outer relation, false for inner.
-    pub is_outer: bool,
+    /// The range table index of the source base relation.
+    #[serde(default)]
+    pub rti: pg_sys::Index,
     /// The original attribute number in the source relation (1-indexed).
     /// Set to 0 for non-Var expressions (like functions).
     pub original_attno: i16,
     /// True if this column is a paradedb.score() function call.
-    /// The score will be taken from current_driving_score during execution.
+    /// The score will be extracted from the DataFusion result batch during execution.
     #[serde(default)]
     pub is_score: bool,
 }
@@ -44,7 +44,7 @@ pub struct OutputColumnInfo {
 pub struct PrivateData {
     /// The join clause containing all information about both sides and the join itself.
     pub join_clause: JoinCSClause,
-    /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
+    /// Mapping of output column positions to their source relation and original attribute numbers.
     /// This is populated during planning (before setrefs) and used during execution.
     pub output_columns: Vec<OutputColumnInfo>,
 }

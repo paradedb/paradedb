@@ -35,8 +35,10 @@ use tantivy::index::{IndexSortByField, Order};
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
 use anyhow::Result;
+use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,11 @@ pub enum SearchFieldType {
     Json(pg_sys::Oid),
     Date(pg_sys::Oid),
     Range(pg_sys::Oid),
+    /// NUMERIC with precision <= 18: stored as I64 with fixed-point scaling.
+    /// The i16 is the scale (number of decimal places).
+    Numeric64(pg_sys::Oid, i16),
+    /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
+    NumericBytes(pg_sys::Oid),
 }
 
 impl SearchFieldType {
@@ -76,6 +83,8 @@ impl SearchFieldType {
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
+            SearchFieldType::Numeric64(_, scale) => SearchFieldConfig::default_numeric64(*scale),
+            SearchFieldType::NumericBytes(_) => SearchFieldConfig::default_numeric_bytes(),
             SearchFieldType::Bool(_) => SearchFieldConfig::default_boolean(),
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
@@ -96,6 +105,8 @@ impl SearchFieldType {
             SearchFieldType::Json(oid) => *oid,
             SearchFieldType::Date(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
+            SearchFieldType::Numeric64(oid, _) => *oid,
+            SearchFieldType::NumericBytes(oid) => *oid,
         }
         .into()
     }
@@ -104,6 +115,61 @@ impl SearchFieldType {
         match self {
             SearchFieldType::Tokenized(_, typmod, ..) => *typmod,
             _ => -1,
+        }
+    }
+
+    /// Returns the scale for Numeric64 fields, or None for other types.
+    pub fn numeric_scale(&self) -> Option<i16> {
+        match self {
+            SearchFieldType::Numeric64(_, scale) => Some(*scale),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this is a NUMERIC type (either Numeric64 or NumericBytes).
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self,
+            SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(_)
+        )
+    }
+}
+
+/// Derive the SearchFieldType from the tantivy schema, using PostgreSQL metadata for OID/scale.
+///
+/// This function determines the correct SearchFieldType by examining what's actually
+/// stored in the tantivy schema, then augmenting with PostgreSQL metadata (OID, scale).
+///
+/// This ensures backwards compatibility: legacy indexes that stored NUMERIC as F64
+/// will be correctly identified as F64, while new indexes use Numeric64/NumericBytes
+/// based on the actual tantivy field type.
+fn derive_field_type_from_schema(
+    field_entry: &FieldEntry,
+    options: &BM25IndexOptions,
+    field_name: &FieldName,
+) -> SearchFieldType {
+    use tantivy::schema::FieldType;
+
+    // Get the computed type from options - this has the PostgreSQL metadata we need
+    let computed_type = options.get_field_type(field_name).unwrap_or_else(|| {
+        panic!("`{field_name}`'s configuration not found in index WITH options")
+    });
+
+    // For most types, the tantivy schema matches what we computed.
+    // The exception is NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    match field_entry.field_type() {
+        FieldType::F64(_) => {
+            // If computed type was Numeric64/NumericBytes but stored type is F64,
+            // this is a legacy index - use F64
+            if computed_type.is_numeric() {
+                SearchFieldType::F64(computed_type.typeoid().value())
+            } else {
+                computed_type
+            }
+        }
+        _ => {
+            // For all other types, the computed type is correct
+            computed_type
         }
     }
 }
@@ -152,8 +218,28 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
                     Ok(SearchFieldType::U64((*builtin).into()))
                 }
-                PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
+                PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID => {
                     Ok(SearchFieldType::F64((*builtin).into()))
+                }
+                PgBuiltInOids::NUMERICOID => {
+                    // Route NUMERIC based on precision:
+                    // - precision <= 18 with defined scale -> Numeric64 (I64 fixed-point)
+                    // - precision > 18 or unlimited -> NumericBytes (lexicographic bytes)
+                    //
+                    // The 18-digit threshold comes from decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION,
+                    // which is the maximum number of decimal digits that can be stored in an i64
+                    // without overflow (i64::MAX = 9,223,372,036,854,775,807, which has 19 digits,
+                    // but we need headroom for the scaled representation).
+                    //
+                    // Note: Numeric64 fields support aggregate pushdown (SUM, AVG, MIN, MAX),
+                    // while NumericBytes fields do not (Tantivy cannot aggregate on bytes columns).
+                    let (precision, scale) = extract_numeric_precision_scale(typmod);
+                    if let Some(scale) = scale {
+                        if precision > 0 && precision <= MAX_DECIMAL64_NO_SCALE_PRECISION as u16 {
+                            return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
+                        }
+                    }
+                    Ok(SearchFieldType::NumericBytes((*builtin).into()))
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool((*builtin).into())),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
@@ -301,6 +387,16 @@ impl SearchIndexSchema {
         }
     }
 
+    /// Check if a field supports aggregate pushdown.
+    ///
+    /// Returns `false` for NUMERIC fields (which don't support aggregate pushdown
+    /// due to NaN/Infinity handling), `true` for all other field types.
+    /// Returns `false` if the field doesn't exist.
+    pub fn field_supports_aggregate(&self, name: impl AsRef<str>) -> bool {
+        self.search_field(name)
+            .is_some_and(|f| !f.field_type().is_numeric())
+    }
+
     pub fn fields(&self) -> impl Iterator<Item = (Field, &FieldEntry)> {
         self.schema.fields()
     }
@@ -431,9 +527,10 @@ impl SearchField {
         let field_entry = schema.get_field_entry(field).clone();
         let field_name: FieldName = field_entry.name().into();
         let field_config = options.field_config_or_default(&field_name);
-        let field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
-            panic!("`{field_name}`'s configuration not found in index WITH options")
-        });
+
+        // Derive field type from the tantivy schema, using PostgreSQL metadata for OID/scale.
+        // This ensures backwards compatibility with legacy indexes.
+        let field_type = derive_field_type_from_schema(&field_entry, options, &field_name);
 
         Self {
             field,
@@ -517,6 +614,12 @@ impl SearchField {
 
     pub fn is_text(&self) -> bool {
         self.field_entry.field_type().is_str()
+    }
+
+    /// Returns true if this field uses NumericBytes storage (hex-encoded string).
+    /// NumericBytes fields are stored as text but should support direct equality/range pushdown.
+    pub fn is_numeric_bytes(&self) -> bool {
+        matches!(self.field_type, SearchFieldType::NumericBytes(_))
     }
 
     pub fn with_positions(self) -> Result<Self, QueryError> {

@@ -18,10 +18,9 @@
 pub mod mixed;
 
 use crate::api::operator::row_expr_from_indexed_expr;
-use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
-use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::composite::get_composite_type_fields;
 use crate::postgres::customscan::basescan::privdat::PrivateData;
@@ -29,6 +28,7 @@ use crate::postgres::customscan::basescan::projections::score::{is_score_func, u
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pullup::{fast_field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::score_funcoids;
 
 use crate::postgres::rel::PgSearchRelation;
@@ -36,7 +36,7 @@ use crate::postgres::utils::strip_tokenizer_cast;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use crate::schema::{CategorizedFieldData, FieldSource, SearchField, SearchIndexSchema};
 
-use pgrx::{pg_sys, PgList, PgTupleDesc};
+use pgrx::{pg_sys, PgList};
 
 /// Returns true if all variables in the expression belong to the current relation.
 ///
@@ -71,118 +71,6 @@ pub unsafe fn collect_fast_fields(
     fast_fields
         .filter(|fast_fields| !fast_fields.is_empty())
         .unwrap_or_default()
-}
-
-fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<FastFieldType> {
-    if is_array {
-        return None;
-    }
-    match base_oid {
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => Some(FastFieldType::String),
-        pg_sys::BOOLOID => Some(FastFieldType::Bool),
-        pg_sys::DATEOID
-        | pg_sys::TIMEOID
-        | pg_sys::TIMESTAMPOID
-        | pg_sys::TIMESTAMPTZOID
-        | pg_sys::TIMETZOID => Some(FastFieldType::Date),
-        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => Some(FastFieldType::Float64),
-        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => Some(FastFieldType::Int64),
-        _ => {
-            // This fast field type is supported for pushdown of queries, but not for
-            // rendering via fast field execution.
-            //
-            // JSON/JSONB are excluded because fast fields do not contain the
-            // full content of the JSON in a way that we can easily render:
-            // rather, the individual fields are exploded out into dynamic
-            // columns.
-            //
-            // NUMERIC is excluded because we do not store the original
-            // precision/scale in the index, so we cannot safely reconstruct the
-            // value without potentially losing precision. See:
-            // https://github.com/paradedb/paradedb/issues/2968
-            None
-        }
-    }
-}
-
-// Helper function to process an attribute number and add a fast field if appropriate
-fn collect_fast_field_try_for_attno(
-    attno: i32,
-    matches: &mut Vec<WhichFastField>,
-    tupdesc: &PgTupleDesc<'_>,
-    heaprel: &PgSearchRelation,
-    index: &PgSearchRelation,
-    fieldname: Option<&FieldName>,
-) -> bool {
-    match attno {
-        // any of these mean we can't use fast fields
-        pg_sys::MinTransactionIdAttributeNumber
-        | pg_sys::MaxTransactionIdAttributeNumber
-        | pg_sys::MinCommandIdAttributeNumber
-        | pg_sys::MaxCommandIdAttributeNumber => return false,
-
-        // these aren't _exactly_ fast fields, but we do have the information
-        // readily available during the scan, so we'll pretend
-        pg_sys::SelfItemPointerAttributeNumber => {
-            // okay, "ctid" is a fast field but it's secret
-            matches.push(WhichFastField::Ctid);
-        }
-
-        pg_sys::TableOidAttributeNumber => {
-            matches.push(WhichFastField::TableOid);
-        }
-
-        attno => {
-            // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
-            if attno <= 0 {
-                // Just mark it as processed and continue
-                return true;
-            }
-
-            // Get attribute info - use if let to handle missing attributes gracefully
-            if let Some(att) = tupdesc.get((attno - 1) as usize) {
-                let schema = index
-                    .schema()
-                    .expect("pullup_fast_fields: should have a schema");
-                if let Some(search_field) = schema.search_field(att.name()) {
-                    let categorized_fields = schema.categorized_fields();
-                    let field_data = categorized_fields
-                        .iter()
-                        .find(|(sf, _)| sf == &search_field)
-                        .map(|(_, data)| data);
-
-                    if let Some(data) = field_data {
-                        // Ensure that the expression used to index the value exactly matches the
-                        // expression used in the target list (which we know is a Var, because
-                        // that is the only thing that calls this function with attno > 0).
-                        //
-                        // Expression indices where target list references original column are not supported.
-                        // See: https://github.com/paradedb/paradedb/issues/3978
-                        if !matches!(data.source, FieldSource::Heap { attno: source_attno } if source_attno == (attno - 1) as usize)
-                        {
-                            return true;
-                        }
-
-                        if search_field.is_fast() {
-                            if let Some(ff_type) =
-                                fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
-                            {
-                                matches
-                                    .push(WhichFastField::Named(att.name().to_string(), ff_type));
-                            } else {
-                                // If the field is fast but the type is not supported (e.g. array, numeric, json),
-                                // we treat it as not fast field capable.
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
-            // If the attribute doesn't exist in this relation, just continue
-            // This can happen in JOIN queries or materialized views
-        }
-    }
-    true
 }
 
 unsafe fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
@@ -351,17 +239,10 @@ pub unsafe fn pullup_fast_fields(
             None
         };
 
-        if let Some((var, fieldname)) = maybe_var {
+        if let Some((var, _fieldname)) = maybe_var {
             let start_len = matches.len();
-            if !collect_fast_field_try_for_attno(
-                (*var).varattno as i32,
-                &mut matches,
-                &tupdesc,
-                heaprel,
-                index,
-                Some(&fieldname),
-            ) {
-                return None;
+            if let Some(ff) = resolve_fast_field((*var).varattno as i32, &tupdesc, index) {
+                matches.push(ff);
             }
             // If the var was successfully added as a fast field, continue.
             // If not (e.g. source mismatch), fall through to expression matching.
@@ -435,15 +316,8 @@ pub unsafe fn pullup_fast_fields(
     // Now also consider all referenced columns from other parts of the query
     for &attno in referenced_columns {
         let start_len = matches.len();
-        if !collect_fast_field_try_for_attno(
-            attno as i32,
-            &mut matches,
-            &tupdesc,
-            heaprel,
-            index,
-            None,
-        ) {
-            return None;
+        if let Some(ff) = resolve_fast_field(attno as i32, &tupdesc, index) {
+            matches.push(ff);
         }
         // If not added (e.g. because of source mismatch), try expression matching for this column.
         if matches.len() == start_len {

@@ -703,7 +703,7 @@ pub mod mvcc_collector {
 
         fn collect(&mut self, doc: DocId, score: Score) {
             let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
-            if self.lock.lock().check(ctid).is_some() {
+            if self.lock.lock().check(&[ctid])[0].is_some() {
                 self.inner.collect(doc, score);
             }
         }
@@ -719,10 +719,24 @@ pub mod mvcc_collector {
             // Determine which ctids are visible.
             self.filtered_buffer.clear();
             let mut vischeck = self.lock.lock();
-            for (doc, ctid) in docs.iter().zip(self.ctids_buffer.iter()) {
-                let ctid = ctid.expect("ctid should be present");
-                if vischeck.check(ctid).is_some() {
-                    self.filtered_buffer.push(*doc);
+
+            // Extract valid ctids for checking
+            let mut valid_ctids = Vec::with_capacity(docs.len());
+            let mut valid_indices = Vec::with_capacity(docs.len());
+
+            for (i, ctid_opt) in self.ctids_buffer[..docs.len()].iter().enumerate() {
+                if let Some(ctid) = ctid_opt {
+                    valid_ctids.push(*ctid);
+                    valid_indices.push(i);
+                }
+            }
+
+            let visibility_results = vischeck.check(&valid_ctids);
+
+            for (i, is_visible) in visibility_results.into_iter().enumerate() {
+                if is_visible.is_some() {
+                    let doc_idx = valid_indices[i];
+                    self.filtered_buffer.push(docs[doc_idx]);
                 }
             }
             drop(vischeck);

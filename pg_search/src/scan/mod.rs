@@ -34,9 +34,10 @@ pub use table_provider::PgSearchTableProvider;
 
 /// A trait for checking visibility of rows.
 pub trait VisibilityChecker {
-    /// Checks if a row is visible.
+    /// Checks if a batch of rows are visible.
     ///
-    /// Returns `Some(ctid)` if the row is visible, potentially updating the ctid
-    /// (e.g. if following a HOT chain). Returns `None` if the row is not visible.
-    fn check(&mut self, ctid: u64) -> Option<u64>;
+    /// Returns a vector of results corresponding to the input `ctids`.
+    /// Each result is `Some(ctid)` if the row is visible (potentially updating the ctid
+    /// e.g. if following a HOT chain), or `None` if the row is not visible.
+    fn check(&mut self, ctids: &[u64]) -> Vec<Option<u64>>;
 }

@@ -220,11 +220,10 @@ impl Scanner {
         };
 
         // Filter out invisible rows.
+        let visible_ctids = visibility.check(&ctids);
         let mut write_idx = 0;
-        for read_idx in 0..ctids.len() {
-            let ctid = ctids[read_idx];
-
-            if let Some(visible_ctid) = visibility.check(ctid) {
+        for (read_idx, maybe_visible_ctid) in visible_ctids.into_iter().enumerate() {
+            if let Some(visible_ctid) = maybe_visible_ctid {
                 ctids[write_idx] = visible_ctid;
                 if read_idx != write_idx {
                     ids[write_idx] = ids[read_idx];

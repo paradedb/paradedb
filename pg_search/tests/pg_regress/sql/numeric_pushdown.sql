@@ -1416,6 +1416,69 @@ SELECT * FROM nan_numeric64_test
 WHERE id @@@ paradedb.all()
 ORDER BY id;
 
+-- Range query tests for NaN ordering in Numeric64 (I64 storage)
+-- NaN is encoded as i64::MAX, so it sorts correctly as greater than all real numbers.
+
+-- Test: val > 200 should include NaN (since NaN > all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+
+-- Test: val < 200 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+
+-- Test: val >= 300 should include NaN (since NaN > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+
+-- Test: val <= 300 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+
+-- Test: val BETWEEN should NOT include NaN (NaN is outside any finite range)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+
 DROP TABLE nan_numeric64_test;
 
 -- ----------------------------------------------------------------------------
@@ -1449,6 +1512,46 @@ ORDER BY id;
 -- Verify all rows
 SELECT * FROM nan_numeric_bytes_test
 WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+-- Range query tests for NaN ordering in NumericBytes (hex-encoded string storage)
+-- NumericBytes correctly orders NaN as greater than all real numbers because
+-- the decimal-bytes encoding produces bytes that sort lexicographically correct.
+
+-- Test: val > 200 should include NaN (CORRECT - NaN is greater than all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+
+-- Test: val < 200 should NOT include NaN (CORRECT)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+
+-- Test: val BETWEEN should NOT include NaN (CORRECT - NaN is outside finite ranges)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
+ORDER BY id;
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
 ORDER BY id;
 
 DROP TABLE nan_numeric_bytes_test;
@@ -1580,6 +1683,59 @@ ORDER BY id;
 -- Verify all rows can be retrieved
 SELECT * FROM special_values_test
 WHERE id @@@ paradedb.all()
+ORDER BY id;
+
+-- ----------------------------------------------------------------------------
+-- Additional NaN ordering tests for unbounded NUMERIC (NumericBytes storage)
+-- NumericBytes uses lexicographically sortable bytes where NaN sorts highest.
+-- ----------------------------------------------------------------------------
+
+-- Test: val >= 300 should include NaN and Infinity (NaN > Infinity > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+
+-- Test: val <= 200 should NOT include NaN or Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+
+-- Test: val >= -Infinity should include everything (all values >= -Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+
+-- Test: val <= Infinity should include everything EXCEPT NaN (NaN > Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
+ORDER BY id;
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
 ORDER BY id;
 
 DROP TABLE special_values_test;

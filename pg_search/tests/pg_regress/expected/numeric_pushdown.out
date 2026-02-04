@@ -2332,6 +2332,159 @@ ORDER BY id;
   4 | 300.00
 (4 rows)
 
+-- Range query tests for NaN ordering in Numeric64 (I64 storage)
+-- NaN is encoded as i64::MAX, so it sorts correctly as greater than all real numbers.
+-- Test: val > 200 should include NaN (since NaN > all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val > 200.00
+ORDER BY id;
+ id |  val   
+----+--------
+  3 |    NaN
+  4 | 300.00
+(2 rows)
+
+-- Test: val < 200 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val < 200.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+(1 row)
+
+-- Test: val >= 300 should include NaN (since NaN > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val >= 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  3 |    NaN
+  4 | 300.00
+(2 rows)
+
+-- Test: val <= 300 should NOT include NaN
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val <= 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  4 | 300.00
+(3 rows)
+
+-- Test: val BETWEEN should NOT include NaN (NaN is outside any finite range)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric64_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric64_test
+         Output: id, val
+         Table: nan_numeric64_test
+         Index: nan_numeric64_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric64_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.00 AND 300.00
+ORDER BY id;
+ id |  val   
+----+--------
+  1 | 100.00
+  2 | 200.00
+  4 | 300.00
+(3 rows)
+
 DROP TABLE nan_numeric64_test;
 -- ----------------------------------------------------------------------------
 -- TEST: NaN with bounded NUMERIC(30,10) - NumericBytes storage
@@ -2372,6 +2525,99 @@ ORDER BY id;
   3 |            NaN
   4 | 300.0000000000
 (4 rows)
+
+-- Range query tests for NaN ordering in NumericBytes (hex-encoded string storage)
+-- NumericBytes correctly orders NaN as greater than all real numbers because
+-- the decimal-bytes encoding produces bytes that sort lexicographically correct.
+-- Test: val > 200 should include NaN (CORRECT - NaN is greater than all real numbers)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"excluded":"200"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val > 200.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  3 |            NaN
+  4 | 300.0000000000
+(2 rows)
+
+-- Test: val < 200 should NOT include NaN (CORRECT)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"excluded":"200"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val < 200.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 100.0000000000
+(1 row)
+
+-- Test: val BETWEEN should NOT include NaN (CORRECT - NaN is outside finite ranges)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
+ORDER BY id;
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: nan_numeric_bytes_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.nan_numeric_bytes_test
+         Output: id, val
+         Table: nan_numeric_bytes_test
+         Index: nan_numeric_bytes_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"300"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM nan_numeric_bytes_test
+WHERE id @@@ paradedb.all()
+AND val BETWEEN 100.0000000000 AND 300.0000000000
+ORDER BY id;
+ id |      val       
+----+----------------
+  1 | 100.0000000000
+  2 | 200.0000000000
+  4 | 300.0000000000
+(3 rows)
 
 DROP TABLE nan_numeric_bytes_test;
 -- ----------------------------------------------------------------------------
@@ -2640,6 +2886,145 @@ ORDER BY id;
   7 |      -100
   8 |         0
 (8 rows)
+
+-- ----------------------------------------------------------------------------
+-- Additional NaN ordering tests for unbounded NUMERIC (NumericBytes storage)
+-- NumericBytes uses lexicographically sortable bytes where NaN sorts highest.
+-- ----------------------------------------------------------------------------
+-- Test: val >= 300 should include NaN and Infinity (NaN > Infinity > 300)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"300"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= 300
+ORDER BY id;
+ id |   val    
+----+----------
+  3 |      NaN
+  4 | Infinity
+  6 |      300
+(3 rows)
+
+-- Test: val <= 200 should NOT include NaN or Infinity
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"200"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 200
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  5 | -Infinity
+  7 |      -100
+  8 |         0
+(5 rows)
+
+-- Test: val >= -Infinity should include everything (all values >= -Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":{"included":"-Infinity"},"upper_bound":null,"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val >= '-Infinity'::numeric
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  3 |       NaN
+  4 |  Infinity
+  5 | -Infinity
+  6 |       300
+  7 |      -100
+  8 |         0
+(8 rows)
+
+-- Test: val <= Infinity should include everything EXCEPT NaN (NaN > Infinity)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
+ORDER BY id;
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, val
+   Sort Key: special_values_test.id
+   ->  Custom Scan (ParadeDB Scan) on public.special_values_test
+         Output: id, val
+         Table: special_values_test
+         Index: special_values_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"val","lower_bound":null,"upper_bound":{"included":"Infinity"},"is_datetime":false}}]}}
+(10 rows)
+
+SELECT * FROM special_values_test
+WHERE id @@@ paradedb.all()
+AND val <= 'Infinity'::numeric
+ORDER BY id;
+ id |    val    
+----+-----------
+  1 |       100
+  2 |       200
+  4 |  Infinity
+  5 | -Infinity
+  6 |       300
+  7 |      -100
+  8 |         0
+(7 rows)
 
 DROP TABLE special_values_test;
 -- ----------------------------------------------------------------------------

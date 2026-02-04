@@ -70,7 +70,7 @@ lazy_static = "1.5.0"
 macros = { path = "../macros" }
 half = "2.7.1"
 bytemuck = { version = "1.24.0", features = ["derive", "min_const_generics"] }
-decimal-bytes = "0.3.1"
+decimal-bytes = "0.4.0"
 paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }

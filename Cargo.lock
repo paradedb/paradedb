@@ -2236,9 +2236,9 @@ dependencies = [
 
 [[package]]
 name = "decimal-bytes"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d16d4b35b28fbc84a6bed2f1ded5be71afc4ad7fa8909ef2b59b3e250a66153"
+checksum = "f17ba3bd89f3b27001ba681f3f0a68867efaabc1a86264a9be8048531a95c28b"
 dependencies = [
  "serde",
  "thiserror 2.0.17",

@@ -25,3 +25,28 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 ## Join Support
 
 ParadeDB is currently only able to push down aggregates over a single table. JOINs are not yet pushed down but are on the [roadmap](/welcome/roadmap).
+
+## NUMERIC Columns
+
+`NUMERIC` columns do not support aggregate pushdown. Queries with aggregates on `NUMERIC` columns will automatically fall back to PostgreSQL for aggregation.
+
+For numeric data that requires aggregate pushdown, use `FLOAT` or `DOUBLE PRECISION` instead:
+
+```sql
+-- Aggregates can be pushed down
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    price DOUBLE PRECISION
+);
+
+-- Aggregates fall back to PostgreSQL
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    price NUMERIC(10,2)
+);
+```
+
+<Note>
+  Filter pushdown (equality and range queries) is fully supported for all
+  `NUMERIC` columns. Only aggregate pushdown is not supported.
+</Note>

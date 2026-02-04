@@ -19,6 +19,7 @@ pub mod builder;
 pub mod estimate_tree;
 pub mod heap_field_filter;
 mod more_like_this;
+pub mod numeric;
 pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
@@ -553,6 +554,12 @@ fn check_range_bounds(
     upper_bound: Bound<OwnedValue>,
 ) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
+
+    // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
+    // to match the indexed format (see SortableDecimal in range.rs)
+    let lower_bound = convert_numrange_bound(typeoid, lower_bound);
+    let upper_bound = convert_numrange_bound(typeoid, upper_bound);
+
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
         (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
@@ -643,6 +650,51 @@ fn check_range_bounds(
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))
+}
+
+/// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
+/// This matches the format used for indexing (see SortableDecimal in range.rs).
+fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+    use decimal_bytes::Decimal;
+    use std::str::FromStr;
+
+    // Only process NUMRANGEOID bounds
+    if !matches!(typeoid, PgOid::BuiltIn(PgBuiltInOids::NUMRANGEOID)) {
+        return bound;
+    }
+
+    // Helper to convert a numeric value to hex-encoded bytes
+    let convert_to_hex = |value: &OwnedValue| -> Option<OwnedValue> {
+        let numeric_str = match value {
+            OwnedValue::Str(s) => s.clone(),
+            OwnedValue::F64(f) => f.to_string(),
+            OwnedValue::I64(i) => i.to_string(),
+            OwnedValue::U64(u) => u.to_string(),
+            _ => return None,
+        };
+
+        Decimal::from_str(&numeric_str)
+            .ok()
+            .map(|dec| OwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
+    };
+
+    match bound {
+        Bound::Included(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Included(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Excluded(ref value) => {
+            if let Some(hex_value) = convert_to_hex(value) {
+                Bound::Excluded(hex_value)
+            } else {
+                bound
+            }
+        }
+        Bound::Unbounded => Bound::Unbounded,
+    }
 }
 
 fn coerce_bound_to_field_type(
@@ -1056,6 +1108,10 @@ impl SearchQueryInput {
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
                         let is_datetime = search_field.is_datetime() || is_datetime;
+
+                        // Convert string numeric values to appropriate types for JSON fields
+                        let value = convert_for_field_type(&value, field_type);
+
                         value_to_term(
                             search_field.field(),
                             &value,
@@ -1158,6 +1214,27 @@ impl SearchQueryInput {
             expr_context,
             planstate,
         )
+    }
+}
+
+/// Convert a string-encoded numeric value to the appropriate type based on field type.
+/// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
+fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
+    use crate::query::numeric::{
+        string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+    };
+
+    // Only convert string values - other types pass through unchanged
+    if !matches!(value, OwnedValue::Str(_)) {
+        return value.clone();
+    }
+
+    match field_type {
+        FieldType::JsonObject(_) => string_to_json_numeric(value.clone()),
+        FieldType::I64(_) => string_to_i64(value.clone()),
+        FieldType::U64(_) => string_to_u64(value.clone()),
+        FieldType::F64(_) => string_to_f64(value.clone()),
+        _ => value.clone(),
     }
 }
 

@@ -680,12 +680,35 @@ pub unsafe fn row_to_search_document<'a>(
         };
 
         if *is_array {
-            for value in
-                TantivyValue::try_from_datum_array(actual_datum, *base_oid).unwrap_or_else(|e| {
-                    panic!("could not parse field `{}`: {e}", search_field.field_name())
-                })
-            {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+            // Check for NUMERIC array field types that need special handling
+            match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    for value in TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                SearchFieldType::NumericBytes(_) => {
+                    for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                _ => {
+                    for value in TantivyValue::try_from_datum_array(actual_datum, *base_oid)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
             }
         } else if *is_json {
             for value in
@@ -696,7 +719,17 @@ pub unsafe fn row_to_search_document<'a>(
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else {
-            let tv = TantivyValue::try_from_datum(actual_datum, *base_oid).unwrap_or_else(|e| {
+            // Check for NUMERIC field types that need special handling
+            let tv = match search_field.field_type() {
+                SearchFieldType::Numeric64(_, scale) => {
+                    TantivyValue::try_from_numeric_i64(actual_datum, scale)
+                }
+                SearchFieldType::NumericBytes(_) => {
+                    TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
+            }
+            .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             document.add_field_value(search_field.field(), &OwnedValue::from(tv));
@@ -800,6 +833,50 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }
+}
+
+/// Extract precision and scale from PostgreSQL NUMERIC typmod.
+///
+/// PostgreSQL encodes NUMERIC precision and scale in the typmod as:
+/// `typmod = ((precision << 16) | (scale & 0x7ff)) + VARHDRSZ`
+///
+/// The scale is stored in 11 bits (0x7ff = 2047), supporting the range [-1000, 1000].
+/// Negative scales are stored in two's complement within those 11 bits.
+///
+/// # Returns
+/// - `(precision, Some(scale))` if typmod specifies precision/scale
+/// - `(0, None)` if typmod is -1 (unlimited/unspecified precision)
+///
+/// # Note
+/// - For NUMERIC columns declared without precision (e.g., `NUMERIC` instead of `NUMERIC(10,2)`),
+///   PostgreSQL uses typmod = -1, indicating arbitrary precision.
+/// - PostgreSQL 15+ supports negative scales (e.g., NUMERIC(5,-3) rounds to nearest 1000).
+///
+/// # Reference
+/// See PostgreSQL's `numeric_typmod_scale()` in src/backend/utils/adt/numeric.c:
+/// ```c
+/// return (((typmod - VARHDRSZ) & 0x7ff) ^ 1024) - 1024;
+/// ```
+pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
+    // PostgreSQL uses typmod = -1 for unlimited precision NUMERIC
+    if typmod < 0 {
+        return (0, None);
+    }
+
+    // Extract precision and scale from typmod
+    // See PostgreSQL's make_numeric_typmod() and numeric_typmod_scale()
+    let typmod_val = (typmod - pg_sys::VARHDRSZ as i32) as u32;
+
+    // Precision is in upper 16 bits
+    let precision = ((typmod_val >> 16) & 0xFFFF) as u16;
+
+    // Scale is stored in lower 11 bits (0x7ff), using two's complement for negatives.
+    // The formula (x ^ 1024) - 1024 sign-extends an 11-bit value to a full integer.
+    // This works because 1024 = 2^10, the midpoint of the 11-bit range.
+    let stored_scale = (typmod_val & 0x7ff) as i16;
+    let scale = (stored_scale ^ 1024) - 1024;
+
+    (precision, Some(scale))
 }
 
 type IsArray = bool;

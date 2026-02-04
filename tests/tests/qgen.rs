@@ -20,6 +20,7 @@ mod fixtures;
 use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
 use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::{arb_joins, JoinType};
+use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
 use crate::fixtures::querygen::{
@@ -85,6 +86,23 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""price": { "fast": true }"#)
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
+    // Additional NUMERIC columns for testing Numeric64 vs NumericBytes storage
+    Column::new("small_numeric", "NUMERIC(5,2)", "'12.34'")
+        .groupable(false)
+        .bm25_numeric_field(r#""small_numeric": { "fast": true }"#)
+        .random_generator_sql("(random() * 100)::numeric(5,2)"),
+    Column::new("int_numeric", "NUMERIC(10,0)", "'12345'")
+        .groupable(false)
+        .bm25_numeric_field(r#""int_numeric": { "fast": true }"#)
+        .random_generator_sql("(floor(random() * 1000000))::numeric(10,0)"),
+    Column::new("high_scale", "NUMERIC(18,6)", "'123.456789'")
+        .groupable(false)
+        .bm25_numeric_field(r#""high_scale": { "fast": true }"#)
+        .random_generator_sql("(random() * 10000)::numeric(18,6)"),
+    Column::new("big_numeric", "NUMERIC", "'12345.67890'")
+        .groupable(false)  // Cannot aggregate NumericBytes
+        .bm25_numeric_field(r#""big_numeric": { "fast": true }"#)
+        .random_generator_sql("(random() * 100000)::numeric"),
     Column::new("rating", "INTEGER", "'4'")
         .indexed({
             // Marked un-indexed in order to test heap-filter pushdown.
@@ -680,6 +698,235 @@ async fn generated_joinscan(database: Db) {
                 row_strings.sort();
                 row_strings
             },
+        )?;
+    });
+}
+
+///
+/// Property test for numeric pushdown - ensures equivalence between PostgreSQL and BM25 behavior
+/// for numeric comparison operators (=, <, <=, >, >=, BETWEEN).
+///
+/// Tests both Numeric64 (precision <= 18) and NumericBytes (unlimited precision) storage types.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_numeric_pushdown(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let table_name = "users";
+    // Use more rows to get better coverage of value ranges
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100)], COLUMNS);
+
+    // Numeric columns for testing - includes both Numeric64 and NumericBytes storage types
+    let numeric_columns = columns_named(vec![
+        "price",         // NUMERIC(10,2) - Numeric64
+        "small_numeric", // NUMERIC(5,2) - Numeric64
+        "int_numeric",   // NUMERIC(10,0) - Numeric64 (integer-like)
+        "high_scale",    // NUMERIC(18,6) - Numeric64 with high scale
+        "big_numeric",   // NUMERIC - NumericBytes (unlimited precision)
+        "age",           // INTEGER - for comparison
+    ]);
+
+    proptest!(|(
+        numeric_expr in arb_numeric_expr(vec![table_name], &numeric_columns),
+        gucs in any::<PgGucs>(),
+    )| {
+        // Both queries use the same SQL since numeric comparison operators
+        // are handled identically - the pushdown happens internally in BM25
+        let where_clause = numeric_expr.to_sql();
+
+        // We need a BM25 predicate to trigger the custom scan
+        // Use an OR clause to match all possible name values in the test data
+        let bm25_predicate = format!(
+            "{table_name}.name @@@ pdb.all()"
+        );
+
+        // PostgreSQL query: uses only the numeric predicate
+        let pg_query = format!(
+            "SELECT id FROM {table_name} WHERE {where_clause} ORDER BY id"
+        );
+
+        // BM25 query: combines BM25 predicate with numeric pushdown
+        let bm25_query = format!(
+            "SELECT id FROM {table_name} WHERE {bm25_predicate} AND {where_clause} ORDER BY id"
+        );
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| {
+                let mut rows = query.fetch::<(i64,)>(conn);
+                rows.sort();
+                rows
+            },
+        )?;
+    });
+}
+
+///
+/// Property test for numeric precision preservation.
+///
+/// Tests that high-precision numeric values (which would lose precision if converted to f64)
+/// are correctly matched in BM25 queries. This specifically tests the Numeric64 storage
+/// type with values that have more than 15-16 significant digits (f64's precision limit).
+///
+/// Example: 123456789012345678 and 123456789012345679 are distinct in NUMERIC(18,0)
+/// but would be indistinguishable if converted to f64.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_numeric_precision(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let table_name = "precision_test";
+
+    // Custom setup for precision testing - uses NUMERIC(18,0) which stores as Numeric64
+    // but with values that exceed f64's precision
+    let precision_columns: &[Column] = &[
+        Column::new("id", "SERIAL8", "'1'")
+            .primary_key()
+            .groupable(true),
+        Column::new("name", "TEXT", "'test'")
+            .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+            .random_generator_sql("'test'"),
+        Column::new("big_int", "NUMERIC(18,0)", "'123456789012345678'")
+            .groupable(false)
+            .bm25_numeric_field(r#""big_int": { "fast": true }"#)
+            // Generate high-precision values that differ only in lower digits
+            // These values would collide if converted to f64
+            .random_generator_sql(
+                "(ARRAY [123456789012345678, 123456789012345679, 123456789012345680, 999999999999999998, 999999999999999999]::numeric[])[(floor(random() * 5) + 1)::int]"
+            ),
+    ];
+
+    let setup_sql =
+        generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], precision_columns);
+
+    // High-precision test values that would be indistinguishable in f64
+    let precision_test_values = vec![
+        "123456789012345678",
+        "123456789012345679",
+        "123456789012345680",
+        "999999999999999998",
+        "999999999999999999",
+    ];
+
+    proptest!(|(
+        test_value in proptest::sample::select(precision_test_values),
+        gucs in any::<PgGucs>(),
+    )| {
+        // PostgreSQL query - should find exact matches only
+        let pg_query = format!(
+            "SELECT COUNT(*) FROM {table_name} WHERE big_int = {test_value}"
+        );
+
+        // BM25 query - should produce identical results
+        // Use 'test' as the name value since all rows have name = 'test'
+        let bm25_query = format!(
+            "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int = {test_value}"
+        );
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| query.fetch_one::<(i64,)>(conn).0,
+        )?;
+    });
+}
+
+///
+/// Property test for numeric range queries with precision preservation.
+///
+/// Tests that range queries (>, <, >=, <=, BETWEEN) on high-precision numeric values
+/// produce correct results without precision loss.
+///
+#[rstest]
+#[tokio::test]
+async fn generated_numeric_range_precision(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
+        |_| {},
+    );
+
+    let table_name = "range_precision_test";
+
+    // Custom setup for range precision testing
+    let precision_columns: &[Column] = &[
+        Column::new("id", "SERIAL8", "'1'")
+            .primary_key()
+            .groupable(true),
+        Column::new("name", "TEXT", "'test'")
+            .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+            .random_generator_sql("'test'"),
+        Column::new("big_int", "NUMERIC(18,0)", "'100'")
+            .groupable(false)
+            .bm25_numeric_field(r#""big_int": { "fast": true }"#)
+            // Generate sequential high-precision values
+            .random_generator_sql("(floor(random() * 100) + 123456789012345600)::numeric(18,0)"),
+    ];
+
+    let setup_sql =
+        generated_queries_setup(&mut pool.pull(), &[(table_name, 100)], precision_columns);
+
+    // Range boundaries that would collide in f64
+    let range_bounds = vec![
+        ("123456789012345650", "123456789012345660"),
+        ("123456789012345670", "123456789012345680"),
+        ("123456789012345690", "123456789012345700"),
+    ];
+
+    proptest!(|(
+        (low, high) in proptest::sample::select(range_bounds),
+        gucs in any::<PgGucs>(),
+    )| {
+        // PostgreSQL query - range filter
+        let pg_query = format!(
+            "SELECT COUNT(*) FROM {table_name} WHERE big_int >= {low} AND big_int < {high}"
+        );
+
+        // BM25 query - should produce identical results
+        // Use 'test' as the name value since all rows have name = 'test'
+        let bm25_query = format!(
+            "SELECT COUNT(*) FROM {table_name} WHERE name @@@ 'test' AND big_int >= {low} AND big_int < {high}"
+        );
+
+        compare(
+            &pg_query,
+            &bm25_query,
+            &gucs,
+            &mut pool.pull(),
+            &setup_sql,
+            |query, conn| query.fetch_one::<(i64,)>(conn).0,
         )?;
     });
 }

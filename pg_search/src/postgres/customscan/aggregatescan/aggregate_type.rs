@@ -23,9 +23,11 @@ use crate::api::{
 use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
+use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
+use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::pg_sys::{
@@ -119,7 +121,7 @@ impl AggregateType {
     pub unsafe fn try_from(
         aggref: *mut pg_sys::Aggref,
         heaprelid: pg_sys::Oid,
-        bm25_index: &crate::postgres::PgSearchRelation,
+        bm25_index: &PgSearchRelation,
         root: *mut pg_sys::PlannerInfo,
         heap_rti: pg_sys::Index,
         qual_state: &mut QualExtractState,
@@ -177,6 +179,21 @@ impl AggregateType {
                 MvccVisibility::Disabled
             };
 
+            // Check if any existing fields in the custom aggregate are NUMERIC
+            // NUMERIC fields do not support aggregate pushdown
+            // Note: Non-existent fields are caught by validate_fields() with proper error
+            let schema = bm25_index.schema().ok()?;
+            let mut fields = HashSet::default();
+            extract_fields_from_agg_json(&json_value, &mut fields);
+            for field_name in &fields {
+                // Only check NUMERIC support if field exists in schema
+                if schema.search_field(field_name).is_some()
+                    && !schema.field_supports_aggregate(field_name)
+                {
+                    return None;
+                }
+            }
+
             return Some(AggregateType::Custom {
                 agg_json: json_value,
                 filter: filter_query,
@@ -198,6 +215,13 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
         let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
+
+        // Check if aggregate pushdown is supported for this field type
+        // NUMERIC fields are not supported - they fall back to PostgreSQL
+        if !bm25_index.field_supports_aggregate(&field).ok()? {
+            return None;
+        }
+
         let agg_type =
             create_aggregate_from_oid(aggfnoid, field, missing, filter_query, bm25_index.oid())?;
 
@@ -320,11 +344,28 @@ impl AggregateType {
         }
     }
 
-    /// Validate that all fields referenced in a Custom aggregate exist in the index schema.
-    /// Returns an error if any field is invalid.
-    /// TODO: remove this once the Tantivy aggregation validation issue is fixed.
+    /// Validate that fields referenced by this aggregate exist in the schema
+    /// and are supported for aggregate pushdown.
+    ///
+    /// Returns an error if:
+    /// - Any referenced field doesn't exist in the index
+    /// - Any referenced field is a NUMERIC type (not supported for aggregation)
+    ///
+    /// TODO: remove field existence check once Tantivy aggregation validation is fixed.
     /// https://github.com/quickwit-oss/tantivy/issues/2767
     pub fn validate_fields(&self, schema: &SearchIndexSchema) -> Result<(), String> {
+        // Check NUMERIC field support for standard aggregates
+        if let Some(field) = self.field_name() {
+            if !schema.field_supports_aggregate(&field) {
+                return Err(format!(
+                    "Aggregate on NUMERIC field '{}' cannot be pushed down. \
+                     NUMERIC columns do not support aggregate pushdown.",
+                    field
+                ));
+            }
+        }
+
+        // For Custom aggregates, validate field existence and NUMERIC support
         if let AggregateType::Custom { agg_json, .. } = self {
             let mut fields = HashSet::default();
             extract_fields_from_agg_json(agg_json, &mut fields);
@@ -334,11 +375,11 @@ impl AggregateType {
                 .collect();
 
             for field in &fields {
+                // Check field exists
                 if !indexed_fields.contains(field) {
-                    // Build a sorted list of available fields for the error message
                     let mut available: Vec<_> = indexed_fields
                         .iter()
-                        .filter(|f| *f != "ctid") // Don't show internal ctid field
+                        .filter(|f| *f != "ctid")
                         .cloned()
                         .collect();
                     available.sort();
@@ -346,6 +387,14 @@ impl AggregateType {
                         "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
                         field,
                         available.join(", ")
+                    ));
+                }
+                // Check NUMERIC support
+                if !schema.field_supports_aggregate(field) {
+                    return Err(format!(
+                        "pdb.agg() references NUMERIC field '{}' which cannot be aggregated. \
+                         NUMERIC columns do not support aggregate pushdown.",
+                        field
                     ));
                 }
             }
@@ -364,7 +413,7 @@ fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<S
             }
 
             // Recurse into all values
-            for (key, value) in map {
+            for value in map.values() {
                 extract_fields_from_agg_json(value, fields);
             }
         }
@@ -475,13 +524,22 @@ pub unsafe fn parse_coalesce_expression(
         return None;
     }
 
-    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-    let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+    // First argument might be wrapped in type coercion (RelabelType, CoerceViaIO)
+    // when PostgreSQL needs to cast FLOAT4 → FLOAT8 for COALESCE consistency
+    let first_arg = args.get_ptr(0)?;
+    let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)?;
+
+    // Second argument (the default value) might also be wrapped in type coercion
+    let second_arg = args.get_ptr(1)?;
+    let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)?;
+
     let missing = match TantivyValue::try_from(const_node) {
         Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
         Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
         Ok(TantivyValue(OwnedValue::Null)) => None,
+        // Handle string values from NUMERIC - parse to f64 for missing value
+        Ok(TantivyValue(OwnedValue::Str(s))) => s.parse::<f64>().ok(),
         _ => return None,
     };
 

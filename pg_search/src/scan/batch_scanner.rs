@@ -109,6 +109,7 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
+    visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
 }
 
@@ -137,6 +138,7 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
+            visibility_results: Vec::new(),
             prefetched: None,
         }
     }
@@ -202,11 +204,13 @@ impl Scanner {
         };
 
         // Filter out invisible rows.
-        let visible_ctids = visibility.check(&ctids);
+        self.visibility_results.resize(ctids.len(), None);
+        visibility.check_batch(&ctids, &mut self.visibility_results);
+
         let mut write_idx = 0;
-        for (read_idx, maybe_visible_ctid) in visible_ctids.into_iter().enumerate() {
+        for (read_idx, maybe_visible_ctid) in self.visibility_results.iter().enumerate() {
             if let Some(visible_ctid) = maybe_visible_ctid {
-                ctids[write_idx] = visible_ctid;
+                ctids[write_idx] = *visible_ctid;
                 if read_idx != write_idx {
                     ids[write_idx] = ids[read_idx];
                     scores[write_idx] = scores[read_idx];

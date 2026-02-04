@@ -47,6 +47,8 @@ pub struct VisibilityChecker {
     vmbuff: pg_sys::Buffer,
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
+    // scratch space for sorting indices in check_batch
+    sort_scratch: Vec<usize>,
 
     pub heap_tuple_check_count: usize,
     pub invisible_tuple_count: usize,
@@ -83,6 +85,7 @@ impl VisibilityChecker {
                 bman: BufferManager::new(heaprel),
                 vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
                 blockvis: (pg_sys::InvalidBlockNumber, false),
+                sort_scratch: Vec::new(),
                 heap_tuple_check_count: 0,
                 invisible_tuple_count: 0,
             }
@@ -209,14 +212,52 @@ impl VisibilityChecker {
         }
     }
 
-    /// Checks if a batch of rows are visible.
-    pub fn check(&mut self, ctids: &[u64]) -> Vec<Option<u64>> {
-        if ctids.is_empty() {
-            return Vec::new();
-        }
+    /// Checks if a row is visible (and returns its new ctid if so), without actually fetching
+    /// it into a slot. Uses the visibility map and consults the heap if necessary.
+    ///
+    /// For visibility checking of multiple rows, [`check_batch`](Self::check_batch) should
+    /// be preferred, as it is more efficient.
+    ///
+    /// Returns `Some(ctid)` if the row is visible, potentially updating the ctid
+    /// (e.g. if following a HOT chain). Returns `None` if the row is not visible.
+    pub fn check(&mut self, mut ctid: u64) -> Option<u64> {
+        // We duplicate u64_to_item_pointer logic here to get blockno efficiently
+        let blockno = (ctid >> 16) as pg_sys::BlockNumber;
+        let is_visible = self.is_block_all_visible(blockno);
 
-        let mut results = vec![None; ctids.len()];
-        let mut sorted_indices: Vec<usize> = (0..ctids.len()).collect();
+        if is_visible {
+            Some(ctid)
+        } else {
+            self.heap_tuple_check_count += 1;
+            // Acquire buffer for single check
+            let buffer = self.bman.get_buffer(blockno);
+            let result = self.check_visibility_with_buffer(ctid, *buffer.deref());
+            // Buffer drops here
+
+            if let Some(visible_ctid) = result {
+                if visible_ctid != ctid {
+                    ctid = visible_ctid;
+                }
+                Some(ctid)
+            } else {
+                self.invisible_tuple_count += 1;
+                None
+            }
+        }
+    }
+
+    /// Checks if a batch of rows are visible.
+    ///
+    /// See [`check`](Self::check) for details on visibility checking logic.
+    pub fn check_batch(&mut self, ctids: &[u64], results: &mut [Option<u64>]) {
+        if ctids.is_empty() {
+            return;
+        }
+        assert_eq!(ctids.len(), results.len());
+
+        let mut sorted_indices = std::mem::take(&mut self.sort_scratch);
+        sorted_indices.clear();
+        sorted_indices.extend(0..ctids.len());
         sorted_indices.sort_unstable_by_key(|&i| ctids[i]);
 
         let mut current_buffer: Option<crate::postgres::storage::buffer::Buffer> = None;
@@ -252,13 +293,13 @@ impl VisibilityChecker {
             }
         }
 
-        results
+        self.sort_scratch = sorted_indices;
     }
 }
 
 impl scan::VisibilityChecker for VisibilityChecker {
-    fn check(&mut self, ctids: &[u64]) -> Vec<Option<u64>> {
-        VisibilityChecker::check(self, ctids)
+    fn check_batch(&mut self, ctids: &[u64], results: &mut [Option<u64>]) {
+        VisibilityChecker::check_batch(self, ctids, results)
     }
 }
 

@@ -8,9 +8,38 @@ canonical: https://docs.paradedb.com/documentation/orms/django-orm
 
 ## Install
 
+Install from [PyPI](https://pypi.org/project/django-paradedb/):
+
 ```bash
 pip install django-paradedb
 ```
+
+## API Matrix
+
+The table below summarizes the Django integration APIs agents can use to generate code.
+
+| API / Feature                     | Type              | One-line description                                                                                                        |
+| --------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- | --- | --- | --------------------------- |
+| `BM25Index(...)`                  | Index             | Defines a ParadeDB BM25 index in `Meta.indexes` for Django migrations.                                                      |
+| `BM25Index.fields`                | Index config      | Declares indexed columns and per-field tokenizer/filter configuration.                                                      |
+| `json_keys` in `BM25Index.fields` | Index config      | Indexes specific keys inside a `JSONField` with optional tokenizer settings.                                                |
+| `key_field` in `BM25Index(...)`   | Index config      | Sets the required unique key column used by ParadeDB index lookups.                                                         |
+| `ParadeDBManager()`               | Manager           | Enables ParadeDB queryset helpers on your model manager.                                                                    |
+| `ParadeDBQuerySet.facets(...)`    | QuerySet helper   | Returns facet aggregations, optionally with Top-N rows in the same query flow.                                              |
+| `ParadeDB("a", "b")`              | Search expression | Multi-term AND search (`&&&`) over a field.                                                                                 |
+| `ParadeDB(PQ("a") \| PQ("b"))`    | Search expression | OR search (`                                                                                                                |     |     | `) via boolean composition. |
+| `ParadeDB(PQ("a") & PQ("b"))`     | Search expression | Explicit AND composition with `PQ`.                                                                                         |
+| `Phrase("text", slop=...)`        | Query object      | Phrase query (`###`) with optional token distance (`slop`).                                                                 |
+| `Fuzzy("text", distance=...)`     | Query object      | Typo-tolerant fuzzy matching (distance `0..2`).                                                                             |
+| `Parse("query", lenient=...)`     | Query object      | Query-string parsing via `pdb.parse(...)`.                                                                                  |
+| `Term("token")`                   | Query object      | Exact term query via `pdb.term(...)`.                                                                                       |
+| `Regex("pattern")`                | Query object      | Regex term query via `pdb.regex(...)`.                                                                                      |
+| `All()`                           | Query object      | Match-all query via `pdb.all()`.                                                                                            |
+| `MoreLikeThis(...)`               | Expression filter | Similarity search using existing row id(s) or a custom document payload.                                                    |
+| `Score()`                         | Annotation        | Adds BM25 relevance score (`pdb.score`) for ranking results.                                                                |
+| `Snippet("field", ...)`           | Annotation        | Adds highlighted snippets (`pdb.snippet`) for matched text.                                                                 |
+| `Agg("...json...")`               | Annotation        | Calls `pdb.agg` directly for custom aggregation payloads (usually internal to `.facets()`).                                 |
+| Django ORM composition            | Integration       | Works with `filter`, `exclude`, `Q`, `annotate`, `order_by`, `select_related`, `prefetch_related`, slicing, and migrations. |
 
 ## Define a BM25 Index
 

@@ -74,6 +74,7 @@ decimal-bytes = "0.4.0"
 paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
+bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "=52.0.0", default-features = false }
 datafusion-proto = "=52.0.0"
 futures = "0.3"

@@ -495,8 +495,7 @@ impl CustomScan for JoinScan {
                 .expect("Failed to build DataFusion logical plan");
             private_data.logical_plan = Some(
                 logical_plan_to_bytes_with_extension_codec(&logical_plan, &PgSearchExtensionCodec)
-                    .expect("Failed to serialize DataFusion logical plan")
-                    .to_vec(),
+                    .expect("Failed to serialize DataFusion logical plan"),
             );
 
             // Convert PrivateData back to a list and preserve the restrictlist

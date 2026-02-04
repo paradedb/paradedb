@@ -91,7 +91,7 @@ pub struct JoinScanState {
 
     // === Serialized Plan ===
     /// Serialized DataFusion LogicalPlan from planning phase.
-    pub logical_plan: Option<Vec<u8>>,
+    pub logical_plan: Option<bytes::Bytes>,
 }
 
 impl JoinScanState {

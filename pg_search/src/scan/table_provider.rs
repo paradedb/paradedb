@@ -62,7 +62,6 @@ impl PgSearchTableProvider {
         }
     }
 
-    /// Get the schema, lazily building it from fields if needed.
     fn get_schema(&self) -> SchemaRef {
         self.schema
             .get_or_init(|| build_schema(&self.fields))
@@ -190,8 +189,8 @@ impl TableProvider for PgSearchTableProvider {
 }
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
-/// Because our custom table provider is part of the `LogicalPlan`, it must also be
-/// protobuf serializable/deserializable -- this is the extension point to do so.
+/// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
+/// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
 pub struct PgSearchExtensionCodec;
 

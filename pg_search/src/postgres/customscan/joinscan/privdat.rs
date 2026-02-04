@@ -48,7 +48,7 @@ pub struct PrivateData {
     /// This is populated during planning (before setrefs) and used during execution.
     pub output_columns: Vec<OutputColumnInfo>,
     /// Serialized DataFusion LogicalPlan from planning phase.
-    pub logical_plan: Option<Vec<u8>>,
+    pub logical_plan: Option<bytes::Bytes>,
 }
 
 impl PrivateData {

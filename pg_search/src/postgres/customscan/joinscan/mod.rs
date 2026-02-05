@@ -369,7 +369,7 @@ impl CustomScan for JoinScan {
                     join_clause.clone(),
                 ) {
                     Ok(result) => result,
-                    Err(err) => {
+                    Err(_err) => {
                         if is_interesting {
                             Self::add_planner_warning(
                                 "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",

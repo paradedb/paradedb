@@ -149,6 +149,15 @@ impl<'a> PredicateTranslator<'a> {
     /// Translate a PostgreSQL expression to a DataFusion `Expr`.
     ///
     /// Returns `None` if the expression cannot be translated.
+    ///
+    /// IMPORTANT: This translator is used to check if a predicate CAN be translated,
+    /// but the actual predicate evaluation happens via heap fetch + PostgreSQL evaluation.
+    /// Cross-type comparisons (e.g., INT < NUMERIC) involve type casts that change value
+    /// semantics - we cannot simply look through them because the underlying storage
+    /// representations differ (e.g., INT 95 vs Numeric64 5225 for 52.25).
+    ///
+    /// For predicates involving type casts, we return None to indicate that the predicate
+    /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             return None;
@@ -159,29 +168,10 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
-            // Handle type casts - look through the cast to the underlying expression
-            pg_sys::NodeTag::T_RelabelType => {
-                let relabel = node as *mut pg_sys::RelabelType;
-                self.translate((*relabel).arg.cast())
-            }
-            pg_sys::NodeTag::T_CoerceViaIO => {
-                let coerce = node as *mut pg_sys::CoerceViaIO;
-                self.translate((*coerce).arg.cast())
-            }
-            pg_sys::NodeTag::T_FuncExpr => {
-                // For FuncExpr, check if it's a type coercion function (single argument)
-                // These are often used for casts like int4_numeric()
-                let func_expr = node as *mut pg_sys::FuncExpr;
-                if (*func_expr).funcformat == pg_sys::CoercionForm::COERCE_IMPLICIT_CAST
-                    || (*func_expr).funcformat == pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
-                {
-                    let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
-                    if args.len() == 1 {
-                        return self.translate(args.get_ptr(0)?);
-                    }
-                }
-                None
-            }
+            // Type casts (RelabelType, CoerceViaIO, FuncExpr) are not supported because
+            // they may change value semantics. Cross-type comparisons like INT < NUMERIC
+            // require proper type coercion that DataFusion cannot perform correctly when
+            // the underlying fast field storage uses different scales/representations.
             _ => None,
         }
     }

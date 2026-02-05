@@ -174,6 +174,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
+use datafusion::physical_plan::displayable;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
@@ -635,14 +636,21 @@ impl CustomScan for JoinScan {
 
         if let Some(ref logical_plan) = state.custom_state().logical_plan {
             let ctx = SessionContext::new();
-            let plan = logical_plan_from_bytes_with_extension_codec(
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("Failed to create tokio runtime");
+            let logical_plan = logical_plan_from_bytes_with_extension_codec(
                 logical_plan,
                 &ctx.task_ctx(),
                 &PgSearchExtensionCodec,
             )
             .expect("Failed to deserialize logical plan");
-            explainer.add_text("DataFusion Logical Plan", "");
-            for line in plan.to_string().lines() {
+            let physical_plan = runtime
+                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .expect("Failed to create execution plan");
+            let displayable = displayable(physical_plan.as_ref());
+            explainer.add_text("DataFusion Physical Plan", "");
+            for line in displayable.indent(false).to_string().lines() {
                 explainer.add_text("  ", line);
             }
         }

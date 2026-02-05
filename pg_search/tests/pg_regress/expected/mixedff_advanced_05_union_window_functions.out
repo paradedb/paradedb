@@ -332,7 +332,7 @@ ORDER BY rating DESC, title;
                            Table: union_test_a
                            Index: union_test_a_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: author, rating, price, title
+                           Fast Fields: author, price, rating, title
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
                ->  Sort
@@ -341,7 +341,7 @@ ORDER BY rating DESC, title;
                            Table: union_test_b
                            Index: union_test_b_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: author, rating, price, title
+                           Fast Fields: author, price, rating, title
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
 (23 rows)
@@ -414,14 +414,14 @@ ORDER BY price;
                Table: union_test_a
                Index: union_test_a_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: price, year, title
+               Fast Fields: price, title, year
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Custom Scan (ParadeDB Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: price, year, title
+               Fast Fields: price, title, year
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":45.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":1982},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}]}}
 (17 rows)
@@ -467,7 +467,7 @@ ORDER BY title, author, author_rank;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, rating, price, title
+                     Fast Fields: author, price, rating, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
@@ -892,7 +892,7 @@ ORDER BY avg_rating DESC;
                                  Table: union_test_a
                                  Index: union_test_a_idx
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: author, rating, price
+                                 Fast Fields: author, price, rating
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
 (17 rows)

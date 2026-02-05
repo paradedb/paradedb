@@ -139,14 +139,14 @@ ORDER BY d.id, f.id, p.id;
                            Table: files
                            Index: files_search
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: file_path, id, documentid, title
+                           Fast Fields: documentid, file_path, id, title
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on pages p
                Table: pages
                Index: pages_search
                Exec Method: MixedFastFieldExecState
-               Fast Fields: page_number, id, fileid
+               Fast Fields: fileid, id, page_number
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
 (32 rows)
@@ -200,7 +200,7 @@ LIMIT 10;
                                  Table: files
                                  Index: files_search
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: id, documentid
+                                 Fast Fields: documentid, id
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
                      ->  Sort
@@ -209,7 +209,7 @@ LIMIT 10;
                                  Table: pages
                                  Index: pages_search
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: page_number, fileid, content
+                                 Fast Fields: content, fileid, page_number
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on documents

@@ -125,7 +125,7 @@ SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_sea
          Table: articles_fast
          Index: idx_articles_fast_bm25
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, body, title
+         Fast Fields: body, id, title
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:Full_text_search_techniques","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -1731,7 +1731,7 @@ ORDER BY count DESC, category;
                Table: smoke_test
                Index: smoke_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: rating, category
+               Fast Fields: category, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)

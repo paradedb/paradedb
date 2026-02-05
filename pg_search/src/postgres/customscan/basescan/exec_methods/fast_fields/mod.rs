@@ -436,12 +436,13 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         which_fast_fields, ..
     } = &state.custom_state().exec_method_type
     {
-        // Get all fast fields used
-        let fields: Vec<_> = which_fast_fields
+        // Get all fast fields used, sorted for deterministic output
+        let mut fields: Vec<_> = which_fast_fields
             .iter()
             .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
             .map(|ff| ff.name())
             .collect();
+        fields.sort();
 
         explainer.add_text("Fast Fields", fields.join(", "));
     }

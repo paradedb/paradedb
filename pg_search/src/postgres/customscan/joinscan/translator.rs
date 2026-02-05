@@ -159,6 +159,29 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
+            // Handle type casts - look through the cast to the underlying expression
+            pg_sys::NodeTag::T_RelabelType => {
+                let relabel = node as *mut pg_sys::RelabelType;
+                self.translate((*relabel).arg.cast())
+            }
+            pg_sys::NodeTag::T_CoerceViaIO => {
+                let coerce = node as *mut pg_sys::CoerceViaIO;
+                self.translate((*coerce).arg.cast())
+            }
+            pg_sys::NodeTag::T_FuncExpr => {
+                // For FuncExpr, check if it's a type coercion function (single argument)
+                // These are often used for casts like int4_numeric()
+                let func_expr = node as *mut pg_sys::FuncExpr;
+                if (*func_expr).funcformat == pg_sys::CoercionForm::COERCE_IMPLICIT_CAST
+                    || (*func_expr).funcformat == pg_sys::CoercionForm::COERCE_EXPLICIT_CAST
+                {
+                    let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
+                    if args.len() == 1 {
+                        return self.translate(args.get_ptr(0)?);
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }

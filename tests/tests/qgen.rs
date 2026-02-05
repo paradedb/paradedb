@@ -560,7 +560,9 @@ async fn generated_joinscan(database: Db) {
     let text_columns = columns_named(vec!["name"]);
     // Numeric columns for join keys and cross-relation predicates
     let join_key_columns = vec!["id", "age", "uuid"];
-    // Columns for cross relation expressions (includes NUMERIC columns)
+    // Columns for cross relation expressions.
+    // Note: Cross-type comparisons (e.g., NUMERIC < INT) are supported because
+    // the PredicateTranslator looks through type cast nodes (RelabelType, CoerceViaIO, FuncExpr).
     let numeric_columns = ["age", "price", "big_numeric"];
 
     proptest!(|(

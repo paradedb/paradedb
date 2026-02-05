@@ -166,6 +166,10 @@ impl Scanner {
                         crate::index::fast_fields_helper::FastFieldType::Date => {
                             DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
                         }
+                        // Numeric64 is stored as Int64 in the fast field
+                        crate::index::fast_fields_helper::FastFieldType::Numeric64(_) => {
+                            DataType::Int64
+                        }
                     },
                     WhichFastField::Junk(_) => DataType::Null,
                 };

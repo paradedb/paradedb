@@ -138,8 +138,18 @@ fn populate_slot(
     for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
         match &fields[i] {
             Some(column) => {
+                // Extract numeric scale if this is a Numeric64 field
+                let numeric_scale = match which_fast_field {
+                    WhichFastField::Named(_, FastFieldType::Numeric64(scale)) => Some(*scale),
+                    _ => None,
+                };
                 // We extracted this field: convert it into a datum.
-                match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
+                match arrow_array_to_datum(
+                    column.as_ref(),
+                    row_idx,
+                    PgOid::from(att.atttypid),
+                    numeric_scale,
+                ) {
                     Ok(Some(datum)) => {
                         datums[i] = datum;
                         isnull[i] = false;
@@ -174,7 +184,8 @@ fn populate_slot(
                     | WhichFastField::Named(_, FastFieldType::UInt64)
                     | WhichFastField::Named(_, FastFieldType::Float64)
                     | WhichFastField::Named(_, FastFieldType::Bool)
-                    | WhichFastField::Named(_, FastFieldType::Date) => {
+                    | WhichFastField::Named(_, FastFieldType::Date)
+                    | WhichFastField::Named(_, FastFieldType::Numeric64(_)) => {
                         panic!("Numeric fast field {which_fast_field:?} should already have been extracted.");
                     }
                     WhichFastField::Junk(_) => None,

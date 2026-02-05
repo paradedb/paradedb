@@ -127,6 +127,8 @@ pub fn fast_field_type_for_pullup(
         SearchFieldType::Json(_) => None,
         // Range types are not yet supported for pullup
         SearchFieldType::Range(_) => None,
+        // Numeric64: pass through the scale so it can be used during Arrow-to-PostgreSQL conversion
+        SearchFieldType::Numeric64(_, scale) => Some(FastFieldType::Numeric64(scale)),
         // All other types can be pulled up using their FastFieldType
         _ => Some(FastFieldType::from(field_type)),
     }

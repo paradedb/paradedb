@@ -32,10 +32,14 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 /// [`WhichFastField`](crate::index::fast_fields_helper::WhichFastField)). This function is
 /// responsible for converting those widened types (e.g. `Utf8View`) back into specific
 /// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
+///
+/// The `numeric_scale` parameter is used for `Numeric64` fields (NUMERIC with precision <= 18)
+/// which are stored as scaled i64 values. The scale is needed to convert back to NUMERIC.
 pub fn arrow_array_to_datum(
     array: &dyn Array,
     index: usize,
     oid: PgOid,
+    numeric_scale: Option<i16>,
 ) -> Result<Option<pg_sys::Datum>, String> {
     if array.is_null(index) {
         return Ok(None);
@@ -122,6 +126,48 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Numeric64: convert scaled i64 back to NUMERIC
+                    let scale = numeric_scale.ok_or_else(|| {
+                        "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
+                    })?;
+
+                    // Check for special values using decimal_bytes sentinel detection
+                    let decimal = decimal_bytes::Decimal64NoScale::from_raw(val);
+                    if decimal.is_nan() {
+                        return Ok(Some(
+                            "NaN"
+                                .parse::<pgrx::AnyNumeric>()
+                                .map_err(|e| format!("Failed to create NaN AnyNumeric: {e}"))?
+                                .into_datum()
+                                .expect("NaN should produce valid datum"),
+                        ));
+                    }
+
+                    // Convert to string with proper decimal placement
+                    let numeric_str = if scale == 0 {
+                        val.to_string()
+                    } else if scale > 0 {
+                        // Insert decimal point at the right position
+                        let abs_val = val.unsigned_abs();
+                        let divisor = 10u64.pow(scale as u32);
+                        let int_part = abs_val / divisor;
+                        let frac_part = abs_val % divisor;
+                        let sign = if val < 0 { "-" } else { "" };
+                        format!(
+                            "{sign}{int_part}.{frac_part:0>width$}",
+                            width = scale as usize
+                        )
+                    } else {
+                        // Negative scale means multiply by 10^|scale|
+                        let multiplier = 10i64.pow((-scale) as u32);
+                        (val * multiplier).to_string()
+                    };
+                    numeric_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
                         res?
@@ -294,7 +340,7 @@ mod tests {
         R::Error: std::fmt::Debug,
     {
         let array = create_array(original_val.clone());
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap().unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap().unwrap();
         let converted_val = unsafe { TantivyValue::try_from_datum(datum, oid) }.unwrap();
         let expected_val: TantivyValue = create_expected_value(original_val).try_into().unwrap();
         assert_eq!(expected_val, converted_val);
@@ -534,7 +580,7 @@ mod tests {
     ) {
         append_null(&mut builder);
         let array = builder.finish();
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap();
         assert!(datum.is_none());
     }
 

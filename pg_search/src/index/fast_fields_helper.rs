@@ -257,6 +257,9 @@ pub enum FastFieldType {
     Float64,
     Bool,
     Date,
+    /// NUMERIC with precision <= 18, stored as I64 with fixed-point scaling.
+    /// The i16 is the scale (number of decimal places).
+    Numeric64(i16),
 }
 
 impl From<SearchFieldType> for FastFieldType {
@@ -274,7 +277,7 @@ impl From<SearchFieldType> for FastFieldType {
             SearchFieldType::Json(_) => FastFieldType::String,
             SearchFieldType::Date(_) => FastFieldType::Date,
             SearchFieldType::Range(_) => FastFieldType::String,
-            SearchFieldType::Numeric64(_, _) => FastFieldType::Int64,
+            SearchFieldType::Numeric64(_, scale) => FastFieldType::Numeric64(scale),
             SearchFieldType::NumericBytes(_) => FastFieldType::Bytes,
         }
     }

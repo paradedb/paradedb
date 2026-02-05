@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
+SET max_parallel_maintenance_workers TO 2;
 DROP TABLE IF EXISTS benchmark_logs CASCADE;
 CREATE TABLE benchmark_logs (
     id SERIAL PRIMARY KEY,

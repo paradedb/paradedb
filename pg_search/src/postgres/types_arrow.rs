@@ -72,6 +72,29 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }
+        DataType::BinaryView => {
+            let arr = array.as_binary_view();
+            let bytes = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BYTEAOID) => bytes.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Bytes are stored as Decimal::as_bytes() - convert back to AnyNumeric
+                    // via string representation since AnyNumeric implements FromStr
+                    let decimal = decimal_bytes::Decimal::from_bytes(bytes)
+                        .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
+                    let decimal_str = decimal.to_string();
+                    decimal_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for BinaryView Arrow type: {oid:?}"
+                    ))
+                }
+            }
+        }
         DataType::UInt64 => {
             let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
             let val = arr.value(index);

@@ -960,11 +960,32 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let posix_time = val.to_posix_time();
-        let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
-            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
-        let tantivy_date =
-            tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
+        use once_cell::sync::Lazy;
+        static VALID_DATE_RANGE: Lazy<std::ops::RangeInclusive<time::Date>> = Lazy::new(|| {
+            let min = tantivy::DateTime::MIN;
+            let max = tantivy::DateTime::MAX;
+            // Min does not include midnight, so skip to the next day.
+            // Max is always past the midnight.
+            debug_assert_ne!(min.into_primitive().time(), time::Time::MIDNIGHT);
+            let min_date = min.into_primitive().date().next_day().unwrap();
+            let max_date = max.into_primitive().date();
+            min_date..=max_date
+        });
+
+        let try_op = |(res, overflow)| {
+            if overflow {
+                Err(TantivyValueError::DateOutOfRange(
+                    val,
+                    format!("date must be in the range {:?}", *VALID_DATE_RANGE),
+                ))
+            } else {
+                Ok(res)
+            }
+        };
+        let days = i64::from(val.to_unix_epoch_days());
+        let secs = try_op(days.overflowing_mul(24 * 3600))?;
+        let nanos = try_op(secs.overflowing_mul(1_000_000_000))?;
+        let tantivy_date = tantivy::DateTime::from_timestamp_nanos(nanos);
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }

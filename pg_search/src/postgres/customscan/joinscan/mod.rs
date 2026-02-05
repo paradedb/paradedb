@@ -147,7 +147,7 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
-mod udf;
+pub mod udf;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
@@ -160,7 +160,7 @@ use self::planning::{
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
 
-use self::scan_state::{build_joinscan_logical_plan, JoinScanState};
+use self::scan_state::{build_joinscan_logical_plan, build_joinscan_physical_plan, JoinScanState};
 use crate::api::OrderByFeature;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -171,8 +171,14 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::{CustomScan, ExecMethod, JoinPathlistHookArgs, PlainExecCapable};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
+use datafusion::physical_plan::displayable;
+use datafusion::prelude::SessionContext;
+use datafusion_proto::bytes::{
+    logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
+};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
@@ -544,6 +550,22 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
+            // Build, serialize and store the logical plan
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("Failed to create tokio runtime");
+            let logical_plan = runtime
+                .block_on(build_joinscan_logical_plan(
+                    &private_data.join_clause,
+                    &private_data,
+                    node.custom_exprs,
+                ))
+                .expect("Failed to build DataFusion logical plan");
+            private_data.logical_plan = Some(
+                logical_plan_to_bytes_with_extension_codec(&logical_plan, &PgSearchExtensionCodec)
+                    .expect("Failed to serialize DataFusion logical plan"),
+            );
+
             // Convert PrivateData back to a list and preserve the restrictlist
             let mut new_private = PgList::<pg_sys::Node>::from_pg(PrivateData::into(private_data));
             let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
@@ -565,6 +587,7 @@ impl CustomScan for JoinScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().join_clause = builder.custom_private().join_clause.clone();
         builder.custom_state().output_columns = builder.custom_private().output_columns.clone();
+        builder.custom_state().logical_plan = builder.custom_private().logical_plan.clone();
         builder.build()
     }
 
@@ -677,6 +700,27 @@ impl CustomScan for JoinScan {
                     .join(", "),
             );
         }
+
+        if let Some(ref logical_plan) = state.custom_state().logical_plan {
+            let ctx = SessionContext::new();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("Failed to create tokio runtime");
+            let logical_plan = logical_plan_from_bytes_with_extension_codec(
+                logical_plan,
+                &ctx.task_ctx(),
+                &PgSearchExtensionCodec,
+            )
+            .expect("Failed to deserialize logical plan");
+            let physical_plan = runtime
+                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .expect("Failed to create execution plan");
+            let displayable = displayable(physical_plan.as_ref());
+            explainer.add_text("DataFusion Physical Plan", "");
+            for line in displayable.indent(false).to_string().lines() {
+                explainer.add_text("  ", line);
+            }
+        }
     }
 
     fn begin_custom_scan(
@@ -728,16 +772,26 @@ impl CustomScan for JoinScan {
                     }
                 }
 
-                let mut private_data = PrivateData::new(join_clause.clone());
-                // `output_columns` is used to resolve `INDEX_VAR` references.
-                private_data.output_columns = state.custom_state().output_columns.clone();
+                // Deserialize the logical plan and convert to execution plan
+                let plan_bytes = state
+                    .custom_state()
+                    .logical_plan
+                    .as_ref()
+                    .expect("Logical plan is required");
+
+                // Deserialize the logical plan
+                let ctx = SessionContext::new();
+                let logical_plan = logical_plan_from_bytes_with_extension_codec(
+                    plan_bytes,
+                    &ctx.task_ctx(),
+                    &PgSearchExtensionCodec,
+                )
+                .expect("Failed to deserialize logical plan");
+
+                // Convert logical plan to physical plan
                 let plan = runtime
-                    .block_on(build_joinscan_logical_plan(
-                        &join_clause,
-                        &private_data,
-                        (*(state.csstate.ss.ps.plan as *mut pg_sys::CustomScan)).custom_exprs,
-                    ))
-                    .expect("Failed to build DataFusion plan");
+                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                    .expect("Failed to create execution plan");
 
                 let memory_pool =
                     Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));

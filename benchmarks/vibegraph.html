@@ -51,11 +51,287 @@
     <header class="mb-10">
         <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
         <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
+        <div class="mt-4">
+            <label class="font-medium mr-2">Dataset:</label>
+            <select id="dataset-filter" class="px-3 py-2 border rounded-lg bg-white">
+                <option value="all">All Datasets</option>
+            </select>
+        </div>
     </header>
     <div id="charts" class="space-y-12"></div>
 </div>
 
 <script>
+    let allRawData = {};
+    let hashInfo = {};
+
+    // Parse dataset identifier from entry key
+    // e.g., "pg_search 'logs' (100K rows)" -> "logs (100K rows)"
+    // e.g., "pg_search 'logs' Query Performance" -> "logs"
+    function parseDatasetId(key) {
+        // Match pattern: 'dataset' optionally followed by (size)
+        const match = key.match(/'([^']+)'(?:\s*\(([^)]+)\))?/);
+        if (match) {
+            const dataset = match[1];
+            const size = match[2];
+            return size ? `${dataset} (${size})` : dataset;
+        }
+        return key;
+    }
+
+    // Extract unique dataset identifiers from data keys
+    function getUniqueDatasets(rawData) {
+        const datasets = new Set();
+        Object.keys(rawData).forEach(key => {
+            datasets.add(parseDatasetId(key));
+        });
+        return Array.from(datasets).sort();
+    }
+
+    // Filter rawData by selected dataset
+    function filterData(rawData, selectedDataset) {
+        if (selectedDataset === 'all') return rawData;
+        const filtered = {};
+        Object.entries(rawData).forEach(([key, value]) => {
+            if (parseDatasetId(key) === selectedDataset) {
+                filtered[key] = value;
+            }
+        });
+        return filtered;
+    }
+
+    // Populate dropdown with dataset options
+    function populateDropdown(rawData) {
+        const dropdown = document.getElementById('dataset-filter');
+        const datasets = getUniqueDatasets(rawData);
+        datasets.forEach(dataset => {
+            const option = document.createElement('option');
+            option.value = dataset;
+            option.textContent = dataset;
+            dropdown.appendChild(option);
+        });
+    }
+
+    // Render charts for the given data
+    function renderCharts(rawData) {
+        const container = document.getElementById('charts');
+        container.innerHTML = '';
+
+        if (!Object.keys(rawData).length) {
+            container.innerHTML = '<p class="text-gray-500">No data for selected dataset.</p>';
+            return;
+        }
+
+        // Group data by file
+        const fileGroups = {};
+        Object.entries(rawData).forEach(([cat, ents]) => {
+            const fn = cat.split(' ')[1] || cat;
+            fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
+        });
+
+        for (const [fn, entries] of Object.entries(fileGroups)) {
+            const section = document.createElement('section');
+            section.className = 'bg-white p-6 rounded-xl shadow-lg';
+            const titleEl = document.createElement('h2');
+            titleEl.className = 'text-2xl font-semibold mb-4';
+            titleEl.textContent = fn;
+            section.appendChild(titleEl);
+
+            // Flatten and sort benches
+            const benches = entries.flatMap(ent => ent.benches.map(b => ({
+                name: b.name,
+                unit: b.unit,
+                timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
+                run: ent.date,
+                short: ent.commit.id.slice(0, 7),
+                value: b.value
+            })));
+            benches.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Group by prefix
+            const prefixGroups = {};
+            benches.forEach(b => {
+                const sep = b.name.indexOf(' - ');
+                const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
+                (prefixGroups[prefix] = prefixGroups[prefix] || []).push(b);
+            });
+
+            // Render each prefix
+            Object.entries(prefixGroups).forEach(([prefix, group]) => {
+                const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
+                const runs = runKeys.map(k => {
+                    const [ts, r, sh] = k.split('|');
+                    return {timestamp: +ts, run: +r, short: sh};
+                })
+                    .sort((a, b) => a.timestamp - b.timestamp || a.run - b.run);
+                const labels = runs.map(r => {
+                    const lbl = hashInfo[r.short]?.label || r.short;
+                    return lbl.length > 25 ? `${lbl.slice(0, 25)}…` : lbl;
+                });
+                const runUrls = runs.map(r => hashInfo[r.short]?.url);
+
+                // Build datasets
+                const seriesMap = {};
+                group.forEach(d => {
+                    (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short)] = d.value;
+                });
+                const datasets = Object.entries(seriesMap).map(([name, data]) => ({
+                    label: name,
+                    data: data.slice(),
+                    original: data.slice(),
+                    fill: false,
+                    tension: 0.4,
+                    borderWidth: 2,
+                    pointStyle: 'circle',
+                    pointRadius: 3,
+                    pointBorderColor: data.map((v, i, arr) => {
+                        if (i > 0 && arr[i - 1] != null) {
+                            const pct = (v - arr[i - 1]) / arr[i - 1];
+                            if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                        }
+                        return Chart.defaults.borderColor
+                    }),
+                }));
+
+                const defaultNorm = datasets.some(ds => ds.original.some((v, i, arr) => i > 0 && arr[i - 1] != null && Math.abs((v - arr[i - 1]) / arr[i - 1]) >= 0.10));
+                const yUnit = group[0].unit;
+                const percentLabel = '% diff from first value';
+
+                const wrap = document.createElement('div');
+                wrap.className = 'chart-container mb-8';
+                wrap.innerHTML = `
+              <div class="toggle-switch">
+                <label><input type="checkbox" class="norm-toggle" ${defaultNorm ? 'checked' : ''}/><span>Normalize to First Value</span></label>
+              </div>
+              <div class="slider-container">
+                <label>Window Start:</label>
+                <input type="range" class="window-slider" min="0" max="${labels.length - 1}" value="0" />
+                <span class="window-label">0</span>
+              </div>
+            `;
+                const canvas = document.createElement('canvas');
+                wrap.appendChild(canvas);
+                const resetBtn = document.createElement('button');
+                resetBtn.className = 'reset-btn';
+                resetBtn.textContent = 'Zoom Out';
+                const btnDiv = document.createElement('div');
+                btnDiv.className = 'flex justify-start mt-2';
+                btnDiv.appendChild(resetBtn);
+                wrap.appendChild(btnDiv);
+                section.appendChild(wrap);
+
+                // Set up chart options with dynamic ticks for normalized view
+                function makeYOptions(normalized) {
+                    if (normalized) {
+                        return {
+                            beginAtZero: false,
+                            title: {display: true, text: percentLabel},
+                            ticks: {
+                                maxTicksLimit: 5,
+                                callback: val => `${Math.round((val * 100) - 100)}%`
+                            }
+                        };
+                    }
+                    return {beginAtZero: true, title: {display: true, text: yUnit}};
+                }
+
+                const chart = new Chart(canvas.getContext('2d'), {
+                    type: 'line',
+                    data: {labels, datasets},
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {ticks: {maxRotation: 33, minRotation: 33}},
+                            y: makeYOptions(defaultNorm)
+                        },
+                        plugins: {
+                            legend: {display: true},
+                            title: {display: true, text: prefix},
+                            tooltip: {
+                                mode: 'index', intersect: false, callbacks: {
+                                    label: ctx => {
+                                        const v = ctx.raw;
+                                        const lines = [`${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '–'}`];
+                                        const arr = ctx.dataset.original;
+                                        const i = ctx.dataIndex;
+                                        if (chart.normalized) {
+                                            const pct = (v * 100) - 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
+                                        }
+                                        if (i > 0 && arr[i - 1] != null) {
+                                            const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
+                                            const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
+                                            const pct = ((curr - prev) / prev) * 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
+                                        }
+                                        return lines;
+                                    }
+                                }
+                            }
+                        },
+                        onClick: (_, items) => {
+                            if (items.length) window.open(runUrls[items[0].index]);
+                        }
+                    }
+                });
+                chart.normalized = defaultNorm;
+
+                if (defaultNorm) {
+                    chart.data.datasets.forEach(ds => ds.data = ds.original.map(v => v != null ? v / ds.original[0] : null));
+                    chart.update();
+                }
+
+                wrap.querySelector('.norm-toggle').addEventListener('change', e => {
+                    const norm = e.target.checked;
+                    const windowStart = parseInt(wrap.querySelector('.window-slider').value);
+                    chart.data.datasets.forEach(ds => {
+                        const slicedData = ds.original.slice(windowStart);
+                        ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                        // Recalculate point colors based on new window
+                        ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                            if (i > 0 && arr[i - 1] != null) {
+                                const pct = (v - arr[i - 1]) / arr[i - 1];
+                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                            }
+                            return Chart.defaults.borderColor;
+                        });
+                    });
+                    chart.normalized = norm;
+                    chart.options.scales.y = makeYOptions(norm);
+                    chart.data.labels = labels.slice(windowStart);
+                    chart.resetZoom();
+                    chart.update();
+                });
+
+                wrap.querySelector('.window-slider').addEventListener('input', e => {
+                    const windowStart = parseInt(e.target.value);
+                    wrap.querySelector('.window-label').textContent = labels[windowStart];
+                    const norm = wrap.querySelector('.norm-toggle').checked;
+                    chart.data.datasets.forEach(ds => {
+                        const slicedData = ds.original.slice(windowStart);
+                        ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                        // Recalculate point colors based on new window
+                        ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                            if (i > 0 && arr[i - 1] != null) {
+                                const pct = (v - arr[i - 1]) / arr[i - 1];
+                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                            }
+                            return Chart.defaults.borderColor;
+                        });
+                    });
+                    chart.data.labels = labels.slice(windowStart);
+                    chart.update();
+                });
+
+                resetBtn.addEventListener('click', () => chart.resetZoom());
+            });
+
+            container.appendChild(section);
+        }
+    }
+
     async function initCharts() {
         const container = document.getElementById('charts');
         try {
@@ -64,17 +340,16 @@
             eval(scriptText);
             Chart.register(ChartZoom);
 
-            const rawData = window.BENCHMARK_DATA?.entries || {};
-            if (!Object.keys(rawData).length) {
+            allRawData = window.BENCHMARK_DATA?.entries || {};
+            if (!Object.keys(allRawData).length) {
                 container.innerHTML = '<p class="text-red-500">No data.</p>';
                 return;
             }
 
             // Prepare commit label mapping
-            const allEntries = Object.values(rawData).flat();
+            const allEntries = Object.values(allRawData).flat();
             const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0, 7)))];
             const releaseMap = {};
-            const hashInfo = {};
 
             try {
                 const [refs, releases] = await Promise.all([
@@ -127,214 +402,16 @@
                 });
             }
 
-            // Group data by file
-            const fileGroups = {};
-            Object.entries(rawData).forEach(([cat, ents]) => {
-                const fn = cat.split(' ')[1] || cat;
-                fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
+            // Populate dropdown and render charts
+            populateDropdown(allRawData);
+            renderCharts(allRawData);
+
+            // Handle dropdown change
+            document.getElementById('dataset-filter').addEventListener('change', e => {
+                const filtered = filterData(allRawData, e.target.value);
+                renderCharts(filtered);
             });
 
-            for (const [fn, entries] of Object.entries(fileGroups)) {
-                const section = document.createElement('section');
-                section.className = 'bg-white p-6 rounded-xl shadow-lg';
-                const titleEl = document.createElement('h2');
-                titleEl.className = 'text-2xl font-semibold mb-4';
-                titleEl.textContent = fn;
-                section.appendChild(titleEl);
-
-                // Flatten and sort benches
-                const benches = entries.flatMap(ent => ent.benches.map(b => ({
-                    name: b.name,
-                    unit: b.unit,
-                    timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
-                    run: ent.date,
-                    short: ent.commit.id.slice(0, 7),
-                    value: b.value
-                })));
-                benches.sort((a, b) => a.name.localeCompare(b.name));
-
-                // Group by prefix
-                const prefixGroups = {};
-                benches.forEach(b => {
-                    const sep = b.name.indexOf(' - ');
-                    const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
-                    (prefixGroups[prefix] = prefixGroups[prefix] || []).push(b);
-                });
-
-                // Render each prefix
-                Object.entries(prefixGroups).forEach(([prefix, group]) => {
-                    const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
-                    const runs = runKeys.map(k => {
-                        const [ts, r, sh] = k.split('|');
-                        return {timestamp: +ts, run: +r, short: sh};
-                    })
-                        .sort((a, b) => a.timestamp - b.timestamp || a.run - b.run);
-                    const labels = runs.map(r => {
-                        const lbl = hashInfo[r.short]?.label || r.short;
-                        return lbl.length > 25 ? `${lbl.slice(0, 25)}…` : lbl;
-                    });
-                    const runUrls = runs.map(r => hashInfo[r.short]?.url);
-
-                    // Build datasets
-                    const seriesMap = {};
-                    group.forEach(d => {
-                        (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short)] = d.value;
-                    });
-                    const datasets = Object.entries(seriesMap).map(([name, data]) => ({
-                        label: name,
-                        data: data.slice(),
-                        original: data.slice(),
-                        fill: false,
-                        tension: 0.4,
-                        borderWidth: 2,
-                        pointStyle: 'circle',
-                        pointRadius: 3,
-                        pointBorderColor: data.map((v, i, arr) => {
-                            if (i > 0 && arr[i - 1] != null) {
-                                const pct = (v - arr[i - 1]) / arr[i - 1];
-                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
-                            }
-                            return Chart.defaults.borderColor
-                        }),
-                    }));
-
-                    const defaultNorm = datasets.some(ds => ds.original.some((v, i, arr) => i > 0 && arr[i - 1] != null && Math.abs((v - arr[i - 1]) / arr[i - 1]) >= 0.10));
-                    const yUnit = group[0].unit;
-                    const percentLabel = '% diff from first value';
-
-                    const wrap = document.createElement('div');
-                    wrap.className = 'chart-container mb-8';
-                    wrap.innerHTML = `
-              <div class="toggle-switch">
-                <label><input type="checkbox" class="norm-toggle" ${defaultNorm ? 'checked' : ''}/><span>Normalize to First Value</span></label>
-              </div>
-              <div class="slider-container">
-                <label>Window Start:</label>
-                <input type="range" class="window-slider" min="0" max="${labels.length - 1}" value="0" />
-                <span class="window-label">0</span>
-              </div>
-            `;
-                    const canvas = document.createElement('canvas');
-                    wrap.appendChild(canvas);
-                    const resetBtn = document.createElement('button');
-                    resetBtn.className = 'reset-btn';
-                    resetBtn.textContent = 'Zoom Out';
-                    const btnDiv = document.createElement('div');
-                    btnDiv.className = 'flex justify-start mt-2';
-                    btnDiv.appendChild(resetBtn);
-                    wrap.appendChild(btnDiv);
-                    section.appendChild(wrap);
-
-                    // Set up chart options with dynamic ticks for normalized view
-                    function makeYOptions(normalized) {
-                        if (normalized) {
-                            return {
-                                beginAtZero: false,
-                                title: {display: true, text: percentLabel},
-                                ticks: {
-                                    maxTicksLimit: 5,
-                                    callback: val => `${Math.round((val * 100) - 100)}%`
-                                }
-                            };
-                        }
-                        return {beginAtZero: true, title: {display: true, text: yUnit}};
-                    }
-
-                    const chart = new Chart(canvas.getContext('2d'), {
-                        type: 'line',
-                        data: {labels, datasets},
-                        options: {
-                            responsive: true,
-                            scales: {
-                                x: {ticks: {maxRotation: 33, minRotation: 33}},
-                                y: makeYOptions(defaultNorm)
-                            },
-                            plugins: {
-                                legend: {display: true},
-                                title: {display: true, text: prefix},
-                                tooltip: {
-                                    mode: 'index', intersect: false, callbacks: {
-                                        label: ctx => {
-                                            const v = ctx.raw;
-                                            const lines = [`${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '–'}`];
-                                            const arr = ctx.dataset.original;
-                                            const i = ctx.dataIndex;
-                                            if (chart.normalized) {
-                                                const pct = (v * 100) - 100;
-                                                lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
-                                            }
-                                            if (i > 0 && arr[i - 1] != null) {
-                                                const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
-                                                const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
-                                                const pct = ((curr - prev) / prev) * 100;
-                                                lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
-                                            }
-                                            return lines;
-                                        }
-                                    }
-                                }
-                            },
-                            onClick: (_, items) => {
-                                if (items.length) window.open(runUrls[items[0].index]);
-                            }
-                        }
-                    });
-                    chart.normalized = defaultNorm;
-
-                    if (defaultNorm) {
-                        chart.data.datasets.forEach(ds => ds.data = ds.original.map(v => v != null ? v / ds.original[0] : null));
-                        chart.update();
-                    }
-
-                    wrap.querySelector('.norm-toggle').addEventListener('change', e => {
-                        const norm = e.target.checked;
-                        const windowStart = parseInt(wrap.querySelector('.window-slider').value);
-                        chart.data.datasets.forEach(ds => {
-                            const slicedData = ds.original.slice(windowStart);
-                            ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
-
-                            // Recalculate point colors based on new window
-                            ds.pointBorderColor = ds.data.map((v, i, arr) => {
-                                if (i > 0 && arr[i - 1] != null) {
-                                    const pct = (v - arr[i - 1]) / arr[i - 1];
-                                    if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
-                                }
-                                return Chart.defaults.borderColor;
-                            });
-                        });
-                        chart.normalized = norm;
-                        chart.options.scales.y = makeYOptions(norm);
-                        chart.data.labels = labels.slice(windowStart);
-                        chart.resetZoom();
-                        chart.update();
-                    });
-
-                    wrap.querySelector('.window-slider').addEventListener('input', e => {
-                        const windowStart = parseInt(e.target.value);
-                        wrap.querySelector('.window-label').textContent = labels[windowStart];
-                        const norm = wrap.querySelector('.norm-toggle').checked;
-                        chart.data.datasets.forEach(ds => {
-                            const slicedData = ds.original.slice(windowStart);
-                            ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
-
-                            // Recalculate point colors based on new window
-                            ds.pointBorderColor = ds.data.map((v, i, arr) => {
-                                if (i > 0 && arr[i - 1] != null) {
-                                    const pct = (v - arr[i - 1]) / arr[i - 1];
-                                    if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
-                                }
-                                return Chart.defaults.borderColor;
-                            });
-                        });
-                        chart.data.labels = labels.slice(windowStart);
-                        chart.update();
-                    });
-
-                    resetBtn.addEventListener('click', () => chart.resetZoom());
-                });
-
-                container.appendChild(section);
-            }
         } catch (err) {
             console.error(err);
             container.innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';

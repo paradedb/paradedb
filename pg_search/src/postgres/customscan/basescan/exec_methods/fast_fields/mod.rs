@@ -123,20 +123,20 @@ unsafe fn find_matching_fast_field(
         )
     };
 
-    let to_fast_field = |search_field: &SearchField,
-                         data: &CategorizedFieldData|
-     -> Option<WhichFastField> {
-        if search_field.is_fast() {
-            if let Some(ff_type) = fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
-            {
-                return Some(WhichFastField::Named(
-                    search_field.field_name().to_string(),
-                    ff_type,
-                ));
+    let to_fast_field =
+        |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
+            if search_field.is_fast() {
+                if let Some(ff_type) =
+                    fast_field_type_for_pullup(search_field.field_type(), data.is_array)
+                {
+                    return Some(WhichFastField::Named(
+                        search_field.field_name().to_string(),
+                        ff_type,
+                    ));
+                }
             }
-        }
-        None
-    };
+            None
+        };
 
     for (i, expr) in index_expressions.iter_ptr().enumerate() {
         if let Some(row_expr) = row_expr_from_indexed_expr(expr) {

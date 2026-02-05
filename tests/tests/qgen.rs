@@ -560,13 +560,8 @@ async fn generated_joinscan(database: Db) {
     let text_columns = columns_named(vec!["name"]);
     // Numeric columns for join keys and cross-relation predicates
     let join_key_columns = vec!["id", "age", "uuid"];
-    // Columns for cross relation expressions.
-    let numeric_columns = [
-        "age",
-        // TODO: We cannot pull up `NUMERIC` columns as fast fields until
-        // https://github.com/paradedb/paradedb/issues/2968 is resolved.
-        // "price"
-    ];
+    // Columns for cross relation expressions (includes NUMERIC columns)
+    let numeric_columns = ["age", "price", "big_numeric"];
 
     proptest!(|(
         num_tables in 2..=3usize,

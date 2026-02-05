@@ -6,6 +6,9 @@
 name: Test pg_search
 
 on:
+  # We run nightly to update the code coverage baseline without excessive post-PR runs
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC (~2am ET)
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
@@ -36,7 +39,7 @@ jobs:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          if [[ ${{ github.event_name }} == "push" ]]; then
+          if [[ ${{ github.event_name }} == "push" || ${{ github.event_name }} == "schedule" ]]; then
             echo "Push event detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else

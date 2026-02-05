@@ -24,12 +24,12 @@ use arrow_array::builder::{
 };
 use arrow_array::{ArrayRef, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, SegmentOrdinal};
 
-use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField};
+use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
@@ -109,6 +109,7 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
+    prefetched: Option<Batch>,
 }
 
 impl Scanner {
@@ -136,40 +137,14 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
+            prefetched: None,
         }
     }
 
     /// Returns the Arrow schema for this scanner.
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {
-        let fields: Vec<Field> = self
-            .which_fast_fields
-            .iter()
-            .map(|wff| {
-                let data_type = match wff {
-                    WhichFastField::Ctid => DataType::UInt64,
-                    WhichFastField::TableOid => DataType::UInt32,
-                    WhichFastField::Score => DataType::Float32,
-                    WhichFastField::Named(_, ff_type) => match ff_type {
-                        crate::index::fast_fields_helper::FastFieldType::String => {
-                            DataType::Utf8View
-                        }
-                        crate::index::fast_fields_helper::FastFieldType::Int64 => DataType::Int64,
-                        crate::index::fast_fields_helper::FastFieldType::UInt64 => DataType::UInt64,
-                        crate::index::fast_fields_helper::FastFieldType::Float64 => {
-                            DataType::Float64
-                        }
-                        crate::index::fast_fields_helper::FastFieldType::Bool => DataType::Boolean,
-                        crate::index::fast_fields_helper::FastFieldType::Date => {
-                            DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
-                        }
-                    },
-                    WhichFastField::Junk(_) => DataType::Null,
-                };
-                Field::new(wff.name(), data_type, true)
-            })
-            .collect();
-        Arc::new(Schema::new(fields))
+        build_arrow_schema(&self.which_fast_fields)
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
@@ -206,9 +181,12 @@ impl Scanner {
     /// Fetch the next batch of results, applying visibility checks.
     pub fn next(
         &mut self,
-        ffhelper: &mut FFHelper,
+        ffhelper: &FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
     ) -> Option<Batch> {
+        if let Some(batch) = self.prefetched.take() {
+            return Some(batch);
+        }
         pgrx::check_for_interrupts!();
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
@@ -301,6 +279,22 @@ impl Scanner {
                 .collect(),
             fields,
         })
+    }
+
+    /// Prefetch a single batch and store it for the next `next()` call.
+    ///
+    /// This is used to force some work between parallel segment checkouts while
+    /// preserving correctness (the prefetched batch will still be returned).
+    pub fn prefetch_next(
+        &mut self,
+        ffhelper: &FFHelper,
+        visibility: &mut (impl VisibilityChecker + ?Sized),
+    ) {
+        if self.prefetched.is_none() {
+            if let Some(batch) = self.next(ffhelper, visibility) {
+                self.prefetched = Some(batch);
+            }
+        }
     }
 }
 

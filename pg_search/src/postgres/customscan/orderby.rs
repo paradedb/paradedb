@@ -29,6 +29,8 @@ use crate::index::reader::index::MAX_TOPN_FEATURES;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{fieldname_from_var, find_one_var_and_fieldname, VarContext};
 use crate::schema::{SearchField, SearchIndexSchema};
@@ -414,4 +416,128 @@ pub unsafe fn validate_topn_compatibility(parse: *mut pg_sys::Query) -> bool {
     }
 
     target_relation_info.is_some()
+}
+
+/// Find a pathkey from the query that matches the index's sort_by field.
+///
+/// This is used to expose sorted CustomPaths when the query has an ORDER BY
+/// that matches the index's sort order. The Postgres planner can then choose
+/// the sorted path when downstream operations (like merge joins) need sorted input.
+///
+/// Returns `Some(OrderByStyle)` if a matching pathkey is found, `None` otherwise.
+pub unsafe fn find_sort_by_pathkey(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    sort_by: &SortByField,
+    table: &PgSearchRelation,
+) -> Option<OrderByStyle> {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return None;
+    }
+
+    let sort_field_name = sort_by.field_name.as_ref();
+
+    // Only the first pathkey can be used for sorted execution (prefix semantics).
+    // If the first pathkey doesn't match sort_by, we must not declare ordering.
+    let pathkey = pathkeys.get_ptr(0)?;
+    let equivclass = (*pathkey).pk_eclass;
+    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+    for member in members.iter_ptr() {
+        let expr = (*member).em_expr;
+
+        // Try to extract a Var from the expression (either directly or wrapped in RelabelType)
+        let var = if let Some(var) = nodecast!(Var, T_Var, expr) {
+            var
+        } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+            // RelabelType wraps a Var for type coercions
+            match nodecast!(Var, T_Var, (*relabel).arg) {
+                Some(var) => var,
+                None => continue,
+            }
+        } else {
+            continue;
+        };
+
+        // Check if this Var matches our sort_by field
+        if let Some(style) =
+            check_var_matches_sort_by(var, rti, pathkey, sort_by, sort_field_name, table)
+        {
+            return Some(style);
+        }
+    }
+
+    None
+}
+
+/// Check if a Var matches the sort_by field and return an OrderByStyle if it does.
+///
+/// This helper extracts the common logic for checking whether a column reference (Var)
+/// matches the index's sort_by configuration, including direction and NULLS ordering.
+unsafe fn check_var_matches_sort_by(
+    var: *mut pg_sys::Var,
+    rti: pg_sys::Index,
+    pathkey: *mut pg_sys::PathKey,
+    sort_by: &SortByField,
+    sort_field_name: &str,
+    table: &PgSearchRelation,
+) -> Option<OrderByStyle> {
+    // Check if this Var is for our relation
+    if (*var).varno as pg_sys::Index != rti {
+        return None;
+    }
+
+    // Get the column name from the tuple descriptor
+    let tupdesc = table.tuple_desc();
+    let attno = (*var).varattno;
+    if attno <= 0 || attno as usize > tupdesc.len() {
+        return None;
+    }
+
+    let att = tupdesc.get(attno as usize - 1)?;
+    let col_name = att.name();
+    if col_name != sort_field_name {
+        return None;
+    }
+
+    if !pathkey_matches_sort_by(pathkey, sort_by) {
+        return None;
+    }
+
+    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
+}
+
+pub unsafe fn pathkey_matches_sort_by(
+    pathkey: *mut pg_sys::PathKey,
+    sort_by: &SortByField,
+) -> bool {
+    // Check if the sort direction matches
+    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+    let is_desc = match (*pathkey).pk_strategy as u32 {
+        pg_sys::BTLessStrategyNumber => false,
+        pg_sys::BTGreaterStrategyNumber => true,
+        _ => return false, // Unknown strategy
+    };
+    #[cfg(feature = "pg18")]
+    let is_desc = match (*pathkey).pk_cmptype {
+        pg_sys::CompareType::COMPARE_LT => false,
+        pg_sys::CompareType::COMPARE_GT => true,
+        _ => return false,
+    };
+
+    let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
+    // Tantivy's sort behavior is fixed:
+    //   - ASC: nulls sort first (smallest values)
+    //   - DESC: nulls sort last (after largest values)
+    // We cannot support other NULLS orderings (e.g., ASC NULLS LAST) because
+    // Tantivy physically sorts documents this way at index time.
+    let sort_by_nulls_first = !sort_by_is_desc;
+
+    // Direction and NULLS ordering must both match for sorted path to apply.
+    // If query requests incompatible NULLS ordering, we return None and
+    // PostgreSQL will add a Sort node to achieve the requested ordering.
+    // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
+    // For text fields with non-C collation, sorted path may produce incorrect order.
+    is_desc == sort_by_is_desc && (*pathkey).pk_nulls_first == sort_by_nulls_first
 }

@@ -344,3 +344,227 @@ fn test_fast_fields_cases(
     let rows = query.to_string().fetch_dynamic(&mut conn);
     assert!(!rows.is_empty(), "Query should return results: {}", query);
 }
+
+// ============================================================================
+// Sorted Path Tests for MixedFastFieldExecState
+// ============================================================================
+//
+// These tests verify that MixedFastFieldExecState correctly handles the sorted
+// path using SortPreservingMergeExec when the index has a sort_by configuration
+// AND the query includes an ORDER BY clause matching the sort_by.
+//
+// Note: The sorted path is only activated when ORDER BY matches sort_by.
+
+/// Helper to check if results are sorted in descending order
+fn is_sorted_desc<T: Ord>(values: &[T]) -> bool {
+    values.windows(2).all(|w| w[0] >= w[1])
+}
+
+/// Helper to check if results are sorted in ascending order
+fn is_sorted_asc<T: Ord>(values: &[T]) -> bool {
+    values.windows(2).all(|w| w[0] <= w[1])
+}
+
+/// Test MixedFastFieldExecState with sorted scans across various configurations.
+#[rstest]
+#[case::desc_serial("DESC", "DESC", false)]
+#[case::asc_serial("ASC", "ASC", false)]
+#[case::parallel_desc("DESC", "DESC", true)]
+fn mixed_fast_fields_sorted_scan(
+    mut conn: PgConnection,
+    #[case] sort_by_dir: &str,
+    #[case] order_by_dir: &str,
+    #[case] parallel: bool,
+) {
+    if parallel && pg_major_version(&mut conn) < 17 {
+        return;
+    }
+
+    if parallel {
+        "SET max_parallel_workers TO 4;".execute(&mut conn);
+        "SET max_parallel_workers_per_gather TO 4;".execute(&mut conn);
+        "SET debug_parallel_query TO on;".execute(&mut conn);
+    } else {
+        "SET max_parallel_workers TO 0;".execute(&mut conn);
+    }
+
+    "SET paradedb.enable_mixed_fast_field_exec TO true;".execute(&mut conn);
+    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
+
+    let sort_by = format!(
+        "score {} NULLS {}",
+        sort_by_dir,
+        if sort_by_dir == "ASC" {
+            "FIRST"
+        } else {
+            "LAST"
+        }
+    );
+    let sql = format!(
+        r#"
+        CREATE TABLE test_mff_sorted (
+            id SERIAL PRIMARY KEY,
+            name TEXT,
+            category TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_mff_sorted_idx ON test_mff_sorted
+        USING bm25 (id, name, category, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{{"name": {{"fast": true}}, "category": {{"fast": true, "tokenizer": {{"type": "keyword"}}}}}}',
+            numeric_fields = '{{"score": {{"fast": true}}}}',
+            sort_by = '{}'
+        );
+        "#,
+        sort_by
+    );
+    sql.execute(&mut conn);
+
+    // Insert multiple batches to create segments
+    let num_batches = if parallel { 8 } else { 4 };
+    let rows_per_batch = if parallel { 40 } else { 30 };
+    for batch in 1..=num_batches {
+        let sql = format!(
+            r#"
+            INSERT INTO test_mff_sorted (name, category, score)
+            SELECT
+                'Item ' || i || ' batch{}',
+                'Category' || (i % 3),
+                {} + (random() * 100)::integer
+            FROM generate_series(1, {}) AS i;
+            "#,
+            batch,
+            batch * 100,
+            rows_per_batch
+        );
+        sql.execute(&mut conn);
+    }
+
+    // Query selecting multiple fast fields with ORDER BY (triggers sorted path)
+    let query = format!(
+        r#"
+        SELECT name, category, score FROM test_mff_sorted
+        WHERE name @@@ 'Item'
+        ORDER BY score {} NULLS {}
+        "#,
+        order_by_dir,
+        if order_by_dir == "ASC" {
+            "FIRST"
+        } else {
+            "LAST"
+        }
+    );
+
+    let explain_query = format!("EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) {}", query);
+    let (plan,): (Value,) = explain_query.fetch_one(&mut conn);
+
+    // Get execution methods
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        methods
+    );
+
+    // Verify that the plan indicates sorted execution
+    let plan_str = plan.to_string();
+    assert!(
+        plan_str.contains("Order By"),
+        "Plan should contain 'Order By' to indicate sorted execution: {}",
+        plan_str
+    );
+
+    // Query with ORDER BY and verify results are sorted
+    let results: Vec<(String, String, i32)> = query.fetch(&mut conn);
+
+    assert_eq!(
+        results.len(),
+        num_batches * rows_per_batch,
+        "Should return all results"
+    );
+
+    let scores: Vec<i32> = results.iter().map(|(_, _, s)| *s).collect();
+    if order_by_dir == "DESC" {
+        assert!(is_sorted_desc(&scores), "Results should be sorted DESC");
+    } else {
+        assert!(is_sorted_asc(&scores), "Results should be sorted ASC");
+    }
+}
+
+/// Test that sorting still works when MixedFastFieldExecState is disabled.
+///
+/// When enable_mixed_fast_field_exec is false, queries with ORDER BY should
+/// still produce correctly sorted results (PostgreSQL will handle sorting).
+#[rstest]
+fn mixed_fast_fields_disabled_still_works(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+    "SET paradedb.enable_mixed_fast_field_exec TO false;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_mff_disabled (
+            id SERIAL PRIMARY KEY,
+            text_col TEXT,
+            str_col TEXT,
+            num_col INTEGER
+        );
+
+        CREATE INDEX test_mff_disabled_idx ON test_mff_disabled
+        USING bm25 (id, text_col, str_col, num_col)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"text_col": {"fast": true}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            numeric_fields = '{"num_col": {"fast": true}}',
+            sort_by = 'num_col DESC NULLS LAST'
+        );
+    "#
+    .execute(&mut conn);
+
+    for batch in 1..=3 {
+        let sql = format!(
+            r#"
+            INSERT INTO test_mff_disabled (text_col, str_col, num_col)
+            SELECT
+                'Record ' || i || ' batch{}',
+                'Str' || (i % 3),
+                (random() * 50)::integer
+            FROM generate_series(1, 20) AS i;
+            "#,
+            batch
+        );
+        sql.execute(&mut conn);
+    }
+
+    // With ORDER BY, PostgreSQL ensures sorted results even with mixed ff exec disabled
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id, num_col FROM test_mff_disabled
+        WHERE text_col @@@ 'Record'
+        ORDER BY num_col DESC
+    "#
+    .fetch_one(&mut conn);
+
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"NormalScanExecState".to_string()),
+        "Expected NormalScanExecState when mixed ff disabled, got: {:?}",
+        methods
+    );
+
+    let results: Vec<(i32, i32)> = r#"
+        SELECT id, num_col FROM test_mff_disabled
+        WHERE text_col @@@ 'Record'
+        ORDER BY num_col DESC
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(results.len(), 60, "Should return all 60 results");
+
+    let nums: Vec<i32> = results.iter().map(|(_, n)| *n).collect();
+    assert!(
+        is_sorted_desc(&nums),
+        "Results should be sorted with ORDER BY even when mixed ff exec disabled. First 20: {:?}",
+        &nums[..20.min(nums.len())]
+    );
+}

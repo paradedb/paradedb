@@ -49,6 +49,10 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
 static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to enable or disable sorted execution for MixedFastFieldExecState.
+/// When disabled, sorted paths will not be created even if the index has sort_by.
+static ENABLE_MIXED_FAST_FIELD_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
@@ -171,6 +175,15 @@ pub fn init() {
         c"Enable MixedFastFieldExecState executor",
         c"Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
         &ENABLE_MIXED_FAST_FIELD_EXEC,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mixed_fast_field_sort",
+        c"Enable sorted execution for MixedFastFieldExecState",
+        c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
+        &ENABLE_MIXED_FAST_FIELD_SORT,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -354,6 +367,10 @@ pub fn is_fast_field_exec_enabled() -> bool {
 
 pub fn is_mixed_fast_field_exec_enabled() -> bool {
     ENABLE_MIXED_FAST_FIELD_EXEC.get()
+}
+
+pub fn is_mixed_fast_field_sort_enabled() -> bool {
+    ENABLE_MIXED_FAST_FIELD_SORT.get()
 }
 
 pub fn mixed_fast_field_exec_column_threshold() -> usize {

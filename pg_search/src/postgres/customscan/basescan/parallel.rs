@@ -149,7 +149,7 @@ pub fn compute_nworkers(
     // the limit.
     //
     // Only apply this optimization when we have reliable row estimates.
-    if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
+    if let (false, Some(limit)) = (exec_method.declares_sorted_output(), limit) {
         if let RowEstimate::Known(total_rows) = estimated_total_rows {
             let rows_per_segment = total_rows as f64 / segment_count.max(1) as f64;
             let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;

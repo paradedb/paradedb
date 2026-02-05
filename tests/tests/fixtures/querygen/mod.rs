@@ -196,6 +196,34 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
+    // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
+    let sortable_types = [
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "REAL",
+        "FLOAT",
+        "DOUBLE",
+        "NUMERIC",
+        "DATE",
+        "TIMESTAMP",
+    ];
+    let sort_by_field = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .filter(|c| {
+            sortable_types
+                .iter()
+                .any(|t| c.sql_type.to_uppercase().contains(t))
+        })
+        .filter_map(|c| {
+            c.bm25_options
+                .as_ref()
+                .filter(|o| o.config_json.contains(r#""fast": true"#))
+                .map(|_| c.name)
+        })
+        .next();
+
     // For INSERT statements
     let insert_columns = columns_def
         .iter()
@@ -219,6 +247,11 @@ pub fn generated_queries_setup(
         .join(",\n      ");
 
     for (tname, row_count) in tables {
+        // Build sort_by clause if we have a suitable field
+        let sort_by_clause = sort_by_field
+            .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
+            .unwrap_or_default();
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
@@ -228,7 +261,7 @@ CREATE TABLE {tname} (
 CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'
+    numeric_fields = '{{ {numeric_fields} }}'{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
@@ -301,6 +334,11 @@ pub struct PgGucs {
     pub seqscan: bool,
     pub indexscan: bool,
     pub parallel_workers: bool,
+    /// Enable mixed fast field execution (MixedFastFieldExecState).
+    /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
+    pub mixed_fast_field_exec: bool,
+    /// Enable sorted execution for MixedFastFieldExecState.
+    pub mixed_fast_field_sort: bool,
 }
 
 impl Default for PgGucs {
@@ -314,6 +352,8 @@ impl Default for PgGucs {
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
+            mixed_fast_field_exec: false,
+            mixed_fast_field_sort: true,
         }
     }
 }
@@ -329,6 +369,8 @@ impl PgGucs {
             seqscan,
             indexscan,
             parallel_workers,
+            mixed_fast_field_exec,
+            mixed_fast_field_sort,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -359,6 +401,16 @@ impl PgGucs {
         writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
         writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_exec TO {mixed_fast_field_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_sort TO {mixed_fast_field_sort};"
+        )
+        .unwrap();
         gucs
     }
 }

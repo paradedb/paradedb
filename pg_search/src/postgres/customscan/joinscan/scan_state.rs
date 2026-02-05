@@ -510,14 +510,14 @@ unsafe fn compute_predicate_matches(pred: &JoinLevelSearchPredicate) -> Result<V
 
     let search_results = reader.search();
     let fields = vec![WhichFastField::Ctid];
-    let mut ffhelper = FFHelper::with_fields(&reader, &fields);
+    let ffhelper = FFHelper::with_fields(&reader, &fields);
     let snapshot = pg_sys::GetActiveSnapshot();
     let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
     let mut scanner = Scanner::new(search_results, None, fields, pred.heaprelid.into());
 
     let mut ctids = Vec::new();
-    while let Some(batch) = scanner.next(&mut ffhelper, &mut visibility) {
+    while let Some(batch) = scanner.next(&ffhelper, &mut visibility) {
         if let Some(Some(col)) = batch.fields.first() {
             let array = col
                 .as_any()

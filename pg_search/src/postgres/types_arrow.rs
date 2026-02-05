@@ -33,8 +33,9 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 /// responsible for converting those widened types (e.g. `Utf8View`) back into specific
 /// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
 ///
-/// The `numeric_scale` parameter is used for `Numeric64` fields (NUMERIC with precision <= 18)
-/// which are stored as scaled i64 values. The scale is needed to convert back to NUMERIC.
+/// The `numeric_scale` parameter is used for `Numeric64` and `NumericBytes` fields.
+/// For `Numeric64`, the scale is used to convert scaled i64 values back to NUMERIC.
+/// For `NumericBytes`, the scale is used to format the output with proper trailing zeros.
 pub fn arrow_array_to_datum(
     array: &dyn Array,
     index: usize,
@@ -86,7 +87,14 @@ pub fn arrow_array_to_datum(
                     // via string representation since AnyNumeric implements FromStr
                     let decimal = decimal_bytes::Decimal::from_bytes(bytes)
                         .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
-                    let decimal_str = decimal.to_string();
+
+                    // Format decimal with proper scale to preserve trailing zeros
+                    let decimal_str = if let Some(scale) = numeric_scale {
+                        format_decimal_with_scale(&decimal.to_string(), scale)
+                    } else {
+                        decimal.to_string()
+                    };
+
                     decimal_str
                         .parse::<pgrx::AnyNumeric>()
                         .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
@@ -299,6 +307,44 @@ pub fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
 
 pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
     date_time.into_timestamp_nanos()
+}
+
+/// Format a decimal string with a specific scale (number of decimal places).
+///
+/// This ensures trailing zeros are preserved when converting back from bytes storage
+/// to PostgreSQL NUMERIC. For example, if scale is 18 and the value is "1", this returns
+/// "1.000000000000000000".
+///
+/// If the string already has a decimal point, it pads with zeros to reach the target scale.
+/// If the string has no decimal point, it adds ".000..." with the appropriate number of zeros.
+fn format_decimal_with_scale(decimal_str: &str, scale: i16) -> String {
+    if scale <= 0 {
+        // Negative or zero scale means no decimal places needed
+        return decimal_str.to_string();
+    }
+
+    let scale = scale as usize;
+
+    // Handle special values
+    if decimal_str == "NaN" || decimal_str == "Infinity" || decimal_str == "-Infinity" {
+        return decimal_str.to_string();
+    }
+
+    // Find the decimal point position
+    if let Some(dot_pos) = decimal_str.find('.') {
+        let current_decimals = decimal_str.len() - dot_pos - 1;
+        if current_decimals >= scale {
+            // Already has enough decimal places
+            decimal_str.to_string()
+        } else {
+            // Need to add trailing zeros
+            let zeros_needed = scale - current_decimals;
+            format!("{}{}", decimal_str, "0".repeat(zeros_needed))
+        }
+    } else {
+        // No decimal point - add one with the required zeros
+        format!("{}.{}", decimal_str, "0".repeat(scale))
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

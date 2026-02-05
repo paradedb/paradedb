@@ -74,6 +74,7 @@ fn build_schema(fields: &[WhichFastField]) -> SchemaRef {
                     FastFieldType::Date => {
                         arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
                     }
+                    FastFieldType::Numeric(_) => arrow_schema::DataType::BinaryView,
                     // Numeric64 is stored as Int64 in the fast field
                     FastFieldType::Numeric64(_) => arrow_schema::DataType::Int64,
                 };

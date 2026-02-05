@@ -130,7 +130,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
                     | SearchFieldType::U64(_)
                     | SearchFieldType::F64(_)
                     | SearchFieldType::Numeric64(_, _)
-                    | SearchFieldType::NumericBytes(_)
+                    | SearchFieldType::NumericBytes(..)
             )
         });
     }
@@ -276,7 +276,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             }
             // NUMERIC with precision > 18 or unlimited: stored as sortable bytes
             // We use bytes storage with lexicographically sortable encoding from decimal-bytes.
-            SearchFieldType::NumericBytes(_) => {
+            SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
         };

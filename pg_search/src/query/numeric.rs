@@ -407,7 +407,7 @@ pub fn convert_value_for_field(
 ) -> Result<OwnedValue> {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
-        SearchFieldType::NumericBytes(_) => numeric_value_to_decimal_bytes(value),
+        SearchFieldType::NumericBytes(..) => numeric_value_to_decimal_bytes(value),
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(_) => Ok(string_to_i64(value)),
         SearchFieldType::U64(_) => Ok(string_to_u64(value)),

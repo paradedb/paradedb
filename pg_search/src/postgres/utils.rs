@@ -703,7 +703,7 @@ pub unsafe fn row_to_search_document<'a>(
                         document.add_field_value(search_field.field(), &OwnedValue::from(value));
                     }
                 }
-                SearchFieldType::NumericBytes(_) => {
+                SearchFieldType::NumericBytes(..) => {
                     for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
                         .unwrap_or_else(|e| {
                             panic!("could not parse field `{}`: {e}", search_field.field_name())
@@ -736,7 +736,7 @@ pub unsafe fn row_to_search_document<'a>(
                 SearchFieldType::Numeric64(_, scale) => {
                     TantivyValue::try_from_numeric_i64(actual_datum, scale)
                 }
-                SearchFieldType::NumericBytes(_) => {
+                SearchFieldType::NumericBytes(..) => {
                     TantivyValue::try_from_numeric_bytes(actual_datum)
                 }
                 _ => TantivyValue::try_from_datum(actual_datum, *base_oid),

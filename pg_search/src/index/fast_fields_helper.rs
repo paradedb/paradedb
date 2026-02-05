@@ -260,6 +260,10 @@ pub enum FastFieldType {
     /// NUMERIC with precision <= 18, stored as I64 with fixed-point scaling.
     /// The i16 is the scale (number of decimal places).
     Numeric64(i16),
+    /// NUMERIC with precision > 18 or unlimited, stored as lexicographically sortable bytes.
+    /// The Option<i16> is the scale (number of decimal places) for formatting output.
+    /// None means unlimited precision NUMERIC without a defined scale.
+    Numeric(Option<i16>),
 }
 
 impl From<SearchFieldType> for FastFieldType {
@@ -278,7 +282,7 @@ impl From<SearchFieldType> for FastFieldType {
             SearchFieldType::Date(_) => FastFieldType::Date,
             SearchFieldType::Range(_) => FastFieldType::String,
             SearchFieldType::Numeric64(_, scale) => FastFieldType::Numeric64(scale),
-            SearchFieldType::NumericBytes(_) => FastFieldType::Bytes,
+            SearchFieldType::NumericBytes(_, scale) => FastFieldType::Numeric(scale),
         }
     }
 }
@@ -333,6 +337,8 @@ impl WhichFastField {
                 }
                 // Numeric64 is stored as Int64 in the fast field
                 FastFieldType::Numeric64(_) => DataType::Int64,
+                // Numeric (NumericBytes) is stored as BinaryView
+                FastFieldType::Numeric(_) => DataType::BinaryView,
             },
             WhichFastField::Junk(_) => DataType::Null,
         }

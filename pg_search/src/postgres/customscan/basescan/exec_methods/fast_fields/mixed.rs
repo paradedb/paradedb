@@ -267,9 +267,10 @@ fn populate_slot_from_record_batch(
             _ => {}
         }
 
-        // Extract numeric scale if this is a Numeric64 field
+        // Extract numeric scale if this is a Numeric64 or Numeric (NumericBytes) field
         let numeric_scale = match which_fast_field {
             WhichFastField::Named(_, FastFieldType::Numeric64(scale)) => Some(*scale),
+            WhichFastField::Named(_, FastFieldType::Numeric(scale)) => *scale,
             _ => None,
         };
 

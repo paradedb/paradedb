@@ -673,7 +673,6 @@ impl CustomScan for BaseScan {
                 .into_iter()
                 .collect(),
             );
-            let maybe_ff = custom_private.maybe_ff();
 
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
@@ -762,16 +761,6 @@ impl CustomScan for BaseScan {
             // to decide on parallelism
             //
 
-            let per_tuple_cost = {
-                if maybe_ff {
-                    // returning fields from fast fields
-                    pg_sys::cpu_index_tuple_cost
-                } else {
-                    // requires heap access to return fields
-                    pg_sys::cpu_tuple_cost
-                }
-            };
-
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
 
@@ -779,6 +768,13 @@ impl CustomScan for BaseScan {
             // CustomPath. This allows the Postgres planner to choose the most efficient
             // implementation based on costs and downstream requirements like ordering.
             for method in exec_method_types {
+                let per_tuple_cost = match &method {
+                    // returning fields from fast fields
+                    ExecMethodType::FastFieldMixed { .. } => pg_sys::cpu_index_tuple_cost,
+                    // requires heap access to return fields
+                    _ => pg_sys::cpu_tuple_cost,
+                };
+
                 let mut path_builder = CustomPathBuilder::<Self>::new(
                     builder.args().root,
                     builder.args().rel,

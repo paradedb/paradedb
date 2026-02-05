@@ -130,7 +130,7 @@ fn value_to_decimal(value: &OwnedValue) -> Result<Decimal> {
 /// The byte encoding is lexicographically sortable for range queries.
 ///
 /// Used for NumericBytes fields which are stored as Tantivy Bytes columns.
-pub fn numeric_value_to_raw_bytes(value: OwnedValue) -> Result<OwnedValue> {
+pub fn numeric_value_to_decimal_bytes(value: OwnedValue) -> Result<OwnedValue> {
     let decimal = value_to_decimal(&value)?;
     Ok(OwnedValue::Bytes(decimal.into_bytes()))
 }
@@ -323,7 +323,7 @@ pub fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> Result<Bound
 /// Convert a numeric bound to lexicographically sortable raw bytes.
 /// Used for NumericBytes fields stored as Tantivy Bytes columns.
 pub fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> Result<Bound<OwnedValue>> {
-    convert_bound(bound, numeric_value_to_raw_bytes)
+    convert_bound(bound, numeric_value_to_decimal_bytes)
 }
 
 // ============================================================================
@@ -403,7 +403,7 @@ pub fn convert_value_for_field(
 ) -> Result<OwnedValue> {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
-        SearchFieldType::NumericBytes(_) => numeric_value_to_raw_bytes(value),
+        SearchFieldType::NumericBytes(_) => numeric_value_to_decimal_bytes(value),
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(_) => Ok(string_to_i64(value)),
         SearchFieldType::U64(_) => Ok(string_to_u64(value)),

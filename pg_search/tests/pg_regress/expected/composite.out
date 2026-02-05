@@ -1731,7 +1731,7 @@ ORDER BY count DESC, category;
                Table: smoke_test
                Index: smoke_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: category, rating
+               Fast Fields: rating, category
                Scores: false
                Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (11 rows)
@@ -2848,7 +2848,7 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: MixedFastFieldExecState
-   Fast Fields: original_price, id
+   Fast Fields: id, original_price
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
 (7 rows)
@@ -2868,7 +2868,7 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: MixedFastFieldExecState
-   Fast Fields: original_price, id
+   Fast Fields: id, original_price
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (7 rows)

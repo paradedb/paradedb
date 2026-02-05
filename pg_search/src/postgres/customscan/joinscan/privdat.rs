@@ -47,6 +47,8 @@ pub struct PrivateData {
     /// Mapping of output column positions to their source relation and original attribute numbers.
     /// This is populated during planning (before setrefs) and used during execution.
     pub output_columns: Vec<OutputColumnInfo>,
+    /// Serialized DataFusion LogicalPlan from planning phase.
+    pub logical_plan: Option<bytes::Bytes>,
 }
 
 impl PrivateData {
@@ -54,6 +56,7 @@ impl PrivateData {
         Self {
             join_clause,
             output_columns: Vec::new(),
+            logical_plan: None,
         }
     }
 

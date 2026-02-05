@@ -112,7 +112,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -154,7 +167,20 @@ LIMIT 5;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
+                 :     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -192,7 +218,20 @@ LIMIT 5;
                Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: p.supplier_id asc, s.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, NULL as col_2, NULL as col_3, id@1 as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
+                 :   SortPreservingMergeExec: [supplier_id@3 ASC NULLS LAST, id@1 ASC NULLS LAST], fetch=5
+                 :     SortExec: TopK(fetch=5), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -311,7 +350,20 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: pdb.score() desc, p.id asc
-(17 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
+                       :   SortPreservingMergeExec: [score@1 DESC, id@3 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(30 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p
@@ -359,7 +411,20 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: p.id asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, score@1 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
+                       :   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
 FROM products p
@@ -409,7 +474,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@3 as col_1, NULL as col_2, NULL as col_3, score@0 as col_4, ctid_2@1 as ctid_2, ctid_1@2 as ctid_1]
+                 :   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[score@0, ctid_2@1, ctid_1@3, id@5]
+                 :         RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=1
+                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(28 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
 FROM products p
@@ -461,7 +539,20 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, score@2 as col_3, NULL as col_4, score@0 as col_5, ctid_2@1 as ctid_2, ctid_1@3 as ctid_1]
+                       :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, score@3, ctid_1@4, id@6]
+                       :         RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(30 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
        paradedb.score(p.id) AS product_score,
@@ -506,7 +597,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(28 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -560,7 +664,20 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(16 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(29 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -632,7 +749,20 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -704,11 +834,24 @@ WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p,
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: p.id asc
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
                ->  Hash
                      Output: c.name, c.id
                      ->  Seq Scan on public.categories c
                            Output: c.name, c.id
-(22 rows)
+(35 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, c.name AS category_name
 FROM products p
@@ -796,7 +939,20 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -864,7 +1020,20 @@ LIMIT 3;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
                Limit: 3
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=3
+                 :     SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -960,7 +1129,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: o.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(customer_code@1, customer_code@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([customer_code@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, customer_code@1 as customer_code]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([customer_code@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, customer_code@1 as customer_code, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
 FROM orders o
@@ -1021,8 +1203,8 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.product_name, w.name
    ->  Sort
@@ -1037,7 +1219,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: i.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_2@0, ctid_1@3, id@6]
+                 :         RepartitionExec: partitioning=Hash([region_id@1, warehouse_code@2], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, region_id@1 as region_id, warehouse_code@2 as warehouse_code]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([region_id@1, warehouse_code@2], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, region_id@1 as region_id, warehouse_code@2 as warehouse_code, id@3 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -1107,7 +1302,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: i.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(type_id@1, type_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([type_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, type_id@1 as type_id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([type_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, type_id@1 as type_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT i.id, i.name, t.type_name
 FROM items i
@@ -1193,7 +1401,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: lo.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
 FROM large_orders lo
@@ -1237,7 +1458,20 @@ LIMIT 10;
                Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1277,7 +1511,20 @@ LIMIT 10;
                Tantivy Query 1: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1328,7 +1575,22 @@ LIMIT 10;
                Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
                Limit: 10
                Order By: p.id asc
-(15 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_1@1) OR row_in_set(ctid_2@0) AND row_in_set(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=8
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             FilterExec: row_in_set(ctid@0) OR row_in_set(ctid@0) OR row_in_set(ctid@0)
+                 :               RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
+                 :                 CooperativeExec
+                 :                   PgSearchScan
+(30 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1368,7 +1630,20 @@ LIMIT 10;
                Join Predicate: (p:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"shipping","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"UK","lenient":null,"conjunction_mode":null}}}}]}})
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1408,7 +1683,20 @@ LIMIT 10;
                Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 10
                Order By: p.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1482,7 +1770,20 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: d.id asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                       :         RepartitionExec: partitioning=Hash([author_code@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, author_code@1 as author_code]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([author_code@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, author_code@1 as author_code, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 SELECT d.title, a.name
 FROM docs d
@@ -1553,7 +1854,20 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: i.id asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([category_id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1675,8 +1989,8 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
    ->  Sort
@@ -1693,7 +2007,20 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: od.order_id asc, oi.order_id asc, od.line_num asc, oi.line_num asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, order_id@4 as col_2, line_num@5 as col_3, NULL as col_4, NULL as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
+                       :   SortPreservingMergeExec: [order_id@4 ASC NULLS LAST, order_id@1 ASC NULLS LAST, line_num@5 ASC NULLS LAST, line_num@2 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[order_id@1 ASC NULLS LAST, line_num@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)]
+                       :         RepartitionExec: partitioning=Hash([order_id@1, line_num@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, order_id@1 as order_id, line_num@2 as line_num]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([order_id@1, line_num@2], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1825,7 +2152,20 @@ LIMIT 10;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: o.id asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([customer_id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, customer_id@1 as customer_id, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -2159,7 +2499,20 @@ LIMIT 5;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
+                 :     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2201,7 +2554,20 @@ LIMIT 5;
                Tantivy Query 1: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
+                 :     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2242,7 +2608,20 @@ LIMIT 5;
                Join Predicate: (qgen_products:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"alice","lenient":null,"conjunction_mode":null}}}} OR qgen_users:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}})
                Limit: 5
                Order By: qgen_users.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=5
+                 :     SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(age@1, age@1)], filter=row_in_set(ctid_2@0) OR row_in_set(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([age@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2310,7 +2689,20 @@ LIMIT 10;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 10
                Order By: tp.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                 :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, ref_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([ref_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, ref_id@1 as ref_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT tp.id, tp.description, tr.name
 FROM tiny_products tp
@@ -2377,7 +2769,20 @@ LIMIT 20;
                Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                Limit: 20
                Order By: hp.id asc
-(14 rows)
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                 :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=20
+                 :     SortExec: TopK(fetch=20), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+                 :         RepartitionExec: partitioning=Hash([category_id@1], 8), input_partitions=1
+                 :           ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
+                 :             CooperativeExec
+                 :               PgSearchScan
+(27 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
 FROM hint_test_products hp
@@ -2575,7 +2980,20 @@ LIMIT 5;
                      Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: m.ID asc
-(16 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, ID@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+                       :   SortPreservingMergeExec: [ID@2 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[ID@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, JoinKey@1)], projection=[ctid_2@0, ctid_1@2, ID@4]
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([JoinKey@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, JoinKey@1 as JoinKey, ID@2 as ID]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(29 rows)
 
 SELECT m."Content", s.name
 FROM "MixedCaseTable" m
@@ -2670,7 +3088,27 @@ LIMIT 10;
                      Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@3 as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_4@1 as ctid_4, ctid_1@2 as ctid_1]
+                       :   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, ctid_1@1 as ctid_1, id@2 as id]
+                       :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@2, id@1)], projection=[ctid_2@0, ctid_1@1, id@3, ctid_4@4]
+                       :           RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=8
+                       :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
+                       :               RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :                 ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :                   CooperativeExec
+                       :                     PgSearchScan
+                       :               RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+                       :                 ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id, id@3 as id]
+                       :                   CooperativeExec
+                       :                     PgSearchScan
+                       :           RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :             ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+                       :               CooperativeExec
+                       :                 PgSearchScan
+(37 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2714,7 +3152,26 @@ LIMIT 10;
                      Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                      Limit: 10
                      Order By: p.id asc
-(17 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1, ctid_4@3 as ctid_4]
+                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
+                       :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@2, id@1)], projection=[ctid_2@0, ctid_1@1, id@3, ctid_4@4]
+                       :         RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=8
+                       :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
+                       :             RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :                 CooperativeExec
+                       :                   PgSearchScan
+                       :             RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+                       :               ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id, id@3 as id]
+                       :                 CooperativeExec
+                       :                   PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(36 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
 FROM products p
@@ -2754,7 +3211,27 @@ LIMIT 5;
          Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 5
          Order By: pdb.score() desc
-(12 rows)
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, score@2 as col_2, ctid_2@0 as ctid_2, ctid_4@1 as ctid_4, ctid_1@3 as ctid_1]
+           :   SortPreservingMergeExec: [score@2 DESC], fetch=5
+           :     SortExec: TopK(fetch=5), expr=[score@2 DESC], preserve_partitioning=[true]
+           :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, score@1 as score, ctid_1@2 as ctid_1]
+           :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@3, id@1)], projection=[ctid_2@0, score@1, ctid_1@2, ctid_4@4]
+           :           RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=8
+           :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@3)], projection=[ctid_2@0, score@2, ctid_1@3, category_id@4]
+           :               RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+           :                 ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :                   CooperativeExec
+           :                     PgSearchScan
+           :               RepartitionExec: partitioning=Hash([supplier_id@3], 8), input_partitions=1
+           :                 ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, category_id@2 as category_id, supplier_id@3 as supplier_id]
+           :                   CooperativeExec
+           :                     PgSearchScan
+           :           RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+           :             ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+           :               CooperativeExec
+           :                 PgSearchScan
+(32 rows)
 
 SELECT p.name, paradedb.score(p.id)
 FROM products p
@@ -2792,7 +3269,26 @@ LIMIT 5;
          Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
          Limit: 5
          Order By: pdb.score() desc
-(12 rows)
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, score@0 as col_2, ctid_2@1 as ctid_2, ctid_1@2 as ctid_1, ctid_4@3 as ctid_4]
+           :   SortPreservingMergeExec: [score@0 DESC], fetch=5
+           :     SortExec: TopK(fetch=5), expr=[score@0 DESC], preserve_partitioning=[true]
+           :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@3, id@1)], projection=[score@0, ctid_2@1, ctid_1@2, ctid_4@4]
+           :         RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=8
+           :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, ctid_1@3, category_id@4]
+           :             RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=1
+           :               ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan
+           :             RepartitionExec: partitioning=Hash([supplier_id@2], 8), input_partitions=1
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id]
+           :                 CooperativeExec
+           :                   PgSearchScan
+           :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+           :           ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+           :             CooperativeExec
+           :               PgSearchScan
+(31 rows)
 
 SELECT s.name, paradedb.score(s.id)
 FROM products p
@@ -2841,8 +3337,8 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description @@@ 'deepest'
 ORDER BY l1.id
 LIMIT 5;
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: l1.name, l2.name, l3.name, l4.name, l1.id
    ->  Sort
@@ -2861,7 +3357,33 @@ LIMIT 5;
                      Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(18 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@3 as col_2, NULL as col_3, NULL as col_4, NULL as col_5, ctid_6@0 as ctid_6, ctid_4@1 as ctid_4, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+                       :   SortPreservingMergeExec: [id@3 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       ProjectionExec: expr=[ctid_6@0 as ctid_6, ctid_4@1 as ctid_4, ctid_1@3 as ctid_1, id@4 as id, ctid_2@2 as ctid_2]
+                       :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_6@0, ctid_4@1, ctid_2@2, ctid_1@4, id@6]
+                       :           RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
+                       :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
+                       :               RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=8
+                       :                 HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
+                       :                   RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :                     ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
+                       :                       CooperativeExec
+                       :                         PgSearchScan
+                       :                   RepartitionExec: partitioning=Hash([l4_id@1], 8), input_partitions=1
+                       :                     ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
+                       :                       CooperativeExec
+                       :                         PgSearchScan
+                       :               RepartitionExec: partitioning=Hash([l3_id@2], 8), input_partitions=1
+                       :                 ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
+                       :                   CooperativeExec
+                       :                     PgSearchScan
+                       :           RepartitionExec: partitioning=Hash([l2_id@1], 8), input_partitions=1
+                       :             ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
+                       :               CooperativeExec
+                       :                 PgSearchScan
+(44 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name
 FROM level1 l1
@@ -2910,7 +3432,32 @@ LIMIT 5;
                      Tantivy Query 3: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(19 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@4 as col_2, NULL as col_3, ctid_6@0 as ctid_6, ctid_4@1 as ctid_4, ctid_2@2 as ctid_2, ctid_1@3 as ctid_1]
+                       :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_6@0, ctid_4@1, ctid_2@2, ctid_1@4, id@6]
+                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
+                       :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
+                       :             RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=8
+                       :               HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
+                       :                 RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :                   ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
+                       :                     CooperativeExec
+                       :                       PgSearchScan
+                       :                 RepartitionExec: partitioning=Hash([l4_id@1], 8), input_partitions=1
+                       :                   ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
+                       :                     CooperativeExec
+                       :                       PgSearchScan
+                       :             RepartitionExec: partitioning=Hash([l3_id@2], 8), input_partitions=1
+                       :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
+                       :                 CooperativeExec
+                       :                   PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([l2_id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(44 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1
@@ -2935,8 +3482,8 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
 ORDER BY l1.id
 LIMIT 5;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: l1.name, l4.name, l1.id
    ->  Sort
@@ -2956,7 +3503,32 @@ LIMIT 5;
                      Tantivy Query 2: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
                      Limit: 5
                      Order By: l1.id asc
-(19 rows)
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@4 as col_2, NULL as col_3, ctid_4@0 as ctid_4, ctid_6@1 as ctid_6, ctid_2@2 as ctid_2, ctid_1@3 as ctid_1]
+                       :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
+                       :     SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
+                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_4@0, ctid_6@1, ctid_2@2, ctid_1@4, id@6]
+                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
+                       :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l3_id@2)], projection=[ctid_4@0, ctid_6@2, ctid_2@3, id@4]
+                       :             RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=8
+                       :               HashJoinExec: mode=Partitioned, join_type=Inner, on=[(l4_id@1, id@1)], projection=[ctid_4@0, id@2, ctid_6@3]
+                       :                 RepartitionExec: partitioning=Hash([l4_id@1], 8), input_partitions=1
+                       :                   ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
+                       :                     CooperativeExec
+                       :                       PgSearchScan
+                       :                 RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
+                       :                   ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
+                       :                     CooperativeExec
+                       :                       PgSearchScan
+                       :             RepartitionExec: partitioning=Hash([l3_id@2], 8), input_partitions=1
+                       :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
+                       :                 CooperativeExec
+                       :                   PgSearchScan
+                       :         RepartitionExec: partitioning=Hash([l2_id@1], 8), input_partitions=1
+                       :           ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
+                       :             CooperativeExec
+                       :               PgSearchScan
+(44 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1

@@ -1,21 +1,176 @@
-DROP TABLE IF EXISTS tokenizer_fast;
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_aggregate_custom_scan = true;
 CREATE TABLE tokenizer_fast (
     id serial8 not null primary key,
-    t text
+    t text,
+    t_long text,
+    metadata jsonb
 );
-INSERT INTO tokenizer_fast (t) VALUES ('This is a TEST');
-CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (id, (t::pdb.literal)) WITH (key_field = 'id');
+INSERT INTO tokenizer_fast (t, t_long, metadata) VALUES
+    ('hello', 'The big cat', '{"key": "The big cat", "value": 1}'),
+    ('hello', 'the big cat', '{"key": "the big cat", "value": 3}'),
+    ('world', 'Quick brown fox', '{"key": "Quick brown fox", "value": 2}');
+CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
+    id,
+    (t::pdb.literal),
+    (t_long::pdb.literal_normalized('stopwords_language=English')),
+    (metadata::pdb.literal_normalized('stopwords_language=English'))
+) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
- name | field_type | stored | indexed | fast | fieldnorms | expand_dots |        tokenizer         | record | normalizer 
-------+------------+--------+---------+------+------------+-------------+--------------------------+--------+------------
- ctid | U64        | f      | t       | t    | f          |             |                          |        | 
- id   | I64        | f      | t       | t    | f          |             |                          |        | 
- t    | Str        | f      | t       | t    | f          |             | keyword[lowercase=false] | basic  | raw
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                   tokenizer                    | record | normalizer 
+----------+------------+--------+---------+------+------------+-------------+------------------------------------------------+--------+------------
+ ctid     | U64        | f      | t       | t    | f          |             |                                                |        | 
+ id       | I64        | f      | t       | t    | f          |             |                                                |        | 
+ metadata | JsonObject | f      | t       | t    | f          | t           | literal_normalized[stopwords_language=English] | basic  | raw
+ t        | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                       | basic  | raw
+ t_long   | Str        | f      | t       | t    | f          |             | literal_normalized[stopwords_language=English] | basic  | raw
+(5 rows)
+
+-- Top N over literal
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+         Table: tokenizer_fast
+         Index: idxtokenizer_fast
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: t asc, id asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
+ id |   t   |     t_long      |                metadata                
+----+-------+-----------------+----------------------------------------
+  1 | hello | The big cat     | {"key": "The big cat", "value": 1}
+  2 | hello | the big cat     | {"key": "the big cat", "value": 3}
+  3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}
 (3 rows)
 
-SELECT * FROM tokenizer_fast WHERE t &&& 'This is a TEST';
- id |       t        
-----+----------------
-  1 | This is a TEST
-(1 row)
+-- Aggregate scan pushdown over literal
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+         Index: idxtokenizer_fast
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: t
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"t","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
 
+SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
+   t   | count 
+-------+-------
+ hello |     2
+ world |     1
+(2 rows)
+
+-- Top N over literal normalized
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+         Table: tokenizer_fast
+         Index: idxtokenizer_fast
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: t_long asc, id asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
+ id |   t   |     t_long      |                metadata                
+----+-------+-----------------+----------------------------------------
+  3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}
+  1 | hello | The big cat     | {"key": "The big cat", "value": 1}
+  2 | hello | the big cat     | {"key": "the big cat", "value": 3}
+(3 rows)
+
+-- Aggregate scan pushdown over literal normalized
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+         Index: idxtokenizer_fast
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: t_long
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"t_long","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
+     t_long      | count 
+-----------------+-------
+ Quick brown fox |     1
+ The big cat     |     1
+ the big cat     |     1
+(3 rows)
+
+-- Aggregate scan pushdown over JSON
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+         Index: idxtokenizer_fast
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata.key
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.key","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(8 rows)
+
+SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
+    ?column?     | count 
+-----------------+-------
+ Quick brown fox |     1
+ The big cat     |     1
+ the big cat     |     1
+(3 rows)
+
+-- Order by JSON not supported
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((metadata ->> 'key'::text)), id
+         ->  Custom Scan (ParadeDB Scan) on tokenizer_fast
+               Table: tokenizer_fast
+               Index: idxtokenizer_fast
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(9 rows)
+
+SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY metadata->>'key', id LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: tokenizer_fast)
+ id |   t   |     t_long      |                metadata                
+----+-------+-----------------+----------------------------------------
+  3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}
+  1 | hello | The big cat     | {"key": "The big cat", "value": 1}
+  2 | hello | the big cat     | {"key": "the big cat", "value": 3}
+(3 rows)
+
+DROP TABLE tokenizer_fast;

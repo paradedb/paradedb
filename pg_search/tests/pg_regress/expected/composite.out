@@ -16,14 +16,14 @@ SET search_path TO composite_test, public;
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 -- Create table with composite type in index
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 -- Create index using composite type expression
 CREATE INDEX idx_products
@@ -74,6 +74,70 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
      1
 (1 row)
 
+------------------------------------------------------------
+-- TEST: MixedFastFieldExecState with ROW expression fields
+------------------------------------------------------------
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+-- Composite type using pdb.literal to enable fast fields
+CREATE TYPE fast_article_search AS (
+    title pdb.literal,
+    body pdb.literal
+);
+CREATE TABLE articles_fast (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+CREATE INDEX idx_articles_fast_bm25
+ON articles_fast
+USING bm25 (id, (ROW(title, body)::fast_article_search))
+WITH (key_field='id');
+INSERT INTO articles_fast (title, body) VALUES
+    ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
+    ('Search_Tutorial', 'Full_text_search_techniques');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on articles_fast
+   Table: articles_fast
+   Index: idx_articles_fast_bm25
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: body, title
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL_Guide","lenient":null,"conjunction_mode":null}}}}
+(7 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+      title       |          body           
+------------------+-------------------------
+ PostgreSQL_Guide | Learn_PostgreSQL_basics
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on articles_fast
+         Table: articles_fast
+         Index: idx_articles_fast_bm25
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, body, title
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:Full_text_search_techniques","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+      title      |            body             
+-----------------+-----------------------------
+ Search_Tutorial | Full_text_search_techniques
+(1 row)
+
+RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
 ------------------------------------------------------------
@@ -352,12 +416,12 @@ DROP TYPE dup_field_comp;
 ------------------------------------------------------------
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price FLOAT);
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
     id, (ROW(name, description, price)::nullable_comp)
@@ -389,12 +453,12 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 ------------------------------------------------------------
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price FLOAT);
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
     id, (ROW(name, description, price)::reindex_comp)
@@ -1059,13 +1123,13 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 CREATE INDEX idx_products_schema
 ON products_schema
@@ -1346,7 +1410,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price FLOAT,
     in_stock BOOLEAN
 );
 -- Insert test data
@@ -1360,7 +1424,7 @@ INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VA
     ('Bluetooth Speaker', 'Portable bluetooth speaker waterproof', 'Electronics', 4.3, 39.99, true),
     ('Tennis Racket', 'Professional tennis racket lightweight', 'Sports', 4.1, 149.99, false);
 -- Create BM25 index on composite type
--- Numeric fields (rating, price) are automatically fast
+-- FLOAT fields (rating, price) are automatically fast
 -- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
 CREATE INDEX smoke_idx ON smoke_test
 USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
@@ -1640,9 +1704,9 @@ WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
- count | total  | avg_rating | min_price | max_price 
--------+--------+------------+-----------+-----------
-     5 | 399.95 |       4.48 |     39.99 |    129.99
+ count |       total        | avg_rating | min_price | max_price 
+-------+--------------------+------------+-----------+-----------
+     5 | 399.95000000000005 |       4.48 |     39.99 |    129.99
 (1 row)
 
 ------------------------------------------------------------
@@ -1797,7 +1861,7 @@ LIMIT 3;
 ------------------------------------------------------------
 \echo '=== TEST: Range Queries ==='
 === TEST: Range Queries ===
--- Range on numeric field using PostgreSQL range type
+-- Range on FLOAT field using PostgreSQL range type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, price FROM smoke_test
 WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
@@ -1811,7 +1875,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, price FROM smoke_test
@@ -1998,8 +2062,8 @@ SELECT id, name, price
 FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
 ORDER BY price, id;
-                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                             
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Scan) on smoke_test
@@ -2007,7 +2071,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price >= '50'::numeric)"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"heap_filter":"(price <= '150'::numeric)"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0},"is_datetime":false}}]}}
 (8 rows)
 
 SELECT id, name, price
@@ -2314,7 +2378,7 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
   1 | Running Shoes
 (1 row)
 
--- pdb.range() on numeric field (not composite, but verify it works alongside)
+-- pdb.range() on FLOAT field (not composite, but verify it works alongside)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
                                                                            QUERY PLAN                                                                           
@@ -2326,7 +2390,7 @@ SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0,
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":{"included":5.0},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"},"is_datetime":false}}}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -2753,12 +2817,12 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 -- TEST: Non-text expressions in composite fields
 ------------------------------------------------------------
 CREATE TYPE numeric_expr_composite AS (
-    original_price NUMERIC,
-    discounted_price NUMERIC
+    original_price FLOAT,
+    discounted_price FLOAT
 );
 CREATE TABLE numeric_expr_test (
     id SERIAL PRIMARY KEY,
-    price NUMERIC
+    price FLOAT
 );
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (
     id,
@@ -2783,15 +2847,16 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":75.0},"upper_bound":{"included":150.0},"is_datetime":false}}}}
-(6 rows)
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
- id | price  
-----+--------
-  1 | 100.00
+ id | price 
+----+-------
+  1 |   100
 (1 row)
 
 -- Range query on calculated discounted price (use the expression 'price * 0.9' which maps to 'discounted_price' field)
@@ -2802,15 +2867,16 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
  Custom Scan (ParadeDB Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: original_price, id
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":80.0},"upper_bound":{"included":100.0},"is_datetime":false}}}}
-(6 rows)
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+(7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
- id | price  
-----+--------
-  1 | 100.00
+ id | price 
+----+-------
+  1 |   100
 (1 row)
 
 \i common/composite_cleanup.sql

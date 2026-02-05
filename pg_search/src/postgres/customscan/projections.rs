@@ -28,7 +28,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::projections::snippet::{
+use crate::postgres::customscan::basescan::projections::snippet::{
     extract_snippet, extract_snippet_positions, extract_snippets, snippet_funcoids,
     snippet_positions_funcoids, SnippetType,
 };
@@ -58,7 +58,7 @@ pub(crate) fn placeholder_procid() -> pg_sys::Oid {
 /// This is called AFTER replace_aggrefs_in_target_list has replaced Aggrefs with FuncExprs.
 /// For wrapped expressions, we replace those FuncExprs with Const nodes that will be
 /// mutated with actual aggregate values before each ExecBuildProjectionInfo call.
-/// This follows the pdbscan pattern where Const values are baked in when projection is built.
+/// This follows the basescan pattern where Const values are baked in when projection is built.
 ///
 /// Returns: (placeholder_targetlist, const_nodes, needs_projection)
 /// - placeholder_targetlist: target list with FuncExprs replaced by Const nodes
@@ -240,7 +240,7 @@ unsafe fn expr_contains_placeholder_funcexpr(
 /// Create a placeholder Const node from a FuncExpr placeholder.
 /// The Const will be initialized with NULL value and will be mutated with actual
 /// aggregate values before each ExecBuildProjectionInfo call. This follows the
-/// pdbscan pattern where Const values are baked in when projection is built per-row.
+/// basescan pattern where Const values are baked in when projection is built per-row.
 unsafe fn make_placeholder_const_from_funcexpr(
     funcexpr: *mut pg_sys::FuncExpr,
 ) -> *mut pg_sys::Const {
@@ -261,6 +261,22 @@ unsafe fn make_placeholder_const_from_funcexpr(
         true,                   // constisnull (starts as NULL)
         typbyval,               // constbyval
     )
+}
+
+/// Walker callback for [`expression_tree_walker`] that returns `true` (abort)
+/// when it encounters a [`pg_sys::JoinExpr`] node.
+#[pg_guard]
+unsafe extern "C-unwind" fn find_join_expr_walker(
+    node: *mut pg_sys::Node,
+    _context: *mut std::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+    if (*node).type_ == pg_sys::NodeTag::T_JoinExpr {
+        return true;
+    }
+    expression_tree_walker(node, Some(find_join_expr_walker), _context)
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -284,12 +300,17 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
         }
 
         let root = (*srs).root;
-        let has_joins = (*root).hasJoinRTEs;
         let has_aggs = !(*root).parse.is_null() && (*(*root).parse).hasAggs;
 
-        // Use PlaceHolderVar when the query has joins OR aggregates.
-        // - Joins: to preserve score across join nodes
-        // - Aggregates: to preserve score across Gather nodes in parallel plans
+        // We walk the jointree instead of checking hasJoinRTEs because
+        // anti/semi-joins (from NOT EXISTS/EXISTS sublinks pulled up by
+        // pull_up_sublinks) create JoinExpr nodes without setting hasJoinRTEs.
+        let has_joins = !(*root).parse.is_null()
+            && find_join_expr_walker(
+                (*(*root).parse).jointree as *mut pg_sys::Node,
+                std::ptr::null_mut(),
+            );
+
         if !has_joins && !has_aggs {
             // No joins and no aggregates - PlaceHolderVar provides no benefit
             return ReturnedNodePointer(None);
@@ -316,7 +337,7 @@ pub unsafe fn placeholder_support(arg: Internal) -> ReturnedNodePointer {
 
         // copy these properties up from the Var to its placeholder
         (*phv).phlevelsup = (*var).varlevelsup;
-        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        #[cfg(not(feature = "pg15"))]
         {
             (*phv).phnullingrels = (*var).varnullingrels;
         }

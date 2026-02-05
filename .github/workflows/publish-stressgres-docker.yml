@@ -16,7 +16,7 @@ concurrency:
 jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
 
     steps:
       - name: Checkout Git Repository

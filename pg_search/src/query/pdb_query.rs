@@ -16,6 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::query::numeric::{
+    convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
+    scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
+};
 use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
@@ -23,7 +27,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
-use crate::schema::{IndexRecordOption, SearchIndexSchema};
+use crate::schema::{IndexRecordOption, SearchFieldType, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -690,17 +694,26 @@ fn term_set(
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
     let is_date_time = search_field.is_datetime();
+    let search_field_type = search_field.field_type();
 
-    Ok(Box::new(TermSetQuery::new(terms.into_iter().map(|term| {
-        value_to_term(
-            tantivy_field,
-            &term,
-            field_type,
-            field.path().as_deref(),
-            is_date_time,
-        )
-        .expect("could not convert argument to search term")
-    }))))
+    // Convert terms based on field type (uses same logic as term())
+    let converted_terms: Vec<OwnedValue> = terms
+        .into_iter()
+        .map(|term| convert_value_for_field(term, &search_field_type).unwrap_or(OwnedValue::Null))
+        .collect();
+
+    Ok(Box::new(TermSetQuery::new(
+        converted_terms.into_iter().map(|term| {
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                is_date_time,
+            )
+            .expect("could not convert argument to search term")
+        }),
+    )))
 }
 
 fn term(
@@ -715,9 +728,14 @@ fn term(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
+
+    // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
+    let value = convert_value_for_field(value.clone(), &search_field_type)?;
+
     let term = value_to_term(
         search_field.field(),
-        value,
+        &value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -928,6 +946,14 @@ fn range_term(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
+    // Convert numeric values to appropriate types based on range field type.
+    // Range fields are indexed as JSON with specific element types:
+    // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
+    // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
+    // - Date/time ranges: handled by is_datetime flag
+    let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
+
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
@@ -949,7 +975,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_lower_bound(value, Comparison::GreaterThanOrEqual)?,
+                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -964,7 +990,7 @@ fn range_term(
                         (
                             Occur::Must,
                             Box::new(
-                                range_field.compare_lower_bound(value, Comparison::GreaterThan)?,
+                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
                             ),
                         ),
                     ])),
@@ -992,7 +1018,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_upper_bound(value, Comparison::LessThanOrEqual)?,
+                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -1006,7 +1032,9 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(value, Comparison::LessThan)?),
+                            Box::new(
+                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
+                            ),
                         ),
                     ])),
                 ),
@@ -1349,10 +1377,51 @@ fn range(
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
     let is_datetime = search_field.is_datetime() || is_datetime;
+    let search_field_type = search_field.field_type();
 
-    let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
-    let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-    let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
+    // Handle NUMERIC field types with special storage strategies
+    // Also handle string-encoded numeric values for JSON and other numeric fields
+    let (lower_bound, upper_bound) = match search_field_type {
+        SearchFieldType::Numeric64(_, scale) => {
+            // Scale bounds for I64 fixed-point storage
+            let lower = scale_numeric_bound(lower_bound, scale)?;
+            let upper = scale_numeric_bound(upper_bound, scale)?;
+            (lower, upper)
+        }
+        SearchFieldType::NumericBytes(_) => {
+            // Convert bounds to lexicographically sortable bytes
+            let lower = numeric_bound_to_bytes(lower_bound)?;
+            let upper = numeric_bound_to_bytes(upper_bound)?;
+            (lower, upper)
+        }
+        SearchFieldType::Json(_) => {
+            // For JSON fields, convert string numeric values to appropriate JSON types
+            let lower = map_bound(lower_bound, string_to_json_numeric);
+            let upper = map_bound(upper_bound, string_to_json_numeric);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::I64(_) => {
+            let lower = map_bound(lower_bound, string_to_i64);
+            let upper = map_bound(upper_bound, string_to_i64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::U64(_) => {
+            let lower = map_bound(lower_bound, string_to_u64);
+            let upper = map_bound(upper_bound, string_to_u64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        SearchFieldType::F64(_) => {
+            let lower = map_bound(lower_bound, string_to_f64);
+            let upper = map_bound(upper_bound, string_to_f64);
+            check_range_bounds(typeoid, lower, upper)?
+        }
+        _ => {
+            // Standard path for other field types
+            let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
+            let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
+            check_range_bounds(typeoid, lower_bound, upper_bound)?
+        }
+    };
 
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
@@ -1599,19 +1668,46 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     conjunction_mode: Option<bool>,
     fuzzy_data: Option<FuzzyData>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field)
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_type();
+
+    // Handle Numeric64 and NumericBytes fields specially
+    // Tantivy's QueryParser can't parse decimal strings directly for these types
+    if matches!(
+        field_type,
+        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(_)
+    ) {
+        // Convert the query string to the appropriate numeric format
+        let value = OwnedValue::Str(query_string.trim().to_string());
+        if let Ok(converted) = convert_value_for_field(value, &field_type) {
+            let tantivy_field_type = search_field.field_entry().field_type();
+            let term = value_to_term(
+                search_field.field(),
+                &converted,
+                tantivy_field_type,
+                field.path().as_deref(),
+                false,
+            )?;
+            return Ok(Box::new(TermQuery::new(
+                term,
+                IndexRecordOption::WithFreqsAndPositions.into(),
+            )));
+        }
+        // If conversion fails, fall through to standard parsing (will likely error)
+    }
+
     let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
-    let field = schema
-        .search_field(field)
-        .ok_or(QueryError::NonIndexedField(field.clone()))?
-        .field();
+    let tantivy_field = search_field.field();
 
     if let Some(fuzzy_data) = fuzzy_data {
         parser.set_field_fuzzy(
-            field,
+            tantivy_field,
             fuzzy_data.prefix,
             fuzzy_data.distance,
             fuzzy_data.transposition_cost_one,

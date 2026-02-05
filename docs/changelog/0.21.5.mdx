@@ -1,0 +1,51 @@
+---
+title: 0.21.5
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed a rare query hang caused by an upstream Tantivy change
+- Fixed an issue where `pg_dump`/`pg_restore` would not work if a `pdb.*` tokenizer contained filters
+
+## New Features 🎉
+
+### Columnar Storage for Literal Normalized Fields
+
+The [literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized) tokenizer now gets indexed
+as columnar by default (in addition to the inverted index). This means that literal normalized fields can take part in [aggregate](/documentation/aggregates/overview) and [Top N](documentation/sorting/topn)
+queries without the need for a separate [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
+
+For example, if we use the literal normalized tokenizer on the `description` field:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.literal_normalized))
+WITH (key_field = 'id');
+```
+
+We can `ORDER BY` `description` and get a fast Top N query:
+
+```sql
+SELECT * FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY description
+LIMIT 10;
+```
+
+And `description` can be used with `pdb.agg`:
+
+```sql
+SELECT description, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY description
+ORDER BY description
+LIMIT 10;
+```
+
+<Note>
+  This change does not apply to indexes that have already been created. After
+  upgrading to `0.21.5`, you will need to reindex to use this feature.
+</Note>
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.5).

@@ -10,7 +10,7 @@ CREATE TABLE users (
     name  TEXT,
     color VARCHAR,
     age   INTEGER,
-    price NUMERIC(10,2),
+    price FLOAT,
     rating INTEGER
 );
 

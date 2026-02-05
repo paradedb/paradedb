@@ -1,0 +1,786 @@
+-- Test pdb.verify_index and related functions
+-- This tests the amcheck-style index verification for BM25 indexes
+-- Setup: Create the extension first
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Setup: Create a test table and index with multiple segments
+DROP TABLE IF EXISTS verify_test CASCADE;
+CREATE TABLE verify_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    category TEXT,
+    score INT
+);
+CREATE INDEX verify_test_idx ON verify_test USING bm25 (id, content, category, score) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Insert data in multiple batches to create multiple segments
+INSERT INTO verify_test (content, category, score) VALUES
+    ('hello world', 'greeting', 10),
+    ('goodbye world', 'farewell', 20),
+    ('search engine', 'technology', 30),
+    ('full text search', 'technology', 40),
+    ('paradedb postgres', 'database', 50);
+INSERT INTO verify_test (content, category, score) VALUES
+    ('additional content', 'misc', 60),
+    ('more data here', 'misc', 70),
+    ('testing segments', 'test', 80),
+    ('multiple batches', 'test', 90),
+    ('segment creation', 'test', 100);
+-- Test 1: Basic verification without heapallindexed option
+-- Should return schema_valid, index_readable, checksums_valid, segment_metadata_valid
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(4 rows)
+
+-- Test 2: Verification with heapallindexed option
+-- Should also check heap references
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: ctid_field_valid       | t
+ verify_test_idx: heap_references_valid  | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(6 rows)
+
+-- Test 3: Verify after more data is added
+INSERT INTO verify_test (content, category, score)
+SELECT 
+    'test content ' || i,
+    CASE WHEN i % 2 = 0 THEN 'even' ELSE 'odd' END,
+    i
+FROM generate_series(1, 100) i;
+-- Verify the index is still valid after inserts
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(4 rows)
+
+-- Test 4: Verify with heapallindexed after more data
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: ctid_field_valid       | t
+ verify_test_idx: heap_references_valid  | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(6 rows)
+
+-- Test 5: Verify after some deletes
+DELETE FROM verify_test WHERE id <= 3;
+-- Wait for any background processes to settle
+SELECT pg_sleep(0.1);
+ pg_sleep 
+----------
+ 
+(1 row)
+
+-- Run vacuum to clean up
+VACUUM verify_test;
+-- Verify index still valid after deletes and vacuum
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx') ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(4 rows)
+
+-- Test 6: Verify with heapallindexed after deletes
+SELECT check_name, passed FROM pdb.verify_index('verify_test_idx', heapallindexed := true) ORDER BY check_name;
+               check_name                | passed 
+-----------------------------------------+--------
+ verify_test_idx: checksums_valid        | t
+ verify_test_idx: ctid_field_valid       | t
+ verify_test_idx: heap_references_valid  | t
+ verify_test_idx: index_readable         | t
+ verify_test_idx: schema_valid           | t
+ verify_test_idx: segment_metadata_valid | t
+(6 rows)
+
+-- Test 7: Verify that the index can still be used for searches after verification
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, content FROM verify_test WHERE content @@@ 'test' LIMIT 5;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, content
+   ->  Custom Scan (ParadeDB Scan) on public.verify_test
+         Output: id, content
+         Table: verify_test
+         Index: verify_test_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT id, content FROM verify_test WHERE content @@@ 'test' ORDER BY id LIMIT 5;
+ id |    content     
+----+----------------
+ 11 | test content 1
+ 12 | test content 2
+ 13 | test content 3
+ 14 | test content 4
+ 15 | test content 5
+(5 rows)
+
+-- Cleanup
+DROP TABLE verify_test CASCADE;
+-- Test 8: Test with sampling (for large indexes)
+-- Create a larger table with multiple segments to test sampling
+DROP TABLE IF EXISTS verify_sampling_test CASCADE;
+CREATE TABLE verify_sampling_test (id SERIAL PRIMARY KEY, content TEXT);
+CREATE INDEX verify_sampling_idx ON verify_sampling_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 100);
+-- Insert in batches to create multiple segments
+INSERT INTO verify_sampling_test (content) SELECT 'batch1 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch2 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch3 content ' || i FROM generate_series(1, 250) i;
+INSERT INTO verify_sampling_test (content) SELECT 'batch4 content ' || i FROM generate_series(1, 250) i;
+-- Test sampling at 50% - should check approximately half the documents
+SELECT check_name, passed, 
+       details LIKE '%sampled%' as is_sampled
+FROM pdb.verify_index('verify_sampling_idx', heapallindexed := true, sample_rate := 0.5) 
+WHERE check_name LIKE '%heap_references%';
+                 check_name                 | passed | is_sampled 
+--------------------------------------------+--------+------------
+ verify_sampling_idx: heap_references_valid | t      | t
+(1 row)
+
+DROP TABLE verify_sampling_test CASCADE;
+-- Test 9: Test with segment_ids for manual parallelization
+-- Create a table and force multiple segments by doing separate inserts (each is its own transaction)
+DROP TABLE IF EXISTS verify_parallel_test CASCADE;
+CREATE TABLE verify_parallel_test (id SERIAL PRIMARY KEY, content TEXT);
+-- Create index with low mutable_segment_rows to ensure segments are created
+CREATE INDEX verify_parallel_idx ON verify_parallel_test 
+  USING bm25 (id, content) 
+  WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Insert data in multiple separate statements (each creates a new segment)
+INSERT INTO verify_parallel_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch2 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch3 ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_parallel_test (content) SELECT 'batch4 ' || i FROM generate_series(1, 50) i;
+-- Get the segment count - should have multiple segments now (typically 4-8)
+SELECT COUNT(*) >= 4 as has_multiple_segments FROM pdb.index_segments('verify_parallel_idx');
+ has_multiple_segments 
+-----------------------
+ t
+(1 row)
+
+-- Test verifying with segment_ids parameter (verify only segment 0)
+-- The segment_metadata details should show "1 of N" for filtering
+SELECT check_name, passed, details LIKE '%1 of%' as shows_partial_segments
+FROM pdb.verify_index('verify_parallel_idx', heapallindexed := true, segment_ids := ARRAY[0])
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                  | passed | shows_partial_segments 
+---------------------------------------------+--------+------------------------
+ verify_parallel_idx: segment_metadata_valid | t      | t
+(1 row)
+
+-- Test with empty segment_ids array (should check 0 segments)
+SELECT check_name, passed, details LIKE '%0 of%' as verifies_none
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := ARRAY[]::int[])
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                  | passed | verifies_none 
+---------------------------------------------+--------+---------------
+ verify_parallel_idx: segment_metadata_valid | t      | t
+(1 row)
+
+-- Test with NULL segment_ids (default behavior - checks all segments, no "of" in details)
+SELECT check_name, passed, details NOT LIKE '% of %' as no_partial_indicator
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := NULL)
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                  | passed | no_partial_indicator 
+---------------------------------------------+--------+----------------------
+ verify_parallel_idx: segment_metadata_valid | t      | t
+(1 row)
+
+-- Test verifying a non-existent segment (should show 0 of N segments validated)
+SELECT check_name, details LIKE '%0 of%' as shows_zero_of_total
+FROM pdb.verify_index('verify_parallel_idx', segment_ids := ARRAY[999])
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                  | shows_zero_of_total 
+---------------------------------------------+---------------------
+ verify_parallel_idx: segment_metadata_valid | t
+(1 row)
+
+-- Test 10: Test pdb.index_segments function for listing segments
+-- This function helps with automated multi-client verification
+SELECT COUNT(*) >= 4 as has_segments FROM pdb.index_segments('verify_parallel_idx');
+ has_segments 
+--------------
+ t
+(1 row)
+
+-- Verify segment_idx values are sequential starting from 0
+SELECT bool_and(segment_idx >= 0) as valid_indices,
+       COUNT(DISTINCT segment_idx) = COUNT(*) as unique_indices
+FROM pdb.index_segments('verify_parallel_idx');
+ valid_indices | unique_indices 
+---------------+----------------
+ t             | t
+(1 row)
+
+-- Example of using pdb.index_segments to automate parallel verification
+-- Verify only even-indexed segments
+SELECT check_name, passed, details LIKE '%of%' as is_partial
+FROM pdb.verify_index('verify_parallel_idx',
+    heapallindexed := true,
+    segment_ids := (SELECT array_agg(segment_idx) FROM pdb.index_segments('verify_parallel_idx') WHERE segment_idx % 2 = 0))
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                  | passed | is_partial 
+---------------------------------------------+--------+------------
+ verify_parallel_idx: segment_metadata_valid | t      | t
+(1 row)
+
+DROP TABLE verify_parallel_test CASCADE;
+-- Test 11: Test pdb.indexes() function for listing all BM25 indexes
+DROP TABLE IF EXISTS test_all_idx1, test_all_idx2;
+CREATE TABLE test_all_idx1 (id serial, content text);
+CREATE INDEX test_all_idx1_idx ON test_all_idx1 USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_all_idx1 (content) SELECT 'test' || i FROM generate_series(1,10) i;
+INSERT INTO test_all_idx1 (content) SELECT 'more' || i FROM generate_series(1,10) i;
+CREATE TABLE test_all_idx2 (id serial, title text);
+CREATE INDEX test_all_idx2_idx ON test_all_idx2 USING bm25 (id, title) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_all_idx2 (title) SELECT 'doc' || i FROM generate_series(1,10) i;
+INSERT INTO test_all_idx2 (title) SELECT 'file' || i FROM generate_series(1,10) i;
+-- List all BM25 indexes
+SELECT schemaname, tablename, indexname, num_segments > 0 as has_segments, total_docs > 0 as has_docs
+FROM pdb.indexes()
+WHERE indexname LIKE 'test_all%'
+ORDER BY indexname;
+ schemaname |   tablename   |     indexname     | has_segments | has_docs 
+------------+---------------+-------------------+--------------+----------
+ public     | test_all_idx1 | test_all_idx1_idx | t            | t
+ public     | test_all_idx2 | test_all_idx2_idx | t            | t
+(2 rows)
+
+-- Test 12: Test pdb.verify_all_indexes() function
+SELECT schemaname, indexname, check_name, passed
+FROM pdb.verify_all_indexes(index_pattern := 'test_all%')
+ORDER BY indexname, check_name;
+ schemaname |     indexname     |                check_name                 | passed 
+------------+-------------------+-------------------------------------------+--------
+ public     | test_all_idx1_idx | test_all_idx1_idx: checksums_valid        | t
+ public     | test_all_idx1_idx | test_all_idx1_idx: index_readable         | t
+ public     | test_all_idx1_idx | test_all_idx1_idx: schema_valid           | t
+ public     | test_all_idx1_idx | test_all_idx1_idx: segment_metadata_valid | t
+ public     | test_all_idx2_idx | test_all_idx2_idx: checksums_valid        | t
+ public     | test_all_idx2_idx | test_all_idx2_idx: index_readable         | t
+ public     | test_all_idx2_idx | test_all_idx2_idx: schema_valid           | t
+ public     | test_all_idx2_idx | test_all_idx2_idx: segment_metadata_valid | t
+(8 rows)
+
+-- Test 13: Test on_error_stop parameter (should complete all checks since no errors)
+SELECT check_name, passed
+FROM pdb.verify_index('test_all_idx1_idx', on_error_stop := true);
+                check_name                 | passed 
+-------------------------------------------+--------
+ test_all_idx1_idx: schema_valid           | t
+ test_all_idx1_idx: index_readable         | t
+ test_all_idx1_idx: checksums_valid        | t
+ test_all_idx1_idx: segment_metadata_valid | t
+(4 rows)
+
+DROP TABLE test_all_idx1, test_all_idx2;
+-- =============================================================================
+-- CORRUPTION DETECTION TESTS
+-- These tests verify that the verification functions correctly detect corruption
+-- =============================================================================
+-- Test 14: Heap reference corruption detection
+-- Disable triggers and delete rows to create "dangling" index entries
+DROP TABLE IF EXISTS corruption_test CASCADE;
+CREATE TABLE corruption_test (id serial PRIMARY KEY, content text);
+CREATE INDEX corruption_idx ON corruption_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Insert in batches to create multiple segments
+INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(1, 25) i;
+INSERT INTO corruption_test (content) SELECT 'document ' || i FROM generate_series(26, 50) i;
+-- Verify healthy state first
+SELECT 'Before corruption' as state, check_name, passed
+FROM pdb.verify_index('corruption_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%';
+       state       |              check_name               | passed 
+-------------------+---------------------------------------+--------
+ Before corruption | corruption_idx: ctid_field_valid      | t
+ Before corruption | corruption_idx: heap_references_valid | t
+(2 rows)
+
+-- Induce corruption: delete rows without updating the index
+ALTER TABLE corruption_test DISABLE TRIGGER ALL;
+DELETE FROM corruption_test WHERE id <= 5;
+ALTER TABLE corruption_test ENABLE TRIGGER ALL;
+-- Verify corruption is detected
+SELECT 'After corruption' as state, check_name, passed, 
+       details LIKE '%5 of 50%' as detected_5_missing
+FROM pdb.verify_index('corruption_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%';
+      state       |              check_name               | passed | detected_5_missing 
+------------------+---------------------------------------+--------+--------------------
+ After corruption | corruption_idx: ctid_field_valid      | t      | f
+ After corruption | corruption_idx: heap_references_valid | f      | t
+(2 rows)
+
+-- Test 15: Sampling with corruption
+-- With 100% sampling, corruption should always be detected
+SELECT '100% sample' as test, passed, details LIKE '%missing%' as found_missing
+FROM pdb.verify_index('corruption_idx', heapallindexed := true, sample_rate := 1.0)
+WHERE check_name LIKE '%heap%';
+    test     | passed | found_missing 
+-------------+--------+---------------
+ 100% sample | f      | t
+(1 row)
+
+-- Test 16: on_error_stop with corruption
+-- Should return results up to and including the first failure
+SELECT check_name, passed
+FROM pdb.verify_index('corruption_idx', heapallindexed := true, on_error_stop := true);
+               check_name               | passed 
+----------------------------------------+--------
+ corruption_idx: schema_valid           | t
+ corruption_idx: index_readable         | t
+ corruption_idx: checksums_valid        | t
+ corruption_idx: segment_metadata_valid | t
+ corruption_idx: ctid_field_valid       | t
+ corruption_idx: heap_references_valid  | f
+(6 rows)
+
+DROP TABLE corruption_test CASCADE;
+-- Test 17: pdb.verify_all_indexes with mixed healthy and corrupted indexes
+DROP TABLE IF EXISTS verify_healthy_table, verify_corrupted_table CASCADE;
+-- Create healthy table and index with multiple segments
+CREATE TABLE verify_healthy_table (id serial PRIMARY KEY, content text);
+CREATE INDEX verify_healthy_idx ON verify_healthy_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO verify_healthy_table (content) SELECT 'healthy ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_healthy_table (content) SELECT 'more healthy ' || i FROM generate_series(1, 20) i;
+-- Create corrupted table and index with multiple segments
+CREATE TABLE verify_corrupted_table (id serial PRIMARY KEY, content text);
+CREATE INDEX verify_corrupted_idx ON verify_corrupted_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO verify_corrupted_table (content) SELECT 'corrupted ' || i FROM generate_series(1, 20) i;
+INSERT INTO verify_corrupted_table (content) SELECT 'more corrupted ' || i FROM generate_series(1, 20) i;
+-- Corrupt the second index
+ALTER TABLE verify_corrupted_table DISABLE TRIGGER ALL;
+DELETE FROM verify_corrupted_table WHERE id <= 3;
+ALTER TABLE verify_corrupted_table ENABLE TRIGGER ALL;
+-- verify_all should show healthy passing and corrupted failing
+-- Use specific pattern to avoid matching indexes from other tests
+SELECT indexname, check_name, passed
+FROM pdb.verify_all_indexes(index_pattern := 'verify_%_idx', heapallindexed := true)
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
+ORDER BY indexname, check_name;
+      indexname       |                 check_name                  | passed 
+----------------------+---------------------------------------------+--------
+ verify_corrupted_idx | verify_corrupted_idx: ctid_field_valid      | t
+ verify_corrupted_idx | verify_corrupted_idx: heap_references_valid | f
+ verify_healthy_idx   | verify_healthy_idx: ctid_field_valid        | t
+ verify_healthy_idx   | verify_healthy_idx: heap_references_valid   | t
+(4 rows)
+
+-- Test 18: verify_all with on_error_stop should stop at first corrupted index
+SELECT indexname, check_name, passed
+FROM pdb.verify_all_indexes(index_pattern := 'verify_%_idx', heapallindexed := true, on_error_stop := true)
+WHERE check_name LIKE '%heap%' OR check_name LIKE '%ctid_field%'
+ORDER BY indexname, check_name;
+      indexname       |                 check_name                  | passed 
+----------------------+---------------------------------------------+--------
+ verify_corrupted_idx | verify_corrupted_idx: ctid_field_valid      | t
+ verify_corrupted_idx | verify_corrupted_idx: heap_references_valid | f
+(2 rows)
+
+DROP TABLE verify_healthy_table, verify_corrupted_table CASCADE;
+-- =============================================================================
+-- ADDITIONAL COVERAGE TESTS
+-- =============================================================================
+-- Test 19: Test report_progress parameter
+-- Progress messages are emitted via WARNING, we just verify it doesn't error
+DROP TABLE IF EXISTS progress_test CASCADE;
+CREATE TABLE progress_test (id serial PRIMARY KEY, content text);
+CREATE INDEX progress_idx ON progress_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO progress_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO progress_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
+-- Should complete without error and emit progress warnings
+SELECT check_name, passed
+FROM pdb.verify_index('progress_idx', heapallindexed := true, report_progress := true)
+ORDER BY check_name;
+WARNING:  verify_index: Starting verification of progress_idx
+WARNING:  verify_index: Validating checksums for progress_idx
+WARNING:  verify_index: Verifying 3 segments
+WARNING:  verify_index: Starting heap reference check for progress_idx (sample_rate: 100%)
+WARNING:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
+WARNING:  verify_index: Completed verification of progress_idx
+              check_name              | passed 
+--------------------------------------+--------
+ progress_idx: checksums_valid        | t
+ progress_idx: ctid_field_valid       | t
+ progress_idx: heap_references_valid  | t
+ progress_idx: index_readable         | t
+ progress_idx: schema_valid           | t
+ progress_idx: segment_metadata_valid | t
+(6 rows)
+
+DROP TABLE progress_test CASCADE;
+-- Test 20: Test verbose parameter
+-- Verbose mode emits detailed segment-by-segment logging
+-- We suppress WARNINGs in the test output since segment IDs are random
+DROP TABLE IF EXISTS verbose_test CASCADE;
+CREATE TABLE verbose_test (id serial PRIMARY KEY, content text);
+CREATE INDEX verbose_idx ON verbose_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO verbose_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO verbose_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
+-- Suppress WARNINGs to avoid random segment IDs in output
+SET client_min_messages TO error;
+-- Should complete and emit verbose segment details (suppressed)
+SELECT check_name, passed
+FROM pdb.verify_index('verbose_idx', heapallindexed := true, report_progress := true, verbose := true)
+ORDER BY check_name;
+             check_name              | passed 
+-------------------------------------+--------
+ verbose_idx: checksums_valid        | t
+ verbose_idx: ctid_field_valid       | t
+ verbose_idx: heap_references_valid  | t
+ verbose_idx: index_readable         | t
+ verbose_idx: schema_valid           | t
+ verbose_idx: segment_metadata_valid | t
+(6 rows)
+
+-- Restore default message level
+SET client_min_messages TO warning;
+DROP TABLE verbose_test CASCADE;
+-- Test 21: Test schema_pattern in verify_all_indexes
+-- Create tables in different schemas
+DROP SCHEMA IF EXISTS test_schema_a CASCADE;
+DROP SCHEMA IF EXISTS test_schema_b CASCADE;
+CREATE SCHEMA test_schema_a;
+CREATE SCHEMA test_schema_b;
+CREATE TABLE test_schema_a.test_table (id serial, content text);
+CREATE INDEX test_a_idx ON test_schema_a.test_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_schema_a.test_table (content) SELECT 'a' || i FROM generate_series(1, 10) i;
+INSERT INTO test_schema_a.test_table (content) SELECT 'aa' || i FROM generate_series(1, 10) i;
+CREATE TABLE test_schema_b.test_table (id serial, content text);
+CREATE INDEX test_b_idx ON test_schema_b.test_table USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 5);
+INSERT INTO test_schema_b.test_table (content) SELECT 'b' || i FROM generate_series(1, 10) i;
+INSERT INTO test_schema_b.test_table (content) SELECT 'bb' || i FROM generate_series(1, 10) i;
+-- Filter by schema_pattern - should only return schema_a
+SELECT schemaname, indexname, check_name, passed
+FROM pdb.verify_all_indexes(schema_pattern := 'test_schema_a')
+WHERE check_name LIKE '%schema_valid%'
+ORDER BY indexname;
+  schemaname   | indexname  |        check_name        | passed 
+---------------+------------+--------------------------+--------
+ test_schema_a | test_a_idx | test_a_idx: schema_valid | t
+(1 row)
+
+-- Filter by both schema and index pattern
+SELECT schemaname, indexname, check_name, passed
+FROM pdb.verify_all_indexes(schema_pattern := 'test_schema_%', index_pattern := '%_idx')
+WHERE check_name LIKE '%schema_valid%'
+ORDER BY schemaname, indexname;
+  schemaname   | indexname  |        check_name        | passed 
+---------------+------------+--------------------------+--------
+ test_schema_a | test_a_idx | test_a_idx: schema_valid | t
+ test_schema_b | test_b_idx | test_b_idx: schema_valid | t
+(2 rows)
+
+DROP SCHEMA test_schema_a CASCADE;
+DROP SCHEMA test_schema_b CASCADE;
+-- Test 22: Test empty index verification
+DROP TABLE IF EXISTS empty_test CASCADE;
+CREATE TABLE empty_test (id serial PRIMARY KEY, content text);
+CREATE INDEX empty_idx ON empty_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Verify empty index works
+SELECT check_name, passed
+FROM pdb.verify_index('empty_idx')
+ORDER BY check_name;
+            check_name             | passed 
+-----------------------------------+--------
+ empty_idx: checksums_valid        | t
+ empty_idx: index_readable         | t
+ empty_idx: schema_valid           | t
+ empty_idx: segment_metadata_valid | t
+(4 rows)
+
+-- Verify with heapallindexed on empty index
+SELECT check_name, passed
+FROM pdb.verify_index('empty_idx', heapallindexed := true)
+ORDER BY check_name;
+            check_name             | passed 
+-----------------------------------+--------
+ empty_idx: checksums_valid        | t
+ empty_idx: ctid_field_valid       | t
+ empty_idx: heap_references_valid  | t
+ empty_idx: index_readable         | t
+ empty_idx: schema_valid           | t
+ empty_idx: segment_metadata_valid | t
+(6 rows)
+
+DROP TABLE empty_test CASCADE;
+-- Test 23: Test index_segments on empty index
+DROP TABLE IF EXISTS empty_segments_test CASCADE;
+CREATE TABLE empty_segments_test (id serial PRIMARY KEY, content text);
+CREATE INDEX empty_segments_idx ON empty_segments_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+-- Should return 0 rows for empty index
+SELECT COUNT(*) as segment_count FROM pdb.index_segments('empty_segments_idx');
+ segment_count 
+---------------
+             0
+(1 row)
+
+DROP TABLE empty_segments_test CASCADE;
+-- Test 24: Test index_segments column values
+DROP TABLE IF EXISTS segment_columns_test CASCADE;
+CREATE TABLE segment_columns_test (id serial PRIMARY KEY, content text);
+CREATE INDEX segment_columns_idx ON segment_columns_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO segment_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO segment_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
+-- Delete some rows to test num_deleted column
+DELETE FROM segment_columns_test WHERE id <= 10;
+-- Check all column types are as expected
+SELECT 
+    partition_name IS NOT NULL as has_partition_name,
+    segment_idx >= 0 as valid_segment_idx,
+    length(segment_id) > 0 as has_segment_id,
+    num_docs >= 0 as valid_num_docs,
+    num_deleted >= 0 as valid_num_deleted,
+    max_doc >= num_docs as max_doc_gte_num_docs
+FROM pdb.index_segments('segment_columns_idx')
+LIMIT 1;
+ has_partition_name | valid_segment_idx | has_segment_id | valid_num_docs | valid_num_deleted | max_doc_gte_num_docs 
+--------------------+-------------------+----------------+----------------+-------------------+----------------------
+ t                  | t                 | t              | t              | t                 | t
+(1 row)
+
+DROP TABLE segment_columns_test CASCADE;
+-- Test 25: Test sample_rate edge cases
+DROP TABLE IF EXISTS sample_edge_test CASCADE;
+CREATE TABLE sample_edge_test (id serial PRIMARY KEY, content text);
+CREATE INDEX sample_edge_idx ON sample_edge_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO sample_edge_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO sample_edge_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
+-- sample_rate = 0.0 should check 0 documents
+SELECT check_name, passed, details LIKE '%0 of 0%' as checked_zero
+FROM pdb.verify_index('sample_edge_idx', heapallindexed := true, sample_rate := 0.0)
+WHERE check_name LIKE '%ctid_field%';
+            check_name             | passed | checked_zero 
+-----------------------------------+--------+--------------
+ sample_edge_idx: ctid_field_valid | t      | f
+(1 row)
+
+-- sample_rate = 0.01 should check very few documents
+SELECT check_name, passed, details LIKE '%sampled%' as is_sampled
+FROM pdb.verify_index('sample_edge_idx', heapallindexed := true, sample_rate := 0.01)
+WHERE check_name LIKE '%heap_references%';
+               check_name               | passed | is_sampled 
+----------------------------------------+--------+------------
+ sample_edge_idx: heap_references_valid | t      | t
+(1 row)
+
+-- sample_rate > 1.0 should be clamped to 1.0 (check all docs)
+SELECT check_name, passed, details NOT LIKE '%sampled%' as not_sampled
+FROM pdb.verify_index('sample_edge_idx', heapallindexed := true, sample_rate := 2.0)
+WHERE check_name LIKE '%heap_references%';
+               check_name               | passed | not_sampled 
+----------------------------------------+--------+-------------
+ sample_edge_idx: heap_references_valid | t      | t
+(1 row)
+
+-- sample_rate < 0 should be clamped to 0.0
+SELECT check_name, passed
+FROM pdb.verify_index('sample_edge_idx', heapallindexed := true, sample_rate := -1.0)
+WHERE check_name LIKE '%heap_references%';
+               check_name               | passed 
+----------------------------------------+--------
+ sample_edge_idx: heap_references_valid | t
+(1 row)
+
+DROP TABLE sample_edge_test CASCADE;
+-- Test 26: Test indexes() returns correct column values
+DROP TABLE IF EXISTS indexes_columns_test CASCADE;
+CREATE TABLE indexes_columns_test (id serial PRIMARY KEY, content text);
+CREATE INDEX indexes_columns_idx ON indexes_columns_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO indexes_columns_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO indexes_columns_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
+SELECT 
+    schemaname = 'public' as correct_schema,
+    tablename = 'indexes_columns_test' as correct_table,
+    indexname = 'indexes_columns_idx' as correct_index,
+    indexrelid IS NOT NULL as has_oid,
+    num_segments > 0 as has_segments,
+    total_docs = 50 as correct_doc_count
+FROM pdb.indexes()
+WHERE indexname = 'indexes_columns_idx';
+ correct_schema | correct_table | correct_index | has_oid | has_segments | correct_doc_count 
+----------------+---------------+---------------+---------+--------------+-------------------
+ t              | t             | t             | t       | t            | t
+(1 row)
+
+DROP TABLE indexes_columns_test CASCADE;
+-- Test 27: Test verify_all_indexes with heapallindexed and sample_rate
+DROP TABLE IF EXISTS verify_all_options_test CASCADE;
+CREATE TABLE verify_all_options_test (id serial PRIMARY KEY, content text);
+CREATE INDEX verify_all_options_idx ON verify_all_options_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 20);
+INSERT INTO verify_all_options_test (content) SELECT 'content ' || i FROM generate_series(1, 50) i;
+INSERT INTO verify_all_options_test (content) SELECT 'more content ' || i FROM generate_series(1, 50) i;
+-- Test with heapallindexed and sample_rate
+SELECT indexname, check_name, passed, details LIKE '%sampled%' as is_sampled
+FROM pdb.verify_all_indexes(
+    index_pattern := 'verify_all_options%',
+    heapallindexed := true,
+    sample_rate := 0.5
+)
+WHERE check_name LIKE '%heap_references%';
+       indexname        |                  check_name                   | passed | is_sampled 
+------------------------+-----------------------------------------------+--------+------------
+ verify_all_options_idx | verify_all_options_idx: heap_references_valid | t      | t
+(1 row)
+
+DROP TABLE verify_all_options_test CASCADE;
+-- Test 28: Test verbose with segment_ids shows resume hints
+DROP TABLE IF EXISTS verbose_resume_test CASCADE;
+CREATE TABLE verbose_resume_test (id serial PRIMARY KEY, content text);
+CREATE INDEX verbose_resume_idx ON verbose_resume_test 
+    USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO verbose_resume_test (content) SELECT 'batch1 ' || i FROM generate_series(1, 30) i;
+INSERT INTO verbose_resume_test (content) SELECT 'batch2 ' || i FROM generate_series(1, 30) i;
+-- Verify we have multiple segments
+SELECT COUNT(*) >= 2 as has_multiple_segments FROM pdb.index_segments('verbose_resume_idx');
+ has_multiple_segments 
+-----------------------
+ t
+(1 row)
+
+-- Suppress WARNINGs to avoid random segment IDs in output
+SET client_min_messages TO error;
+-- Test verbose with segment_ids (should show resume hints - suppressed)
+SELECT check_name, passed
+FROM pdb.verify_index('verbose_resume_idx', 
+    heapallindexed := true, 
+    verbose := true, 
+    segment_ids := ARRAY[0])
+WHERE check_name LIKE '%segment_metadata%';
+                 check_name                 | passed 
+--------------------------------------------+--------
+ verbose_resume_idx: segment_metadata_valid | t
+(1 row)
+
+-- Restore default message level
+SET client_min_messages TO warning;
+DROP TABLE verbose_resume_test CASCADE;
+-- Test 29: Test combined report_progress without verbose (should show basic progress)
+DROP TABLE IF EXISTS basic_progress_test CASCADE;
+CREATE TABLE basic_progress_test (id serial PRIMARY KEY, content text);
+CREATE INDEX basic_progress_idx ON basic_progress_test 
+    USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO basic_progress_test (content) SELECT 'content ' || i FROM generate_series(1, 100) i;
+-- report_progress without verbose should show simpler messages
+SELECT check_name, passed
+FROM pdb.verify_index('basic_progress_idx', 
+    heapallindexed := true, 
+    report_progress := true,
+    verbose := false)
+ORDER BY check_name;
+WARNING:  verify_index: Starting verification of basic_progress_idx
+WARNING:  verify_index: Validating checksums for basic_progress_idx
+WARNING:  verify_index: Verifying 2 segments
+WARNING:  verify_index: Starting heap reference check for basic_progress_idx (sample_rate: 100%)
+WARNING:  verify_index: Heap check complete. Checked 100 of 100 docs, 0 missing
+WARNING:  verify_index: Completed verification of basic_progress_idx
+                 check_name                 | passed 
+--------------------------------------------+--------
+ basic_progress_idx: checksums_valid        | t
+ basic_progress_idx: ctid_field_valid       | t
+ basic_progress_idx: heap_references_valid  | t
+ basic_progress_idx: index_readable         | t
+ basic_progress_idx: schema_valid           | t
+ basic_progress_idx: segment_metadata_valid | t
+(6 rows)
+
+DROP TABLE basic_progress_test CASCADE;
+-- Test 30: Test on_error_stop with schema failure (use invalid relation)
+-- This tests early exit when schema can't be loaded
+-- Note: We can't easily test schema failure, so we test that on_error_stop 
+-- works correctly by verifying a healthy index returns all checks
+DROP TABLE IF EXISTS error_stop_healthy_test CASCADE;
+CREATE TABLE error_stop_healthy_test (id serial PRIMARY KEY, content text);
+CREATE INDEX error_stop_healthy_idx ON error_stop_healthy_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO error_stop_healthy_test (content) SELECT 'content ' || i FROM generate_series(1, 20) i;
+INSERT INTO error_stop_healthy_test (content) SELECT 'more content ' || i FROM generate_series(1, 20) i;
+-- on_error_stop on healthy index should return all checks
+SELECT COUNT(*) as check_count
+FROM pdb.verify_index('error_stop_healthy_idx', heapallindexed := true, on_error_stop := true);
+ check_count 
+-------------
+           6
+(1 row)
+
+DROP TABLE error_stop_healthy_test CASCADE;
+-- Test 31: Test verify_all_indexes returns empty result when no indexes match
+SELECT COUNT(*) as count
+FROM pdb.verify_all_indexes(index_pattern := 'nonexistent_pattern_%');
+ count 
+-------
+     0
+(1 row)
+
+SELECT COUNT(*) as count
+FROM pdb.verify_all_indexes(schema_pattern := 'nonexistent_schema_%');
+ count 
+-------
+     0
+(1 row)
+
+-- Test 32: Test that details column contains meaningful information
+DROP TABLE IF EXISTS details_test CASCADE;
+CREATE TABLE details_test (id serial PRIMARY KEY, content text);
+CREATE INDEX details_idx ON details_test USING bm25 (id, content) 
+    WITH (key_field = 'id', mutable_segment_rows = 10);
+INSERT INTO details_test (content) SELECT 'content ' || i FROM generate_series(1, 25) i;
+INSERT INTO details_test (content) SELECT 'more content ' || i FROM generate_series(1, 25) i;
+SELECT check_name, 
+       passed,
+       details IS NOT NULL as has_details,
+       length(details) > 0 as details_not_empty
+FROM pdb.verify_index('details_idx', heapallindexed := true)
+ORDER BY check_name;
+             check_name              | passed | has_details | details_not_empty 
+-------------------------------------+--------+-------------+-------------------
+ details_idx: checksums_valid        | t      | t           | t
+ details_idx: ctid_field_valid       | t      | t           | t
+ details_idx: heap_references_valid  | t      | t           | t
+ details_idx: index_readable         | t      | t           | t
+ details_idx: schema_valid           | t      | t           | t
+ details_idx: segment_metadata_valid | t      | t           | t
+(6 rows)
+
+DROP TABLE details_test CASCADE;

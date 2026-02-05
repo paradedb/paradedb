@@ -17,8 +17,9 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::pdbscan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::options::SortByField;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +43,7 @@ impl OrderByStyle {
             assert!(!pathkey.is_null());
             let nulls_first = (*pathkey).pk_nulls_first;
 
-            #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16", feature = "pg17"))]
+            #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
             let is_asc = match (*pathkey).pk_strategy as u32 {
                 pg_sys::BTLessStrategyNumber => true,
                 pg_sys::BTGreaterStrategyNumber => false,
@@ -111,21 +112,29 @@ pub enum ExecMethodType {
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
         limit: Option<usize>,
+        sort_order: Option<SortByField>,
     },
 }
 
 impl ExecMethodType {
-    ///
-    /// Returns true if this is a sorted TopN execution.
-    ///
-    pub fn is_sorted_topn(&self) -> bool {
-        matches!(
-            self,
+    /// Returns true if this execution method type can support sorted output via sort_by index.
+    /// This is specifically for the sorted index feature (SortPreservingMergeExec).
+    /// TopN has its own separate pathkey handling and is not included here.
+    pub fn supports_sorted_index_merge(&self) -> bool {
+        matches!(self, ExecMethodType::FastFieldMixed { .. })
+    }
+
+    /// Returns true if this execution method declares sorted output.
+    /// This checks if sorted output is actually ENABLED for this instance.
+    pub fn declares_sorted_output(&self) -> bool {
+        match self {
             ExecMethodType::TopN {
                 orderby_info: Some(..),
                 ..
-            }
-        )
+            } => true,
+            ExecMethodType::FastFieldMixed { sort_order, .. } => sort_order.is_some(),
+            ExecMethodType::Normal | ExecMethodType::TopN { .. } => false,
+        }
     }
 }
 

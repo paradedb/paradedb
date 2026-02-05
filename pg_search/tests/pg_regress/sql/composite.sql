@@ -11,7 +11,7 @@
 CREATE TYPE product_info AS (
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 
 -- Create table with composite type in index
@@ -19,7 +19,7 @@ CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 
 -- Create index using composite type expression
@@ -42,6 +42,45 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
+
+------------------------------------------------------------
+-- TEST: MixedFastFieldExecState with ROW expression fields
+------------------------------------------------------------
+
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.mixed_fast_field_exec_column_threshold = 100;
+
+-- Composite type using pdb.literal to enable fast fields
+CREATE TYPE fast_article_search AS (
+    title pdb.literal,
+    body pdb.literal
+);
+
+CREATE TABLE articles_fast (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    body TEXT
+);
+
+CREATE INDEX idx_articles_fast_bm25
+ON articles_fast
+USING bm25 (id, (ROW(title, body)::fast_article_search))
+WITH (key_field='id');
+
+INSERT INTO articles_fast (title, body) VALUES
+    ('PostgreSQL_Guide', 'Learn_PostgreSQL_basics'),
+    ('Search_Tutorial', 'Full_text_search_techniques');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('title:PostgreSQL_Guide');
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_search_techniques') ORDER BY id;
+
+RESET paradedb.enable_mixed_fast_field_exec;
+RESET paradedb.mixed_fast_field_exec_column_threshold;
 
 ------------------------------------------------------------
 -- TEST: Composite type with more than 32 fields
@@ -274,13 +313,13 @@ DROP TYPE dup_field_comp;
 -- TEST: NULL handling in composite fields
 ------------------------------------------------------------
 
-CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE nullable_comp AS (name TEXT, description TEXT, price FLOAT);
 
 CREATE TABLE nullable_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 
 CREATE INDEX idx_nullable ON nullable_test USING bm25 (
@@ -301,13 +340,13 @@ SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
 -- TEST: REINDEX with composite types
 ------------------------------------------------------------
 
-CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price NUMERIC);
+CREATE TYPE reindex_comp AS (name TEXT, description TEXT, price FLOAT);
 
 CREATE TABLE reindex_test (
     id SERIAL PRIMARY KEY,
     name TEXT,
     description TEXT,
-    price NUMERIC
+    price FLOAT
 );
 
 CREATE INDEX idx_reindex ON reindex_test USING bm25 (
@@ -631,14 +670,14 @@ SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse(
 CREATE TYPE product_schema AS (
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 
 CREATE TABLE products_schema (
     id SERIAL PRIMARY KEY,
     product_name TEXT,
     product_desc TEXT,
-    product_price NUMERIC
+    product_price FLOAT
 );
 
 CREATE INDEX idx_products_schema
@@ -790,7 +829,7 @@ CREATE TABLE smoke_test (
     description TEXT,
     category TEXT,
     rating FLOAT,
-    price NUMERIC,
+    price FLOAT,
     in_stock BOOLEAN
 );
 
@@ -806,7 +845,7 @@ INSERT INTO smoke_test (name, description, category, rating, price, in_stock) VA
     ('Tennis Racket', 'Professional tennis racket lightweight', 'Sports', 4.1, 149.99, false);
 
 -- Create BM25 index on composite type
--- Numeric fields (rating, price) are automatically fast
+-- FLOAT fields (rating, price) are automatically fast
 -- category uses pdb.literal (keyword tokenizer with fast) defined in composite type
 CREATE INDEX smoke_idx ON smoke_test
 USING bm25 (id, (ROW(name, description, category)::smoke_product), rating, price)
@@ -1001,7 +1040,7 @@ LIMIT 3;
 ------------------------------------------------------------
 \echo '=== TEST: Range Queries ==='
 
--- Range on numeric field using PostgreSQL range type
+-- Range on FLOAT field using PostgreSQL range type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, price FROM smoke_test
 WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
@@ -1192,7 +1231,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
 
--- pdb.range() on numeric field (not composite, but verify it works alongside)
+-- pdb.range() on FLOAT field (not composite, but verify it works alongside)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -1365,13 +1404,13 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
 ------------------------------------------------------------
 
 CREATE TYPE numeric_expr_composite AS (
-    original_price NUMERIC,
-    discounted_price NUMERIC
+    original_price FLOAT,
+    discounted_price FLOAT
 );
 
 CREATE TABLE numeric_expr_test (
     id SERIAL PRIMARY KEY,
-    price NUMERIC
+    price FLOAT
 );
 
 CREATE INDEX idx_numeric_expr ON numeric_expr_test USING bm25 (

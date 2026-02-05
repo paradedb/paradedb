@@ -104,6 +104,7 @@ pub fn search_field_config_from_type(
             min_gram: 0,
             max_gram: 0,
             prefix_only: false,
+            positions: false,
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
@@ -130,12 +131,23 @@ pub fn search_field_config_from_type(
 
     let normalizer = tokenizer.normalizer().unwrap_or_default();
 
-    let (fast, fieldnorms, record) = if type_name == "literal" {
-        // non-tokenized fields get to be fast
-        (true, false, IndexRecordOption::Basic)
+    let parsed_typmod = typmod::load_typmod(typmod).unwrap_or_default();
+
+    // columnar=true/false is our renaming of Tantivy's `fast` option
+    // fast is default to true for any field that's not text or JSON
+    // if it is text or JSON, it also default to true for literal and literal_normalized
+    // otherwise the user needs to explicitly set it to true
+    let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
+
+    let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
+    {
+        // literal and literal_normalized default to fast=true (columnar=true)
+        let fast = columnar_explicit.unwrap_or(true);
+        (fast, false, IndexRecordOption::Basic)
     } else {
-        // all others do not
-        (false, true, IndexRecordOption::WithFreqsAndPositions)
+        // all others default to fast=false (columnar=false)
+        let fast = columnar_explicit.unwrap_or(false);
+        (fast, true, IndexRecordOption::WithFreqsAndPositions)
     };
 
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
@@ -168,6 +180,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             min_gram,
             max_gram,
             prefix_only,
+            positions,
             filters,
         } => {
             let ngram_typmod = NgramTypmod::try_from(typmod).unwrap_or_else(|e| {
@@ -176,6 +189,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *min_gram = ngram_typmod.min_gram;
             *max_gram = ngram_typmod.max_gram;
             *prefix_only = ngram_typmod.prefix_only;
+            *positions = ngram_typmod.positions;
             *filters = ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
@@ -480,6 +494,11 @@ impl SqlNameMarker for JsonMarker {
 pub struct JsonbMarker;
 impl SqlNameMarker for JsonbMarker {
     const SQL_NAME: &'static str = "jsonb";
+}
+
+pub struct UuidMarker;
+impl SqlNameMarker for UuidMarker {
+    const SQL_NAME: &'static str = "uuid";
 }
 
 //

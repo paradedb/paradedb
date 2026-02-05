@@ -27,16 +27,19 @@ use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
 pub mod aggregatescan;
+pub mod basescan;
 mod builders;
 mod dsm;
 mod exec;
 pub mod explain;
 mod explainer;
 mod hook;
-mod opexpr;
+pub mod joinscan;
+pub mod opexpr;
+pub mod orderby;
 mod path;
-pub mod pdbscan;
 pub mod projections;
+pub mod pullup;
 mod pushdown;
 pub mod qual_inspect;
 mod range_table;
@@ -57,7 +60,10 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::{register_rel_pathlist, register_upper_path, register_window_aggregate_hook};
+pub use hook::{
+    register_join_pathlist, register_rel_pathlist, register_upper_path,
+    register_window_aggregate_hook,
+};
 
 // TODO: This trait should be expanded to include a `reset` method, which would become the
 // default/only implementation of `rescan_custom_scan`.
@@ -130,7 +136,7 @@ pub trait CustomScan: ExecMethod + Default + Sized {
             .0
     }
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan;
 
@@ -157,6 +163,45 @@ pub trait CustomScan: ExecMethod + Default + Sized {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
+    /// Add a planner warning associated with this CustomScan type.
+    ///
+    /// The warning will be deduplicated and emitted at the end of the planning phase.
+    /// The category is automatically set to `Self::NAME`.
+    fn add_planner_warning<
+        S: Into<String>,
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        message: S,
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::add_planner_warning(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            message,
+            contexts,
+        )
+    }
+
+    /// Clear planner warnings for the specified contexts (e.g., table aliases).
+    ///
+    /// This should be called when a CustomScan is successfully planned for a set of tables,
+    /// to suppress any "failure" warnings that might have been generated during the
+    /// exploration of alternative (rejected) paths for these tables.
+    /// The category is automatically set to `Self::NAME`.
+    fn clear_planner_warnings_for_contexts<
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::clear_planner_warnings_for_contexts(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            contexts,
+        )
+    }
 }
 
 pub trait ExecMethod {
@@ -233,7 +278,7 @@ where
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct RelPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     pub rel: *mut pg_sys::RelOptInfo,
@@ -256,7 +301,56 @@ impl RelPathlistHookArgs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
+pub struct JoinPathlistHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    #[allow(dead_code)]
+    pub joinrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub outerrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub innerrel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub jointype: pg_sys::JoinType::Type,
+    #[allow(dead_code)]
+    pub extra: *mut pg_sys::JoinPathExtraData,
+}
+
+impl JoinPathlistHookArgs {
+    #[allow(dead_code)]
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    #[allow(dead_code)]
+    pub fn joinrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.joinrel
+                .as_ref()
+                .expect("Args::joinrel should not be null")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn outerrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.outerrel
+                .as_ref()
+                .expect("Args::outerrel should not be null")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn innerrel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.innerrel
+                .as_ref()
+                .expect("Args::innerrel should not be null")
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     #[allow(dead_code)]

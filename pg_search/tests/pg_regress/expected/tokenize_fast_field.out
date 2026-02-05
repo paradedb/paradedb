@@ -1,0 +1,208 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CALL paradedb.create_bm25_test_table(
+    schema_name => 'public',
+    table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.simple('columnar=true')))
+WITH (key_field = 'id');
+SELECT * FROM paradedb.schema('search_idx');
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ ctid        | U64        | f      | t       | t    | f          |             |           |          | 
+ description | Str        | f      | t       | t    | t          |             | default   | position | raw
+ id          | I64        | f      | t       | t    | f          |             |           |          | 
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY description
+LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   Output: id, description
+   ->  Custom Scan (ParadeDB Scan) on public.mock_items
+         Output: id, description
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: description asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT id, description FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY description
+LIMIT 5;
+ id |        description        
+----+---------------------------
+ 25 | Anti-aging serum
+ 19 | Artistic ceramic vase
+ 32 | Bluetooth-enabled speaker
+ 24 | Classic leather sofa
+ 10 | Colorful kids toy
+(5 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT description, COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY description
+ORDER BY description
+LIMIT 5;
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: description, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+         Output: description, pdb.agg_fn('COUNT(*)'::text)
+         Index: search_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: description
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"description","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT description, COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY description
+ORDER BY description
+LIMIT 5;
+        description        | count 
+---------------------------+-------
+ Anti-aging serum          |     1
+ Artistic ceramic vase     |     1
+ Bluetooth-enabled speaker |     1
+ Classic leather sofa      |     1
+ Colorful kids toy         |     1
+(5 rows)
+
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (lower(description)::pdb.simple('columnar=true')))
+WITH (key_field = 'id');
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, description FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY lower(description)
+LIMIT 5;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Limit
+   Output: id, description, (lower(description))
+   ->  Custom Scan (ParadeDB Scan) on public.mock_items
+         Output: id, description, lower(description)
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: description asc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(11 rows)
+
+SELECT id, description FROM mock_items
+WHERE id @@@ pdb.all()
+ORDER BY lower(description)
+LIMIT 5;
+ id |        description        
+----+---------------------------
+ 25 | Anti-aging serum
+ 19 | Artistic ceramic vase
+ 32 | Bluetooth-enabled speaker
+ 24 | Classic leather sofa
+ 10 | Colorful kids toy
+(5 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT description, COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY description
+ORDER BY description
+LIMIT 5;
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: description, (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+         Output: description, pdb.agg_fn('COUNT(*)'::text)
+         Index: search_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: description
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"description","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT description, COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY description
+ORDER BY description
+LIMIT 5;
+        description        | count 
+---------------------------+-------
+ anti-aging serum          |     1
+ artistic ceramic vase     |     1
+ bluetooth-enabled speaker |     1
+ classic leather sofa      |     1
+ colorful kids toy         |     1
+(5 rows)
+
+DROP INDEX search_idx;
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (metadata::pdb.simple('columnar=true')))
+WITH (key_field = 'id');
+SELECT * FROM paradedb.schema('search_idx');
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ ctid     | U64        | f      | t       | t    | f          |             |           |          | 
+ id       | I64        | f      | t       | t    | f          |             |           |          | 
+ metadata | JsonObject | f      | t       | t    | f          | t           | default   | position | raw
+(3 rows)
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT metadata->>'color', COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY metadata->>'color'
+ORDER BY metadata->>'color'
+LIMIT 5;
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: ((metadata ->> 'color'::text)), (pdb.agg_fn('COUNT(*)'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+         Output: (metadata ->> 'color'::text), pdb.agg_fn('COUNT(*)'::text)
+         Index: search_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata.color
+           Limit: 5
+           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.color","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(10 rows)
+
+SELECT metadata->>'color', COUNT(*) FROM mock_items
+WHERE id @@@ pdb.all()
+GROUP BY metadata->>'color'
+ORDER BY metadata->>'color'
+LIMIT 5;
+ ?column? | count 
+----------+-------
+ Black    |     8
+ Blue     |     4
+ Brown    |    10
+ Clear    |     1
+ Gray     |     1
+(5 rows)
+
+DROP INDEX search_idx;
+DROP TABLE mock_items;

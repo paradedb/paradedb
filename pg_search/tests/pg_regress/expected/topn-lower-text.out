@@ -44,25 +44,26 @@ EXPLAIN SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY description DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
                                                                 QUERY PLAN                                                                
 ------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.02..10.02 rows=1 width=36)
-   ->  Sort  (cost=10.02..10.02 rows=1 width=36)
+ Limit  (cost=10.02..10.03 rows=1 width=36)
+   ->  Sort  (cost=10.02..10.03 rows=1 width=36)
          Sort Key: description DESC
          ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.01 rows=1 width=36)
                Table: mock_items
                Index: search_idx
                Segment Count: 1
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: description, rating
+               Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
-(11 rows)
+(10 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY description DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5

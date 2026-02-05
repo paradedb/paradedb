@@ -298,6 +298,16 @@ WITH (
     numeric_fields = '{"rating": {"fast": true}, "year": {"fast": true}, "price": {"fast": true}}',
     boolean_fields = '{"is_published": {"fast": true}}'
 );
+-- Update statistics for consistent query planning
+ANALYZE mixed_numeric_string_test;
+ANALYZE documents;
+ANALYZE files;
+ANALYZE pages;
+ANALYZE categories;
+ANALYZE products;
+ANALYZE conversion_test;
+ANALYZE union_test_a;
+ANALYZE union_test_b;
 -- Create main test tables
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
@@ -447,7 +457,7 @@ LIMIT 10;
                            Table: products
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, price, id
+                           Fast Fields: price, name, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
 (19 rows)
@@ -913,7 +923,7 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Table: products
                                  Index: products_idx
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, price, id
+                                 Fast Fields: price, name, id
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
 (24 rows)

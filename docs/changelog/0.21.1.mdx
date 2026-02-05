@@ -1,0 +1,16 @@
+---
+title: 0.21.1
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed an intermittent issue where parallel index scans in hash join scenarios return zero results instead
+- Fixed a crash that occurs when executing prepared statements with parallel hash joins on BM25 indexes after PostgreSQL switches to a generic plan
+- Return an error instead of silently returning the wrong results if a phrase or proximity query is executed over a field that was not indexed with positions
+
+## Performance Improvements 🚀
+
+- `WHERE` clauses with functions that return boolean results are now more efficiently executed by the index
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.1).

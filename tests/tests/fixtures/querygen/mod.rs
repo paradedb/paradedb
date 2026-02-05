@@ -15,8 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod crossrelgen;
 pub mod groupbygen;
 pub mod joingen;
+pub mod numericgen;
 pub mod opexprgen;
 pub mod pagegen;
 pub mod wheregen;
@@ -53,6 +55,9 @@ pub struct Column {
     pub is_indexed: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
+    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
+    /// When set, this is used instead of bm25_options JSON config.
+    pub index_expression: Option<&'static str>,
 }
 
 impl Column {
@@ -71,6 +76,7 @@ impl Column {
             is_indexed: true,
             bm25_options: None,
             random_generator_sql: "NULL",
+            index_expression: None,
         }
     }
 
@@ -115,6 +121,13 @@ impl Column {
         self.random_generator_sql = random_generator_sql;
         self
     }
+
+    /// V2 syntax: set index expression, e.g. "(column::pdb.literal_normalized)"
+    /// When set, this is used instead of bm25_options JSON config.
+    pub const fn bm25_v2_expression(mut self, expression: &'static str) -> Self {
+        self.index_expression = Some(expression);
+        self
+    }
 }
 
 pub fn generated_queries_setup(
@@ -144,10 +157,17 @@ pub fn generated_queries_setup(
         .join(", \n");
 
     // For bm25 index
+    // Columns with index_expression use v2 syntax, others use just the name
     let bm25_columns = columns_def
         .iter()
         .filter(|c| c.is_indexed)
-        .map(|c| c.name)
+        .map(|c| {
+            if let Some(expr) = c.index_expression {
+                expr.to_string()
+            } else {
+                c.name.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let key_field = columns_def
@@ -156,23 +176,53 @@ pub fn generated_queries_setup(
         .map(|c| c.name)
         .expect("At least one column must be a primary key");
 
+    // Only include columns without index_expression in text_fields (v1 syntax)
     let text_fields = columns_def
         .iter()
-        .filter(|c| c.is_indexed)
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
         .filter_map(|c| c.bm25_options.as_ref())
         .filter(|o| o.field_type == "text_fields")
         .map(|o| o.config_json)
         .collect::<Vec<_>>()
         .join(",\n");
 
+    // Only include columns without index_expression in numeric_fields (v1 syntax)
     let numeric_fields = columns_def
         .iter()
-        .filter(|c| c.is_indexed)
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
         .filter_map(|c| c.bm25_options.as_ref())
         .filter(|o| o.field_type == "numeric_fields")
         .map(|o| o.config_json)
         .collect::<Vec<_>>()
         .join(",\n");
+
+    // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
+    let sortable_types = [
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "REAL",
+        "FLOAT",
+        "DOUBLE",
+        "NUMERIC",
+        "DATE",
+        "TIMESTAMP",
+    ];
+    let sort_by_field = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .filter(|c| {
+            sortable_types
+                .iter()
+                .any(|t| c.sql_type.to_uppercase().contains(t))
+        })
+        .filter_map(|c| {
+            c.bm25_options
+                .as_ref()
+                .filter(|o| o.config_json.contains(r#""fast": true"#))
+                .map(|_| c.name)
+        })
+        .next();
 
     // For INSERT statements
     let insert_columns = columns_def
@@ -197,6 +247,11 @@ pub fn generated_queries_setup(
         .join(",\n      ");
 
     for (tname, row_count) in tables {
+        // Build sort_by clause if we have a suitable field
+        let sort_by_clause = sort_by_field
+            .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
+            .unwrap_or_default();
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
@@ -206,7 +261,7 @@ CREATE TABLE {tname} (
 CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'
+    numeric_fields = '{{ {numeric_fields} }}'{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
@@ -271,13 +326,19 @@ pub fn arb_joins_and_wheres(
 
 #[derive(Copy, Clone, Debug, Arbitrary)]
 pub struct PgGucs {
-    aggregate_custom_scan: bool,
-    custom_scan: bool,
-    custom_scan_without_operator: bool,
-    filter_pushdown: bool,
-    seqscan: bool,
-    indexscan: bool,
-    parallel_workers: bool,
+    pub aggregate_custom_scan: bool,
+    pub custom_scan: bool,
+    pub custom_scan_without_operator: bool,
+    pub filter_pushdown: bool,
+    pub join_custom_scan: bool,
+    pub seqscan: bool,
+    pub indexscan: bool,
+    pub parallel_workers: bool,
+    /// Enable mixed fast field execution (MixedFastFieldExecState).
+    /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
+    pub mixed_fast_field_exec: bool,
+    /// Enable sorted execution for MixedFastFieldExecState.
+    pub mixed_fast_field_sort: bool,
 }
 
 impl Default for PgGucs {
@@ -287,9 +348,12 @@ impl Default for PgGucs {
             custom_scan: false,
             custom_scan_without_operator: false,
             filter_pushdown: false,
+            join_custom_scan: false,
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
+            mixed_fast_field_exec: false,
+            mixed_fast_field_sort: true,
         }
     }
 }
@@ -301,9 +365,12 @@ impl PgGucs {
             custom_scan,
             custom_scan_without_operator,
             filter_pushdown,
+            join_custom_scan,
             seqscan,
             indexscan,
             parallel_workers,
+            mixed_fast_field_exec,
+            mixed_fast_field_sort,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -325,10 +392,25 @@ impl PgGucs {
             "SET paradedb.enable_filter_pushdown TO {filter_pushdown};"
         )
         .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_join_custom_scan TO {join_custom_scan};"
+        )
+        .unwrap();
         writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
         writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
         writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_exec TO {mixed_fast_field_exec};"
+        )
+        .unwrap();
+        writeln!(
+            gucs,
+            "SET paradedb.enable_mixed_fast_field_sort TO {mixed_fast_field_sort};"
+        )
+        .unwrap();
         gucs
     }
 }
@@ -347,7 +429,25 @@ where
     R: Eq + Debug,
     F: Fn(&str, &mut PgConnection) -> R,
 {
-    match inner_compare(pg_query, bm25_query, gucs, conn, run_query) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        inner_compare(pg_query, bm25_query, gucs, conn, run_query)
+    }));
+
+    let inner_result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                format!("Panic: {}", s)
+            } else if let Some(s) = e.downcast_ref::<String>() {
+                format!("Panic: {}", s)
+            } else {
+                "Panic occurred".to_string()
+            };
+            Err(TestCaseError::fail(msg))
+        }
+    };
+
+    match inner_result {
         Ok(()) => Ok(()),
         Err(e) => Err(handle_compare_error(
             e, pg_query, bm25_query, gucs, setup_sql,
@@ -412,6 +512,7 @@ pub fn handle_compare_error(
     let failure_type = if error_msg.contains("error returned from database")
         || error_msg.contains("SQL execution error")
         || error_msg.contains("syntax error")
+        || error_msg.contains("Panic")
     {
         "QUERY EXECUTION FAILURE"
     } else {

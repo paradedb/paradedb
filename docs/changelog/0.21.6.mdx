@@ -1,0 +1,23 @@
+---
+title: 0.21.6
+noindex: true
+---
+
+## Stability Improvements 💪
+
+- Fixed an issue where `ORDER BY lower()` was not getting an optimized Top N scan if `lower()` was literal normalized
+- Fixed a rare `u32` overflow issue that could cause queries to fail over large segments
+- Fixed an issue where [filter pushdown](/documentation/filtering) did not happen if non-text fields appeared after text fields in the index definition
+- Fixed an issue where `GROUP BY` queries over datetime fields would error with `paradedb.enable_aggregate_custom_scan` enabled
+
+## Performance Improvements 🚀
+
+Improved the filtering performance of partial indexes. For example, in the following query `deleted_at IS NULL`
+gets fully pushed down to the index.
+
+```sql
+CREATE INDEX idx ON profiles USING bm25 (...) WHERE deleted_at IS NULL;
+SELECT * FROM profiles WHERE headline ||| 'recruteur' AND deleted_at IS NULL;
+```
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.21.6).

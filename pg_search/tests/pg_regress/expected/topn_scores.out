@@ -10,7 +10,7 @@ CALL paradedb.create_bm25_test_table(
 );
 CREATE INDEX search_idx on mock_items
 USING bm25 (id, description, rating, category, metadata)
-WITH (key_field='id', text_fields = '{"category": {"fast": true}}', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+WITH (key_field='id', text_fields = '{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
@@ -163,6 +163,7 @@ SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -180,6 +181,7 @@ SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
   4 | White jogging shoes      |      3 | 3.4849067

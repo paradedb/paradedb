@@ -16,7 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::any::Any;
-use std::sync::Arc;
+use std::fmt::Debug;
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
@@ -25,6 +26,7 @@ use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
+use serde::{Deserialize, Serialize};
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
@@ -36,22 +38,27 @@ use crate::scan::datafusion_plan::SegmentPlan;
 use crate::scan::info::ScanInfo;
 use crate::scan::Scanner;
 
-/// DataFusion TableProvider for scanning a ParadeDB index.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
-    schema: SchemaRef,
+    #[serde(skip)]
+    schema: OnceLock<SchemaRef>,
 }
 
 impl PgSearchTableProvider {
     pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>) -> Self {
-        let schema = build_schema(&fields);
         Self {
             scan_info,
             fields,
-            schema,
+            schema: OnceLock::new(),
         }
+    }
+
+    fn get_schema(&self) -> SchemaRef {
+        self.schema
+            .get_or_init(|| build_schema(&self.fields))
+            .clone()
     }
 }
 
@@ -96,7 +103,7 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        self.get_schema()
     }
 
     fn table_type(&self) -> TableType {

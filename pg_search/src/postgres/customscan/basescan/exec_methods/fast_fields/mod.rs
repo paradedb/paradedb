@@ -60,17 +60,16 @@ pub unsafe fn collect_fast_fields(
     index: &PgSearchRelation,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
-    let fast_fields = pullup_fast_fields(
+    pullup_fast_fields(
         target_list,
         referenced_columns,
         heaprel,
         index,
         rti,
         is_execution_time,
-    );
-    fast_fields
-        .filter(|fast_fields| !fast_fields.is_empty())
-        .unwrap_or_default()
+    )
+    .filter(|fields| !fields.is_empty())
+    .unwrap_or_default()
 }
 
 unsafe fn fix_varno_list(list: *mut pg_sys::List, old_varno: i32, new_varno: i32) {
@@ -90,6 +89,9 @@ unsafe fn fix_varno_in_place(node: *mut pg_sys::Node, old_varno: i32, new_varno:
     if let Some(var) = nodecast!(Var, T_Var, node) {
         if (*var).varno as i32 == old_varno {
             (*var).varno = new_varno as _;
+        }
+        if (*var).varnosyn as i32 == old_varno {
+            (*var).varnosyn = new_varno as _;
         }
     } else if let Some(expr) = nodecast!(OpExpr, T_OpExpr, node) {
         fix_varno_list((*expr).args, old_varno, new_varno);
@@ -364,7 +366,7 @@ pub unsafe fn pullup_fast_fields(
 }
 
 fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
-    if privdata.referenced_columns_count() == 0 {
+    if privdata.referenced_columns_count() == 0 && privdata.target_list_len().unwrap_or(0) == 0 {
         return false;
     }
 
@@ -433,7 +435,9 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
     if let ExecMethodType::FastFieldMixed {
-        which_fast_fields, ..
+        which_fast_fields,
+        sort_order,
+        ..
     } = &state.custom_state().exec_method_type
     {
         // Get all fast fields used, sorted for deterministic output
@@ -445,5 +449,17 @@ pub fn explain(state: &CustomScanStateWrapper<BaseScan>, explainer: &mut Explain
         fields.sort();
 
         explainer.add_text("Fast Fields", fields.join(", "));
+
+        if let Some(sort_order) = sort_order {
+            use crate::postgres::options::SortByDirection;
+            let direction = match sort_order.direction {
+                SortByDirection::Asc => "ASC",
+                SortByDirection::Desc => "DESC",
+            };
+            explainer.add_text(
+                "Order By",
+                format!("{} {}", sort_order.field_name, direction),
+            );
+        }
     }
 }

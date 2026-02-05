@@ -136,7 +136,7 @@ pub trait CustomScan: ExecMethod + Default + Sized {
             .0
     }
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan;
 
@@ -163,6 +163,45 @@ pub trait CustomScan: ExecMethod + Default + Sized {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+
+    /// Add a planner warning associated with this CustomScan type.
+    ///
+    /// The warning will be deduplicated and emitted at the end of the planning phase.
+    /// The category is automatically set to `Self::NAME`.
+    fn add_planner_warning<
+        S: Into<String>,
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        message: S,
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::add_planner_warning(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            message,
+            contexts,
+        )
+    }
+
+    /// Clear planner warnings for the specified contexts (e.g., table aliases).
+    ///
+    /// This should be called when a CustomScan is successfully planned for a set of tables,
+    /// to suppress any "failure" warnings that might have been generated during the
+    /// exploration of alternative (rejected) paths for these tables.
+    /// The category is automatically set to `Self::NAME`.
+    fn clear_planner_warnings_for_contexts<
+        C: crate::postgres::planner_warnings::ToWarningContexts,
+    >(
+        contexts: C,
+    ) {
+        crate::postgres::planner_warnings::clear_planner_warnings_for_contexts(
+            Self::NAME
+                .to_str()
+                .expect("CustomScan name should be valid UTF-8"),
+            contexts,
+        )
+    }
 }
 
 pub trait ExecMethod {
@@ -239,7 +278,7 @@ where
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct RelPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     pub rel: *mut pg_sys::RelOptInfo,
@@ -262,7 +301,7 @@ impl RelPathlistHookArgs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct JoinPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     #[allow(dead_code)]
@@ -311,7 +350,7 @@ impl JoinPathlistHookArgs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     #[allow(dead_code)]

@@ -46,7 +46,7 @@ const COLUMNS: &[Column] = &[
         .groupable({
             true
         })
-        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
+        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql("rpad(lpad((random() * 2147483647)::integer::text, 10, '0'), 32, '0')::uuid"),
     Column::new("name", "TEXT", "'bob'")
         .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)

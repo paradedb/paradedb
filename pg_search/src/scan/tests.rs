@@ -24,7 +24,7 @@ mod tests {
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::datafusion_plan::ScanPlan;
+    use crate::scan::datafusion_plan::SegmentPlan;
     use crate::scan::Scanner;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
@@ -98,7 +98,7 @@ mod tests {
             heap_oid.into(),
         );
 
-        let plan = ScanPlan::new(scanner, ffhelper, Box::new(visibility));
+        let plan = SegmentPlan::new(scanner, ffhelper, Box::new(visibility));
 
         let task_ctx = Arc::new(TaskContext::default());
         let mut stream = plan.execute(0, task_ctx).unwrap();

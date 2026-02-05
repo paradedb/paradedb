@@ -248,7 +248,7 @@ pub enum WhichFastField {
     Named(String, FastFieldType),
 }
 
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FastFieldType {
     String,
     Bytes,
@@ -313,4 +313,43 @@ impl WhichFastField {
             WhichFastField::Named(s, _) => s.clone(),
         }
     }
+
+    /// Returns the Arrow DataType for this fast field.
+    pub fn arrow_data_type(&self) -> arrow_schema::DataType {
+        use arrow_schema::DataType;
+        match self {
+            WhichFastField::Ctid => DataType::UInt64,
+            WhichFastField::TableOid => DataType::UInt32,
+            WhichFastField::Score => DataType::Float32,
+            WhichFastField::Named(_, ff_type) => match ff_type {
+                FastFieldType::String => DataType::Utf8View,
+                FastFieldType::Bytes => DataType::BinaryView,
+                FastFieldType::Int64 => DataType::Int64,
+                FastFieldType::UInt64 => DataType::UInt64,
+                FastFieldType::Float64 => DataType::Float64,
+                FastFieldType::Bool => DataType::Boolean,
+                FastFieldType::Date => {
+                    DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+                }
+                // Numeric64 is stored as Int64 in the fast field
+                FastFieldType::Numeric64(_) => DataType::Int64,
+            },
+            WhichFastField::Junk(_) => DataType::Null,
+        }
+    }
+}
+
+/// Build an Arrow schema from a list of fast fields.
+///
+/// This is used by Scanner and MixedFastFieldExecState to create consistent
+/// Arrow schemas for DataFusion execution.
+pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema::SchemaRef {
+    use arrow_schema::{Field, Schema};
+    use std::sync::Arc;
+
+    let fields: Vec<Field> = which_fast_fields
+        .iter()
+        .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
+        .collect();
+    Arc::new(Schema::new(fields))
 }

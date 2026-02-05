@@ -9,17 +9,16 @@ CALL paradedb.create_bm25_test_table(
   table_name => 'mock_items'
 );
 CREATE INDEX search_idx ON mock_items USING bm25 (id, (description::pdb.literal), rating) WITH (key_field = id);
-EXPLAIN SELECT * from mock_items where rating @@@ '4';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * from mock_items where rating @@@ '4';
                                                                  QUERY PLAN                                                                  
 ---------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.16 rows=16 width=641)
+ Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: search_idx
-   Segment Count: 1
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"rating","query_string":"4","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE rating @@@ 'IN [1 2]';
                                                                      QUERY PLAN                                                                     

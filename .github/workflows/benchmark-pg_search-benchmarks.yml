@@ -230,20 +230,67 @@ jobs:
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
-      - name: Benchmark "logs" Dataset
+      # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
+      - name: Benchmark "logs" Dataset (10K rows)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: logs
+          rows: 10000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark "docs" Dataset
+      - name: Benchmark "logs" Dataset (100K rows)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (1M rows)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 1000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (10M rows)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 10000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "logs" Dataset (100M rows)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "docs" Dataset (25M rows)
         uses: ./.github/actions/benchmark-queries
         with:
           dataset: docs
+          rows: 25000000
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
@@ -255,4 +302,4 @@ jobs:
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

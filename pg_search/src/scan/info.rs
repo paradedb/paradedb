@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::options::SortByField;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -48,8 +49,15 @@ pub struct ScanInfo {
     pub score_needed: bool,
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
-    #[serde(default)]
     pub fields: Vec<FieldInfo>,
+    /// The sort order of the BM25 index segments, if the index was created with `sort_by`.
+    ///
+    /// When this is `Some`, the index segments are physically sorted by this field.
+    /// This enables DataFusion-based execution to:
+    /// - Declare sort ordering via `EquivalenceProperties`
+    /// - Use `SortPreservingMergeExec` to merge sorted segment streams
+    /// - Enable sort-merge joins when both sides are sorted on join keys
+    pub sort_order: Option<SortByField>,
 }
 
 impl ScanInfo {
@@ -97,5 +105,22 @@ impl ScanInfo {
         if !self.fields.iter().any(|f| f.attno == attno) {
             self.fields.push(FieldInfo { attno, field });
         }
+    }
+
+    /// Sets the sort order from the BM25 index metadata.
+    ///
+    /// This is populated at planning time by reading from the index's `sort_by` option.
+    /// When set, DataFusion-based execution can leverage the physical sort order for:
+    /// - Declaring output ordering via `EquivalenceProperties`
+    /// - Using `SortPreservingMergeExec` for merging sorted segment streams
+    /// - Enabling sort-merge joins when beneficial
+    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
+        self.sort_order = sort_order;
+        self
+    }
+
+    /// Returns true if this scan's index produces sorted output.
+    pub fn is_sorted(&self) -> bool {
+        self.sort_order.is_some()
     }
 }

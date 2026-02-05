@@ -30,6 +30,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, Q
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
+use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::expr_contains_any_operator;
 use once_cell::sync::Lazy;
@@ -130,7 +131,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             return;
         }
 
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             rel,
             RelPathlistHookArgs {
@@ -139,11 +140,11 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
                 rti,
                 rte,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(rel, path)
+        for path in paths {
+            add_path(rel, path);
+        }
     }
 }
 
@@ -207,7 +208,7 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
             return;
         }
 
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             joinrel,
             JoinPathlistHookArgs {
@@ -218,11 +219,11 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
                 jointype,
                 extra,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(joinrel, path)
+        for path in paths {
+            add_path(joinrel, path);
+        }
     }
 }
 
@@ -293,7 +294,7 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     }
 
     unsafe {
-        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
             root,
             output_rel,
             CreateUpperPathsHookArgs {
@@ -303,11 +304,11 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
                 output_rel,
                 extra,
             },
-        )) else {
-            return;
-        };
+        ));
 
-        add_path(output_rel, path)
+        for path in paths {
+            add_path(output_rel, path);
+        }
     }
 }
 
@@ -529,6 +530,9 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
+    // Clear any existing warnings for this planning cycle
+    clear_planner_warnings();
+
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
     if should_replace_window_functions(parse) {
@@ -551,11 +555,16 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 
     // Call the previous planner hook (e.g., Citus) or standard planner
     // PREV_PLANNER_HOOK is defined at module level to ensure proper hook chaining
-    if let Some(prev_hook) = PREV_PLANNER_HOOK {
+    let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
         prev_hook(parse, query_string, cursor_options, bound_params)
     } else {
         pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
-    }
+    };
+
+    // Emit collected warnings
+    emit_planner_warnings();
+
+    result
 }
 
 /// Check if the target list contains any window functions (WindowFunc nodes)

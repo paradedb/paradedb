@@ -32,7 +32,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
-use crate::scan::datafusion_plan::ScanPlan;
+use crate::scan::datafusion_plan::SegmentPlan;
 use crate::scan::info::ScanInfo;
 use crate::scan::Scanner;
 
@@ -169,7 +169,7 @@ impl TableProvider for PgSearchTableProvider {
 
         let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
 
-        Ok(Arc::new(ScanPlan::new(
+        Ok(Arc::new(SegmentPlan::new(
             scanner,
             ffhelper,
             Box::new(visibility),

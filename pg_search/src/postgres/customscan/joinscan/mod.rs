@@ -599,10 +599,7 @@ impl CustomScan for JoinScan {
                 result_rows /= processes as f64;
             }
 
-            builder = builder
-                .set_rows(result_rows)
-                .add_custom_path((*outerrel).cheapest_total_path)
-                .add_custom_path((*innerrel).cheapest_total_path);
+            builder = builder.set_rows(result_rows);
 
             // Add pathkey if ORDER BY score detected for ordering side
             if let Some(ref pathkey) = score_pathkey {
@@ -615,15 +612,9 @@ impl CustomScan for JoinScan {
             let mut custom_path = builder.build(private_data);
 
             // Store the restrictlist and heap condition clauses in custom_private
-            // Structure: [PrivateData JSON, restrictlist, heap_cond_1, heap_cond_2, ...]
+            // Structure: [PrivateData JSON, heap_cond_1, heap_cond_2, ...]
             let mut private_list = PgList::<pg_sys::Node>::from_pg(custom_path.custom_private);
-            let restrictlist = (*extra).restrictlist;
-            private_list.push(if !restrictlist.is_null() {
-                // Add the restrictlist as the second element
-                restrictlist.cast()
-            } else {
-                std::ptr::null_mut()
-            });
+
             // Add heap condition clauses as subsequent elements
             for clause in multi_table_predicate_clauses {
                 private_list.push(clause.cast());
@@ -716,8 +707,8 @@ impl CustomScan for JoinScan {
             // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.
             let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
             let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(node.custom_exprs);
-            // Skip index 0 (PrivateData) and index 1 (restrictlist)
-            for i in 2..path_private_full.len() {
+            // Skip index 0 (PrivateData)
+            for i in 1..path_private_full.len() {
                 if let Some(node_ptr) = path_private_full.get_ptr(i) {
                     custom_exprs_list.push(node_ptr);
                 }

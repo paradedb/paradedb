@@ -700,8 +700,12 @@ impl CustomScan for BaseScan {
             // Choose the exec method type, and make claims about whether it is sorted.
             let limit_is_explicit =
                 limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
-            let exec_method_type =
-                choose_exec_method(&custom_private, &topn_pathkey_info, limit_is_explicit);
+            let exec_method_type = choose_exec_method(
+                &custom_private,
+                &topn_pathkey_info,
+                limit_is_explicit,
+                table.name(),
+            );
             custom_private.set_exec_method_type(exec_method_type);
             if matches!(
                 custom_private.exec_method_type(),
@@ -835,6 +839,7 @@ impl CustomScan for BaseScan {
                     &sorted_private,
                     &topn_pathkey_info,
                     limit_is_explicit,
+                    table.name(),
                 ));
                 sorted_path.custom_private = sorted_private.into();
 
@@ -1545,6 +1550,7 @@ fn validate_topn_expectation(
     topn_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     chosen_method: &ExecMethodType,
+    table_name: &str,
 ) {
     // Fast path: if validation is disabled, return immediately
     if !crate::gucs::check_topn_scan() {
@@ -1622,16 +1628,16 @@ fn validate_topn_expectation(
         ),
     };
 
-    pgrx::warning!(
-        "Query has LIMIT {} but is not using TopN scan (using {} instead). \
+    BaseScan::add_planner_warning(
+        format!(
+            "Query has LIMIT {} but is not using TopN scan (using {} instead). \
              Reason: {}. \
              This may cause poor performance on large datasets. \
              Remedies: {}. \
              To disable this warning: SET paradedb.check_topn_scan = false",
-        limit,
-        method_name,
-        reason,
-        remedies
+            limit, method_name, reason, remedies
+        ),
+        table_name,
     );
 }
 
@@ -1654,6 +1660,7 @@ fn choose_exec_method(
     privdata: &PrivateData,
     topn_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
+    table_name: &str,
 ) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
@@ -1714,7 +1721,13 @@ fn choose_exec_method(
     };
 
     // Validate TopN expectations before returning
-    validate_topn_expectation(privdata, topn_pathkey_info, limit_is_explicit, &chosen);
+    validate_topn_expectation(
+        privdata,
+        topn_pathkey_info,
+        limit_is_explicit,
+        &chosen,
+        table_name,
+    );
 
     chosen
 }

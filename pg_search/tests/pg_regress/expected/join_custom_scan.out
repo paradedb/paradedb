@@ -62,6 +62,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id;
+WARNING:  JoinScan not used: query must have a LIMIT clause
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -217,6 +218,7 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  JoinScan not used: only INNER JOIN is currently supported
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -681,6 +683,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -714,6 +717,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
  id  |      name      | supplier_name | category_name 
 -----+----------------+---------------+---------------
  201 | Wireless Mouse | TechCorp      | Electronics
@@ -824,6 +828,7 @@ JOIN suppliers s ON p.supplier_id >= s.id AND p.supplier_id <= s.id + 1
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: p, s)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -893,6 +898,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
+WARNING:  JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index
  id  |      name      | supplier_name 
 -----+----------------+---------------
  207 | Mouse Pad      | GlobalSupply
@@ -1598,6 +1604,7 @@ FROM colors c, sizes s
 WHERE c.description @@@ 'color' AND s.description @@@ 'size'
 ORDER BY c.id, s.id
 LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: c, s)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1744,6 +1751,7 @@ FROM mem_test_products p
 JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 LIMIT 100;
+WARNING:  JoinScan not used: query must have a LIMIT clause
  match_count 
 -------------
          166
@@ -1872,6 +1880,7 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
+WARNING:  JoinScan not used: join key columns must be fast fields (tables: a, t)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1938,6 +1947,7 @@ FROM large_items li
 JOIN large_categories lc ON li.category_id = lc.id
 WHERE li.content @@@ 'wireless'
 LIMIT 500;
+WARNING:  JoinScan not used: query must have a LIMIT clause
  wireless_count 
 ----------------
             200
@@ -2404,6 +2414,7 @@ SELECT COUNT(*) AS wireless_count
 FROM hint_test_products hp
 JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless';
+WARNING:  JoinScan not used: query must have a LIMIT clause
  wireless_count 
 ----------------
              66
@@ -2446,6 +2457,7 @@ WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
+WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -2501,6 +2513,7 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
   AND p.category_id > s.id  -- category_id is NOT in the BM25 index
 LIMIT 10;
+WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields) (tables: p, s)
                                                                                 QUERY PLAN                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

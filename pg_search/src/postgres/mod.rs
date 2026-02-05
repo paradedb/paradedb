@@ -59,6 +59,7 @@ pub mod index;
 mod jsonb_support;
 pub mod locks;
 mod parallel;
+pub mod planner_warnings;
 pub mod rel;
 pub mod storage;
 pub mod types;

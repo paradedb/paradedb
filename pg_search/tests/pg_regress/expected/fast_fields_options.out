@@ -70,7 +70,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY title
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -168,7 +168,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -283,7 +283,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -360,7 +360,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -380,7 +380,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -400,7 +400,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -420,7 +420,7 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false
+WARNING:  Query has LIMIT 10 but is not using TopN scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topn_scan = false (table: data_records)
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

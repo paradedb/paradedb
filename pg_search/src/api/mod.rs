@@ -28,7 +28,8 @@ pub mod tokenizers;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType, StringInfo,
+    direct_function_call, extension_sql, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType,
+    StringInfo,
 };
 
 pub use aggregate::{
@@ -225,6 +226,14 @@ impl FieldName {
 fn text_to_fieldname(field: String) -> FieldName {
     FieldName(field)
 }
+
+extension_sql!(
+    r#"
+    CREATE CAST (varchar AS paradedb.fieldname) WITH INOUT AS IMPLICIT;
+    "#,
+    name = "varchar_to_fieldname_cast",
+    requires = [text_to_fieldname]
+);
 
 #[allow(unused)]
 pub fn fieldname_typoid() -> pg_sys::Oid {

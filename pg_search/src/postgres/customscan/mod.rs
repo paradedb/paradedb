@@ -278,7 +278,7 @@ where
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct RelPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     pub rel: *mut pg_sys::RelOptInfo,
@@ -301,7 +301,7 @@ impl RelPathlistHookArgs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct JoinPathlistHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     #[allow(dead_code)]
@@ -350,7 +350,7 @@ impl JoinPathlistHookArgs {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
     #[allow(dead_code)]

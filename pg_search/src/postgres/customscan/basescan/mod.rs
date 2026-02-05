@@ -49,7 +49,7 @@ use crate::postgres::customscan::basescan::projections::window_agg::{
 };
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -58,7 +58,8 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
+    extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
+    UnusableReason,
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -73,7 +74,6 @@ use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
-use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
@@ -679,11 +679,6 @@ impl CustomScan for BaseScan {
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
-            // we must use this path if we need to do const projections for scores or snippets
-            builder = builder.set_force_path(
-                maybe_needs_const_projections || is_maybe_topn || quals.contains_all(),
-            );
-
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
             custom_private.set_range_table_index(rti);
@@ -739,7 +734,7 @@ impl CustomScan for BaseScan {
                 }
                 _ => parallel::RowEstimate::Unknown,
             };
-            let mut result_rows = match row_estimate {
+            let base_result_rows = match row_estimate {
                 parallel::RowEstimate::Known(rows) => {
                     (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0)
                 }
@@ -748,37 +743,6 @@ impl CustomScan for BaseScan {
                     limit.unwrap_or(1.0).max(1.0)
                 }
             };
-
-            let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(
-                    &exec_method_types[0],
-                    limit,
-                    row_estimate,
-                    segment_count,
-                    quals.contains_external_var(),
-                    quals.contains_correlated_param(builder.args().root),
-                )
-            } else {
-                0
-            };
-
-            if nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
-
-                // if we're likely to do a parallel scan, divide the result_rows by the number of workers
-                // we're likely to use.  this lets Postgres make better decisions based on what
-                // an individual parallel scan is actually going to return
-                let processes = std::cmp::max(
-                    1,
-                    nworkers
-                        + if pg_sys::parallel_leader_participation {
-                            1
-                        } else {
-                            0
-                        },
-                );
-                result_rows /= processes as f64;
-            }
 
             let per_tuple_cost = {
                 if maybe_ff {
@@ -791,65 +755,98 @@ impl CustomScan for BaseScan {
             };
 
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + (result_rows * per_tuple_cost);
+            let mut custom_paths = Vec::new();
 
-            builder = builder.set_rows(result_rows);
-            builder = builder.set_startup_cost(startup_cost);
-            builder = builder.set_total_cost(total_cost);
+            // For each execution method variant (e.g. sorted vs unsorted), we build a separate
+            // CustomPath. This allows the Postgres planner to choose the most efficient
+            // implementation based on costs and downstream requirements like ordering.
+            for method in exec_method_types {
+                let mut path_builder = CustomPathBuilder::<Self>::new(
+                    builder.args().root,
+                    builder.args().rel,
+                    *builder.args(),
+                );
 
-            // indicate that we'll be doing projection ourselves
-            builder = builder.set_flag(Flags::Projection);
+                // we must use this path if we need to do const projections for scores or snippets
+                path_builder = path_builder.set_force_path(
+                    maybe_needs_const_projections
+                        || matches!(method, ExecMethodType::TopN { .. })
+                        || quals.contains_all(),
+                );
 
-            // Prepare base path configuration
-            custom_private.set_exec_method_type(exec_method_types[0].clone());
-            custom_private.set_use_sorted_path(false); // Default for base
+                let mut method_private = custom_private.clone();
+                method_private.set_exec_method_type(method.clone());
 
-            // If TopN, add pathkeys to builder
-            if matches!(
-                exec_method_types[0],
-                ExecMethodType::TopN {
-                    orderby_info: Some(..),
-                    ..
+                let is_sorted = method.declares_sorted_output();
+                method_private.set_use_sorted_path(is_sorted);
+
+                let nworkers = if (*builder.args().rel).consider_parallel {
+                    compute_nworkers(
+                        &method,
+                        limit,
+                        row_estimate,
+                        segment_count,
+                        quals.contains_external_var(),
+                        quals.contains_correlated_param(builder.args().root),
+                    )
+                } else {
+                    0
+                };
+
+                let mut method_result_rows = base_result_rows;
+
+                if nworkers > 0 {
+                    path_builder = path_builder.set_parallel(nworkers);
+
+                    // if we're likely to do a parallel scan, divide the result_rows by the number of workers
+                    // we're likely to use.  this lets Postgres make better decisions based on what
+                    // an individual parallel scan is actually going to return
+                    let processes = std::cmp::max(
+                        1,
+                        nworkers
+                            + if pg_sys::parallel_leader_participation {
+                                1
+                            } else {
+                                0
+                            },
+                    );
+                    method_result_rows /= processes as f64;
                 }
-            ) {
-                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
-                    for pathkey in pathkeys {
-                        builder = builder.add_path_key(pathkey);
+
+                let mut total_cost = startup_cost + (method_result_rows * per_tuple_cost);
+
+                if is_sorted && method.supports_sorted_index_merge() {
+                    total_cost *= 1.01;
+                }
+
+                path_builder = path_builder.set_rows(method_result_rows);
+                path_builder = path_builder.set_startup_cost(startup_cost);
+                path_builder = path_builder.set_total_cost(total_cost);
+
+                // indicate that we'll be doing projection ourselves
+                path_builder = path_builder.set_flag(Flags::Projection);
+
+                // If TopN, add pathkeys to builder
+                if matches!(
+                    method,
+                    ExecMethodType::TopN {
+                        orderby_info: Some(..),
+                        ..
                     }
-                }
-            }
-
-            // Build base path
-            let base_path = builder.build(custom_private.clone());
-            let mut custom_paths = vec![base_path];
-
-            // Build derived paths
-            for (i, method) in exec_method_types.iter().enumerate() {
-                if i == 0 {
-                    continue;
-                }
-
-                let mut new_path = base_path;
-                let mut new_private = custom_private.clone();
-                new_private.set_exec_method_type(method.clone());
-
-                if let ExecMethodType::FastFieldMixed {
-                    sort_order: Some(_),
-                    ..
-                } = method
-                {
-                    new_private.set_use_sorted_path(true);
-                    new_path.path.total_cost = total_cost * 1.01;
-
+                ) {
+                    if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
+                        for pathkey in pathkeys {
+                            path_builder = path_builder.add_path_key(pathkey);
+                        }
+                    }
+                } else if is_sorted {
+                    // For sorted mixed fast field execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {
-                        let mut pklist = PgList::<pg_sys::PathKey>::from_pg(new_path.path.pathkeys);
-                        pklist.push(pathkey_style.pathkey());
-                        new_path.path.pathkeys = pklist.into_pg();
+                        path_builder = path_builder.add_path_key(pathkey_style);
                     }
                 }
 
-                new_path.custom_private = new_private.into();
-                custom_paths.push(new_path);
+                custom_paths.push(path_builder.build(method_private));
             }
 
             Some(custom_paths)
@@ -1789,7 +1786,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             // cannot provide it.
             if sort_order.is_some() && !runtime_sorted {
                 panic!(
-                    "BUG: Claimed sorted output at planning time, but unable to provide it at \
+                    "Claimed sorted output at planning time, but unable to provide it at \
                     execution time. This indicates a planner/executor mismatch."
                 );
             }
@@ -1800,9 +1797,39 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
+                // Calculate extra fields needed for execution (e.g. sort column)
+                // that are not in the projected fields (which_fast_fields).
+                let mut extra_fast_fields = Vec::new();
+
+                if let Some(sort) = &effective_sort_order {
+                    // Check if sort field is already projected
+                    // Note: This naive name check works because we only support single-column sort by name
+                    let is_projected = which_fast_fields
+                        .iter()
+                        .any(|f| f.name() == sort.field_name.as_ref());
+
+                    if !is_projected {
+                        // Retrieve the sort field from the planned fast fields
+                        let planned_fields = match &builder.custom_state_ref().exec_method_type {
+                            ExecMethodType::FastFieldMixed {
+                                which_fast_fields, ..
+                            } => which_fast_fields,
+                            _ => unreachable!(),
+                        };
+
+                        if let Some(ff) = planned_fields
+                            .iter()
+                            .find(|f| f.name() == sort.field_name.as_ref())
+                        {
+                            extra_fast_fields.push(ff.clone());
+                        }
+                    }
+                }
+
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
+                        extra_fast_fields,
                         limit,
                         effective_sort_order,
                     ),
@@ -2054,129 +2081,6 @@ unsafe fn replace_window_agg_with_const(
     }
 
     (node, None)
-}
-
-/// Find a pathkey from the query that matches the index's sort_by field.
-///
-/// This is used to expose sorted CustomPaths when the query has an ORDER BY
-/// that matches the index's sort order. The Postgres planner can then choose
-/// the sorted path when downstream operations (like merge joins) need sorted input.
-///
-/// Returns `Some(OrderByStyle)` if a matching pathkey is found, `None` otherwise.
-unsafe fn find_sort_by_pathkey(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    sort_by: &SortByField,
-    table: &PgSearchRelation,
-) -> Option<OrderByStyle> {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-    if pathkeys.is_empty() {
-        return None;
-    }
-
-    let sort_field_name = sort_by.field_name.as_ref();
-
-    // Only the first pathkey can be used for sorted execution (prefix semantics).
-    // If the first pathkey doesn't match sort_by, we must not declare ordering.
-    let pathkey = pathkeys.get_ptr(0)?;
-    let equivclass = (*pathkey).pk_eclass;
-    let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-    for member in members.iter_ptr() {
-        let expr = (*member).em_expr;
-
-        // Try to extract a Var from the expression (either directly or wrapped in RelabelType)
-        let var = if let Some(var) = nodecast!(Var, T_Var, expr) {
-            var
-        } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-            // RelabelType wraps a Var for type coercions
-            match nodecast!(Var, T_Var, (*relabel).arg) {
-                Some(var) => var,
-                None => continue,
-            }
-        } else {
-            continue;
-        };
-
-        // Check if this Var matches our sort_by field
-        if let Some(style) =
-            check_var_matches_sort_by(var, rti, pathkey, sort_by, sort_field_name, table)
-        {
-            return Some(style);
-        }
-    }
-
-    None
-}
-
-/// Check if a Var matches the sort_by field and return an OrderByStyle if it does.
-///
-/// This helper extracts the common logic for checking whether a column reference (Var)
-/// matches the index's sort_by configuration, including direction and NULLS ordering.
-unsafe fn check_var_matches_sort_by(
-    var: *mut pg_sys::Var,
-    rti: pg_sys::Index,
-    pathkey: *mut pg_sys::PathKey,
-    sort_by: &SortByField,
-    sort_field_name: &str,
-    table: &PgSearchRelation,
-) -> Option<OrderByStyle> {
-    // Check if this Var is for our relation
-    if (*var).varno as pg_sys::Index != rti {
-        return None;
-    }
-
-    // Get the column name from the tuple descriptor
-    let tupdesc = table.tuple_desc();
-    let attno = (*var).varattno;
-    if attno <= 0 || attno as usize > tupdesc.len() {
-        return None;
-    }
-
-    let att = tupdesc.get(attno as usize - 1)?;
-    let col_name = att.name();
-    if col_name != sort_field_name {
-        return None;
-    }
-
-    if !pathkey_matches_sort_by(pathkey, sort_by) {
-        return None;
-    }
-
-    Some(OrderByStyle::Field(pathkey, sort_field_name.into()))
-}
-
-unsafe fn pathkey_matches_sort_by(pathkey: *mut pg_sys::PathKey, sort_by: &SortByField) -> bool {
-    use crate::postgres::options::SortByDirection;
-
-    // Check if the sort direction matches
-    #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-    let is_desc = match (*pathkey).pk_strategy as u32 {
-        pg_sys::BTLessStrategyNumber => false,
-        pg_sys::BTGreaterStrategyNumber => true,
-        _ => return false, // Unknown strategy
-    };
-    #[cfg(feature = "pg18")]
-    let is_desc = match (*pathkey).pk_cmptype {
-        pg_sys::CompareType::COMPARE_LT => false,
-        pg_sys::CompareType::COMPARE_GT => true,
-        _ => return false,
-    };
-
-    let sort_by_is_desc = matches!(sort_by.direction, SortByDirection::Desc);
-    // Tantivy's sort behavior is fixed:
-    //   - ASC: nulls sort first (smallest values)
-    //   - DESC: nulls sort last (after largest values)
-    // We cannot support other NULLS orderings (e.g., ASC NULLS LAST) because
-    // Tantivy physically sorts documents this way at index time.
-    let sort_by_nulls_first = !sort_by_is_desc;
-
-    // Direction and NULLS ordering must both match for sorted path to apply.
-    // If query requests incompatible NULLS ordering, we return None and
-    // PostgreSQL will add a Sort node to achieve the requested ordering.
-    // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
-    // For text fields with non-C collation, sorted path may produce incorrect order.
-    is_desc == sort_by_is_desc && (*pathkey).pk_nulls_first == sort_by_nulls_first
 }
 
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down

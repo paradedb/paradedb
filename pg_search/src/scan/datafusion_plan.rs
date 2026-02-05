@@ -69,7 +69,7 @@ where
     UnsafeSendSync(Arc::new(factory))
 }
 
-/// A DataFusion `ExecutionPlan` for scanning a `pg_search` index.
+/// A DataFusion `ExecutionPlan` for scanning a single segment of a `pg_search` index.
 pub struct SegmentPlan {
     // We use a Mutex to allow taking the fields during execute()
     // We wrap the state in UnsafeSendSync to satisfy ExecutionPlan's Send+Sync requirements
@@ -282,9 +282,9 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
 // Multi-partition MultiSegmentPlan for sorted segment scanning
 // ============================================================================
 
-/// A DataFusion `ExecutionPlan` that scans multiple segments in parallel partitions.
+/// A DataFusion `ExecutionPlan` that scans multiple segments in partitions.
 ///
-/// Each partition corresponds to one Tantivy segment. When the index is sorted,
+/// Each partition corresponds to one Tantivy segment. When the index is sorted (with `sort_by`),
 /// each partition produces sorted output, which can then be merged using
 /// `SortPreservingMergeExec` to produce a globally sorted result.
 ///
@@ -444,15 +444,17 @@ pub fn create_sorted_scan(
     checkout_factory: CheckoutFactory,
     schema: SchemaRef,
     sort_order: &SortByField,
-) -> Option<Arc<dyn ExecutionPlan>> {
+) -> Result<Arc<dyn ExecutionPlan>> {
     // Validate that the sort field exists in the schema
     let field_name = sort_order.field_name.as_ref();
     let col_idx = match schema.column_with_name(field_name) {
         Some((idx, _)) => idx,
         None => {
             // Sort field is not in the schema - cannot create sorted merge.
-            // Return None so the caller can fall back to unsorted execution.
-            return None;
+            return Err(DataFusionError::Internal(format!(
+                "Sort field '{}' not found in scan schema",
+                field_name
+            )));
         }
     };
 
@@ -465,7 +467,7 @@ pub fn create_sorted_scan(
 
     // For a single segment, no merging is needed
     if segment_count == 1 {
-        return Some(segment_scan);
+        return Ok(segment_scan);
     }
 
     let sort_options = SortOptions {
@@ -482,7 +484,7 @@ pub fn create_sorted_scan(
         LexOrdering::new(vec![sort_expr]).expect("sort expression should create valid ordering");
 
     // Wrap with SortPreservingMergeExec to merge sorted partitions
-    Some(Arc::new(SortPreservingMergeExec::new(
+    Ok(Arc::new(SortPreservingMergeExec::new(
         ordering,
         segment_scan,
     )))

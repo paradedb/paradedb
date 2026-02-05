@@ -120,7 +120,7 @@ impl ExecMethodType {
     /// Returns true if this execution method type can support sorted output via sort_by index.
     /// This is specifically for the sorted index feature (SortPreservingMergeExec).
     /// TopN has its own separate pathkey handling and is not included here.
-    pub fn can_support_sorted(&self) -> bool {
+    pub fn supports_sorted_index_merge(&self) -> bool {
         matches!(self, ExecMethodType::FastFieldMixed { .. })
     }
 

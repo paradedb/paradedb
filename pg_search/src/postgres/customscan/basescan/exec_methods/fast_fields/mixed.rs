@@ -168,6 +168,9 @@ pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: Inner,
 
+    /// Fast fields to fetch from the scanner (includes projected fields + Ctid + Sort column)
+    scanner_fast_fields: Vec<WhichFastField>,
+
     /// The batch size hint to use for this execution.
     batch_size_hint: Option<usize>,
 
@@ -298,7 +301,8 @@ impl MixedFastFieldExecState {
     ///
     /// # Arguments
     ///
-    /// * `which_fast_fields` - Vector of fast fields that will be processed
+    /// * `which_fast_fields` - Vector of fast fields that will be processed (projected fields)
+    /// * `extra_fast_fields` - Additional fast fields needed for execution (e.g. sort columns) but not projected
     /// * `limit` - Optional limit for batch size optimization
     /// * `sort_order` - Optional sort order; if provided, creates a sorted strategy
     ///
@@ -307,21 +311,42 @@ impl MixedFastFieldExecState {
     /// A new MixedFastFieldExecState instance
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
+        extra_fast_fields: Vec<WhichFastField>,
         limit: Option<usize>,
         sort_order: Option<SortByField>,
     ) -> Self {
-        // Find ctid and score column indices
-        let ctid_column_idx = which_fast_fields
+        // Build scanner fields: projected + extra + [Ctid]
+        // We clone which_fast_fields as the base
+        let mut scanner_fast_fields = which_fast_fields.clone();
+
+        // Add extra fields if not already present
+        for field in extra_fast_fields {
+            if !scanner_fast_fields.contains(&field) {
+                scanner_fast_fields.push(field);
+            }
+        }
+
+        // Ensure Ctid is present (always needed for execution)
+        let ctid_column_idx = if let Some(idx) = scanner_fast_fields
             .iter()
-            .position(|f| matches!(f, WhichFastField::Ctid));
-        let score_column_idx = which_fast_fields
+            .position(|f| matches!(f, WhichFastField::Ctid))
+        {
+            Some(idx)
+        } else {
+            scanner_fast_fields.push(WhichFastField::Ctid);
+            Some(scanner_fast_fields.len() - 1)
+        };
+
+        // Find score column index
+        let score_column_idx = scanner_fast_fields
             .iter()
             .position(|f| matches!(f, WhichFastField::Score));
 
         // Build strategy with schema if sorted
         let strategy = match sort_order {
             Some(sort_order) => {
-                let schema = build_arrow_schema(&which_fast_fields);
+                // Use scanner_fast_fields to build schema, ensuring sort column is included
+                let schema = build_arrow_schema(&scanner_fast_fields);
                 MixedExecStrategy::Sorted { sort_order, schema }
             }
             None => MixedExecStrategy::Unsorted,
@@ -332,6 +357,7 @@ impl MixedFastFieldExecState {
         let batch_size_hint = limit.map(|limit| limit * 2);
         Self {
             inner: Inner::new(which_fast_fields),
+            scanner_fast_fields,
             batch_size_hint,
             strategy,
             runtime: None,
@@ -393,7 +419,7 @@ impl MixedFastFieldExecState {
         let scanner = Scanner::new(
             results,
             self.batch_size_hint,
-            self.inner.which_fast_fields.clone(),
+            self.scanner_fast_fields.clone(),
             heaprel.oid().into(),
         );
 
@@ -489,7 +515,7 @@ impl MixedFastFieldExecState {
                 let mut scanner = Scanner::new(
                     search_results,
                     self.batch_size_hint,
-                    self.inner.which_fast_fields.clone(),
+                    self.scanner_fast_fields.clone(),
                     heaprel.oid().into(),
                 );
                 let mut visibility = visibility_checker.clone();
@@ -521,7 +547,7 @@ impl MixedFastFieldExecState {
                     let scanner = Scanner::new(
                         search_results,
                         self.batch_size_hint,
-                        self.inner.which_fast_fields.clone(),
+                        self.scanner_fast_fields.clone(),
                         heaprel.oid().into(),
                     );
                     let visibility = visibility_checker.clone();
@@ -546,20 +572,20 @@ impl MixedFastFieldExecState {
         let checkout_factory = make_checkout_factory(move |partition: usize| {
             pre_opened.borrow_mut()[partition]
                 .take()
-                .expect("BUG: Partition executed more than once")
+                .expect("Partition executed more than once")
         });
 
         // Create sorted scan plan with SortPreservingMergeExec
-        // Returns None if the sort field is not in the schema
+        // Returns Error if the sort field is not in the schema
         let plan = match create_sorted_scan(segment_count, checkout_factory, schema, sort_order) {
-            Some(plan) => plan,
-            None => {
+            Ok(plan) => plan,
+            Err(e) => {
                 // Sort field not in schema - this is a fatal error.
                 // If we claimed the sorted path at planning time, the sort field MUST be
                 // in the schema. If it's not, this indicates a bug in the planning logic.
                 panic!(
-                    "BUG: Sorted path was claimed at planning time but sort field '{}' \
-                    is not in scan schema. This indicates a planner/executor mismatch.",
+                    "Sorted path was claimed at planning time but sort field '{}' \
+                    is not in scan schema. This indicates a planner/executor mismatch. Error: {e}",
                     sort_order.field_name.as_ref()
                 );
             }
@@ -570,8 +596,7 @@ impl MixedFastFieldExecState {
         match plan.execute(0, task_ctx) {
             Ok(stream) => Some(stream),
             Err(e) => {
-                pgrx::warning!("Failed to execute sorted SegmentPlan: {e}");
-                None
+                pgrx::error!("Failed to execute sorted plan: {e}");
             }
         }
     }
@@ -655,9 +680,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         return true;
                     }
                     Some(Err(e)) => {
-                        pgrx::warning!("Error polling DataFusion stream: {e}");
-                        self.stream = None;
-                        return false;
+                        pgrx::error!("Error polling DataFusion stream: {e}");
                     }
                     None => {
                         // Stream exhausted
@@ -736,7 +759,7 @@ impl ExecMethod for MixedFastFieldExecState {
                     .expect("ctid column should be UInt64Array");
                 ctid_array.value(row_idx)
             } else {
-                0u64
+                panic!("ctid column not found in fast field execution");
             };
 
             // Set ctid and table OID on the slot

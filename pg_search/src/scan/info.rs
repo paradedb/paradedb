@@ -49,7 +49,6 @@ pub struct ScanInfo {
     pub score_needed: bool,
     /// The fields that need to be extracted from the index.
     /// Populated during planning via `collect_required_fields`.
-    #[serde(default)]
     pub fields: Vec<FieldInfo>,
     /// The sort order of the BM25 index segments, if the index was created with `sort_by`.
     ///
@@ -58,7 +57,6 @@ pub struct ScanInfo {
     /// - Declare sort ordering via `EquivalenceProperties`
     /// - Use `SortPreservingMergeExec` to merge sorted segment streams
     /// - Enable sort-merge joins when both sides are sorted on join keys
-    #[serde(default)]
     pub sort_order: Option<SortByField>,
 }
 

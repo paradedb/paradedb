@@ -447,9 +447,14 @@ fn mixed_fast_fields_sorted_scan(
         r#"
         SELECT name, category, score FROM test_mff_sorted
         WHERE name @@@ 'Item'
-        ORDER BY score {}
+        ORDER BY score {} NULLS {}
         "#,
-        order_by_dir
+        order_by_dir,
+        if order_by_dir == "ASC" {
+            "FIRST"
+        } else {
+            "LAST"
+        }
     );
 
     let explain_query = format!("EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) {}", query);
@@ -461,6 +466,14 @@ fn mixed_fast_fields_sorted_scan(
         methods.contains(&"MixedFastFieldExecState".to_string()),
         "Expected MixedFastFieldExecState, got: {:?}",
         methods
+    );
+
+    // Verify that the plan indicates sorted execution
+    let plan_str = plan.to_string();
+    assert!(
+        plan_str.contains("Order By"),
+        "Plan should contain 'Order By' to indicate sorted execution: {}",
+        plan_str
     );
 
     // Query with ORDER BY and verify results are sorted

@@ -142,10 +142,6 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             },
         ));
 
-        if paths.is_empty() {
-            return;
-        }
-
         for path in paths {
             add_path(rel, path);
         }
@@ -224,10 +220,6 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
                 extra,
             },
         ));
-
-        if paths.is_empty() {
-            return;
-        }
 
         for path in paths {
             add_path(joinrel, path);
@@ -313,10 +305,6 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
                 extra,
             },
         ));
-
-        if paths.is_empty() {
-            return;
-        }
 
         for path in paths {
             add_path(output_rel, path);

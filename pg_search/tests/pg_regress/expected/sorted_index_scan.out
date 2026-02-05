@@ -67,9 +67,10 @@ ORDER BY priority DESC NULLS LAST;
    Index: sorted_scan_test_idx
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, priority
+   Order By: priority DESC
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 \echo 'Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected'
 Test 1.2: ORDER BY DESC only (default NULLS FIRST) - Sort node expected
@@ -186,9 +187,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Index: sorted_scan_test_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: id, priority
+               Order By: priority DESC
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(13 rows)
 
 \echo 'Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected'
 Test 1.7: ORDER BY exact match (parallel) - Gather Merge only expected
@@ -204,9 +206,10 @@ ORDER BY priority DESC NULLS LAST;
          Index: sorted_scan_test_idx
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, priority
+         Order By: priority DESC
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 RESET enable_incremental_sort;
 RESET enable_gathermerge;
@@ -232,9 +235,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
          Index: sorted_scan_test_idx
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, priority
+         Order By: priority DESC
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(11 rows)
 
 RESET enable_incremental_sort;
 \echo 'Test 1.9: ORDER BY non-prefix (single worker) - Sort expected'
@@ -941,9 +945,10 @@ ORDER BY fast_field DESC NULLS LAST;
    Index: exec_method_test_idx
    Exec Method: MixedFastFieldExecState
    Fast Fields: fast_field, id
+   Order By: fast_field DESC
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 \echo 'Test 10.2: Non-fast field included - should add Sort node'
 Test 10.2: Non-fast field included - should add Sort node
@@ -1212,9 +1217,10 @@ ORDER BY priority DESC NULLS LAST;
          Index: parallel_sorted_test_idx
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, priority
+         Order By: priority DESC
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 \echo 'Test 14.3: Verify parallel sorted results are correctly ordered'
 Test 14.3: Verify parallel sorted results are correctly ordered
@@ -1272,9 +1278,10 @@ ORDER BY priority DESC NULLS LAST, id ASC;
                Index: parallel_sorted_test_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: id, priority
+               Order By: priority DESC
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"document","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(13 rows)
 
 RESET enable_incremental_sort;
 RESET enable_gathermerge;

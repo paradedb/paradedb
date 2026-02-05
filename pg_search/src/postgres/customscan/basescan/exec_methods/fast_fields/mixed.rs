@@ -181,7 +181,7 @@ pub struct MixedFastFieldExecState {
     /// The DataFusion stream producing RecordBatches.
     stream: Option<SendableRecordBatchStream>,
 
-    /// The current RecordBatch of fast field values (DataFusion format)
+    /// The current RecordBatch of fast field values
     current_record_batch: Option<RecordBatch>,
     current_batch_row_idx: usize,
 
@@ -398,6 +398,7 @@ impl MixedFastFieldExecState {
         );
 
         // Clone visibility checker for the plan
+        // TODO: This will cause metrics to be lost for fast field scans: see `impl Clone for VisibilityChecker`.
         let visibility = state
             .visibility_checker
             .as_ref()
@@ -415,15 +416,14 @@ impl MixedFastFieldExecState {
         match plan.execute(0, task_ctx) {
             Ok(stream) => Some(stream),
             Err(e) => {
-                pgrx::warning!("Failed to execute SegmentPlan: {e}");
-                None
+                pgrx::error!("Failed to execute plan: {e}");
             }
         }
     }
 
     /// Creates a DataFusion stream for the sorted path.
     ///
-    /// For parallel execution: Uses PostgreSQL's `checkout_segment()` to claim segments
+    /// For parallel execution: Uses `ParallelScanState`'s `checkout_segment()` to claim segments
     /// one at a time, doing actual work (opening the segment) between checkouts. This is
     /// critical for parallelism - without intermediate work, one worker could claim ALL
     /// segments before other workers start up. See `ParallelScanState` documentation.

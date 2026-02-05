@@ -700,28 +700,26 @@ impl CustomScan for BaseScan {
             // Choose the exec method type, and make claims about whether it is sorted.
             let limit_is_explicit =
                 limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
-            let exec_method_type = choose_exec_method(
+
+            // Check if the index has a sort_by configuration and the query has a matching pathkey.
+            // If so, create an additional sorted path that declares the pathkey.
+            // This allows Postgres to use merge joins when joining with other sorted inputs.
+            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+                let sort_by_fields = bm25_index.options().sort_by();
+                sort_by_fields
+                    .first()
+                    .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table))
+            } else {
+                None
+            };
+
+            let exec_method_types = choose_exec_method(
                 &custom_private,
                 &topn_pathkey_info,
                 limit_is_explicit,
                 table.name(),
+                sort_by_pathkey.is_some(),
             );
-            custom_private.set_exec_method_type(exec_method_type);
-            if matches!(
-                custom_private.exec_method_type(),
-                ExecMethodType::TopN {
-                    orderby_info: Some(..),
-                    ..
-                }
-            ) {
-                // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
-                // because we don't want/need to serialize them for execution.
-                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
-                    for pathkey in pathkeys {
-                        builder = builder.add_path_key(pathkey);
-                    }
-                }
-            }
 
             //
             // finally, we have enough information to set the cost and estimation information, and
@@ -753,7 +751,7 @@ impl CustomScan for BaseScan {
 
             let nworkers = if (*builder.args().rel).consider_parallel {
                 compute_nworkers(
-                    custom_private.exec_method_type(),
+                    &exec_method_types[0],
                     limit,
                     row_estimate,
                     segment_count,
@@ -802,65 +800,59 @@ impl CustomScan for BaseScan {
             // indicate that we'll be doing projection ourselves
             builder = builder.set_flag(Flags::Projection);
 
-            // Check if the index has a sort_by configuration and the query has a matching pathkey.
-            // If so, create an additional sorted path that declares the pathkey.
-            // This allows Postgres to use merge joins when joining with other sorted inputs.
-            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
-                let sort_by_fields = bm25_index.options().sort_by();
-                sort_by_fields
-                    .first()
-                    .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table))
-            } else {
-                None
-            };
+            // Prepare base path configuration
+            custom_private.set_exec_method_type(exec_method_types[0].clone());
+            custom_private.set_use_sorted_path(false); // Default for base
 
-            // Check if the chosen exec method can support sorted output via sort_by index.
-            // This is determined by choose_exec_method above. Only FastFieldMixed can use
-            // SortPreservingMergeExec for sorted output - TopN has its own pathkey handling,
-            // and NormalScanExecState cannot merge sorted segment outputs.
-            let can_use_sorted_execution = custom_private.exec_method_type().can_support_sorted();
-
-            if let Some(ref pathkey_style) = sort_by_pathkey.filter(|_| can_use_sorted_execution) {
-                // We have a matching pathkey - create both sorted and unsorted paths.
-                // Build the unsorted path first.
-                custom_private.set_use_sorted_path(false);
-                let unsorted_path = builder.build(custom_private.clone());
-
-                // Create the sorted path by copying the unsorted path and modifying it
-                let mut sorted_path = unsorted_path;
-
-                // Update cost (slightly higher for sorted merge overhead)
-                sorted_path.path.total_cost = total_cost * 1.01;
-
-                // Update private data to indicate sorted path
-                let mut sorted_private = custom_private.clone();
-                sorted_private.set_use_sorted_path(true);
-                sorted_private.set_exec_method_type(choose_exec_method(
-                    &sorted_private,
-                    &topn_pathkey_info,
-                    limit_is_explicit,
-                    table.name(),
-                ));
-                sorted_path.custom_private = sorted_private.into();
-
-                // Add the pathkey to declare sorted output
-                let mut pklist = PgList::<pg_sys::PathKey>::from_pg(sorted_path.path.pathkeys);
-                pklist.push(pathkey_style.pathkey());
-                sorted_path.path.pathkeys = pklist.into_pg();
-
-                // Parallel execution is enabled for the sorted path.
-                // Each parallel worker uses checkout_segment() to claim a subset of segments,
-                // then creates a SortPreservingMergeExec for just those segments.
-                // PostgreSQL's Gather Merge combines the sorted outputs from all workers.
-                // The sorted path inherits parallel settings from the unsorted path (already set above).
-
-                // Return both paths to the planner for cost-based selection.
-                Some(vec![unsorted_path, sorted_path])
-            } else {
-                // No matching pathkey - just return the unsorted path
-                custom_private.set_use_sorted_path(false);
-                Some(vec![builder.build(custom_private)])
+            // If TopN, add pathkeys to builder
+            if matches!(
+                exec_method_types[0],
+                ExecMethodType::TopN {
+                    orderby_info: Some(..),
+                    ..
+                }
+            ) {
+                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
+                    for pathkey in pathkeys {
+                        builder = builder.add_path_key(pathkey);
+                    }
+                }
             }
+
+            // Build base path
+            let base_path = builder.build(custom_private.clone());
+            let mut custom_paths = vec![base_path];
+
+            // Build derived paths
+            for (i, method) in exec_method_types.iter().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+
+                let mut new_path = base_path;
+                let mut new_private = custom_private.clone();
+                new_private.set_exec_method_type(method.clone());
+
+                if let ExecMethodType::FastFieldMixed {
+                    sort_order: Some(_),
+                    ..
+                } = method
+                {
+                    new_private.set_use_sorted_path(true);
+                    new_path.path.total_cost = total_cost * 1.01;
+
+                    if let Some(ref pathkey_style) = sort_by_pathkey {
+                        let mut pklist = PgList::<pg_sys::PathKey>::from_pg(new_path.path.pathkeys);
+                        pklist.push(pathkey_style.pathkey());
+                        new_path.path.pathkeys = pklist.into_pg();
+                    }
+                }
+
+                new_path.custom_private = new_private.into();
+                custom_paths.push(new_path);
+            }
+
+            Some(custom_paths)
         })();
         paths.unwrap_or_default()
     }
@@ -1661,75 +1653,103 @@ fn choose_exec_method(
     topn_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
-) -> ExecMethodType {
+    has_sort_by_pathkey: bool,
+) -> Vec<ExecMethodType> {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
             // having a valid limit and sort direction means we can do a TopN query
             // and TopN can do snippets
-            return ExecMethodType::TopN {
+            let method = ExecMethodType::TopN {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
+            validate_topn_expectation(
+                privdata,
+                topn_pathkey_info,
+                limit_is_explicit,
+                &method,
+                table_name,
+            );
+            return vec![method];
         }
         if matches!(topn_pathkey_info, PathKeyInfo::None) {
             // we have a limit but no pathkeys at all. we can still go through our "top n"
             // machinery, but getting "limit" (essentially) random docs, which is what the user
             // asked for
-            return ExecMethodType::TopN {
+            let method = ExecMethodType::TopN {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
+            validate_topn_expectation(
+                privdata,
+                topn_pathkey_info,
+                limit_is_explicit,
+                &method,
+                table_name,
+            );
+            return vec![method];
         }
     }
 
     // Otherwise, see if we can use a fast fields method.
-    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
+    let is_capable = fast_fields::is_mixed_fast_field_capable(privdata);
+    if is_capable {
+        let mut methods = Vec::new();
+
+        // Always create the Unsorted variant
+        methods.push(ExecMethodType::FastFieldMixed {
+            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            limit: privdata.limit(),
+            sort_order: None,
+        });
+
         // Check if the index has a sort_by configuration (and sorting is enabled)
-        let sort_order: Option<SortByField> = if gucs::is_mixed_fast_field_sort_enabled() {
-            privdata.indexrelid().and_then(|indexrelid| {
+        // and we have a matching pathkey from the query
+        if gucs::is_mixed_fast_field_sort_enabled() && has_sort_by_pathkey {
+            let sort_order = privdata.indexrelid().and_then(|indexrelid| {
                 let indexrel =
                     PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
                 let sort_by_fields = indexrel.options().sort_by();
                 // Currently only single-field sorting is supported
                 sort_by_fields.into_iter().next()
-            })
-        } else {
-            None
-        };
+            });
 
-        // Only store the sort order when the sorted path was chosen. This allows us to
-        // distinguish between sorted/unsorted paths even when the index has sort_by.
-        let sort_order = if privdata.use_sorted_path() {
-            sort_order
-        } else {
-            None
-        };
-
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: privdata.limit(),
-            sort_order,
+            if let Some(sort_order) = sort_order {
+                methods.push(ExecMethodType::FastFieldMixed {
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+                    limit: privdata.limit(),
+                    sort_order: Some(sort_order),
+                });
+            }
         }
-    } else {
-        // Else, fall back to normal execution
-        ExecMethodType::Normal
-    };
 
-    // Validate TopN expectations before returning
+        // Validate expectations for the first method (Unsorted)
+        validate_topn_expectation(
+            privdata,
+            topn_pathkey_info,
+            limit_is_explicit,
+            &methods[0],
+            table_name,
+        );
+
+        return methods;
+    }
+
+    // Else, fall back to normal execution
+    let method = ExecMethodType::Normal;
     validate_topn_expectation(
         privdata,
         topn_pathkey_info,
         limit_is_explicit,
-        &chosen,
+        &method,
         table_name,
     );
-
-    chosen
+    vec![method]
 }
 
 ///

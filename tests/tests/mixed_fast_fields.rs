@@ -374,6 +374,7 @@ fn is_sorted_asc<T: Ord>(values: &[T]) -> bool {
 fn mixed_fast_fields_sorted_scan(mut conn: PgConnection) {
     "SET max_parallel_workers TO 0;".execute(&mut conn);
     "SET paradedb.enable_mixed_fast_field_exec TO true;".execute(&mut conn);
+    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
 
     r#"
         CREATE TABLE test_mff_sorted (
@@ -387,7 +388,7 @@ fn mixed_fast_fields_sorted_scan(mut conn: PgConnection) {
         USING bm25 (id, name, category, score)
         WITH (
             key_field = 'id',
-            text_fields = '{"name": {}, "category": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            text_fields = '{"name": {"fast": true}, "category": {"fast": true, "tokenizer": {"type": "keyword"}}}',
             numeric_fields = '{"score": {"fast": true}}',
             sort_by = 'score DESC NULLS LAST'
         );
@@ -425,6 +426,12 @@ fn mixed_fast_fields_sorted_scan(mut conn: PgConnection) {
     let methods = get_all_exec_methods(&plan);
     eprintln!("Execution methods: {:?}", methods);
 
+    assert!(
+        methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        methods
+    );
+
     // Query with ORDER BY and verify results are sorted
     let results: Vec<(String, String, i32)> = r#"
         SELECT name, category, score FROM test_mff_sorted
@@ -459,6 +466,7 @@ fn mixed_fast_fields_sorted_parallel(mut conn: PgConnection) {
     "SET max_parallel_workers_per_gather TO 4;".execute(&mut conn);
     "SET debug_parallel_query TO on;".execute(&mut conn);
     "SET paradedb.enable_mixed_fast_field_exec TO true;".execute(&mut conn);
+    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
 
     r#"
         CREATE TABLE test_mff_parallel (
@@ -472,7 +480,7 @@ fn mixed_fast_fields_sorted_parallel(mut conn: PgConnection) {
         USING bm25 (id, title, tag, priority)
         WITH (
             key_field = 'id',
-            text_fields = '{"title": {}, "tag": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            text_fields = '{"title": {"fast": true}, "tag": {"fast": true, "tokenizer": {"type": "keyword"}}}',
             numeric_fields = '{"priority": {"fast": true}}',
             sort_by = 'priority DESC NULLS LAST'
         );
@@ -507,6 +515,13 @@ fn mixed_fast_fields_sorted_parallel(mut conn: PgConnection) {
 
     eprintln!("Mixed fast fields parallel sorted plan: {:#?}", plan);
 
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        methods
+    );
+
     // Verify results are sorted with ORDER BY
     let results: Vec<(String, String, i32)> = r#"
         SELECT title, tag, priority FROM test_mff_parallel
@@ -535,6 +550,7 @@ fn mixed_fast_fields_sorted_parallel(mut conn: PgConnection) {
 fn mixed_fast_fields_sorted_asc(mut conn: PgConnection) {
     "SET max_parallel_workers TO 0;".execute(&mut conn);
     "SET paradedb.enable_mixed_fast_field_exec TO true;".execute(&mut conn);
+    "SET paradedb.mixed_fast_field_exec_column_threshold = 10;".execute(&mut conn);
 
     r#"
         CREATE TABLE test_mff_asc (
@@ -548,7 +564,7 @@ fn mixed_fast_fields_sorted_asc(mut conn: PgConnection) {
         USING bm25 (id, content, label, rank)
         WITH (
             key_field = 'id',
-            text_fields = '{"content": {}, "label": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            text_fields = '{"content": {"fast": true}, "label": {"fast": true, "tokenizer": {"type": "keyword"}}}',
             numeric_fields = '{"rank": {"fast": true}}',
             sort_by = 'rank ASC NULLS FIRST'
         );
@@ -572,6 +588,21 @@ fn mixed_fast_fields_sorted_asc(mut conn: PgConnection) {
     }
 
     // Query with ORDER BY and verify ASC ordering
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT content, label, rank FROM test_mff_asc
+        WHERE content @@@ 'Entry'
+        ORDER BY rank ASC
+    "#
+    .fetch_one(&mut conn);
+
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"MixedFastFieldExecState".to_string()),
+        "Expected MixedFastFieldExecState, got: {:?}",
+        methods
+    );
+
     let results: Vec<(String, String, i32)> = r#"
         SELECT content, label, rank FROM test_mff_asc
         WHERE content @@@ 'Entry'
@@ -610,7 +641,7 @@ fn mixed_fast_fields_disabled_still_works(mut conn: PgConnection) {
         USING bm25 (id, text_col, str_col, num_col)
         WITH (
             key_field = 'id',
-            text_fields = '{"text_col": {}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            text_fields = '{"text_col": {"fast": true}, "str_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
             numeric_fields = '{"num_col": {"fast": true}}',
             sort_by = 'num_col DESC NULLS LAST'
         );
@@ -633,6 +664,21 @@ fn mixed_fast_fields_disabled_still_works(mut conn: PgConnection) {
     }
 
     // With ORDER BY, PostgreSQL ensures sorted results even with mixed ff exec disabled
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id, num_col FROM test_mff_disabled
+        WHERE text_col @@@ 'Record'
+        ORDER BY num_col DESC
+    "#
+    .fetch_one(&mut conn);
+
+    let methods = get_all_exec_methods(&plan);
+    assert!(
+        methods.contains(&"NormalScanExecState".to_string()),
+        "Expected NormalScanExecState when mixed ff disabled, got: {:?}",
+        methods
+    );
+
     let results: Vec<(i32, i32)> = r#"
         SELECT id, num_col FROM test_mff_disabled
         WHERE text_col @@@ 'Record'

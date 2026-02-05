@@ -1145,9 +1145,10 @@ ORDER BY priority DESC NULLS LAST;
    Index: mixedff_comp_test_idx
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, priority
+   Order By: priority DESC
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 -- Verify correct sorted results
 SELECT id, priority FROM mixedff_comp_test
@@ -1232,9 +1233,10 @@ SELECT id, priority FROM comp_test WHERE name @@@ 'foo' ORDER BY priority DESC N
    Index: comp_test_idx
    Exec Method: MixedFastFieldExecState
    Fast Fields: id, priority
+   Order By: priority DESC
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"foo","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 DROP TABLE comp_test CASCADE;
 DROP TYPE my_comp CASCADE;

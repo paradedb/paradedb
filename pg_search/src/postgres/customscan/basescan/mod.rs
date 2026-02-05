@@ -93,7 +93,24 @@ use tantivy::Index;
 pub struct BaseScan;
 
 impl BaseScan {
-    // This is the core logic for (re-)initializing the search reader
+    /// (Re-)initializes the search reader for the current execution context.
+    ///
+    /// This function handles three distinct execution scenarios:
+    ///
+    /// 1. **Leader Execution** (`ParallelWorkerNumber == -1`):
+    ///    The scan is running in the main backend process. It uses `MvccSatisfies::Snapshot`
+    ///    to see all segments visible to the current transaction's snapshot.
+    ///
+    /// 2. **Parallel-Aware Worker** (Worker with `parallel_state`):
+    ///    The scan is part of a `parallel_aware` path (Partial Scan). Workers coordinate
+    ///    via shared memory (DSM) to divide segments. It uses `MvccSatisfies::ParallelWorker`
+    ///    to ensure it only queries segments explicitly identified and pinned by the leader.
+    ///
+    /// 3. **Replicated Worker** (Worker with NO `parallel_state`):
+    ///    The scan is `parallel_safe` but NOT `parallel_aware`. This happens when a serial
+    ///    scan runs inside a worker context (e.g., on the inner side of a Parallel Hash Join).
+    ///    In this case, every worker executes the full scan independently using its own
+    ///    transaction snapshot (`MvccSatisfies::Snapshot`).
     fn init_search_reader(state: &mut CustomScanStateWrapper<Self>) {
         let planstate = state.planstate();
         let expr_context = state.runtime_context;
@@ -119,16 +136,17 @@ impl BaseScan {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // the leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
-                } else {
+                } else if let Some(parallel_state) = state.custom_state().parallel_state {
                     // the workers have their own rules, which is literally every segment
                     // this is because the workers pick a specific segment to query that
                     // is known to be held open/pinned by the leader but might not pass a ::Snapshot
                     // visibility test due to concurrent merges/garbage collects
-                    MvccSatisfies::ParallelWorker(list_segment_ids(
-                        state.custom_state().parallel_state.expect(
-                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                        ),
-                    ))
+                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                } else {
+                    // We are in a worker, but this is not a parallel-aware scan (e.g. we are running
+                    // a serial scan inside a parallel worker, like in a Parallel Nested Loop Join).
+                    // In this case, we behave like a normal snapshot scan.
+                    MvccSatisfies::Snapshot
                 }
             },
             std::ptr::NonNull::new(expr_context),
@@ -708,19 +726,6 @@ impl CustomScan for BaseScan {
                 None
             };
 
-            let exec_method_types = choose_exec_method(
-                &custom_private,
-                &topn_pathkey_info,
-                limit_is_explicit,
-                table.name(),
-                sort_by_pathkey.is_some(),
-            );
-
-            //
-            // finally, we have enough information to set the cost and estimation information, and
-            // to decide on parallelism
-            //
-
             // calculate the total number of rows that might match the query, and the number of
             // rows that we expect that scan to return: these may be different in the case of a
             // `limit`.
@@ -743,6 +748,19 @@ impl CustomScan for BaseScan {
                     limit.unwrap_or(1.0).max(1.0)
                 }
             };
+
+            let exec_method_types = choose_exec_method(
+                &custom_private,
+                &topn_pathkey_info,
+                limit_is_explicit,
+                table.name(),
+                sort_by_pathkey.is_some(),
+            );
+
+            //
+            // finally, we have enough information to set the cost and estimation information, and
+            // to decide on parallelism
+            //
 
             let per_tuple_cost = {
                 if maybe_ff {
@@ -780,10 +798,14 @@ impl CustomScan for BaseScan {
                 let is_sorted = method.declares_sorted_output();
                 method_private.set_use_sorted_path(is_sorted);
 
+                // Our BaseScan is always parallel-safe (can run in a worker),
+                // even if it's not parallel-aware (splitting segments).
                 let nworkers = if (*builder.args().rel).consider_parallel {
+                    path_builder = path_builder.set_parallel_safe(true);
+
                     compute_nworkers(
                         &method,
-                        limit,
+                        limit.map(|l| l as f64),
                         row_estimate,
                         segment_count,
                         quals.contains_external_var(),

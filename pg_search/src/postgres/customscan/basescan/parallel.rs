@@ -100,11 +100,17 @@ impl ParallelQueryCapable for BaseScan {
     }
 }
 
+/// Compute the number of workers that should be used for the given ExecMethod.
 ///
-/// Compute the number of workers that should be used for the given ExecMethod, segment_count, and
-/// presence of external vars (indicating a join), or return 0 if workers cannot or should not be
-/// used.
+/// This calculation determines the "Parallel Awareness" of the path:
+/// - If it returns `0`, the path is marked as `parallel_safe` but NOT `parallel_aware`.
+///   PostgreSQL may run this scan in a worker (e.g. inner side of a join), but it will
+///   be a "replicated" scan where every worker processes the full data set.
+/// - If it returns `> 0`, the path is marked as BOTH `parallel_safe` and `parallel_aware`.
+///   It becomes a "partial" path that coordinates with other workers via DSM to
+///   partition segments and avoid duplicate work.
 ///
+/// Note: PostgreSQL asserts that `parallel_aware` paths must have `parallel_workers > 0`.
 pub fn compute_nworkers(
     exec_method: &ExecMethodType,
     limit: Option<Cardinality>,

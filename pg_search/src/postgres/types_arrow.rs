@@ -20,6 +20,7 @@ use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 use arrow_array::cast::AsArray;
 use arrow_array::Array;
 use arrow_schema::DataType;
+use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
@@ -85,12 +86,12 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
                     // Bytes are stored as Decimal::as_bytes() - convert back to AnyNumeric
                     // via string representation since AnyNumeric implements FromStr
-                    let decimal = decimal_bytes::Decimal::from_bytes(bytes)
+                    let decimal = Decimal::from_bytes(bytes)
                         .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
 
                     // Format decimal with proper scale to preserve trailing zeros
                     let decimal_str = if let Some(scale) = numeric_scale {
-                        format_decimal_with_scale(&decimal.to_string(), scale)
+                        decimal.to_string_with_scale(scale as i32)
                     } else {
                         decimal.to_string()
                     };
@@ -140,37 +141,8 @@ pub fn arrow_array_to_datum(
                         "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
                     })?;
 
-                    // Check for special values using decimal_bytes sentinel detection
-                    let decimal = decimal_bytes::Decimal64NoScale::from_raw(val);
-                    if decimal.is_nan() {
-                        return Ok(Some(
-                            "NaN"
-                                .parse::<pgrx::AnyNumeric>()
-                                .map_err(|e| format!("Failed to create NaN AnyNumeric: {e}"))?
-                                .into_datum()
-                                .expect("NaN should produce valid datum"),
-                        ));
-                    }
-
-                    // Convert to string with proper decimal placement
-                    let numeric_str = if scale == 0 {
-                        val.to_string()
-                    } else if scale > 0 {
-                        // Insert decimal point at the right position
-                        let abs_val = val.unsigned_abs();
-                        let divisor = 10u64.pow(scale as u32);
-                        let int_part = abs_val / divisor;
-                        let frac_part = abs_val % divisor;
-                        let sign = if val < 0 { "-" } else { "" };
-                        format!(
-                            "{sign}{int_part}.{frac_part:0>width$}",
-                            width = scale as usize
-                        )
-                    } else {
-                        // Negative scale means multiply by 10^|scale|
-                        let multiplier = 10i64.pow((-scale) as u32);
-                        (val * multiplier).to_string()
-                    };
+                    let numeric_str =
+                        Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
                     numeric_str
                         .parse::<pgrx::AnyNumeric>()
                         .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
@@ -307,44 +279,6 @@ pub fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
 
 pub fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
     date_time.into_timestamp_nanos()
-}
-
-/// Format a decimal string with a specific scale (number of decimal places).
-///
-/// This ensures trailing zeros are preserved when converting back from bytes storage
-/// to PostgreSQL NUMERIC. For example, if scale is 18 and the value is "1", this returns
-/// "1.000000000000000000".
-///
-/// If the string already has a decimal point, it pads with zeros to reach the target scale.
-/// If the string has no decimal point, it adds ".000..." with the appropriate number of zeros.
-fn format_decimal_with_scale(decimal_str: &str, scale: i16) -> String {
-    if scale <= 0 {
-        // Negative or zero scale means no decimal places needed
-        return decimal_str.to_string();
-    }
-
-    let scale = scale as usize;
-
-    // Handle special values
-    if decimal_str == "NaN" || decimal_str == "Infinity" || decimal_str == "-Infinity" {
-        return decimal_str.to_string();
-    }
-
-    // Find the decimal point position
-    if let Some(dot_pos) = decimal_str.find('.') {
-        let current_decimals = decimal_str.len() - dot_pos - 1;
-        if current_decimals >= scale {
-            // Already has enough decimal places
-            decimal_str.to_string()
-        } else {
-            // Need to add trailing zeros
-            let zeros_needed = scale - current_decimals;
-            format!("{}{}", decimal_str, "0".repeat(zeros_needed))
-        }
-    } else {
-        // No decimal point - add one with the required zeros
-        format!("{}.{}", decimal_str, "0".repeat(scale))
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

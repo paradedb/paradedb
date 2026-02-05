@@ -58,7 +58,8 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo, UnusableReason,
+    extract_pathkey_styles_with_sortability_check, find_sort_by_pathkey, PathKeyInfo,
+    UnusableReason,
 };
 use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
@@ -450,9 +451,10 @@ impl CustomScan for BaseScan {
     type State = BaseScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        unsafe {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
+        let paths = (|| unsafe {
             let (restrict_info, ri_type) = restrict_info(builder.args().rel());
+            let rel = builder.args().rel;
 
             // Check if the query has window aggregates (pdb.agg() or window_agg())
             let has_window_aggs = query_has_window_agg_functions(builder.args().root);
@@ -487,7 +489,6 @@ impl CustomScan for BaseScan {
             };
 
             let root = builder.args().root;
-            let rel = builder.args().rel;
 
             // quick look at the target list to see if we might need to do our const projections
             let target_list = (*(*builder.args().root).parse).targetList;
@@ -678,11 +679,6 @@ impl CustomScan for BaseScan {
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
-            // we must use this path if we need to do const projections for scores or snippets
-            builder = builder.set_force_path(
-                maybe_needs_const_projections || is_maybe_topn || quals.contains_all(),
-            );
-
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
             custom_private.set_range_table_index(rti);
@@ -699,22 +695,26 @@ impl CustomScan for BaseScan {
             // Choose the exec method type, and make claims about whether it is sorted.
             let limit_is_explicit =
                 limit.is_some() && !is_minmax_implicit_limit(builder.args().root);
-            let exec_method_type = choose_exec_method(
+
+            // Check if the index has a sort_by configuration and the query has a matching pathkey.
+            // If so, create an additional sorted path that declares the pathkey.
+            // This allows Postgres to use merge joins when joining with other sorted inputs.
+            let sort_by_pathkey = if gucs::is_mixed_fast_field_sort_enabled() {
+                let sort_by_fields = bm25_index.options().sort_by();
+                sort_by_fields
+                    .first()
+                    .and_then(|sort_by| find_sort_by_pathkey(root, rti, sort_by, &table))
+            } else {
+                None
+            };
+
+            let exec_method_types = choose_exec_method(
                 &custom_private,
                 &topn_pathkey_info,
                 limit_is_explicit,
                 table.name(),
+                sort_by_pathkey.is_some(),
             );
-            custom_private.set_exec_method_type(exec_method_type);
-            if custom_private.exec_method_type().is_sorted_topn() {
-                // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
-                // because we don't want/need to serialize them for execution.
-                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
-                    for pathkey in pathkeys {
-                        builder = builder.add_path_key(pathkey);
-                    }
-                }
-            }
 
             //
             // finally, we have enough information to set the cost and estimation information, and
@@ -734,7 +734,7 @@ impl CustomScan for BaseScan {
                 }
                 _ => parallel::RowEstimate::Unknown,
             };
-            let mut result_rows = match row_estimate {
+            let base_result_rows = match row_estimate {
                 parallel::RowEstimate::Known(rows) => {
                     (rows as f64).min(limit.unwrap_or(f64::MAX)).max(1.0)
                 }
@@ -743,37 +743,6 @@ impl CustomScan for BaseScan {
                     limit.unwrap_or(1.0).max(1.0)
                 }
             };
-
-            let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(
-                    custom_private.exec_method_type(),
-                    limit,
-                    row_estimate,
-                    segment_count,
-                    quals.contains_external_var(),
-                    quals.contains_correlated_param(builder.args().root),
-                )
-            } else {
-                0
-            };
-
-            if nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
-
-                // if we're likely to do a parallel scan, divide the result_rows by the number of workers
-                // we're likely to use.  this lets Postgres make better decisions based on what
-                // an individual parallel scan is actually going to return
-                let processes = std::cmp::max(
-                    1,
-                    nworkers
-                        + if pg_sys::parallel_leader_participation {
-                            1
-                        } else {
-                            0
-                        },
-                );
-                result_rows /= processes as f64;
-            }
 
             let per_tuple_cost = {
                 if maybe_ff {
@@ -786,17 +755,103 @@ impl CustomScan for BaseScan {
             };
 
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + (result_rows * per_tuple_cost);
+            let mut custom_paths = Vec::new();
 
-            builder = builder.set_rows(result_rows);
-            builder = builder.set_startup_cost(startup_cost);
-            builder = builder.set_total_cost(total_cost);
+            // For each execution method variant (e.g. sorted vs unsorted), we build a separate
+            // CustomPath. This allows the Postgres planner to choose the most efficient
+            // implementation based on costs and downstream requirements like ordering.
+            for method in exec_method_types {
+                let mut path_builder = CustomPathBuilder::<Self>::new(
+                    builder.args().root,
+                    builder.args().rel,
+                    *builder.args(),
+                );
 
-            // indicate that we'll be doing projection ourselves
-            builder = builder.set_flag(Flags::Projection);
+                // we must use this path if we need to do const projections for scores or snippets
+                path_builder = path_builder.set_force_path(
+                    maybe_needs_const_projections
+                        || matches!(method, ExecMethodType::TopN { .. })
+                        || quals.contains_all(),
+                );
 
-            Some(builder.build(custom_private))
-        }
+                let mut method_private = custom_private.clone();
+                method_private.set_exec_method_type(method.clone());
+
+                let is_sorted = method.declares_sorted_output();
+                method_private.set_use_sorted_path(is_sorted);
+
+                let nworkers = if (*builder.args().rel).consider_parallel {
+                    compute_nworkers(
+                        &method,
+                        limit,
+                        row_estimate,
+                        segment_count,
+                        quals.contains_external_var(),
+                        quals.contains_correlated_param(builder.args().root),
+                    )
+                } else {
+                    0
+                };
+
+                let mut method_result_rows = base_result_rows;
+
+                if nworkers > 0 {
+                    path_builder = path_builder.set_parallel(nworkers);
+
+                    // if we're likely to do a parallel scan, divide the result_rows by the number of workers
+                    // we're likely to use.  this lets Postgres make better decisions based on what
+                    // an individual parallel scan is actually going to return
+                    let processes = std::cmp::max(
+                        1,
+                        nworkers
+                            + if pg_sys::parallel_leader_participation {
+                                1
+                            } else {
+                                0
+                            },
+                    );
+                    method_result_rows /= processes as f64;
+                }
+
+                let mut total_cost = startup_cost + (method_result_rows * per_tuple_cost);
+
+                if is_sorted && method.supports_sorted_index_merge() {
+                    total_cost *= 1.01;
+                }
+
+                path_builder = path_builder.set_rows(method_result_rows);
+                path_builder = path_builder.set_startup_cost(startup_cost);
+                path_builder = path_builder.set_total_cost(total_cost);
+
+                // indicate that we'll be doing projection ourselves
+                path_builder = path_builder.set_flag(Flags::Projection);
+
+                // If TopN, add pathkeys to builder
+                if matches!(
+                    method,
+                    ExecMethodType::TopN {
+                        orderby_info: Some(..),
+                        ..
+                    }
+                ) {
+                    if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
+                        for pathkey in pathkeys {
+                            path_builder = path_builder.add_path_key(pathkey);
+                        }
+                    }
+                } else if is_sorted {
+                    // For sorted mixed fast field execution, add the sort pathkey
+                    if let Some(ref pathkey_style) = sort_by_pathkey {
+                        path_builder = path_builder.add_path_key(pathkey_style);
+                    }
+                }
+
+                custom_paths.push(path_builder.build(method_private));
+            }
+
+            Some(custom_paths)
+        })();
+        paths.unwrap_or_default()
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -1595,53 +1650,103 @@ fn choose_exec_method(
     topn_pathkey_info: &PathKeyInfo,
     limit_is_explicit: bool,
     table_name: &str,
-) -> ExecMethodType {
+    has_sort_by_pathkey: bool,
+) -> Vec<ExecMethodType> {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
             // having a valid limit and sort direction means we can do a TopN query
             // and TopN can do snippets
-            return ExecMethodType::TopN {
+            let method = ExecMethodType::TopN {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
+            validate_topn_expectation(
+                privdata,
+                topn_pathkey_info,
+                limit_is_explicit,
+                &method,
+                table_name,
+            );
+            return vec![method];
         }
         if matches!(topn_pathkey_info, PathKeyInfo::None) {
             // we have a limit but no pathkeys at all. we can still go through our "top n"
             // machinery, but getting "limit" (essentially) random docs, which is what the user
             // asked for
-            return ExecMethodType::TopN {
+            let method = ExecMethodType::TopN {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
                 limit,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
+            validate_topn_expectation(
+                privdata,
+                topn_pathkey_info,
+                limit_is_explicit,
+                &method,
+                table_name,
+            );
+            return vec![method];
         }
     }
 
     // Otherwise, see if we can use a fast fields method.
-    let chosen = if fast_fields::is_mixed_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldMixed {
+    let is_capable = fast_fields::is_mixed_fast_field_capable(privdata);
+    if is_capable {
+        let mut methods = Vec::new();
+
+        // Always create the Unsorted variant
+        methods.push(ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-        }
-    } else {
-        // Else, fall back to normal execution
-        ExecMethodType::Normal
-    };
+            sort_order: None,
+        });
 
-    // Validate TopN expectations before returning
+        // Check if the index has a sort_by configuration (and sorting is enabled)
+        // and we have a matching pathkey from the query
+        if gucs::is_mixed_fast_field_sort_enabled() && has_sort_by_pathkey {
+            let sort_order = privdata.indexrelid().and_then(|indexrelid| {
+                let indexrel =
+                    PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+                let sort_by_fields = indexrel.options().sort_by();
+                // Currently only single-field sorting is supported
+                sort_by_fields.into_iter().next()
+            });
+
+            if let Some(sort_order) = sort_order {
+                methods.push(ExecMethodType::FastFieldMixed {
+                    which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+                    limit: privdata.limit(),
+                    sort_order: Some(sort_order),
+                });
+            }
+        }
+
+        // Validate expectations for the first method (Unsorted)
+        validate_topn_expectation(
+            privdata,
+            topn_pathkey_info,
+            limit_is_explicit,
+            &methods[0],
+            table_name,
+        );
+
+        return methods;
+    }
+
+    // Else, fall back to normal execution
+    let method = ExecMethodType::Normal;
     validate_topn_expectation(
         privdata,
         topn_pathkey_info,
         limit_is_explicit,
-        &chosen,
+        &method,
         table_name,
     );
-
-    chosen
+    vec![method]
 }
 
 ///
@@ -1669,14 +1774,64 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,
+            sort_order,
         } => {
+            // Compute effective sort_order at execution time from PrivateData's use_sorted_path().
+            // sort_order is only populated for sorted paths, but we still guard against
+            // planner/executor mismatches using use_sorted_path().
+            let runtime_sorted = sort_order.is_some() && builder.custom_private().use_sorted_path();
+
+            // Safety check: ensure we don't drop sorted output when we claimed it at planning time.
+            // This catches bugs where the planner was told output would be sorted but execution
+            // cannot provide it.
+            if sort_order.is_some() && !runtime_sorted {
+                panic!(
+                    "Claimed sorted output at planning time, but unable to provide it at \
+                    execution time. This indicates a planner/executor mismatch."
+                );
+            }
+
+            // Pass sort_order only if we're actually using sorted execution
+            let effective_sort_order = if runtime_sorted { sort_order } else { None };
+
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
+                // Calculate extra fields needed for execution (e.g. sort column)
+                // that are not in the projected fields (which_fast_fields).
+                let mut extra_fast_fields = Vec::new();
+
+                if let Some(sort) = &effective_sort_order {
+                    // Check if sort field is already projected
+                    // Note: This naive name check works because we only support single-column sort by name
+                    let is_projected = which_fast_fields
+                        .iter()
+                        .any(|f| f.name() == sort.field_name.as_ref());
+
+                    if !is_projected {
+                        // Retrieve the sort field from the planned fast fields
+                        let planned_fields = match &builder.custom_state_ref().exec_method_type {
+                            ExecMethodType::FastFieldMixed {
+                                which_fast_fields, ..
+                            } => which_fast_fields,
+                            _ => unreachable!(),
+                        };
+
+                        if let Some(ff) = planned_fields
+                            .iter()
+                            .find(|f| f.name() == sort.field_name.as_ref())
+                        {
+                            extra_fast_fields.push(ff.clone());
+                        }
+                    }
+                }
+
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
+                        extra_fast_fields,
                         limit,
+                        effective_sort_order,
                     ),
                     None,
                 )

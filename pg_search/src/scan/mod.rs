@@ -22,7 +22,7 @@ pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
-pub use batch_scanner::{Batch, Scanner};
+pub use batch_scanner::Scanner;
 pub use info::ScanInfo;
 pub use table_provider::PgSearchTableProvider;
 

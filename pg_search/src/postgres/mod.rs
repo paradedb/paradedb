@@ -389,6 +389,30 @@ const WORKER_METRICS_MAX_COUNT: usize = 256;
 /// Workers must wait until this changes before reading segment data.
 const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 
+/// Shared state for coordinating parallel scans across multiple workers.
+///
+/// # Concurrency Model
+///
+/// The `basescan` and IAM in ParadeDB use a "lazy checkout" model where parallel workers claim
+/// segments on-demand from a shared pool. This allows for dynamic work-sharing without needing to
+/// pre-assign segments to specific workers.
+///
+/// For this model to work effectively, it is critical that workers perform actual work (scanning)
+/// between checkouts. If a worker checks out segments in a tight loop without intermediate work,
+/// it may claim all segments before other workers have time to start up, resulting in poor
+/// parallelism.
+///
+/// This dynamic model is chosen because it is ~impossible to determine the exact number of parallel
+/// workers available to a Custom Scan at runtime. The `ParallelContext` is shared across all
+/// nodes in a plan subgraph, and the actual number of workers launched may be a fraction of the
+/// planned count. Assuming a fixed number of workers (e.g., for static partitioning) will lead to
+/// deadlocks if fewer workers are available than expected. On the other hand, our `aggregatescan`
+/// currently spawns its own workers, and so uses a different strategy.
+///
+/// When a parallel custom scan claims sorted output, PostgreSQL automatically handles merging
+/// the output from each worker using a sort-preserving merge (via `Gather Merge`). This allows
+/// us to maintain the lazy checkout model even for sorted scans, as each worker only needs
+/// to provide a sorted stream for the segments it dynamically claims.
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,

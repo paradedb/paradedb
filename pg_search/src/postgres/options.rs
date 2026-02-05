@@ -32,6 +32,7 @@ use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -939,14 +940,14 @@ fn deserialize_config_fields(
 }
 
 /// Represents a single field in the sort_by specification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SortByField {
     pub field_name: FieldName,
     pub direction: SortByDirection,
 }
 
 /// Sort direction for sort_by fields
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SortByDirection {
     #[default]
     Asc,

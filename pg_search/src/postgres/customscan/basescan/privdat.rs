@@ -26,7 +26,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
@@ -53,6 +53,9 @@ pub struct PrivateData {
     ambulkdelete_epoch: u32,
     // Window aggregates to compute during TopN execution
     window_aggregates: Vec<WindowAggregateInfo>,
+    // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
+    // When true, the execution should use the sorted merge path for segment scanning.
+    use_sorted_path: bool,
 }
 
 mod var_attname_lookup_serializer {
@@ -226,6 +229,10 @@ impl PrivateData {
     pub fn set_window_aggregates(&mut self, window_aggregates: Vec<WindowAggregateInfo>) {
         self.window_aggregates = window_aggregates;
     }
+
+    pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
+        self.use_sorted_path = use_sorted;
+    }
 }
 
 //
@@ -270,6 +277,10 @@ impl PrivateData {
         self.segment_count
     }
 
+    pub fn target_list_len(&self) -> Option<usize> {
+        self.target_list_len
+    }
+
     pub fn planned_which_fast_fields(&self) -> &Option<HashSet<WhichFastField>> {
         &self.planned_which_fast_fields
     }
@@ -297,5 +308,9 @@ impl PrivateData {
 
     pub fn window_aggregates(&self) -> &Vec<WindowAggregateInfo> {
         &self.window_aggregates
+    }
+
+    pub fn use_sorted_path(&self) -> bool {
+        self.use_sorted_path
     }
 }

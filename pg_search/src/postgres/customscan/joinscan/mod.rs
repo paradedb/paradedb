@@ -187,7 +187,7 @@ impl CustomScan for JoinScan {
     type State = JoinScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe {
             let args = builder.args();
             let root = args.root;
@@ -196,8 +196,18 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
-            let (mut sources, mut join_keys) = collect_join_sources(root, outerrel)?;
-            let (inner_sources, inner_keys) = collect_join_sources(root, innerrel)?;
+            let (mut sources, mut join_keys) =
+                if let Some(res) = collect_join_sources(root, outerrel) {
+                    res
+                } else {
+                    return Vec::new();
+                };
+            let (inner_sources, inner_keys) =
+                if let Some(res) = collect_join_sources(root, innerrel) {
+                    res
+                } else {
+                    return Vec::new();
+                };
             sources.extend(inner_sources);
             join_keys.extend(inner_keys);
 
@@ -230,7 +240,7 @@ impl CustomScan for JoinScan {
                         (),
                     );
                 }
-                return None;
+                return Vec::new();
             }
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
@@ -245,9 +255,8 @@ impl CustomScan for JoinScan {
                         (),
                     );
                 }
-                return None;
+                return Vec::new();
             };
-
             let join_conditions = extract_join_conditions(extra, &sources);
 
             // Require equi-join keys for JoinScan.
@@ -261,7 +270,7 @@ impl CustomScan for JoinScan {
                         &aliases,
                     );
                 }
-                return None;
+                return Vec::new();
             }
 
             // Check if all ORDER BY columns are fast fields
@@ -273,7 +282,7 @@ impl CustomScan for JoinScan {
                         (),
                     );
                 }
-                return None;
+                return Vec::new();
             }
 
             let mut join_clause = JoinCSClause::new()
@@ -305,10 +314,10 @@ impl CustomScan for JoinScan {
                                     &aliases,
                                 );
                             }
-                            return None;
+                            return Vec::new();
                         }
                     }
-                    _ => return None, // Should not happen if extraction logic is correct
+                    _ => return Vec::new(), // Should not happen if extraction logic is correct
                 }
             }
 
@@ -360,14 +369,14 @@ impl CustomScan for JoinScan {
                     join_clause.clone(),
                 ) {
                     Ok(result) => result,
-                    Err(_) => {
+                    Err(err) => {
                         if is_interesting {
                             Self::add_planner_warning(
                                 "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
                                 &aliases,
                             );
                         }
-                        return None;
+                        return Vec::new();
                     }
                 };
 
@@ -381,7 +390,7 @@ impl CustomScan for JoinScan {
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {
-                return None;
+                return Vec::new();
             }
 
             // Note: Multi-table predicates (conditions like `a.price > b.price`) are allowed
@@ -439,7 +448,7 @@ impl CustomScan for JoinScan {
             // attempts with different join orders or conditions).
             Self::clear_planner_warnings_for_contexts(&aliases);
 
-            Some(custom_path)
+            vec![custom_path]
         }
     }
 

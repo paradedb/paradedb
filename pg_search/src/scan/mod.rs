@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod batch_scanner;
+pub mod codec;
 pub mod datafusion_plan;
 pub mod info;
 pub mod table_provider;
@@ -23,8 +24,9 @@ pub mod table_provider;
 mod tests;
 
 pub use batch_scanner::{Batch, Scanner};
+pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
-pub use table_provider::{PgSearchExtensionCodec, PgSearchTableProvider};
+pub use table_provider::PgSearchTableProvider;
 
 /// A trait for checking visibility of rows.
 pub trait VisibilityChecker {

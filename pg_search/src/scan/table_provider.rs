@@ -22,16 +22,9 @@ use std::sync::{Arc, OnceLock};
 use arrow_schema::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
-use datafusion::common::TableReference;
 use datafusion::common::{DataFusionError, Result, Statistics};
-use datafusion::execution::TaskContext;
-use datafusion::logical_expr::{
-    Expr, Extension, LogicalPlan, ScalarUDF, TableProviderFilterPushDown, TableType,
-};
+use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_proto::logical_plan::LogicalExtensionCodec;
-
-use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
@@ -185,103 +178,5 @@ impl TableProvider for PgSearchTableProvider {
             ffhelper,
             Box::new(visibility),
         )))
-    }
-}
-
-/// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
-/// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
-/// DataFusion how to serialize/deserialize them.
-#[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec;
-
-impl LogicalExtensionCodec for PgSearchExtensionCodec {
-    fn try_decode(
-        &self,
-        _buf: &[u8],
-        _inputs: &[LogicalPlan],
-        _ctx: &TaskContext,
-    ) -> Result<Extension> {
-        Err(DataFusionError::NotImplemented(
-            "Extension node decoding not implemented".to_string(),
-        ))
-    }
-
-    fn try_encode(&self, _node: &Extension, _buf: &mut Vec<u8>) -> Result<()> {
-        Err(DataFusionError::NotImplemented(
-            "Extension node encoding not implemented".to_string(),
-        ))
-    }
-
-    fn try_decode_table_provider(
-        &self,
-        buf: &[u8],
-        _table_ref: &TableReference,
-        _schema: SchemaRef,
-        _ctx: &TaskContext,
-    ) -> Result<Arc<dyn TableProvider>> {
-        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
-            DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
-        })?;
-        Ok(Arc::new(provider))
-    }
-
-    fn try_encode_table_provider(
-        &self,
-        _table_ref: &TableReference,
-        node: Arc<dyn TableProvider>,
-        buf: &mut Vec<u8>,
-    ) -> Result<()> {
-        let provider = node
-            .as_any()
-            .downcast_ref::<PgSearchTableProvider>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "TableProvider is not a PgSearchTableProvider".to_string(),
-                )
-            })?;
-        let bytes = serde_json::to_vec(provider).map_err(|e| {
-            DataFusionError::Internal(format!("Failed to serialize PgSearchTableProvider: {e}"))
-        })?;
-        buf.extend_from_slice(&bytes);
-        Ok(())
-    }
-
-    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-        match name {
-            "row_in_set" => {
-                let udf: RowInSetUDF = serde_json::from_slice(buf).map_err(|e| {
-                    DataFusionError::Internal(format!("Failed to deserialize RowInSetUDF: {e}"))
-                })?;
-                Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
-            }
-            _ => Err(DataFusionError::NotImplemented(format!(
-                "UDF '{}' deserialization not implemented",
-                name
-            ))),
-        }
-    }
-
-    fn try_encode_udf(&self, node: &ScalarUDF, buf: &mut Vec<u8>) -> Result<()> {
-        let name = node.name();
-        match name {
-            "row_in_set" => {
-                let udf = node
-                    .inner()
-                    .as_any()
-                    .downcast_ref::<RowInSetUDF>()
-                    .ok_or_else(|| {
-                        DataFusionError::Internal("UDF is not a RowInSetUDF".to_string())
-                    })?;
-                let bytes = serde_json::to_vec(udf).map_err(|e| {
-                    DataFusionError::Internal(format!("Failed to serialize RowInSetUDF: {e}"))
-                })?;
-                buf.extend_from_slice(&bytes);
-                Ok(())
-            }
-            _ => Err(DataFusionError::NotImplemented(format!(
-                "UDF '{}' serialization not implemented",
-                name
-            ))),
-        }
     }
 }

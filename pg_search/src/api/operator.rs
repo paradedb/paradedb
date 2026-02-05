@@ -667,29 +667,16 @@ unsafe fn make_lhs_var(
         // Create list of Var nodes for each key field
         let mut args = PgList::<pg_sys::Node>::new();
 
-        // TODO: does this only support two?
-        // Add first key field
-        let heap_attno1 = index_info.ii_IndexAttrNumbers[0];
-        let att1 = tupdesc.get(0).expect("must have first attribute");
-        let var1 = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-        (*var1).varattno = heap_attno1;
-        (*var1).varattnosyn = (*var1).varattno;
-        (*var1).vartype = att1.atttypid;
-        (*var1).vartypmod = att1.atttypmod;
-        (*var1).varcollid = att1.attcollation;
-        args.push(var1.cast());
-
-        // Add second key field if it exists
-        if num_key_fields > 1 {
-            let heap_attno2 = index_info.ii_IndexAttrNumbers[1];
-            let att2 = tupdesc.get(1).expect("must have second attribute");
-            let var2 = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
-            (*var2).varattno = heap_attno2;
-            (*var2).varattnosyn = (*var2).varattno;
-            (*var2).vartype = att2.atttypid;
-            (*var2).vartypmod = att2.atttypmod;
-            (*var2).varcollid = att2.attcollation;
-            args.push(var2.cast());
+        for i in 0..num_key_fields {
+            let heap_attno = index_info.ii_IndexAttrNumbers[i];
+            let att = tupdesc.get(i).expect("must have attribute for key field");
+            let var = pg_sys::copyObjectImpl(base_var.cast()).cast::<pg_sys::Var>();
+            (*var).varattno = heap_attno;
+            (*var).varattnosyn = (*var).varattno;
+            (*var).vartype = att.atttypid;
+            (*var).vartypmod = att.atttypmod;
+            (*var).varcollid = att.attcollation;
+            args.push(var.cast());
         }
 
         row_expr.args = args.into_pg();

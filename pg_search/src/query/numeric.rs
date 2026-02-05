@@ -140,7 +140,11 @@ pub fn numeric_value_to_decimal_bytes(value: OwnedValue) -> Result<OwnedValue> {
 /// Uses `decimal_bytes::Decimal` for arbitrary-precision decimal encoding.
 /// The hex encoding preserves lexicographic byte ordering for range queries.
 ///
-/// Used for NUMRANGEOID fields which are stored in JSON columns.
+/// Used for NUMRANGEOID fields which store bounds in JSON columns.
+/// JSON doesn't support raw bytes, so we hex-encode to preserve lexicographic ordering.
+///
+/// TODO: Consider changing Range field storage to support raw bytes instead of JSON,
+/// which would eliminate the hex encoding overhead.
 pub fn numeric_value_to_hex_string(value: OwnedValue) -> Result<OwnedValue> {
     let decimal = value_to_decimal(&value)?;
     Ok(OwnedValue::Str(bytes_to_hex(decimal.as_bytes())))

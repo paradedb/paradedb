@@ -23,3 +23,4 @@ CREATE CAST (text AS pdb.regex_pattern) WITH INOUT AS IMPLICIT;
 CREATE CAST (varchar AS pdb.regex_pattern) WITH INOUT AS IMPLICIT;
 CREATE CAST (text AS pdb.unicode_words) WITH INOUT AS IMPLICIT;
 CREATE CAST (varchar AS pdb.unicode_words) WITH INOUT AS IMPLICIT;
+CREATE CAST (varchar AS paradedb.fieldname) WITH INOUT AS IMPLICIT;

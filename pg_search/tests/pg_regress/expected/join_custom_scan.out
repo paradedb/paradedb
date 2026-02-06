@@ -1610,7 +1610,7 @@ LIMIT 10;
                  :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :             CooperativeExec
                  :               PgSearchScan
-                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=10
+                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=8
                  :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
                  :             FilterExec: row_in_set(ctid@0) OR row_in_set(ctid@0) OR row_in_set(ctid@0)
                  :               RepartitionExec: partitioning=RoundRobinBatch(10), input_partitions=1
@@ -3166,7 +3166,7 @@ LIMIT 10;
                        :     SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
                        :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, ctid_1@1 as ctid_1, id@2 as id]
                        :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@2, id@1)], projection=[ctid_2@0, ctid_1@1, id@3, ctid_4@4]
-                       :           RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=10
+                       :           RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=8
                        :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
                        :               RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
                        :                 ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
@@ -3229,7 +3229,7 @@ LIMIT 10;
                        :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
                        :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
                        :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@2, id@1)], projection=[ctid_2@0, ctid_1@1, id@3, ctid_4@4]
-                       :         RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=10
+                       :         RepartitionExec: partitioning=Hash([category_id@2], 8), input_partitions=8
                        :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
                        :             RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
                        :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
@@ -3289,7 +3289,7 @@ LIMIT 5;
            :     SortExec: TopK(fetch=5), expr=[score@2 DESC], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, score@1 as score, ctid_1@2 as ctid_1]
            :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@3, id@1)], projection=[ctid_2@0, score@1, ctid_1@2, ctid_4@4]
-           :           RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=10
+           :           RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=8
            :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@3)], projection=[ctid_2@0, score@2, ctid_1@3, category_id@4]
            :               RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
            :                 ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
@@ -3346,7 +3346,7 @@ LIMIT 5;
            :   SortPreservingMergeExec: [score@0 DESC], fetch=5
            :     SortExec: TopK(fetch=5), expr=[score@0 DESC], preserve_partitioning=[true]
            :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(category_id@3, id@1)], projection=[score@0, ctid_2@1, ctid_1@2, ctid_4@4]
-           :         RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=10
+           :         RepartitionExec: partitioning=Hash([category_id@3], 8), input_partitions=8
            :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, ctid_1@3, category_id@4]
            :             RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=1
            :               ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
@@ -3435,9 +3435,9 @@ LIMIT 5;
                        :     SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[true]
                        :       ProjectionExec: expr=[ctid_6@0 as ctid_6, ctid_4@1 as ctid_4, ctid_1@3 as ctid_1, id@4 as id, ctid_2@2 as ctid_2]
                        :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_6@0, ctid_4@1, ctid_2@2, ctid_1@4, id@6]
-                       :           RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=10
+                       :           RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
                        :             HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
-                       :               RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=10
+                       :               RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=8
                        :                 HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
                        :                   RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
                        :                     ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
@@ -3509,9 +3509,9 @@ LIMIT 5;
                        :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
                        :     SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
                        :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_6@0, ctid_4@1, ctid_2@2, ctid_1@4, id@6]
-                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=10
+                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
                        :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
-                       :             RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=10
+                       :             RepartitionExec: partitioning=Hash([id@2], 8), input_partitions=8
                        :               HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
                        :                 RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
                        :                   ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
@@ -3580,9 +3580,9 @@ LIMIT 5;
                        :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=5
                        :     SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
                        :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_4@0, ctid_6@1, ctid_2@2, ctid_1@4, id@6]
-                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=10
+                       :         RepartitionExec: partitioning=Hash([id@3], 8), input_partitions=8
                        :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, l3_id@2)], projection=[ctid_4@0, ctid_6@2, ctid_2@3, id@4]
-                       :             RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=10
+                       :             RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=8
                        :               HashJoinExec: mode=Partitioned, join_type=Inner, on=[(l4_id@1, id@1)], projection=[ctid_4@0, id@2, ctid_6@3]
                        :                 RepartitionExec: partitioning=Hash([l4_id@1], 8), input_partitions=1
                        :                   ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]

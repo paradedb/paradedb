@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::projections::window_agg;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::expr_contains_any_operator;
+use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
@@ -124,6 +124,10 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
 {
     unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
         if !gucs::enable_custom_scan() {
             return;
         }
@@ -141,7 +145,52 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             return;
         };
 
+<<<<<<< HEAD
         add_path(rel, path)
+=======
+        pg_sys::set_join_pathlist_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
+    root: *mut pg_sys::PlannerInfo,
+    joinrel: *mut pg_sys::RelOptInfo,
+    outerrel: *mut pg_sys::RelOptInfo,
+    innerrel: *mut pg_sys::RelOptInfo,
+    jointype: pg_sys::JoinType::Type,
+    extra: *mut pg_sys::JoinPathExtraData,
+) where
+    CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
+{
+    unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
+        if !gucs::enable_join_custom_scan() {
+            return;
+        }
+
+        let paths = CS::create_custom_path(CustomPathBuilder::new(
+            root,
+            joinrel,
+            JoinPathlistHookArgs {
+                root,
+                joinrel,
+                outerrel,
+                innerrel,
+                jointype,
+                extra,
+            },
+        ));
+
+        for path in paths {
+            add_path(joinrel, path);
+        }
+>>>>>>> 7c126437 (fix(custom-scan): skip hook when extension is not installed (#4106))
     }
 }
 
@@ -197,6 +246,10 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
     if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+        return;
+    }
+
+    if !pg_search_extension_installed() {
         return;
     }
 
@@ -448,6 +501,21 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     cursor_options: ::core::ffi::c_int,
     bound_params: pg_sys::ParamListInfo,
 ) -> *mut pg_sys::PlannedStmt {
+<<<<<<< HEAD
+=======
+    // Clear any existing warnings for this planning cycle
+    clear_planner_warnings();
+
+    if !pg_search_extension_installed() {
+        let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        };
+        return result;
+    }
+
+>>>>>>> 7c126437 (fix(custom-scan): skip hook when extension is not installed (#4106))
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level
     if should_replace_window_functions(parse) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2026 ParadeDB, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -210,22 +210,18 @@ impl<'a> ParallelAggregationWorker<'a> {
             // we take the minimum of what we want which is the target vs what is left which is available
             let count_to_take = std::cmp::min(target_count, available_count);
 
-            if count_to_take > 0 {
+            for _ in 0..count_to_take {
                 // treating the segment list as a stack and popping a batch from the end by calculating the slice range
-                let start_index = available_count - count_to_take;
-                let end_index = available_count;
-
-                for i in start_index..end_index {
-                    // access to the segment_ids vector
-                    if let Some((segment_id, _)) = self.segment_ids.get(i) {
+                if self.state.remaining_segments > 0 {
+                    self.state.remaining_segments -= 1;
+                    if let Some((segment_id, _)) =
+                        self.segment_ids.get(self.state.remaining_segments)
+                    {
                         segment_ids.insert(*segment_id);
                     }
                 }
-
-                // updates shared state once
-                self.state.remaining_segments -= count_to_take;
             }
-        } // lock automatically released here
+        }
 
         segment_ids
     }

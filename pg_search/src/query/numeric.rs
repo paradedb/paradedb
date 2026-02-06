@@ -107,29 +107,46 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
 /// Convert a numeric value to a hex-encoded string for NumericBytes storage.
 ///
 /// Used for NumericBytes storage where precision exceeds 18 digits.
-/// The hex encoding preserves lexicographic byte ordering for range queries.
-/// We use string storage (not bytes) because Tantivy's FastFieldReaders doesn't
-/// support bytes columns for join pushdown and other fast field operations.
-///
-/// Uses direct type conversions via `From`/`TryFrom` traits to avoid unnecessary
-/// string intermediates for primitive numeric types.
-pub fn numeric_value_to_bytes(value: OwnedValue) -> Result<OwnedValue> {
-    let decimal = match &value {
-        OwnedValue::I64(i) => Decimal::from(*i),
-        OwnedValue::U64(u) => Decimal::from(*u),
+/// Convert a numeric value to its Decimal representation.
+/// Helper function used by both raw bytes and hex string conversions.
+fn value_to_decimal(value: &OwnedValue) -> Result<Decimal> {
+    match value {
+        OwnedValue::I64(i) => Ok(Decimal::from(*i)),
+        OwnedValue::U64(u) => Ok(Decimal::from(*u)),
         OwnedValue::F64(f) => Decimal::try_from(*f)
-            .map_err(|e| anyhow::anyhow!("Failed to convert f64 {} to Decimal: {:?}", f, e))?,
+            .map_err(|e| anyhow::anyhow!("Failed to convert f64 {} to Decimal: {:?}", f, e)),
         OwnedValue::Str(s) => Decimal::from_str(s)
-            .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", s, e))?,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Cannot convert non-numeric value to hex: {:?}",
-                value
-            ))
-        }
-    };
+            .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", s, e)),
+        _ => Err(anyhow::anyhow!(
+            "Cannot convert non-numeric value: {:?}",
+            value
+        )),
+    }
+}
 
-    // Hex-encode the bytes to create a string that preserves lexicographic ordering
+/// Convert a numeric value to raw bytes (OwnedValue::Bytes).
+///
+/// Uses `decimal_bytes::Decimal` for arbitrary-precision decimal encoding.
+/// The byte encoding is lexicographically sortable for range queries.
+///
+/// Used for NumericBytes fields which are stored as Tantivy Bytes columns.
+pub fn numeric_value_to_decimal_bytes(value: OwnedValue) -> Result<OwnedValue> {
+    let decimal = value_to_decimal(&value)?;
+    Ok(OwnedValue::Bytes(decimal.into_bytes()))
+}
+
+/// Convert a numeric value to a hex-encoded string (OwnedValue::Str).
+///
+/// Uses `decimal_bytes::Decimal` for arbitrary-precision decimal encoding.
+/// The hex encoding preserves lexicographic byte ordering for range queries.
+///
+/// Used for NUMRANGEOID fields which store bounds in JSON columns.
+/// JSON doesn't support raw bytes, so we hex-encode to preserve lexicographic ordering.
+///
+/// TODO: Consider changing Range field storage to support raw bytes instead of JSON,
+/// which would eliminate the hex encoding overhead.
+pub fn numeric_value_to_hex_string(value: OwnedValue) -> Result<OwnedValue> {
+    let decimal = value_to_decimal(&value)?;
     Ok(OwnedValue::Str(bytes_to_hex(decimal.as_bytes())))
 }
 
@@ -307,9 +324,10 @@ pub fn scale_numeric_bound(bound: Bound<OwnedValue>, scale: i16) -> Result<Bound
     convert_bound(bound, |v| scale_owned_value(v, scale))
 }
 
-/// Convert a numeric bound to lexicographically sortable bytes.
+/// Convert a numeric bound to lexicographically sortable raw bytes.
+/// Used for NumericBytes fields stored as Tantivy Bytes columns.
 pub fn numeric_bound_to_bytes(bound: Bound<OwnedValue>) -> Result<Bound<OwnedValue>> {
-    convert_bound(bound, numeric_value_to_bytes)
+    convert_bound(bound, numeric_value_to_decimal_bytes)
 }
 
 // ============================================================================
@@ -360,8 +378,8 @@ pub fn convert_value_for_range_field(
         }
         Ok(BuiltinOid::NUMRANGEOID) => {
             // Numeric ranges are indexed as hex-encoded sortable bytes
-            // Use numeric_value_to_bytes which handles all types directly
-            numeric_value_to_bytes(value.clone()).unwrap_or(value)
+            // Use numeric_value_to_hex_string for JSON storage
+            numeric_value_to_hex_string(value.clone()).unwrap_or(value)
         }
         // Date/time ranges are handled by the is_datetime flag
         _ => value,
@@ -389,7 +407,7 @@ pub fn convert_value_for_field(
 ) -> Result<OwnedValue> {
     match field_type {
         SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
-        SearchFieldType::NumericBytes(_) => numeric_value_to_bytes(value),
+        SearchFieldType::NumericBytes(..) => numeric_value_to_decimal_bytes(value),
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(_) => Ok(string_to_i64(value)),
         SearchFieldType::U64(_) => Ok(string_to_u64(value)),

@@ -17,7 +17,7 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
@@ -222,11 +222,7 @@ pub extern "C-unwind" fn amrescan(
             Bm25ScanState {
                 fast_fields: FFHelper::with_fields(
                     &search_reader,
-                    &[(
-                        schema.key_field_name(),
-                        FastFieldType::from(schema.key_field_type()),
-                    )
-                        .into()],
+                    &[(schema.key_field_name(), schema.key_field_type()).into()],
                 ),
                 reader: search_reader,
                 results,

@@ -149,7 +149,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, empty_string
+         Fast Fields: empty_string, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -251,7 +251,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: extreme_small, id, extreme_large
+         Fast Fields: extreme_large, extreme_small, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

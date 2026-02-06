@@ -147,7 +147,7 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, empty_string, special_chars
+         Fast Fields: empty_string, id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"complex pattern","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

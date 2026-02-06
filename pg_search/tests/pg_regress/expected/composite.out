@@ -125,7 +125,7 @@ SELECT title, body FROM articles_fast WHERE id @@@ pdb.parse('body:Full_text_sea
          Table: articles_fast
          Index: idx_articles_fast_bm25
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, body, title
+         Fast Fields: body, id, title
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:Full_text_search_techniques","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -2848,7 +2848,7 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: MixedFastFieldExecState
-   Fast Fields: original_price, id
+   Fast Fields: id, original_price
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
 (7 rows)
@@ -2868,7 +2868,7 @@ SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numran
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: MixedFastFieldExecState
-   Fast Fields: original_price, id
+   Fast Fields: id, original_price
    Scores: false
    Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
 (7 rows)

@@ -251,11 +251,11 @@ impl SearchFieldConfig {
     }
 
     /// Default config for NUMERIC with precision > 18 or unlimited (stored as bytes).
-    pub fn default_numeric_bytes() -> Self {
+    pub fn default_numeric_bytes(scale: Option<i16>) -> Self {
         Self::Numeric {
             indexed: true,
             fast: true,
-            scale: None,
+            scale,
         }
     }
 

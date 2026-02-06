@@ -20,6 +20,7 @@ use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 use arrow_array::cast::AsArray;
 use arrow_array::Array;
 use arrow_schema::DataType;
+use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
@@ -32,10 +33,15 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 /// [`WhichFastField`](crate::index::fast_fields_helper::WhichFastField)). This function is
 /// responsible for converting those widened types (e.g. `Utf8View`) back into specific
 /// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
+///
+/// The `numeric_scale` parameter is used for `Numeric64` and `NumericBytes` fields.
+/// For `Numeric64`, the scale is used to convert scaled i64 values back to NUMERIC.
+/// For `NumericBytes`, the scale is used to format the output with proper trailing zeros.
 pub fn arrow_array_to_datum(
     array: &dyn Array,
     index: usize,
     oid: PgOid,
+    numeric_scale: Option<i16>,
 ) -> Result<Option<pg_sys::Datum>, String> {
     if array.is_null(index) {
         return Ok(None);
@@ -72,6 +78,36 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
             }
         }
+        DataType::BinaryView => {
+            let arr = array.as_binary_view();
+            let bytes = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BYTEAOID) => bytes.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Bytes are stored as Decimal::as_bytes() - convert back to AnyNumeric
+                    // via string representation since AnyNumeric implements FromStr
+                    let decimal = Decimal::from_bytes(bytes)
+                        .map_err(|e| format!("Failed to decode bytes as Decimal: {e:?}"))?;
+
+                    // Format decimal with proper scale to preserve trailing zeros
+                    let decimal_str = if let Some(scale) = numeric_scale {
+                        decimal.to_string_with_scale(scale as i32)
+                    } else {
+                        decimal.to_string()
+                    };
+
+                    decimal_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse Decimal string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for BinaryView Arrow type: {oid:?}"
+                    ))
+                }
+            }
+        }
         DataType::UInt64 => {
             let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
             let val = arr.value(index);
@@ -99,6 +135,19 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    // Numeric64: convert scaled i64 back to NUMERIC
+                    let scale = numeric_scale.ok_or_else(|| {
+                        "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
+                    })?;
+
+                    let numeric_str =
+                        Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
+                    numeric_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
                         res?
@@ -271,7 +320,7 @@ mod tests {
         R::Error: std::fmt::Debug,
     {
         let array = create_array(original_val.clone());
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap().unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap().unwrap();
         let converted_val = unsafe { TantivyValue::try_from_datum(datum, oid) }.unwrap();
         let expected_val: TantivyValue = create_expected_value(original_val).try_into().unwrap();
         assert_eq!(expected_val, converted_val);
@@ -511,7 +560,7 @@ mod tests {
     ) {
         append_null(&mut builder);
         let array = builder.finish();
-        let datum = arrow_array_to_datum(&array, 0, oid).unwrap();
+        let datum = arrow_array_to_datum(&array, 0, oid, None).unwrap();
         assert!(datum.is_none());
     }
 

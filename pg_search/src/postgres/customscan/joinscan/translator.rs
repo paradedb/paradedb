@@ -149,6 +149,15 @@ impl<'a> PredicateTranslator<'a> {
     /// Translate a PostgreSQL expression to a DataFusion `Expr`.
     ///
     /// Returns `None` if the expression cannot be translated.
+    ///
+    /// IMPORTANT: This translator is used to check if a predicate CAN be translated,
+    /// but the actual predicate evaluation happens via heap fetch + PostgreSQL evaluation.
+    /// Cross-type comparisons (e.g., INT < NUMERIC) involve type casts that change value
+    /// semantics - we cannot simply look through them because the underlying storage
+    /// representations differ (e.g., INT 95 vs Numeric64 5225 for 52.25).
+    ///
+    /// For predicates involving type casts, we return None to indicate that the predicate
+    /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
             return None;
@@ -159,6 +168,10 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
+            // Type casts (RelabelType, CoerceViaIO, FuncExpr) are not supported because
+            // they may change value semantics. Cross-type comparisons like INT < NUMERIC
+            // require proper type coercion that DataFusion cannot perform correctly when
+            // the underlying fast field storage uses different scales/representations.
             _ => None,
         }
     }

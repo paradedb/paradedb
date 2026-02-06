@@ -621,6 +621,10 @@ impl CustomScan for BaseScan {
             #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             let baserels = (*builder.args().root).all_query_rels;
 
+            // Detect if we are in a join context (more than 1 base relation in the query)
+            // If so, we want to be aggressive with parallelism to enable Parallel Hash Join
+            let is_join_context = pg_sys::bms_num_members(baserels) > 1;
+
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
                 // Check if this is a single relation or a partitioned table setup
                 let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
@@ -806,6 +810,7 @@ impl CustomScan for BaseScan {
                         segment_count,
                         quals.contains_external_var(),
                         quals.contains_correlated_param(builder.args().root),
+                        is_join_context,
                     )
                 } else {
                     0

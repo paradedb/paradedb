@@ -28,7 +28,7 @@ use crate::postgres::customscan::basescan::projections::score::{is_score_func, u
 use crate::postgres::customscan::basescan::BaseScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pullup::{fast_field_type_for_pullup, resolve_fast_field};
+use crate::postgres::customscan::pullup::{field_type_for_pullup, resolve_fast_field};
 use crate::postgres::customscan::score_funcoids;
 
 use crate::postgres::rel::PgSearchRelation;
@@ -128,12 +128,12 @@ unsafe fn find_matching_fast_field(
     let to_fast_field =
         |search_field: &SearchField, data: &CategorizedFieldData| -> Option<WhichFastField> {
             if search_field.is_fast() {
-                if let Some(ff_type) =
-                    fast_field_type_for_pullup(search_field.field_type(), data.is_array)
+                if let Some(field_type) =
+                    field_type_for_pullup(search_field.field_type(), data.is_array)
                 {
                     return Some(WhichFastField::Named(
                         search_field.field_name().to_string(),
-                        ff_type,
+                        field_type,
                     ));
                 }
             }

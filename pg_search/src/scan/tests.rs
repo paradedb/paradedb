@@ -18,7 +18,7 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+    use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
@@ -26,6 +26,7 @@ mod tests {
     use crate::query::SearchQueryInput;
     use crate::scan::datafusion_plan::SegmentPlan;
     use crate::scan::Scanner;
+    use crate::schema::SearchFieldType;
     use datafusion::execution::TaskContext;
     use datafusion::physical_plan::ExecutionPlan;
     use futures::StreamExt;
@@ -77,7 +78,7 @@ mod tests {
         // Define fields to scan
         let fields = vec![
             WhichFastField::Ctid,
-            WhichFastField::Named("id".to_string(), FastFieldType::Int64),
+            WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
         let ffhelper = FFHelper::with_fields(&reader, &fields);

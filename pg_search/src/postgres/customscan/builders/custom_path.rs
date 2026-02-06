@@ -281,12 +281,27 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    /// Configures the path for Parallel-Aware (Partial) execution.
+    ///
+    /// Setting this to `nworkers > 0` marks the path as:
+    /// - `parallel_safe`: It can execute in a worker.
+    /// - `parallel_aware`: It will coordinate with other workers to divide the work.
     pub fn set_parallel(mut self, nworkers: usize) -> Self {
         self.custom_path_node.path.parallel_aware = true;
         self.custom_path_node.path.parallel_safe = true;
         self.custom_path_node.path.parallel_workers =
             nworkers.try_into().expect("nworkers should be a valid i32");
 
+        self
+    }
+
+    /// Configures whether the path is safe to run in a worker backend.
+    ///
+    /// If `safe` is true but `parallel_aware` is false (and `workers` is 0), the path
+    /// can still run inside a worker (e.g. inner side of a Parallel Hash Join), but
+    /// it will be a "replicated" execution where the worker performs the full scan.
+    pub fn set_parallel_safe(mut self, safe: bool) -> Self {
+        self.custom_path_node.path.parallel_safe = safe;
         self
     }
 

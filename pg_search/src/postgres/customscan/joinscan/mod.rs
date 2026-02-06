@@ -160,7 +160,10 @@ use self::planning::{
 use self::predicate::extract_join_level_conditions;
 use self::privdat::PrivateData;
 
-use self::scan_state::{build_joinscan_logical_plan, build_joinscan_physical_plan, JoinScanState};
+use self::scan_state::{
+    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
+    JoinScanState,
+};
 use crate::api::OrderByFeature;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -175,7 +178,6 @@ use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
-use datafusion::prelude::SessionContext;
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
@@ -702,7 +704,7 @@ impl CustomScan for JoinScan {
         }
 
         if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            let ctx = SessionContext::new();
+            let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -780,7 +782,7 @@ impl CustomScan for JoinScan {
                     .expect("Logical plan is required");
 
                 // Deserialize the logical plan
-                let ctx = SessionContext::new();
+                let ctx = create_session_context();
                 let logical_plan = logical_plan_from_bytes_with_extension_codec(
                     plan_bytes,
                     &ctx.task_ctx(),

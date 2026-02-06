@@ -137,6 +137,43 @@ impl SearchFieldType {
             SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
         )
     }
+
+    /// Returns the Arrow DataType used to store this field type in fast fields.
+    ///
+    /// Multiple SearchFieldType variants may map to the same Arrow storage type.
+    /// For example, Text, Uuid, Inet, Json, and Range all store as Utf8View.
+    pub fn arrow_data_type(&self) -> arrow_schema::DataType {
+        match self {
+            // String-like types all store as Utf8View
+            SearchFieldType::Text(_)
+            | SearchFieldType::Tokenized(..)
+            | SearchFieldType::Uuid(_)
+            | SearchFieldType::Inet(_)
+            | SearchFieldType::Json(_)
+            | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
+
+            // Integer types
+            SearchFieldType::I64(_) => arrow_schema::DataType::Int64,
+            SearchFieldType::U64(_) => arrow_schema::DataType::UInt64,
+
+            // Float type
+            SearchFieldType::F64(_) => arrow_schema::DataType::Float64,
+
+            // Boolean type
+            SearchFieldType::Bool(_) => arrow_schema::DataType::Boolean,
+
+            // Date stored as timestamp
+            SearchFieldType::Date(_) => {
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+            }
+
+            // Numeric64 is stored as Int64 (scaled integer)
+            SearchFieldType::Numeric64(..) => arrow_schema::DataType::Int64,
+
+            // NumericBytes is stored as BinaryView
+            SearchFieldType::NumericBytes(..) => arrow_schema::DataType::BinaryView,
+        }
+    }
 }
 
 /// Derive the SearchFieldType from the tantivy schema, using PostgreSQL metadata for OID/scale.

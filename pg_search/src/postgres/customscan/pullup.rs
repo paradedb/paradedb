@@ -20,7 +20,7 @@
 //! This module provides shared logic for determining if and how a PostgreSQL
 //! column can be resolved using Tantivy fast fields.
 
-use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
@@ -69,8 +69,10 @@ pub unsafe fn resolve_fast_field(
                 // Check if this is the key field (implicitly fast)
                 let key_field_name = schema.key_field_name();
                 if att.name() == key_field_name.to_string().as_str() {
-                    let ff_type = FastFieldType::from(schema.key_field_type());
-                    return Some(WhichFastField::Named(att.name().to_string(), ff_type));
+                    return Some(WhichFastField::Named(
+                        att.name().to_string(),
+                        schema.key_field_type(),
+                    ));
                 }
 
                 let categorized_fields = schema.categorized_fields();
@@ -92,10 +94,10 @@ pub unsafe fn resolve_fast_field(
                     }
 
                     if search_field.is_fast() {
-                        if let Some(ff_type) =
-                            fast_field_type_for_pullup(search_field.field_type(), data.is_array)
+                        if let Some(field_type) =
+                            field_type_for_pullup(search_field.field_type(), data.is_array)
                         {
-                            return Some(WhichFastField::Named(att.name().to_string(), ff_type));
+                            return Some(WhichFastField::Named(att.name().to_string(), field_type));
                         }
                     }
                 }
@@ -105,18 +107,14 @@ pub unsafe fn resolve_fast_field(
     }
 }
 
-/// Maps a `SearchFieldType` to a Tantivy `FastFieldType` for pullup execution.
+/// Returns the `SearchFieldType` if it's supported for fast field pullup execution.
 ///
-/// Returns `Some(FastFieldType)` if the type is supported for fast field execution,
+/// Returns `Some(SearchFieldType)` if the type is supported for fast field execution,
 /// `None` otherwise (e.g. arrays, JSON which require special handling).
-///
-/// This uses the actual field type from the index schema to ensure we get the correct
-/// storage type (e.g. NUMERIC can be stored as either Numeric64/Int64 or NumericBytes/Bytes
-/// depending on precision/scale).
-pub fn fast_field_type_for_pullup(
+pub fn field_type_for_pullup(
     field_type: SearchFieldType,
     is_array: bool,
-) -> Option<FastFieldType> {
+) -> Option<SearchFieldType> {
     if is_array {
         return None;
     }
@@ -127,9 +125,7 @@ pub fn fast_field_type_for_pullup(
         SearchFieldType::Json(_) => None,
         // Range types are not yet supported for pullup
         SearchFieldType::Range(_) => None,
-        // Numeric64: pass through the scale so it can be used during Arrow-to-PostgreSQL conversion
-        SearchFieldType::Numeric64(_, scale) => Some(FastFieldType::Numeric64(scale)),
-        // All other types can be pulled up using their FastFieldType
-        _ => Some(FastFieldType::from(field_type)),
+        // All other types can be pulled up directly
+        _ => Some(field_type),
     }
 }

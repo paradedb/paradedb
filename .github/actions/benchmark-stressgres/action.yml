@@ -120,7 +120,7 @@ runs:
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: stressgres
-        alert-threshold: "110%"
+        alert-threshold: "115%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}

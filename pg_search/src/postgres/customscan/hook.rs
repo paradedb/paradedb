@@ -32,7 +32,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::utils::expr_contains_any_operator;
+use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
@@ -127,6 +127,10 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
 {
     unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
         if !gucs::enable_custom_scan() {
             return;
         }
@@ -204,6 +208,10 @@ pub extern "C-unwind" fn paradedb_join_pathlist_callback<CS>(
     CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
 {
     unsafe {
+        if !pg_search_extension_installed() {
+            return;
+        }
+
         if !gucs::enable_join_custom_scan() {
             return;
         }
@@ -279,6 +287,10 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
     if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+        return;
+    }
+
+    if !pg_search_extension_installed() {
         return;
     }
 
@@ -532,6 +544,15 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
 ) -> *mut pg_sys::PlannedStmt {
     // Clear any existing warnings for this planning cycle
     clear_planner_warnings();
+
+    if !pg_search_extension_installed() {
+        let result = if let Some(prev_hook) = PREV_PLANNER_HOOK {
+            prev_hook(parse, query_string, cursor_options, bound_params)
+        } else {
+            pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
+        };
+        return result;
+    }
 
     // Check if we should replace window functions and do so if needed
     // This checks the OUTER query level

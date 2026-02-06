@@ -658,9 +658,14 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
         if i == 0 {
             num_results = output_str
                 .lines()
-                .filter(|line| !line.contains("Time") && !line.trim().is_empty())
-                .count()
-                - 1;
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    !trimmed.is_empty()
+                        && !trimmed.contains("Time")
+                        && !trimmed.starts_with("SET")
+                        && !trimmed.starts_with("RESET")
+                })
+                .count();
         }
     }
 

@@ -29,3 +29,17 @@ WHERE
 ORDER BY
     f."createdAt" DESC                -- Single Feature Sort (Local Fast Field)
 LIMIT 20;
+
+-- Lower bound: uses denormalized matview
+SELECT
+    fid.file_id,
+    fid.file_title,
+    fid.file_created_at,
+    fid.doc_title as document_title
+FROM files_inner_join_documents fid
+WHERE
+    fid.doc_parents LIKE 'PROJECT_ALPHA%'
+    AND fid.file_title @@@ 'collab12'
+ORDER BY
+    fid.file_created_at DESC
+LIMIT 20;

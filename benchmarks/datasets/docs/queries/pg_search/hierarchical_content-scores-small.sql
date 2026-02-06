@@ -23,3 +23,16 @@ WHERE
   documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages."content" @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
+
+-- Lower bound: uses denormalized matview
+SELECT
+  djfp.doc_id,
+  djfp.file_id,
+  djfp.page_id,
+  paradedb.score(djfp.row_id) AS score
+FROM
+  documents_inner_join_files_inner_join_pages djfp
+WHERE
+  djfp.doc_parents @@@ 'SFR' AND djfp.file_title @@@ 'collab12' AND djfp.page_content @@@ 'Single Number Reach'
+ORDER BY score DESC
+LIMIT 1000;

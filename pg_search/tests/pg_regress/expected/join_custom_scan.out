@@ -1036,18 +1036,15 @@ LIMIT 3;
                      Order By: p.price desc
                      DataFusion Physical Plan: 
                        : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                       :   SortPreservingMergeExec: [price@2 DESC], fetch=3
-                       :     SortExec: TopK(fetch=3), expr=[price@2 DESC], preserve_partitioning=[true]
-                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, price@4]
-                       :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
-                       :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                       :             CooperativeExec
-                       :               PgSearchScan
-                       :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
-                       :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
-                       :             CooperativeExec
-                       :               PgSearchScan
-(29 rows)
+                       :   SortExec: TopK(fetch=3), expr=[price@2 DESC], preserve_partitioning=[false]
+                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, price@4]
+                       :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                       :         CooperativeExec
+                       :           PgSearchScan
+                       :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
+                       :         CooperativeExec
+                       :           PgSearchScan
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -2186,18 +2183,15 @@ LIMIT 10;
                      Order By: t.id asc
                      DataFusion Physical Plan: 
                        : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                       :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
-                       :     SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
-                       :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                       :         RepartitionExec: partitioning=Hash([account_num@1], 8), input_partitions=1
-                       :           ProjectionExec: expr=[ctid@0 as ctid_2, account_num@1 as account_num]
-                       :             CooperativeExec
-                       :               PgSearchScan
-                       :         RepartitionExec: partitioning=Hash([account_num@1], 8), input_partitions=1
-                       :           ProjectionExec: expr=[ctid@0 as ctid_1, account_num@1 as account_num, id@2 as id]
-                       :             CooperativeExec
-                       :               PgSearchScan
-(29 rows)
+                       :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+                       :       ProjectionExec: expr=[ctid@0 as ctid_2, account_num@1 as account_num]
+                       :         CooperativeExec
+                       :           PgSearchScan
+                       :       ProjectionExec: expr=[ctid@0 as ctid_1, account_num@1 as account_num, id@2 as id]
+                       :         CooperativeExec
+                       :           PgSearchScan
+(26 rows)
 
 -- =============================================================================
 -- TEST 28: Large result set (functional, not performance)
@@ -2818,18 +2812,15 @@ LIMIT 10;
                Order By: p.id asc
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@4 as col_1, NULL as col_2, price@3 as col_3, NULL as col_4, min_order_value@1 as col_5, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1]
-                 :   SortPreservingMergeExec: [id@4 ASC NULLS LAST], fetch=10
-                 :     SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[true]
-                 :       HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=min_order_value@0 <= price@1, projection=[ctid_2@0, min_order_value@2, ctid_1@3, price@5, id@6]
-                 :         RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
-                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
-                 :             CooperativeExec
-                 :               PgSearchScan
-                 :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
-                 :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price, id@3 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan
-(28 rows)
+                 :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=min_order_value@0 <= price@1, projection=[ctid_2@0, min_order_value@2, ctid_1@3, price@5, id@6]
+                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
+                 :         CooperativeExec
+                 :           PgSearchScan
+                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price, id@3 as id]
+                 :         CooperativeExec
+                 :           PgSearchScan
+(25 rows)
 
 -- Test case: Search predicate OR multi-table predicate (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
@@ -2855,17 +2846,15 @@ LIMIT 10;
          Limit: 10
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@5 as col_3, NULL as col_4, min_order_value@2 as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
-           :   CoalescePartitionsExec: fetch=10
-           :     HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR min_order_value@0 <= price@2
-           :       RepartitionExec: partitioning=Hash([id@1], 8), input_partitions=1
-           :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
-           :           CooperativeExec
-           :             PgSearchScan
-           :       RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=1
-           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
-           :           CooperativeExec
-           :             PgSearchScan
-(22 rows)
+           :   GlobalLimitExec: skip=0, fetch=10
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR min_order_value@0 <= price@2
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
+           :         CooperativeExec
+           :           PgSearchScan
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
+           :         CooperativeExec
+           :           PgSearchScan
+(20 rows)
 
 -- Verify correct results
 SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value

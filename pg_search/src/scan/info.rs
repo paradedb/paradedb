@@ -21,10 +21,60 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
+use std::cmp::Ordering;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldInfo {
     pub attno: pg_sys::AttrNumber,
     pub field: WhichFastField,
+}
+
+/// Represents the estimated number of rows for a query.
+/// `Unknown` is used when the table hasn't been ANALYZEd (reltuples = -1 or 0).
+///
+/// Sorting: `Unknown` is considered larger than any `Known` estimate.
+/// This ensures that when sorting sources by estimate (descending) for partitioning,
+/// unknown/large tables are prioritized for partitioning over known small tables.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub enum RowEstimate {
+    /// Known row estimate
+    Known(u64),
+    /// Unknown - table hasn't been analyzed
+    #[default]
+    Unknown,
+}
+
+impl PartialOrd for RowEstimate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RowEstimate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (RowEstimate::Known(a), RowEstimate::Known(b)) => a.cmp(b),
+            (RowEstimate::Known(_), RowEstimate::Unknown) => Ordering::Less,
+            (RowEstimate::Unknown, RowEstimate::Known(_)) => Ordering::Greater,
+            (RowEstimate::Unknown, RowEstimate::Unknown) => Ordering::Equal,
+        }
+    }
+}
+
+impl RowEstimate {
+    pub fn value(&self) -> u64 {
+        match self {
+            RowEstimate::Known(v) => *v,
+            RowEstimate::Unknown => 0,
+        }
+    }
+
+    pub fn from_reltuples(reltuples: Option<f64>) -> Self {
+        match reltuples {
+            Some(r) if r.is_normal() && !r.is_sign_negative() => RowEstimate::Known(r as u64),
+            _ => RowEstimate::Unknown,
+        }
+    }
 }
 
 /// Information about a scan of a ParadeDB table.
@@ -58,6 +108,13 @@ pub struct ScanInfo {
     /// - Use `SortPreservingMergeExec` to merge sorted segment streams
     /// - Enable sort-merge joins when both sides are sorted on join keys
     pub sort_order: Option<SortByField>,
+    /// Estimated number of rows matching the query.
+    /// Used to decide which table to partition in parallel joins.
+    /// - `Some(estimate)`: This table has a BM25 index, and `estimate` is the result.
+    /// - `None`: This table does NOT have a BM25 index (or we failed to identify it).
+    pub estimate: Option<RowEstimate>,
+    /// The number of segments in the index.
+    pub segment_count: Option<usize>,
 }
 
 impl ScanInfo {

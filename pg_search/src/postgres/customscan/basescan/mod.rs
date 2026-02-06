@@ -727,6 +727,7 @@ impl CustomScan for BaseScan {
             //
             // Use RowEstimate enum to distinguish between known and unknown row counts.
             // Unknown is used when the table hasn't been ANALYZEd.
+            // TODO: Convert to use RowEstimate::from_reltuples.
             let row_estimate = match table.reltuples() {
                 Some(reltuples) if reltuples > 0.0 => {
                     let estimated = (reltuples as f64 * selectivity).max(1.0) as u64;

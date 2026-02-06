@@ -769,6 +769,7 @@ mod plan {
         target_segment_count
     }
 
+    // TODO: Convert to use RowEstimate.
     pub(super) fn estimate_heap_reltuples(heap_relation: &PgSearchRelation) -> f64 {
         let mut reltuples = unsafe { (*heap_relation.rd_rel).reltuples };
 

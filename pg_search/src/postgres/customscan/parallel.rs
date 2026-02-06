@@ -16,21 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::Cardinality;
+
 use crate::api::HashSet;
+
 use crate::postgres::ParallelScanState;
 
-use pgrx::pg_sys;
-use tantivy::index::SegmentId;
+pub use crate::scan::info::RowEstimate;
 
-/// Represents the estimated number of rows for a query.
-/// `Unknown` is used when the table hasn't been ANALYZEd (reltuples = -1 or 0).
-#[derive(Debug, Clone, Copy)]
-pub enum RowEstimate {
-    /// Known row estimate from pg_class.reltuples
-    Known(u64),
-    /// Unknown - table hasn't been analyzed
-    Unknown,
-}
+use pgrx::pg_sys;
+
+use tantivy::index::SegmentId;
 
 /// Compute the number of workers that should be used for the given ExecMethod.
 ///

@@ -173,7 +173,7 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::parallel::{compute_nworkers, RowEstimate};
+use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -188,9 +188,7 @@ use datafusion_proto::bytes::{
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use tantivy::Index;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -200,32 +198,16 @@ impl ParallelQueryCapable for JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        // We only partition the first source (outermost table)
-        // Accessing segments requires opening the index.
+        // We only partition the largest source
         let join_clause = &state.custom_state().join_clause;
-        if join_clause.sources.is_empty() {
-            return 0;
-        }
-        let source = &join_clause.sources[0];
-        let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
-        let query = source.scan_info.query.clone();
+        let source = join_clause.partitioning_source();
+        let segment_count = source
+            .scan_info
+            .segment_count
+            .expect("Segment count missing for partitioning source");
 
-        let index_rel = PgSearchRelation::open(index_relid);
-        // Open reader to get segments count. We don't need scores for estimation.
-        // We use MvccSatisfies::Snapshot because we are the leader estimating size.
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query.unwrap_or(crate::query::SearchQueryInput::All),
-            false,
-            MvccSatisfies::Snapshot,
-            None,
-            None,
-        )
-        .expect("Failed to open reader for DSM estimation");
-
-        let segments = reader.segment_readers();
         // JoinScan doesn't currently support aggregates in the scan
-        ParallelScanState::size_of(segments.len(), &[], false)
+        ParallelScanState::size_of(segment_count, &[], false)
     }
 
     fn initialize_dsm_custom_scan(
@@ -236,12 +218,9 @@ impl ParallelQueryCapable for JoinScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
 
-        // Initialize shared state with segments from the first source
+        // Initialize shared state with segments from the largest source
         let join_clause = &state.custom_state().join_clause;
-        if join_clause.sources.is_empty() {
-            return;
-        }
-        let source = &join_clause.sources[0];
+        let source = join_clause.partitioning_source();
         let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
         let query = source.scan_info.query.clone();
 
@@ -324,6 +303,11 @@ impl CustomScan for JoinScan {
                 };
             sources.extend(inner_sources);
             join_keys.extend(inner_keys);
+
+            // Calculate estimates to decide which table to partition
+            for source in &mut sources {
+                source.estimate_rows();
+            }
 
             // Collect aliases for warnings
             let aliases: Vec<String> = sources
@@ -526,33 +510,21 @@ impl CustomScan for JoinScan {
             let total_cost = startup_cost + 1.0;
             let mut result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
 
-            // Calculate parallel workers based on the first (partitioning) source
-            let (segment_count, row_estimate) = if let Some(first_source) =
-                join_clause.sources.first()
-            {
-                if let (Some(index_oid), Some(heap_oid)) = (
-                    first_source.scan_info.indexrelid,
-                    first_source.scan_info.heaprelid,
-                ) {
-                    let index_rel = PgSearchRelation::open(index_oid);
-                    let heap_rel = PgSearchRelation::open(heap_oid);
+            // Calculate parallel workers based on the largest source, which we will partition.
+            let (segment_count, row_estimate) = {
+                let largest_source = join_clause.partitioning_source();
 
-                    let directory = MvccSatisfies::LargestSegment.directory(&index_rel);
-                    let segment_count = directory.total_segment_count();
-                    // Just to ensure segment count is loaded
-                    let _index = Index::open(directory).ok();
-                    let segment_count = segment_count.load(Ordering::Relaxed);
+                let segment_count = largest_source
+                    .scan_info
+                    .segment_count
+                    .expect("Segment count missing for partitioning source");
 
-                    let row_estimate = match heap_rel.reltuples() {
-                        Some(reltuples) if reltuples > 0.0 => RowEstimate::Known(reltuples as u64),
-                        _ => RowEstimate::Unknown,
-                    };
-                    (segment_count, row_estimate)
-                } else {
-                    (0, RowEstimate::Unknown)
-                }
-            } else {
-                (0, RowEstimate::Unknown)
+                let row_estimate = largest_source
+                    .scan_info
+                    .estimate
+                    .expect("Estimate missing for partitioning source");
+
+                (segment_count, row_estimate)
             };
 
             let nworkers = if (*outerrel).consider_parallel {
@@ -950,11 +922,7 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan
                 let ctx = create_session_context();
-                let parallel_index_relid = if !join_clause.sources.is_empty() {
-                    join_clause.sources[0].scan_info.indexrelid
-                } else {
-                    None
-                };
+                let parallel_index_relid = join_clause.partitioning_source().scan_info.indexrelid;
                 let codec = PgSearchExtensionCodec {
                     parallel_state: state.custom_state().parallel_state,
                     parallel_index_relid,

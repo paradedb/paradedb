@@ -29,3 +29,16 @@ WHERE
 ORDER BY
     d.title ASC                     -- Single Feature Sort (Parent Field)
 LIMIT 50;
+
+-- Lower bound: uses denormalized matview
+SELECT DISTINCT
+    djfp.doc_id,
+    djfp.doc_title,
+    djfp.doc_parents
+FROM documents_inner_join_files_inner_join_pages djfp
+WHERE
+    djfp.page_size_in_bytes > 5000
+    AND djfp.doc_parents LIKE 'SFR%'
+ORDER BY
+    djfp.doc_title ASC
+LIMIT 50;

@@ -27,3 +27,16 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
+
+-- Lower bound: uses denormalized matview
+SELECT
+    fid.file_id,
+    fid.file_title,
+    paradedb.score(fid.row_id) as relevance
+FROM files_inner_join_documents fid
+WHERE
+    fid.file_title @@@ 'File'
+    AND fid.doc_parents LIKE 'PARENT_GROUP_10%'
+ORDER BY
+    relevance DESC
+LIMIT 10;

@@ -60,13 +60,8 @@ runs:
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
-<<<<<<< HEAD
         benchmark-data-dir-path: benchmarks
-        alert-threshold: "110%"
-=======
-        benchmark-data-dir-path: benchmarks/${{ inputs.dataset }}-${{ env.ROWS_LABEL }}
         alert-threshold: "115%"
->>>>>>> 7babc805 (chore: Reduce noise from benchmark alerts. (#4112))
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}

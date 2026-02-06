@@ -75,7 +75,7 @@ impl AggregateScanState {
 }
 
 impl CustomScanState for AggregateScanState {
-    fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
+    fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // TODO: Unused currently. See the comment on `trait CustomScanState` regarding making this
         // more useful.
     }

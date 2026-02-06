@@ -870,7 +870,7 @@ EXPLAIN (ANALYZE, VERBOSE, TIMING OFF, COSTS OFF, SUMMARY OFF) SELECT * FROM rec
    Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true},"estimated_docs":1}},"estimated_docs":1}
    Buffers: shared hit=21
  Planning:
-   Buffers: shared hit=36
+   Buffers: shared hit=27
 (13 rows)
 
 -- Test 7.3: Verify EXPLAIN without VERBOSE does NOT show estimates

@@ -259,6 +259,7 @@ pub mod pdb {
         }
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(name = "snippet", stable, parallel_safe)]
     fn snippet_from_relation(
         field: AnyElement,
@@ -271,6 +272,7 @@ pub mod pdb {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(name = "snippets", stable, parallel_safe)]
     fn snippets_from_relation(
         field: AnyElement,
@@ -284,6 +286,7 @@ pub mod pdb {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
+    #[allow(unused_variables)]
     #[pg_extern(
         name = "snippet_positions",
         stable,
@@ -300,9 +303,9 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
 "#
     )]
     fn snippet_positions_from_relation(
-        _field: AnyElement,
-        _limit: default!(Option<i32>, "NULL"),
-        _offset: default!(Option<i32>, "NULL"),
+        field: AnyElement,
+        limit: default!(Option<i32>, "NULL"),
+        offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
@@ -311,6 +314,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
 // In `0.19.0`, we renamed `paradedb.snippet*` functions to `pdb.snippet*`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(name = "snippet", stable, parallel_safe)]
 fn paradedb_snippet_from_relation(
     field: AnyElement,
@@ -324,6 +328,7 @@ fn paradedb_snippet_from_relation(
 }
 
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(name = "snippets", stable, parallel_safe)]
 fn paradedb_snippets_from_relation(
     field: AnyElement,
@@ -338,6 +343,7 @@ fn paradedb_snippets_from_relation(
 }
 
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(
     name = "snippet_positions",
     stable,
@@ -354,9 +360,9 @@ AS 'MODULE_PATHNAME', 'paradedb_snippet_positions_from_relation_wrapper';
 "#
 )]
 fn paradedb_snippet_positions_from_relation(
-    _field: AnyElement,
-    _limit: default!(Option<i32>, "NULL"),
-    _offset: default!(Option<i32>, "NULL"),
+    field: AnyElement,
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
     panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }

@@ -315,7 +315,7 @@ fn fast_fields_setup() -> &'static str {
     r#"SELECT rating + 1 FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
     true
 )]
-#[case::numeric_column(r#"SELECT price FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::numeric_column(r#"SELECT price FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
 #[case::array_column(r#"SELECT tags FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
 fn test_fast_fields_cases(
     mut conn: PgConnection,

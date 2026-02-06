@@ -142,7 +142,7 @@ ORDER BY document_title, file_title, page_number;
            Table: documents
            Index: documents_search
            Exec Method: MixedFastFieldExecState
-           Fast Fields: parents, id, title
+           Fast Fields: id, parents, title
            Scores: false
            Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Reports","lenient":null,"conjunction_mode":null}}}}]}}
    CTE matching_files
@@ -152,7 +152,7 @@ ORDER BY document_title, file_title, page_number;
                  Table: files
                  Index: files_search
                  Exec Method: MixedFastFieldExecState
-                 Fast Fields: file_path, title, id, documentid, file_size
+                 Fast Fields: documentid, file_path, file_size, id, title
                  Scores: false
                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"CTE Test","lenient":null,"conjunction_mode":null}}}}
            ->  CTE Scan on searchable_docs sd_1
@@ -169,7 +169,7 @@ ORDER BY document_title, file_title, page_number;
                Table: pages
                Index: pages_search
                Exec Method: MixedFastFieldExecState
-               Fast Fields: page_number, fileid
+               Fast Fields: fileid, page_number
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable OR testing","lenient":null,"conjunction_mode":null}}}}
 (37 rows)

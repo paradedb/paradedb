@@ -22,7 +22,7 @@
 
 use crate::index::fast_fields_helper::{FastFieldType, WhichFastField};
 use crate::postgres::rel::PgSearchRelation;
-use crate::schema::FieldSource;
+use crate::schema::{FieldSource, SearchFieldType};
 use pgrx::pg_sys;
 
 /// Resolves a PostgreSQL attribute number to a Tantivy fast field, if available.
@@ -93,7 +93,7 @@ pub unsafe fn resolve_fast_field(
 
                     if search_field.is_fast() {
                         if let Some(ff_type) =
-                            fast_field_type_for_pullup(data.base_oid.value(), data.is_array)
+                            fast_field_type_for_pullup(search_field.field_type(), data.is_array)
                         {
                             return Some(WhichFastField::Named(att.name().to_string(), ff_type));
                         }
@@ -105,38 +105,31 @@ pub unsafe fn resolve_fast_field(
     }
 }
 
-/// Maps a PostgreSQL type OID to a Tantivy `FastFieldType` for pullup execution.
+/// Maps a `SearchFieldType` to a Tantivy `FastFieldType` for pullup execution.
 ///
 /// Returns `Some(FastFieldType)` if the type is supported for fast field execution,
-/// `None` otherwise (e.g. arrays, JSON, numeric which require special handling).
-pub fn fast_field_type_for_pullup(base_oid: pg_sys::Oid, is_array: bool) -> Option<FastFieldType> {
+/// `None` otherwise (e.g. arrays, JSON which require special handling).
+///
+/// This uses the actual field type from the index schema to ensure we get the correct
+/// storage type (e.g. NUMERIC can be stored as either Numeric64/Int64 or NumericBytes/Bytes
+/// depending on precision/scale).
+pub fn fast_field_type_for_pullup(
+    field_type: SearchFieldType,
+    is_array: bool,
+) -> Option<FastFieldType> {
     if is_array {
         return None;
     }
-    match base_oid {
-        pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => Some(FastFieldType::String),
-        pg_sys::BOOLOID => Some(FastFieldType::Bool),
-        pg_sys::DATEOID
-        | pg_sys::TIMEOID
-        | pg_sys::TIMESTAMPOID
-        | pg_sys::TIMESTAMPTZOID
-        | pg_sys::TIMETZOID => Some(FastFieldType::Date),
-        pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => Some(FastFieldType::Float64),
-        pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID => Some(FastFieldType::Int64),
-        _ => {
-            // This fast field type is supported for pushdown of queries, but not for
-            // rendering via fast field execution.
-            //
-            // JSON/JSONB are excluded because fast fields do not contain the
-            // full content of the JSON in a way that we can easily render:
-            // rather, the individual fields are exploded out into dynamic
-            // columns.
-            //
-            // NUMERIC is excluded because we do not store the original
-            // precision/scale in the index, so we cannot safely reconstruct the
-            // value without potentially losing precision. See:
-            // https://github.com/paradedb/paradedb/issues/2968
-            None
-        }
+    match field_type {
+        // JSON/JSONB are excluded because fast fields do not contain the
+        // full content of the JSON in a way that we can easily render:
+        // rather, the individual fields are exploded out into dynamic columns.
+        SearchFieldType::Json(_) => None,
+        // Range types are not yet supported for pullup
+        SearchFieldType::Range(_) => None,
+        // Numeric64: pass through the scale so it can be used during Arrow-to-PostgreSQL conversion
+        SearchFieldType::Numeric64(_, scale) => Some(FastFieldType::Numeric64(scale)),
+        // All other types can be pulled up using their FastFieldType
+        _ => Some(FastFieldType::from(field_type)),
     }
 }

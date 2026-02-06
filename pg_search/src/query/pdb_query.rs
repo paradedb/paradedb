@@ -1388,7 +1388,7 @@ fn range(
             let upper = scale_numeric_bound(upper_bound, scale)?;
             (lower, upper)
         }
-        SearchFieldType::NumericBytes(_) => {
+        SearchFieldType::NumericBytes(..) => {
             // Convert bounds to lexicographically sortable bytes
             let lower = numeric_bound_to_bytes(lower_bound)?;
             let upper = numeric_bound_to_bytes(upper_bound)?;
@@ -1677,7 +1677,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     // Tantivy's QueryParser can't parse decimal strings directly for these types
     if matches!(
         field_type,
-        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(_)
+        SearchFieldType::Numeric64(_, _) | SearchFieldType::NumericBytes(..)
     ) {
         // Convert the query string to the appropriate numeric format
         let value = OwnedValue::Str(query_string.trim().to_string());

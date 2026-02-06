@@ -25,7 +25,9 @@ use futures::StreamExt;
 use tokio::runtime::Runtime;
 
 use crate::api::HashMap;
-use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::{
+    build_arrow_schema, FFHelper, FastFieldType, WhichFastField,
+};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::parallel::checkout_segment;
@@ -265,8 +267,20 @@ fn populate_slot_from_record_batch(
             _ => {}
         }
 
+        // Extract numeric scale if this is a Numeric64 or Numeric (NumericBytes) field
+        let numeric_scale = match which_fast_field {
+            WhichFastField::Named(_, FastFieldType::Numeric64(scale)) => Some(*scale),
+            WhichFastField::Named(_, FastFieldType::Numeric(scale)) => *scale,
+            _ => None,
+        };
+
         // Convert Arrow array value to datum
-        match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
+        match arrow_array_to_datum(
+            column.as_ref(),
+            row_idx,
+            PgOid::from(att.atttypid),
+            numeric_scale,
+        ) {
             Ok(Some(datum)) => {
                 datums[i] = datum;
                 isnull[i] = false;

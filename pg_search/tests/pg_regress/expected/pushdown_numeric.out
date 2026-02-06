@@ -1617,10 +1617,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on numeric_scientific_test
          Table: numeric_scientific_test
          Index: numeric_sci_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":"1000000","is_datetime":false}}]}}
-(8 rows)
+(9 rows)
 
 SELECT id, value
 FROM numeric_scientific_test
@@ -1646,10 +1647,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on numeric_scientific_test
          Table: numeric_scientific_test
          Index: numeric_sci_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, value
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"included":"10000"},"is_datetime":false}}]}}
-(8 rows)
+(9 rows)
 
 SELECT id, value
 FROM numeric_scientific_test

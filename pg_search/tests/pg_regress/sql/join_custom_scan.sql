@@ -496,19 +496,13 @@ ORDER BY p.id
 LIMIT 3;
 
 -- LIMIT with ORDER BY on fast field column (price is a fast field)
---
--- TODO: This query does NOT get a JoinScan because 'price' is DECIMAL (NUMERIC).
--- While it is indexed as a fast field, we cannot safely pull it up from the index
--- without potential precision loss, so fast field execution is disabled for NUMERIC.
--- See: https://github.com/paradedb/paradedb/issues/2968
---
--- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
--- SELECT p.id, p.name, s.name AS supplier_name
--- FROM products p
--- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'mouse'
--- ORDER BY p.price DESC
--- LIMIT 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'mouse'
+ORDER BY p.price DESC
+LIMIT 3;
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1228,7 +1222,6 @@ CREATE INDEX numeric_accounts_bm25_idx ON numeric_accounts USING bm25 (account_n
 WITH (key_field = 'account_num');
 
 -- JoinScan with NUMERIC join keys
--- TODO: Not yet pushed down: see https://github.com/paradedb/paradedb/issues/2968
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT t.description, a.holder_name, t.amount
 FROM numeric_transactions t
@@ -1627,10 +1620,6 @@ WHERE hp.description @@@ 'wireless';
 -- when both `price` and `min_order_value` are indexed as fast fields.
 -- If any column is NOT a fast field, JoinScan will not be proposed.
 
--- TODO: DECIMAL is not currently supported for pullup, so this will not get a the join scan.
--- Some queries are disabled to avoid rendering unstable oids in their plans. Can remove
--- after https://github.com/paradedb/paradedb/issues/2968 is implemented.
-
 -- Add min_order_value to suppliers for cross-relation comparison
 ALTER TABLE suppliers ADD COLUMN min_order_value DECIMAL(10,2) DEFAULT 0;
 UPDATE suppliers SET min_order_value = 50.00 WHERE id = 151;  -- TechCorp
@@ -1663,23 +1652,22 @@ LIMIT 10;
 -- Test case: Search predicate OR multi-table predicate (unified expression tree)
 -- Products where EITHER description matches 'cable' OR price >= supplier's min_order_value
 -- JoinScan SHOULD be proposed because all columns in the multi-table predicate are fast fields
--- TODO: Disabled: see above.
--- EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
--- SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
--- FROM products p
--- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'cable'
---    OR p.price >= s.min_order_value
--- LIMIT 10;
---
--- -- Verify correct results
--- SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
--- FROM products p
--- JOIN suppliers s ON p.supplier_id = s.id
--- WHERE p.description @@@ 'cable'
---    OR p.price >= s.min_order_value
--- ORDER BY p.id
--- LIMIT 10;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'cable'
+   OR p.price >= s.min_order_value
+LIMIT 10;
+
+-- Verify correct results
+SELECT p.id, p.name, p.price, s.name as supplier, s.min_order_value
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'cable'
+   OR p.price >= s.min_order_value
+ORDER BY p.id
+LIMIT 10;
 
 -- Test case: Multi-table predicate with NON-indexed column
 -- This should NOT use JoinScan because category_id is not in the BM25 index

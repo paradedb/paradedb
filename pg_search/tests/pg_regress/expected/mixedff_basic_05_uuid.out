@@ -48,7 +48,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
-         Fast Fields: uuid_key, name
+         Fast Fields: name, uuid_key
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
@@ -71,7 +71,7 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
-         Fast Fields: uuid, name
+         Fast Fields: name, uuid
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

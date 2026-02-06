@@ -28,7 +28,7 @@ use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
-use datafusion::prelude::{DataFrame, SessionContext};
+use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
@@ -109,6 +109,15 @@ impl CustomScanState for JoinScanState {
     }
 }
 
+/// Creates a DataFusion SessionContext with parallelization disabled.
+///
+/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
+/// across machines with different CPU counts.
+pub fn create_session_context() -> SessionContext {
+    let config = SessionConfig::new().with_target_partitions(1);
+    SessionContext::new_with_config(config)
+}
+
 /// Build the DataFusion logical plan for the join.
 /// Returns a LogicalPlan that can be serialized with datafusion_proto.
 pub async fn build_joinscan_logical_plan(
@@ -116,7 +125,7 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = SessionContext::new();
+    let ctx = create_session_context();
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }

@@ -1613,7 +1613,7 @@ LIMIT 10;
                  :         RepartitionExec: partitioning=Hash([supplier_id@1], 8), input_partitions=8
                  :           ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
                  :             FilterExec: row_in_set(ctid@0) OR row_in_set(ctid@0) OR row_in_set(ctid@0)
-                 :               RepartitionExec: partitioning=RoundRobinBatch(10), input_partitions=1
+                 :               RepartitionExec: partitioning=RoundRobinBatch(8), input_partitions=1
                  :                 CooperativeExec
                  :                   PgSearchScan
 (30 rows)

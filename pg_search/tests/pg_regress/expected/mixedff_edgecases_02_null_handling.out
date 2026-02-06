@@ -147,7 +147,7 @@ ORDER BY id;
          Table: nullable_test
          Index: nullable_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: numeric_field, id, string_field
+         Fast Fields: id, numeric_field, string_field
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"null","lenient":null,"conjunction_mode":null}}}}
 (9 rows)

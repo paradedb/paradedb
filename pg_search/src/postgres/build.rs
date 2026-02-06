@@ -130,7 +130,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
                     | SearchFieldType::U64(_)
                     | SearchFieldType::F64(_)
                     | SearchFieldType::Numeric64(_, _)
-                    | SearchFieldType::NumericBytes(_)
+                    | SearchFieldType::NumericBytes(..)
             )
         });
     }
@@ -274,17 +274,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::Numeric64(_, _) => {
                 builder.add_i64_field(name.as_ref(), config.clone())
             }
-            // NUMERIC with precision > 18 or unlimited: stored as hex-encoded sortable string
-            // We use text storage instead of bytes because Tantivy's FastFieldReaders
-            // doesn't support bytes columns for join pushdown and other fast field operations.
-            // Hex encoding preserves lexicographic byte ordering.
-            //
-            // TODO: Consider using Tantivy's native Bytes field instead of Text with hex encoding.
-            // This would skip UTF-8 validation overhead and avoid hex encoding/decoding.
-            // However, BytesColumn currently doesn't support range queries or TopN sorting.
-            // Since StringColumn wraps BytesColumn, adding these features should be straightforward.
-            SearchFieldType::NumericBytes(_) => {
-                builder.add_text_field(name.as_ref(), config.clone())
+            // NUMERIC with precision > 18 or unlimited: stored as sortable bytes
+            // We use bytes storage with lexicographically sortable encoding from decimal-bytes.
+            SearchFieldType::NumericBytes(..) => {
+                builder.add_bytes_field(name.as_ref(), config.clone())
             }
         };
     }

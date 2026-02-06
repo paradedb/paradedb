@@ -67,7 +67,8 @@ pub enum SearchFieldType {
     /// The i16 is the scale (number of decimal places).
     Numeric64(pg_sys::Oid, i16),
     /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
-    NumericBytes(pg_sys::Oid),
+    /// The Option<i16> is the scale (number of decimal places), or None for unlimited precision.
+    NumericBytes(pg_sys::Oid, Option<i16>),
 }
 
 impl SearchFieldType {
@@ -84,7 +85,9 @@ impl SearchFieldType {
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::Numeric64(_, scale) => SearchFieldConfig::default_numeric64(*scale),
-            SearchFieldType::NumericBytes(_) => SearchFieldConfig::default_numeric_bytes(),
+            SearchFieldType::NumericBytes(_, scale) => {
+                SearchFieldConfig::default_numeric_bytes(*scale)
+            }
             SearchFieldType::Bool(_) => SearchFieldConfig::default_boolean(),
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
@@ -106,7 +109,7 @@ impl SearchFieldType {
             SearchFieldType::Date(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
             SearchFieldType::Numeric64(oid, _) => *oid,
-            SearchFieldType::NumericBytes(oid) => *oid,
+            SearchFieldType::NumericBytes(oid, _) => *oid,
         }
         .into()
     }
@@ -118,10 +121,11 @@ impl SearchFieldType {
         }
     }
 
-    /// Returns the scale for Numeric64 fields, or None for other types.
+    /// Returns the scale for Numeric64/NumericBytes fields, or None for other types.
     pub fn numeric_scale(&self) -> Option<i16> {
         match self {
             SearchFieldType::Numeric64(_, scale) => Some(*scale),
+            SearchFieldType::NumericBytes(_, scale) => *scale,
             _ => None,
         }
     }
@@ -130,8 +134,45 @@ impl SearchFieldType {
     pub fn is_numeric(&self) -> bool {
         matches!(
             self,
-            SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(_)
+            SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
         )
+    }
+
+    /// Returns the Arrow DataType used to store this field type in fast fields.
+    ///
+    /// Multiple SearchFieldType variants may map to the same Arrow storage type.
+    /// For example, Text, Uuid, Inet, Json, and Range all store as Utf8View.
+    pub fn arrow_data_type(&self) -> arrow_schema::DataType {
+        match self {
+            // String-like types all store as Utf8View
+            SearchFieldType::Text(_)
+            | SearchFieldType::Tokenized(..)
+            | SearchFieldType::Uuid(_)
+            | SearchFieldType::Inet(_)
+            | SearchFieldType::Json(_)
+            | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
+
+            // Integer types
+            SearchFieldType::I64(_) => arrow_schema::DataType::Int64,
+            SearchFieldType::U64(_) => arrow_schema::DataType::UInt64,
+
+            // Float type
+            SearchFieldType::F64(_) => arrow_schema::DataType::Float64,
+
+            // Boolean type
+            SearchFieldType::Bool(_) => arrow_schema::DataType::Boolean,
+
+            // Date stored as timestamp
+            SearchFieldType::Date(_) => {
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+            }
+
+            // Numeric64 is stored as Int64 (scaled integer)
+            SearchFieldType::Numeric64(..) => arrow_schema::DataType::Int64,
+
+            // NumericBytes is stored as BinaryView
+            SearchFieldType::NumericBytes(..) => arrow_schema::DataType::BinaryView,
+        }
     }
 }
 
@@ -239,7 +280,8 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                             return Ok(SearchFieldType::Numeric64((*builtin).into(), scale));
                         }
                     }
-                    Ok(SearchFieldType::NumericBytes((*builtin).into()))
+                    // Pass the scale to NumericBytes so it can format output with correct decimal places
+                    Ok(SearchFieldType::NumericBytes((*builtin).into(), scale))
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool((*builtin).into())),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
@@ -598,6 +640,7 @@ impl SearchField {
             FieldType::F64(options) => options.is_fast(),
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
+            FieldType::Bytes(options) => options.is_fast(),
             // TODO: Neither JSON nor range fields are not yet sortable by us
             FieldType::JsonObject(_) => false,
             _ => false,
@@ -619,7 +662,7 @@ impl SearchField {
     /// Returns true if this field uses NumericBytes storage (hex-encoded string).
     /// NumericBytes fields are stored as text but should support direct equality/range pushdown.
     pub fn is_numeric_bytes(&self) -> bool {
-        matches!(self.field_type, SearchFieldType::NumericBytes(_))
+        matches!(self.field_type, SearchFieldType::NumericBytes(..))
     }
 
     pub fn with_positions(self) -> Result<Self, QueryError> {

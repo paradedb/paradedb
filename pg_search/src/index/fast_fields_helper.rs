@@ -22,7 +22,7 @@ use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 
 use serde::{Deserialize, Serialize};
-use tantivy::columnar::StrColumn;
+use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::SegmentOrdinal;
@@ -107,6 +107,7 @@ impl FFHelper {
 pub enum FFType {
     Junk,
     Text(StrColumn),
+    Bytes(BytesColumn),
     I64(Column<i64>),
     F64(Column<f64>),
     U64(Column<u64>),
@@ -129,6 +130,8 @@ impl FFType {
             Self::I64(ff)
         } else if let Ok(Some(ff)) = ffr.str(field_name) {
             Self::Text(ff)
+        } else if let Ok(Some(ff)) = ffr.bytes(field_name) {
+            Self::Bytes(ff)
         } else if let Ok(ff) = ffr.u64(field_name) {
             Self::U64(ff)
         } else if let Ok(ff) = ffr.f64(field_name) {
@@ -156,6 +159,16 @@ impl FFType {
                 ff.ord_to_str(ord, &mut s)
                     .expect("string should be retrievable for term ord");
                 TantivyValue(s.into())
+            }
+            FFType::Bytes(ff) => {
+                let mut bytes = Vec::new();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_bytes(ord, &mut bytes)
+                    .expect("bytes should be retrievable for term ord");
+                TantivyValue(OwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => TantivyValue(
                 ff.first(doc)
@@ -220,54 +233,18 @@ impl FFType {
 /// Currently, we "widen" various Postgres types into larger underlying storage types (e.g.
 /// based on how they are stored in Tantivy). For instance, JSON and UUID are both stored as Strings.
 /// The consumer of the data (e.g. the Arrow conversion layer) is responsible for interpreting
-/// these widened types back into their original Postgres OIDs.
-///
-/// TODO: This enum should eventually include all types which we can store accurately in Arrow with
-/// representations that have equivalent behavior to Postgres's types (perhaps by having one case which
-/// is a wrapper for an Arrow type). The current behavior means that if we had expressions for anything
-/// other than equality or comparison between equivalent types, we would do the wrong thing.
-#[derive(Debug, Clone, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
+/// these widened types back into their original Postgres OIDs via `SearchFieldType::typeoid()`.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub enum WhichFastField {
     Junk(String),
     Ctid,
     TableOid,
     Score,
-    Named(String, FastFieldType),
+    Named(String, SearchFieldType),
 }
 
-#[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize, Hash)]
-pub enum FastFieldType {
-    String,
-    Int64,
-    UInt64,
-    Float64,
-    Bool,
-    Date,
-}
-
-impl From<SearchFieldType> for FastFieldType {
-    fn from(value: SearchFieldType) -> Self {
-        match value {
-            SearchFieldType::Text(_) => FastFieldType::String,
-            SearchFieldType::Tokenized(..) => FastFieldType::String,
-            SearchFieldType::Uuid(_) => FastFieldType::String,
-            // TODO: Add proper support for Inet, Range, and Json fast fields
-            SearchFieldType::Inet(_) => FastFieldType::String,
-            SearchFieldType::I64(_) => FastFieldType::Int64,
-            SearchFieldType::F64(_) => FastFieldType::Float64,
-            SearchFieldType::U64(_) => FastFieldType::UInt64,
-            SearchFieldType::Bool(_) => FastFieldType::Bool,
-            SearchFieldType::Json(_) => FastFieldType::String,
-            SearchFieldType::Date(_) => FastFieldType::Date,
-            SearchFieldType::Range(_) => FastFieldType::String,
-            SearchFieldType::Numeric64(_, _) => FastFieldType::Int64,
-            SearchFieldType::NumericBytes(_) => FastFieldType::String,
-        }
-    }
-}
-
-impl<S: AsRef<str>> From<(S, FastFieldType)> for WhichFastField {
-    fn from(value: (S, FastFieldType)) -> Self {
+impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
+    fn from(value: (S, SearchFieldType)) -> Self {
         let name = value.0.as_ref();
         match name {
             "ctid" => WhichFastField::Ctid,
@@ -297,6 +274,14 @@ impl WhichFastField {
         }
     }
 
+    /// Returns the SearchFieldType if this is a Named fast field, None otherwise.
+    pub fn field_type(&self) -> Option<&SearchFieldType> {
+        match self {
+            WhichFastField::Named(_, field_type) => Some(field_type),
+            _ => None,
+        }
+    }
+
     /// Returns the Arrow DataType for this fast field.
     pub fn arrow_data_type(&self) -> arrow_schema::DataType {
         use arrow_schema::DataType;
@@ -304,16 +289,7 @@ impl WhichFastField {
             WhichFastField::Ctid => DataType::UInt64,
             WhichFastField::TableOid => DataType::UInt32,
             WhichFastField::Score => DataType::Float32,
-            WhichFastField::Named(_, ff_type) => match ff_type {
-                FastFieldType::String => DataType::Utf8View,
-                FastFieldType::Int64 => DataType::Int64,
-                FastFieldType::UInt64 => DataType::UInt64,
-                FastFieldType::Float64 => DataType::Float64,
-                FastFieldType::Bool => DataType::Boolean,
-                FastFieldType::Date => {
-                    DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
-                }
-            },
+            WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
         }
     }

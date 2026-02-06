@@ -256,9 +256,9 @@ CREATE TABLE alias_test (
 INSERT INTO alias_test (col) VALUES (1);
 CREATE INDEX idx_alias_test ON alias_test USING bm25 (id, (col::pdb.alias('mycol'))) WITH (key_field = 'id');
 SELECT * FROM alias_test WHERE col::pdb.alias('mycol') @@@ '1';
- id | col 
-----+-----
-  1 |   1
+ id |            col            
+----+---------------------------
+  1 | 1.00000000000000000000000
 (1 row)
 
 DROP TABLE alias_test;

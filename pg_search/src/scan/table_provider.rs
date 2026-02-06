@@ -28,7 +28,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
@@ -65,29 +65,7 @@ impl PgSearchTableProvider {
 fn build_schema(fields: &[WhichFastField]) -> SchemaRef {
     let arrow_fields: Vec<Field> = fields
         .iter()
-        .map(|f| match f {
-            WhichFastField::Ctid => Field::new("ctid", arrow_schema::DataType::UInt64, true),
-            WhichFastField::Score => {
-                Field::new("pdb.score()", arrow_schema::DataType::Float32, true)
-            }
-            WhichFastField::Named(name, typ) => {
-                let dt = match typ {
-                    FastFieldType::Int64 => arrow_schema::DataType::Int64,
-                    FastFieldType::UInt64 => arrow_schema::DataType::UInt64,
-                    FastFieldType::Float64 => arrow_schema::DataType::Float64,
-                    FastFieldType::Bool => arrow_schema::DataType::Boolean,
-                    FastFieldType::String => arrow_schema::DataType::Utf8View,
-                    FastFieldType::Date => {
-                        arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
-                    }
-                };
-                Field::new(name, dt, true)
-            }
-            WhichFastField::TableOid => {
-                Field::new("tableoid", arrow_schema::DataType::UInt32, true)
-            }
-            WhichFastField::Junk(name) => Field::new(name, arrow_schema::DataType::Null, true),
-        })
+        .map(|f| Field::new(f.name(), f.arrow_data_type(), true))
         .collect();
     Arc::new(Schema::new(arrow_fields))
 }

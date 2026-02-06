@@ -1088,10 +1088,10 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             fast: true,
             scale: Some(scale),
         },
-        SearchFieldType::NumericBytes(_) => SearchFieldConfig::Numeric {
+        SearchFieldType::NumericBytes(_, scale) => SearchFieldConfig::Numeric {
             indexed: true,
             fast: true,
-            scale: None,
+            scale,
         },
         SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => SearchFieldConfig::Text {
             indexed: true,

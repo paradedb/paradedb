@@ -265,8 +265,18 @@ fn populate_slot_from_record_batch(
             _ => {}
         }
 
+        // Extract numeric scale if this is a Numeric64 or NumericBytes field
+        let numeric_scale = which_fast_field
+            .field_type()
+            .and_then(|ft| ft.numeric_scale());
+
         // Convert Arrow array value to datum
-        match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid)) {
+        match arrow_array_to_datum(
+            column.as_ref(),
+            row_idx,
+            PgOid::from(att.atttypid),
+            numeric_scale,
+        ) {
             Ok(Some(datum)) => {
                 datums[i] = datum;
                 isnull[i] = false;

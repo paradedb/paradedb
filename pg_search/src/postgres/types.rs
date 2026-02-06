@@ -20,7 +20,6 @@ use crate::nodecast;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
-use crate::query::numeric::bytes_to_hex;
 use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
@@ -738,12 +737,10 @@ impl TantivyValue {
         Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
     }
 
-    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with hex-encoded string storage.
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with raw bytes storage.
     /// Used for NUMERIC with precision > 18 or unlimited precision.
     ///
-    /// The hex encoding preserves lexicographic byte ordering, supporting range queries.
-    /// We use string storage (not bytes) because Tantivy's FastFieldReaders doesn't
-    /// support bytes columns for join pushdown and other fast field operations.
+    /// The byte encoding is lexicographically sortable, supporting range queries.
     pub unsafe fn try_from_numeric_bytes(datum: Datum) -> Result<Self, TantivyValueError> {
         use decimal_bytes::Decimal;
         use std::str::FromStr;
@@ -756,14 +753,14 @@ impl TantivyValue {
 
         let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
             TantivyValueError::NumericConversion(format!(
-                "Failed to convert NUMERIC '{}' to hex: {:?}",
+                "Failed to convert NUMERIC '{}' to bytes: {:?}",
                 numeric_str, e
             ))
         })?;
 
-        // Hex-encode the bytes to create a string that preserves lexicographic ordering
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-            bytes_to_hex(decimal.as_bytes()),
+        // Store as raw bytes for Bytes field storage
+        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+            decimal.into_bytes(),
         )))
     }
 
@@ -800,7 +797,7 @@ impl TantivyValue {
             .collect()
     }
 
-    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with hex-encoded string storage.
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with raw bytes storage.
     /// Used for NUMERIC arrays with precision > 18 or unlimited precision.
     pub unsafe fn try_from_numeric_array_bytes(
         datum: Datum,
@@ -821,14 +818,14 @@ impl TantivyValue {
                 let numeric_str = numeric.normalize().to_string();
                 let decimal = Decimal::from_str(&numeric_str).map_err(|e| {
                     TantivyValueError::NumericConversion(format!(
-                        "Failed to convert NUMERIC array element '{}' to hex: {:?}",
+                        "Failed to convert NUMERIC array element '{}' to bytes: {:?}",
                         numeric_str, e
                     ))
                 })?;
 
-                // Hex-encode the bytes to create a string that preserves lexicographic ordering
-                Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-                    bytes_to_hex(decimal.as_bytes()),
+                // Store as raw bytes for Bytes field storage
+                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+                    decimal.into_bytes(),
                 )))
             })
             .collect()

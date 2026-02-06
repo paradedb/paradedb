@@ -701,34 +701,24 @@ impl CustomScan for JoinScan {
             );
         }
 
-        if let Some(ref logical_plan_bytes) = state.custom_state().logical_plan {
+        if let Some(ref logical_plan) = state.custom_state().logical_plan {
             let ctx = SessionContext::new();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("Failed to create tokio runtime");
             let logical_plan = logical_plan_from_bytes_with_extension_codec(
-                logical_plan_bytes,
+                logical_plan,
                 &ctx.task_ctx(),
                 &PgSearchExtensionCodec,
             )
             .expect("Failed to deserialize logical plan");
-
-            if explainer.is_analyze() {
-                // Show physical plan for EXPLAIN ANALYZE since it contains execution details
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .build()
-                    .expect("Failed to create tokio runtime");
-                let physical_plan = runtime
-                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-                    .expect("Failed to create execution plan");
-                let displayable = displayable(physical_plan.as_ref());
-                explainer.add_text("DataFusion Physical Plan", "");
-                for line in displayable.indent(false).to_string().lines() {
-                    explainer.add_text("  ", line);
-                }
-            } else {
-                // Show logical plan for regular EXPLAIN (stable across machines)
-                explainer.add_text("DataFusion Logical Plan", "");
-                for line in logical_plan.display_indent().to_string().lines() {
-                    explainer.add_text("  ", line);
-                }
+            let physical_plan = runtime
+                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .expect("Failed to create execution plan");
+            let displayable = displayable(physical_plan.as_ref());
+            explainer.add_text("DataFusion Physical Plan", "");
+            for line in displayable.indent(false).to_string().lines() {
+                explainer.add_text("  ", line);
             }
         }
     }

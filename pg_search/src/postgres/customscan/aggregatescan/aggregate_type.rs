@@ -110,9 +110,14 @@ impl SolvePostgresExpressions for AggregateType {
         }
     }
 
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
+    fn solve_postgres_expressions(
+        &mut self,
+        expr_context: *mut pg_sys::ExprContext,
+    ) -> Vec<SearchQueryInput> {
         if let Some(filter) = self.filter_expr_mut() {
-            filter.solve_postgres_expressions(expr_context);
+            filter.solve_postgres_expressions(expr_context)
+        } else {
+            Vec::new()
         }
     }
 }

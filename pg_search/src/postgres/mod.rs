@@ -159,9 +159,8 @@ struct AggregatesPayloadHeader {
 }
 
 #[derive(Debug)]
-#[repr(C)]
 struct ParallelScanPayloadLayout {
-    query: Range<usize>,
+    solved_expressions: Range<usize>,
     ids: Range<usize>,
     deleted_docs: Range<usize>,
     max_docs: Range<usize>,
@@ -175,12 +174,12 @@ struct ParallelScanPayloadLayout {
 impl ParallelScanPayloadLayout {
     fn new(
         nsegments: usize,
-        serialized_query: &[u8],
+        serialized_solved_expressions: &[u8],
         with_aggregates: bool,
     ) -> Result<Self, std::alloc::LayoutError> {
-        // Query.
-        let layout = Layout::from_size_align(serialized_query.len(), 1)?;
-        let query_range = 0..(layout.size());
+        // Solved expressions.
+        let layout = Layout::from_size_align(serialized_solved_expressions.len(), 1)?;
+        let solved_expressions_range = 0..(layout.size());
 
         // Segment ids.
         let ids_layout = Layout::from_size_align(nsegments * SEGMENT_ID_SIZE, 1)?;
@@ -220,7 +219,7 @@ impl ParallelScanPayloadLayout {
         };
 
         Ok(Self {
-            query: query_range,
+            solved_expressions: solved_expressions_range,
             ids: ids_range,
             deleted_docs: deleted_docs_range,
             max_docs: max_docs_range,
@@ -245,16 +244,22 @@ struct ParallelScanPayload {
 }
 
 impl ParallelScanPayload {
-    fn init(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
+    fn init(
+        &mut self,
+        segments: &[SegmentReader],
+        solved_expressions: &[u8],
+        with_aggregates: bool,
+    ) {
         // Compute and assign our Layout: must match what we were allocated with.
-        self.layout = ParallelScanPayloadLayout::new(segments.len(), query, with_aggregates)
-            .expect("could not layout `ParallelScanPayload` for initialization");
+        self.layout =
+            ParallelScanPayloadLayout::new(segments.len(), solved_expressions, with_aggregates)
+                .expect("could not layout `ParallelScanPayload` for initialization");
 
-        // Query.
-        let query_range = self.layout.query.clone();
-        let _ = (&mut self.data_mut()[query_range])
-            .write(query)
-            .expect("failed to write query bytes");
+        // Solved expressions.
+        let solved_expressions_range = self.layout.solved_expressions.clone();
+        let _ = (&mut self.data_mut()[solved_expressions_range])
+            .write(solved_expressions)
+            .expect("failed to write solved expressions bytes");
 
         // Segment ids.
         let ids_range = self.layout.ids.clone();
@@ -287,6 +292,23 @@ impl ParallelScanPayload {
         for segment_claim in self.segment_claims_mut().iter_mut() {
             *segment_claim = SEGMENT_CLAIM_UNCLAIMED;
         }
+
+        // Aggregates.
+        if with_aggregates {
+            let header_range = self.layout.aggregates_header.clone().unwrap();
+            let header = AggregatesPayloadHeader {
+                watermark: 0,
+                received_count: 0,
+                serialized_aggregations_len: 0,
+            };
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    &header,
+                    self.data_mut()[header_range].as_mut_ptr().cast(),
+                    1,
+                );
+            }
+        }
     }
 
     fn data(&self) -> &[u8] {
@@ -303,13 +325,13 @@ impl ParallelScanPayload {
         }
     }
 
-    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
-        let query_range = self.layout.query.clone();
-        if query_range.is_empty() {
+    fn solved_expressions(&self) -> anyhow::Result<Option<Vec<SearchQueryInput>>> {
+        let range = self.layout.solved_expressions.clone();
+        if range.is_empty() {
             return Ok(None);
         }
-        let query_data = &self.data()[query_range];
-        Ok(Some(serde_json::from_slice(query_data)?))
+        let data = &self.data()[range];
+        Ok(Some(serde_json::from_slice(data)?))
     }
 
     fn segment_ids(&self) -> &[[u8; SEGMENT_ID_SIZE]] {
@@ -376,9 +398,9 @@ impl ParallelScanPayload {
 }
 
 pub struct ParallelScanArgs<'a> {
-    segment_readers: &'a [SegmentReader],
-    query: Vec<u8>,
-    with_aggregates: bool,
+    pub segment_readers: &'a [SegmentReader],
+    pub solved_expressions: Vec<u8>,
+    pub with_aggregates: bool,
 }
 
 // We do not know ahead of time how many workers there will be, so we preallocate fixed size
@@ -413,6 +435,15 @@ const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 /// the output from each worker using a sort-preserving merge (via `Gather Merge`). This allows
 /// us to maintain the lazy checkout model even for sorted scans, as each worker only needs
 /// to provide a sorted stream for the segments it dynamically claims.
+///
+/// # Solved Expression Serialization
+///
+/// The `ParallelScanState` also optionally holds a serialized copy of the solved Postgres expressions
+/// from the search query. This is used to propagate "resolved" values (e.g. from an `InitPlan` scalar
+/// subquery) from the leader to parallel workers. When a query contains runtime parameters, only the
+/// leader is guaranteed to be able to evaluate those parameters. By serializing the results after the
+/// leader has resolved them, we ensure that workers execute exactly the same solved expressions as the leader,
+/// without needing access to the leader's private execution state.
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
@@ -434,20 +465,31 @@ pub struct ParallelScanState {
 }
 
 impl ParallelScanState {
-    fn size_of(nsegments: usize, serialized_query: &[u8], with_aggregates: bool) -> usize {
-        let dynamic_layout =
-            ParallelScanPayloadLayout::new(nsegments, serialized_query, with_aggregates)
-                .expect("could not layout `ParallelScanPayload` for allocation");
+    pub fn size_of(
+        nsegments: usize,
+        serialized_solved_expressions: &[u8],
+        with_aggregates: bool,
+    ) -> usize {
+        let dynamic_layout = ParallelScanPayloadLayout::new(
+            nsegments,
+            serialized_solved_expressions,
+            with_aggregates,
+        )
+        .expect("could not layout `ParallelScanPayload` for allocation");
         std::mem::size_of::<Self>() + dynamic_layout.total.size()
     }
 
     /// Phase 1+2: Create the mutex and populate with actual data in one call.
     /// Used by Custom Scan which has all data available at initialization time.
-    fn create_and_populate(&mut self, args: ParallelScanArgs) {
+    pub fn create_and_populate(&mut self, args: ParallelScanArgs) {
         self.mutex.init();
         self.aggregation_cv.init();
         self.init_cv.init();
-        self.populate(args.segment_readers, &args.query, args.with_aggregates);
+        self.populate(
+            args.segment_readers,
+            &args.solved_expressions,
+            args.with_aggregates,
+        );
     }
 
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
@@ -455,8 +497,14 @@ impl ParallelScanState {
     ///
     /// Caller must hold the mutex. After populating, broadcasts to wake any workers
     /// waiting in `wait_for_initialization()`.
-    fn populate(&mut self, segments: &[SegmentReader], query: &[u8], with_aggregates: bool) {
-        self.payload.init(segments, query, with_aggregates);
+    pub fn populate(
+        &mut self,
+        segments: &[SegmentReader],
+        solved_expressions: &[u8],
+        with_aggregates: bool,
+    ) {
+        self.payload
+            .init(segments, solved_expressions, with_aggregates);
         self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
         self.remaining_segments = segments.len();
         // Set nsegments LAST - this signals initialization is complete
@@ -780,8 +828,8 @@ impl ParallelScanState {
         self.payload.segment_max_docs()[i]
     }
 
-    fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
-        self.payload.query()
+    fn solved_expressions(&self) -> anyhow::Result<Option<Vec<SearchQueryInput>>> {
+        self.payload.solved_expressions()
     }
 
     /// Reset remaining_segments for a rescan. Called by amparallelrescan.

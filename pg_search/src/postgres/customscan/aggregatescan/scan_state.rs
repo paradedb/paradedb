@@ -20,6 +20,7 @@ use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
+use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys;
 
@@ -107,12 +108,17 @@ impl SolvePostgresExpressions for AggregateScanState {
             .for_each(|agg| agg.init_postgres_expressions(planstate));
     }
 
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.aggregate_clause
+    fn solve_postgres_expressions(
+        &mut self,
+        expr_context: *mut pg_sys::ExprContext,
+    ) -> Vec<SearchQueryInput> {
+        let mut solved = self
+            .aggregate_clause
             .query_mut()
             .solve_postgres_expressions(expr_context);
-        self.aggregate_clause
-            .aggregates_mut()
-            .for_each(|agg| agg.solve_postgres_expressions(expr_context));
+        self.aggregate_clause.aggregates_mut().for_each(|agg| {
+            solved.extend(agg.solve_postgres_expressions(expr_context));
+        });
+        solved
     }
 }

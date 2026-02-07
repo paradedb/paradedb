@@ -238,7 +238,7 @@ impl ParallelQueryCapable for JoinScan {
 
         let args = ParallelScanArgs {
             segment_readers: reader.segment_readers(),
-            query: vec![], // We don't need to pass query bytes for JoinScan (handled by plan)
+            solved_expressions: vec![], // We don't need to pass solved expressions for JoinScan (handled by plan)
             with_aggregates: false,
         };
 
@@ -269,9 +269,13 @@ impl ParallelQueryCapable for JoinScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
-        // We don't need to deserialize query from parallel state for JoinScan
+        // We don't need to deserialize solved expressions from parallel state for JoinScan
         // because the full plan (including query) is serialized in PrivateData
         // and available to the worker via the plan.
+        //
+        // NOTE: In order to support InitPlan nodes (scalar subqueries), we will
+        // likely need to send the solved expressions (which have been resolved by
+        // the leader) through ParallelScanState, just as BaseScan does.
     }
 }
 

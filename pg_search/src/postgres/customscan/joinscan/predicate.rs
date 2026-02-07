@@ -312,7 +312,8 @@ pub(super) unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query);
+    // Store pointers for lazy deparse (valid within same query execution)
+    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, expr, root);
     Some(idx)
 }
 

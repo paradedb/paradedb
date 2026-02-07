@@ -38,7 +38,10 @@ use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, HashSet};
+use std::fmt;
+use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
@@ -1238,4 +1241,101 @@ macro_rules! debug2 {
             pg_sys::debug2!($($arg)*);
         }
     }};
+}
+
+// =============================================================================
+
+// =============================================================================
+// RawPtr - Type-safe raw pointer wrapper
+// =============================================================================
+
+/// A raw pointer wrapper that serializes as `usize` for storage in CustomScan private data.
+///
+/// This provides type safety while allowing the pointer to be serialized/deserialized.
+/// The pointer is only valid within the same query execution context.
+///
+/// Note: We use `PhantomData<fn() -> *mut T>` instead of `PhantomData<*mut T>` so that
+/// `RawPtr` implements `Send + Sync` (required by DataFusion's `ScalarUDFImpl`).
+/// This is safe because the pointer is only used within a single Postgres backend.
+pub struct RawPtr<T> {
+    addr: usize,
+    _marker: PhantomData<fn() -> *mut T>,
+}
+
+impl<T> RawPtr<T> {
+    /// Create a new RawPtr from a raw pointer.
+    pub fn new(ptr: *mut T) -> Self {
+        Self {
+            addr: ptr as usize,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Create a null RawPtr.
+    pub const fn null() -> Self {
+        Self {
+            addr: 0,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Check if the pointer is null.
+    pub const fn is_null(&self) -> bool {
+        self.addr == 0
+    }
+
+    /// Get the raw pointer.
+    pub fn as_ptr(&self) -> *mut T {
+        self.addr as *mut T
+    }
+}
+
+impl<T> Clone for RawPtr<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for RawPtr<T> {}
+
+impl<T> PartialEq for RawPtr<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.addr == other.addr
+    }
+}
+
+impl<T> Eq for RawPtr<T> {}
+
+impl<T> std::hash::Hash for RawPtr<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.addr.hash(state);
+    }
+}
+
+impl<T> fmt::Debug for RawPtr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RawPtr({:#x})", self.addr)
+    }
+}
+
+impl<T> Default for RawPtr<T> {
+    fn default() -> Self {
+        Self::null()
+    }
+}
+
+impl<T> Serialize for RawPtr<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.addr.serialize(serializer)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for RawPtr<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let addr = usize::deserialize(deserializer)?;
+        Ok(Self {
+            addr,
+            _marker: PhantomData,
+        })
+    }
 }

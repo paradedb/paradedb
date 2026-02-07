@@ -147,7 +147,6 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
-pub mod udf;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};

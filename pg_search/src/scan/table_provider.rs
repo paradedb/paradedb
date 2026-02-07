@@ -35,6 +35,7 @@ use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::scan::datafusion_plan::SegmentPlan;
+use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::ScanInfo;
 use crate::scan::Scanner;
 
@@ -59,6 +60,48 @@ impl PgSearchTableProvider {
         self.schema
             .get_or_init(|| build_schema(&self.fields))
             .clone()
+    }
+
+    fn analyzer(&self) -> FilterAnalyzer<'_> {
+        // Note: baserestrictinfo predicates (in scan_info.query) are single-table predicates
+        // applied at the base relation level. The filters we analyze here are join-level
+        // predicates that couldn't be applied earlier - they are different predicates,
+        // not duplicates.
+        FilterAnalyzer::new(
+            &self.fields,
+            self.scan_info
+                .indexrelid
+                .unwrap_or(pgrx::pg_sys::InvalidOid),
+        )
+    }
+
+    /// Combine the base query with any pushed-down filters.
+    ///
+    /// The base query comes from scan_info.query (single-table predicates from baserestrictinfo).
+    /// The filters come from DataFusion's supports_filters_pushdown mechanism - these are
+    /// join-level predicates that couldn't be applied at the base relation level, including:
+    /// - SearchPredicateUDF: @@@ predicates from cross-table conditions
+    /// - Regular SQL predicates: equality, range, IN list on indexed columns
+    fn combine_query_with_filters(
+        &self,
+        base_query: SearchQueryInput,
+        filters: &[Expr],
+    ) -> SearchQueryInput {
+        if filters.is_empty() {
+            return base_query;
+        }
+
+        let analyzer = self.analyzer();
+        let filter_queries: Vec<SearchQueryInput> =
+            filters.iter().map(|f| analyzer.analyze(f)).collect();
+
+        if filter_queries.is_empty() {
+            return base_query;
+        }
+
+        let mut all_queries = vec![base_query];
+        all_queries.extend(filter_queries);
+        combine_with_and(all_queries).unwrap_or(SearchQueryInput::All)
     }
 }
 
@@ -94,26 +137,29 @@ impl TableProvider for PgSearchTableProvider {
         &self,
         filters: &[&Expr],
     ) -> Result<Vec<TableProviderFilterPushDown>> {
-        // TODO: We don't support pushdown here yet (we rely on JoinScan's manual extraction).
-        // Return Unsupported for all filters so DataFusion keeps them in the plan if it adds any.
-        Ok(vec![
-            TableProviderFilterPushDown::Unsupported;
-            filters.len()
-        ])
+        let analyzer = self.analyzer();
+        let results = filters
+            .iter()
+            .map(|filter| {
+                if analyzer.supports(filter) {
+                    TableProviderFilterPushDown::Exact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect();
+        Ok(results)
     }
 
     async fn scan(
         &self,
         _state: &dyn Session,
         _projection: Option<&Vec<usize>>,
-        _filters: &[Expr],
+        filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        // TODO: See TODO in supports_filters_pushdown. We should support limit pushdown here
-        // to allow providing a batch size hint to the Scanner.
-        //
-        // Ignore projection, filters, limit for now as they are handled by the join logic
-        // or effectively pre-calculated in `fields`.
+        // TODO: We should support limit pushdown here to allow providing a batch size hint
+        // to the Scanner.
 
         let heap_relid = self
             .scan_info
@@ -127,11 +173,15 @@ impl TableProvider for PgSearchTableProvider {
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
 
-        let query = self
+        // Start with the base query from scan_info
+        let base_query = self
             .scan_info
             .query
             .clone()
             .unwrap_or(SearchQueryInput::All);
+
+        // Convert pushed-down filters to SearchQueryInput and combine with base query
+        let query = self.combine_query_with_filters(base_query, filters);
 
         let reader = SearchIndexReader::open_with_context(
             &index_rel,

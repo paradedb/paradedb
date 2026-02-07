@@ -142,7 +142,6 @@ impl SearchPredicateUDF {
     }
 
     /// Try to extract SearchPredicateUDF from a DataFusion Expr
-    #[allow(dead_code)] // Used in Join Pushdown PR
     pub fn try_from_expr(expr: &Expr) -> Option<&Self> {
         match expr {
             Expr::ScalarFunction(func) => {

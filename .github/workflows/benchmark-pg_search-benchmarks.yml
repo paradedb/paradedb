@@ -17,9 +17,6 @@ on:
       - "**/*.toml"
   pull_request:
     types: [labeled, synchronize]
-    branches:
-      - main
-      - 0.*.x # Release branches
   workflow_dispatch:
     inputs:
       commit:

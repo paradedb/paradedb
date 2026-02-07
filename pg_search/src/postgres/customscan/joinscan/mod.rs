@@ -427,9 +427,15 @@ impl CustomScan for JoinScan {
                 .add_custom_path((*outerrel).cheapest_total_path)
                 .add_custom_path((*innerrel).cheapest_total_path);
 
-            // Add pathkey if ORDER BY score detected for ordering side
-            if let Some(ref pathkey) = score_pathkey {
-                builder = builder.add_path_key(pathkey);
+            // Because JoinScan requires and handles the LIMIT, it must also satisfy the
+            // full ORDER BY. If we determined during planning that all ORDER BY columns
+            // are fast fields, we declare that this path satisfies the query pathkeys.
+            if !join_clause.order_by.is_empty() {
+                let query_pathkeys_len =
+                    PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys).len();
+                if join_clause.order_by.len() == query_pathkeys_len {
+                    builder = builder.set_pathkeys((*root).query_pathkeys);
+                }
             }
 
             // TODO: Fix #4063 and mark this `set_parallel_safe(true)`.

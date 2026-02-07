@@ -432,6 +432,8 @@ impl CustomScan for JoinScan {
                 builder = builder.add_path_key(pathkey);
             }
 
+            // TODO: Fix #4063 and mark this `set_parallel_safe(true)`.
+
             let private_data = PrivateData::new(join_clause);
             let mut custom_path = builder.build(private_data);
 

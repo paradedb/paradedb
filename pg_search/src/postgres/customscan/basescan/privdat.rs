@@ -268,11 +268,6 @@ impl PrivateData {
         &self.var_attname_lookup
     }
 
-    pub fn maybe_ff(&self) -> bool {
-        // If we have planned fast fields, then maybe we can use them!
-        !self.planned_which_fast_fields.as_ref().unwrap().is_empty()
-    }
-
     pub fn segment_count(&self) -> usize {
         self.segment_count
     }

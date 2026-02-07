@@ -100,18 +100,25 @@ impl ParallelQueryCapable for BaseScan {
     }
 }
 
+/// Compute the number of workers that should be used for the given ExecMethod.
 ///
-/// Compute the number of workers that should be used for the given ExecMethod, segment_count, and
-/// presence of external vars (indicating a join), or return 0 if workers cannot or should not be
-/// used.
+/// This calculation determines the "Parallel Awareness" of the path:
+/// - If it returns `0`, the path is marked as `parallel_safe` but NOT `parallel_aware`.
+///   PostgreSQL may run this scan in a worker (e.g. inner side of a join), but it will
+///   be a "replicated" scan where every worker processes the full data set.
+/// - If it returns `> 0`, the path is marked as BOTH `parallel_safe` and `parallel_aware`.
+///   It becomes a "partial" path that coordinates with other workers via DSM to
+///   partition segments and avoid duplicate work.
 ///
+/// Note: PostgreSQL asserts that `parallel_aware` paths must have `parallel_workers > 0`.
 pub fn compute_nworkers(
     exec_method: &ExecMethodType,
     limit: Option<Cardinality>,
     estimated_total_rows: RowEstimate,
     segment_count: usize,
-    contains_external_var: bool,
-    contains_correlated_param: bool,
+    has_external_quals: bool,
+    has_correlated_param: bool,
+    is_join_context: bool,
 ) -> usize {
     // Start with segment-based parallelism. The leader is not included in `nworkers`,
     // so exclude it here. For example: if we expect to need to query 1 segment, then
@@ -127,12 +134,21 @@ pub fn compute_nworkers(
     //
     // When RowEstimate::Unknown, we don't limit workers based on rows since we can't
     // trust the estimate - the table could be large.
-    if let RowEstimate::Known(total_rows) = estimated_total_rows {
-        let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
-        if min_rows_per_worker > 0 {
-            // Calculate max workers such that each worker processes at least min_rows_per_worker
-            let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
-            nworkers = nworkers.min(max_workers_for_rows);
+    //
+    // Also, if we are in a join context (is_join_context = true), we aggressively claim workers
+    // to enable Parallel Hash Join, ignoring the row count threshold.
+    //
+    // In a single-table query, the overhead of spawning parallel workers might exceed the performance gain.
+    // However, in a join, failing to claim parallel workers can prevent the planner from choosing a
+    // `Parallel Hash Join`, leading to inefficient plans where joins or sorts are executed serially after a `Gather`.
+    if !is_join_context {
+        if let RowEstimate::Known(total_rows) = estimated_total_rows {
+            let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
+            if min_rows_per_worker > 0 {
+                // Calculate max workers such that each worker processes at least min_rows_per_worker
+                let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
+                nworkers = nworkers.min(max_workers_for_rows);
+            }
         }
     }
 
@@ -159,13 +175,21 @@ pub fn compute_nworkers(
         }
     }
 
-    if contains_external_var {
-        // Don't attempt to parallelize during a join.
+    if has_external_quals {
+        // Don't attempt to parallelize if we depend on external variables (e.g. inner side of a nested loop join).
+        // This occurs when a qual contains a Param that references a value from another relation
+        // (e.g. t1.val @@@ t2.val). In this case, we are likely executing a parameterized scan
+        // where we are re-executed for every row of the outer relation. Parallelism here is
+        // complex and often not desired.
+        //
+        // This is distinct from `is_join_context`, which indicates we are part of a join query
+        // (e.g. Hash Join) but our scan keys are independent.
+        //
         // TODO: Re-evaluate.
         nworkers = 0;
     }
 
-    if contains_correlated_param {
+    if has_correlated_param {
         // Don't attempt to parallelize when we have correlated PARAM_EXEC nodes. Uncorrelated
         // params are solved during BeginCustomScan and pushed down to parallel workers, but
         // correlated params need to be evaluated during the scan itself.

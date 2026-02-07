@@ -100,6 +100,10 @@ impl CustomScan for AggregateScan {
             return Vec::new();
         };
 
+        // TODO: Audit whether AggregateScan is parallel-safe and call set_parallel_safe(true) if so.
+        // See BaseScan::init_search_reader for an explanation of parallel execution scenarios.
+        // Currently, it defaults to parallel_safe=false, meaning it forces execution on the leader.
+
         vec![builder.build(PrivateData {
             heap_rti,
             indexrelid: index.oid(),

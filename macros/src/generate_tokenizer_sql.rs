@@ -94,6 +94,16 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         sql_name = sql_name.value(),
     );
 
+    let pgrx_cast_from_text_name = format!("{}_cast_from_text", sql_name.value());
+    let create_cast_from_text = format!(
+        r#"
+        CREATE CAST (text AS {schema}.{sql_name}) WITH INOUT AS IMPLICIT;
+        CREATE CAST (varchar AS {schema}.{sql_name}) WITH INOUT AS IMPLICIT;
+        "#,
+        schema = schema.to_string(),
+        sql_name = sql_name.value(),
+    );
+
     let typmod = if !custom_typmod {
         let alter_type_sql = format!(
             "ALTER TYPE {schema}.{sql_name} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
@@ -105,6 +115,14 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         }
     } else {
         quote! {}
+    };
+
+    let text_cast_sql = if sql_name.value() == "alias" {
+        quote! {}
+    } else {
+        quote! {
+            extension_sql!(#create_cast_from_text, name = #pgrx_cast_from_text_name, requires = [#pgrx_name]);
+        }
     };
 
     quote! {
@@ -120,6 +138,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         extension_sql!(#create_cast_from_json, name = #pgrx_cast_from_json_name, requires = [#pgrx_name, #json_cast_name, #jsonb_cast_name]);
         extension_sql!(#create_cast_from_uuid, name = #pgrx_cast_from_uuid_name, requires = [#pgrx_name, #uuid_cast_name]);
         extension_sql!(#create_cast_from_text_array, name = #pgrx_cast_from_text_array_name, requires = [#pgrx_name, #text_array_cast_name, #varchar_array_cast_name]);
+        #text_cast_sql
     }
         .into()
 }

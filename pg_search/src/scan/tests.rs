@@ -99,7 +99,7 @@ mod tests {
             heap_oid.into(),
         );
 
-        let plan = SegmentPlan::new(scanner, ffhelper, Box::new(visibility));
+        let plan = SegmentPlan::new(scanner, ffhelper, Box::new(visibility), None);
 
         let task_ctx = Arc::new(TaskContext::default());
         let mut stream = plan.execute(0, task_ctx).unwrap();

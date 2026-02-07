@@ -209,6 +209,12 @@ pub(super) unsafe fn collect_join_sources(
             let sort_order = sort_by.into_iter().next();
             side_info = side_info.with_sort_order(sort_order);
 
+            // Extract single-table predicates from baserestrictinfo.
+            // These are predicates like `p.description @@@ 'wireless'` that PostgreSQL
+            // has pushed down to the base relation level.
+            //
+            // Note: Cross-table predicates (e.g., involving multiple tables in a join)
+            // are handled separately via SearchPredicateUDF through filter pushdown.
             let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
             if !baserestrictinfo.is_empty() {
                 let context = PlannerContext::from_planner(root);

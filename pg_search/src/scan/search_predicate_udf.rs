@@ -77,7 +77,6 @@ pub struct SearchPredicateUDF {
 }
 
 impl SearchPredicateUDF {
-    #[allow(dead_code)] // Used in JoinScan (commit 2)
     pub fn new(
         index_oid: pg_sys::Oid,
         heap_oid: pg_sys::Oid,
@@ -135,7 +134,6 @@ impl SearchPredicateUDF {
     }
 
     /// Create a DataFusion expression that calls this UDF
-    #[allow(dead_code)] // Used in JoinScan (commit 2)
     pub fn into_expr(self, ctid_col: Expr) -> Expr {
         let udf = ScalarUDF::new_from_impl(self);
         udf.call(vec![ctid_col])

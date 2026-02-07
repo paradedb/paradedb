@@ -643,7 +643,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
@@ -725,7 +725,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
@@ -909,7 +909,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
@@ -1433,7 +1433,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
@@ -1544,12 +1544,12 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_1@1) OR row_in_set(ctid_2@0) AND row_in_set(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
                  :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         FilterExec: row_in_set(ctid@0) OR row_in_set(ctid@0) OR row_in_set(ctid@0)
+                 :         FilterExec: pdb_search_predicate(ctid@0) OR pdb_search_predicate(ctid@0) OR pdb_search_predicate(ctid@0)
                  :           CooperativeExec
                  :             PgSearchScan: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (26 rows)
@@ -1595,7 +1595,7 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR row_in_set(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
@@ -2554,7 +2554,7 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], filter=row_in_set(ctid_2@0) OR row_in_set(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], filter=pdb_search_predicate(ctid_2@0) OR pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
                  :         CooperativeExec
                  :           PgSearchScan: "all"
@@ -2847,7 +2847,7 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@5 as col_3, NULL as col_4, min_order_value@2 as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
            :   GlobalLimitExec: skip=0, fetch=10
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=row_in_set(ctid_1@1) OR min_order_value@0 <= price@2
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR min_order_value@0 <= price@2
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
            :         CooperativeExec
            :           PgSearchScan: "all"

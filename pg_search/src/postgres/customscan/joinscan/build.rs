@@ -24,6 +24,7 @@
 //! time. See `extract_score_pathkey()` in mod.rs.
 
 use crate::api::OrderByInfo;
+use crate::postgres::utils::RawPtr;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use pgrx::pg_sys;
@@ -103,6 +104,11 @@ pub struct JoinLevelSearchPredicate {
     pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
+    /// Raw pointer to the original PostgreSQL expression (for lazy deparse).
+    /// Only valid within the same query execution.
+    pub expr_ptr: RawPtr<pg_sys::Node>,
+    /// Raw pointer to PlannerInfo (for lazy deparse context).
+    pub planner_info_ptr: RawPtr<pg_sys::PlannerInfo>,
 }
 
 /// Projection information for a child join.
@@ -292,6 +298,8 @@ impl JoinCSClause {
         indexrelid: pg_sys::Oid,
         heaprelid: pg_sys::Oid,
         query: SearchQueryInput,
+        expr_ptr: *mut pg_sys::Node,
+        planner_info_ptr: *mut pg_sys::PlannerInfo,
     ) -> usize {
         let idx = self.join_level_predicates.len();
         self.join_level_predicates.push(JoinLevelSearchPredicate {
@@ -299,6 +307,8 @@ impl JoinCSClause {
             indexrelid,
             heaprelid,
             query,
+            expr_ptr: RawPtr::new(expr_ptr),
+            planner_info_ptr: RawPtr::new(planner_info_ptr),
         });
         idx
     }

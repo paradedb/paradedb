@@ -23,7 +23,6 @@
 
 use std::sync::Arc;
 
-use arrow_array::UInt64Array;
 use datafusion::common::{DataFusionError, JoinType, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -33,22 +32,16 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::joinscan::build::{
-    JoinCSClause, JoinLevelSearchPredicate, JoinSource,
-};
-
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
 use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::{PgSearchTableProvider, Scanner};
+use crate::scan::PgSearchTableProvider;
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
@@ -291,13 +284,6 @@ fn build_clause_df<'a>(
                 }
             }
 
-            // Execute join-level predicates to get matching sets
-            let mut join_level_sets = Vec::with_capacity(join_clause.join_level_predicates.len());
-            for pred in &join_clause.join_level_predicates {
-                let set = unsafe { compute_predicate_matches(pred)? };
-                join_level_sets.push(Arc::new(set));
-            }
-
             // Create a map of RTI -> CTID column expression for join-level predicates
             let mut ctid_map = crate::api::HashMap::default();
             for (i, source) in join_clause.sources.iter().enumerate() {
@@ -315,11 +301,13 @@ fn build_clause_df<'a>(
                 }
             }
 
+            // Translate join-level expression to DataFusion filter.
+            // Single-table predicates use SearchPredicateUDF which can be pushed down
+            // to PgSearchTableProvider via DataFusion's filter pushdown mechanism.
             let filter_expr = unsafe {
                 crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                     join_level_expr,
                     &translated_exprs,
-                    &join_level_sets,
                     &ctid_map,
                     &join_clause.join_level_predicates,
                 )
@@ -501,42 +489,4 @@ fn build_source_df<'a>(
         Ok(df)
     }
     .boxed_local()
-}
-/// Execute a join-level search predicate (Tantivy query) and return the matching CTIDs.
-unsafe fn compute_predicate_matches(pred: &JoinLevelSearchPredicate) -> Result<Vec<u64>> {
-    let index_rel = PgSearchRelation::open(pred.indexrelid);
-    let heap_rel = PgSearchRelation::open(pred.heaprelid);
-
-    let reader = SearchIndexReader::open_with_context(
-        &index_rel,
-        pred.query.clone(),
-        false,
-        MvccSatisfies::Snapshot,
-        None,
-        None,
-    )
-    .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
-
-    let search_results = reader.search();
-    let fields = vec![WhichFastField::Ctid];
-    let ffhelper = FFHelper::with_fields(&reader, &fields);
-    let snapshot = pg_sys::GetActiveSnapshot();
-    let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
-
-    let mut scanner = Scanner::new(search_results, None, fields, pred.heaprelid.into());
-
-    let mut ctids = Vec::new();
-    while let Some(batch) = scanner.next(&ffhelper, &mut visibility) {
-        if let Some(Some(col)) = batch.fields.first() {
-            let array = col
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .expect("Ctid should be UInt64Array");
-            ctids.extend(array.values());
-        }
-    }
-
-    ctids.sort_unstable();
-    ctids.dedup();
-    Ok(ctids)
 }

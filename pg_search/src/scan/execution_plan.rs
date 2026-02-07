@@ -39,15 +39,12 @@
 //!
 //! 3.  **`MultiSegmentPlan` (Multi-Partition, Static Mapping)**
 //!     *   **Partitions**: N (matches the number of segments)
-//!     *   **Claiming**: The plan is initialized with a specific count of segments and a factory.
-//!         DataFusion requests a specific partition index, and the factory produces the `Scanner`
-//!         for that index.
+//!     *   **Claiming**: The plan is initialized with a pre-opened list of segments.
+//!         DataFusion requests a specific partition index, and the plan yields the corresponding
+//!         segment scanner.
 //!     *   **Usage**: Scans where preserving segment order is important (e.g., merging sorted
 //!         segments via `SortPreservingMergeExec`). This allows DataFusion to treat each segment
 //!         as a distinct sorted stream.
-//!     *   **Note**: Although the factory pattern allows for lazy checkout, current usage often
-//!         involves eager segment claiming/opening by the caller (e.g., to prevent worker
-//!         starvation), making the "lazy" aspect theoretical in those cases.
 
 use std::any::Any;
 use std::pin::Pin;
@@ -95,26 +92,6 @@ pub type ParallelScanStateParts = (
     Vec<WhichFastField>,
     u32, // table_oid
 );
-
-/// Factory function that creates a ScanState for a given partition on demand.
-/// This enables lazy segment checkout - segments are only checked out when execute() is called.
-///
-/// Wrapped in UnsafeSendSync because the factory may capture Postgres state that is not
-/// Send/Sync (like VisibilityChecker), but pg_search operates in a single-threaded context.
-pub(crate) type CheckoutFactory = UnsafeSendSync<Arc<dyn Fn(usize) -> ScanState>>;
-
-/// Creates a CheckoutFactory from a closure.
-///
-/// # Safety
-/// The factory closure may capture non-Send/Sync types. This is safe because pg_search
-/// operates in a single-threaded Tokio executor within Postgres, and these objects
-/// will never cross thread boundaries.
-pub fn make_checkout_factory<F>(factory: F) -> CheckoutFactory
-where
-    F: Fn(usize) -> ScanState + 'static,
-{
-    UnsafeSendSync(Arc::new(factory))
-}
 
 /// A DataFusion `ExecutionPlan` for scanning a single segment of a `pg_search` index.
 ///
@@ -491,26 +468,16 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
 /// A DataFusion `ExecutionPlan` that scans multiple segments in partitions.
 ///
 /// This plan exposes **N partitions** to DataFusion (where N = segment count).
-/// It uses a **static mapping** via a `CheckoutFactory` to produce the correct segment
+/// It uses a **static mapping** to produce the correct segment
 /// when DataFusion requests a specific partition index.
 ///
 /// When the index is sorted (with `sort_by`), each partition produces sorted output,
 /// which can then be merged using `SortPreservingMergeExec`.
-///
-/// **Note regarding "Lazy" Checkout**:
-/// While this struct uses a factory pattern that *could* support lazy checkout (opening segments
-/// only when `execute()` is called), in practice, callers (like `MixedFastFieldExecState`) often
-/// claim and open all segments eagerly to ensure fair work distribution before creating the plan.
-///
-/// TODO: Since segments are often pre-opened, the `CheckoutFactory` abstraction might be
-/// unnecessary complexity. Consider removing it and passing the pre-opened states directly.
 pub struct MultiSegmentPlan {
-    /// Number of segments/partitions.
-    segment_count: usize,
-    /// Factory function that creates a ScanState for a given partition on demand.
-    checkout_factory: CheckoutFactory,
-    /// Tracks which partitions have been executed (to prevent double execution).
-    checked_out: Mutex<Vec<bool>>,
+    /// Segments to scan, indexed by partition.
+    /// Wrapped in Mutex for interior mutability during execute (to take ownership).
+    /// Wrapped in UnsafeSendSync because ScanState is !Send/!Sync.
+    states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
     properties: PlanProperties,
 }
 
@@ -523,24 +490,19 @@ impl std::fmt::Debug for MultiSegmentPlan {
 }
 
 impl MultiSegmentPlan {
-    /// Creates a new MultiSegmentPlan with lazy segment checkout.
-    ///
-    /// Instead of building all segment states upfront, this constructor accepts
-    /// a factory function that creates states on-demand when `execute()` is called.
-    /// This defers memory allocation until the partition is actually executed.
+    /// Creates a new MultiSegmentPlan with pre-opened segments.
     ///
     /// # Arguments
     ///
-    /// * `segment_count` - The number of segments/partitions
-    /// * `checkout_factory` - Factory function (wrapped in UnsafeSendSync) that creates a `ScanState`
+    /// * `states` - The list of pre-opened segments (one per partition)
     /// * `schema` - Arrow schema for the output
     /// * `sort_order` - Optional sort order declaration for equivalence properties
     pub fn new(
-        segment_count: usize,
-        checkout_factory: CheckoutFactory,
+        states: Vec<ScanState>,
         schema: SchemaRef,
         sort_order: Option<&SortByField>,
     ) -> Self {
+        let segment_count = states.len();
         let eq_properties = build_equivalence_properties(schema, sort_order);
 
         let properties = PlanProperties::new(
@@ -550,10 +512,13 @@ impl MultiSegmentPlan {
             Boundedness::Bounded,
         );
 
+        let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
+            .into_iter()
+            .map(|s| Some(UnsafeSendSync(s)))
+            .collect();
+
         Self {
-            segment_count,
-            checkout_factory,
-            checked_out: Mutex::new(vec![false; segment_count]),
+            states: Mutex::new(wrapped_states),
             properties,
         }
     }
@@ -561,7 +526,11 @@ impl MultiSegmentPlan {
 
 impl DisplayAs for MultiSegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchSegmentScan(segments={})", self.segment_count)
+        write!(
+            f,
+            "PgSearchSegmentScan(segments={})",
+            self.properties.output_partitioning().partition_count()
+        )
     }
 }
 
@@ -594,28 +563,25 @@ impl ExecutionPlan for MultiSegmentPlan {
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        if partition >= self.segment_count {
-            return Err(DataFusionError::Internal(format!(
-                "Partition {} out of range (have {} segments)",
-                partition, self.segment_count
-            )));
-        }
-
-        let mut checked_out = self.checked_out.lock().map_err(|e| {
+        let mut states = self.states.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock MultiSegmentPlan state: {e}"))
         })?;
 
-        if checked_out[partition] {
+        if partition >= states.len() {
             return Err(DataFusionError::Internal(format!(
-                "Segment {} has already been executed",
-                partition
+                "Partition {} out of range (have {} segments)",
+                partition,
+                states.len()
             )));
         }
-        checked_out[partition] = true;
 
-        // Call the factory to create the state NOW (deferred/lazy checkout)
-        let UnsafeSendSync(factory) = &self.checkout_factory;
-        let (scanner, ffhelper, visibility) = factory(partition);
+        let UnsafeSendSync((scanner, ffhelper, visibility)) =
+            states[partition].take().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "Segment {} has already been executed",
+                    partition
+                ))
+            })?;
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres
         let stream = unsafe {
@@ -636,9 +602,6 @@ impl ExecutionPlan for MultiSegmentPlan {
 
 /// Creates a sorted scan plan with `SortPreservingMergeExec` to merge sorted segments.
 ///
-/// Uses lazy segment checkout - segments are checked out on-demand when `execute()` is
-/// called, rather than upfront at plan creation time.
-///
 /// When there is only one segment, returns the `MultiSegmentPlan` directly without
 /// the merge layer (no merging needed for a single partition).
 ///
@@ -648,13 +611,11 @@ impl ExecutionPlan for MultiSegmentPlan {
 ///
 /// # Arguments
 ///
-/// * `segment_count` - The number of segments to scan
-/// * `checkout_factory` - Factory function that creates a `ScanState` for a given partition
+/// * `states` - The list of pre-opened segments (one per partition)
 /// * `schema` - Arrow schema for the output
 /// * `sort_order` - Sort order for the merge operation
 pub fn create_sorted_scan(
-    segment_count: usize,
-    checkout_factory: CheckoutFactory,
+    states: Vec<ScanState>,
     schema: SchemaRef,
     sort_order: &SortByField,
 ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -671,9 +632,9 @@ pub fn create_sorted_scan(
         }
     };
 
+    let segment_count = states.len();
     let segment_scan = Arc::new(MultiSegmentPlan::new(
-        segment_count,
-        checkout_factory,
+        states,
         schema.clone(),
         Some(sort_order),
     ));

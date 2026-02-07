@@ -156,16 +156,16 @@ mod tests {
         Spi::run(
             "CREATE TABLE filter_test (
                 id SERIAL PRIMARY KEY,
-                price NUMERIC(10,2),
+                price DOUBLE PRECISION,
                 quantity INTEGER
             );",
         )
         .unwrap();
 
-        // 100 rows: price = 10, 20, ..., 1000; quantity = 1, 2, ..., 100
+        // 100 rows: price = 10.0, 20.0, ..., 1000.0; quantity = 1, 2, ..., 100
         Spi::run(
             "INSERT INTO filter_test (price, quantity)
-             SELECT (i * 10)::numeric(10,2), i
+             SELECT (i * 10)::double precision, i
              FROM generate_series(1, 100) i;",
         )
         .unwrap();

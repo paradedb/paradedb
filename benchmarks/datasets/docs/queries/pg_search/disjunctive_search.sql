@@ -37,3 +37,20 @@ WHERE
 ORDER BY
     score DESC                        -- Single Feature Sort (Primary Score)
 LIMIT 10;
+
+-- Lower bound: uses denormalized matview
+SELECT DISTINCT
+    fld.file_id,
+    fld.file_title,
+    paradedb.score(fld.row_id) as score
+FROM files_left_join_documents fld
+WHERE
+    fld.doc_parents LIKE 'PARENT_GROUP_2%'
+    AND (
+        fld.file_title @@@ 'Title'
+        OR
+        fld.doc_title @@@ 'Title'
+    )
+ORDER BY
+    score DESC
+LIMIT 10;

@@ -396,3 +396,104 @@ SELECT
     md5(random()::text) "fill27",
     md5(random()::text) "fill28"
 FROM generate_series(1, :rows) s(id);
+
+-- Materialized views for join patterns used in benchmark queries.
+-- These allow comparing query performance against pre-joined data.
+-- Each view has a synthetic row_id for use as bm25 key_field.
+CREATE MATERIALIZED VIEW files_inner_join_pages AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    p.id AS page_id,
+    p."fileId" AS page_file_id,
+    p.content AS page_content,
+    p.title AS page_title,
+    p.parents AS page_parents,
+    p."sizeInBytes" AS page_size_in_bytes,
+    p."createdAt" AS page_created_at
+FROM files f
+JOIN pages p ON f.id = p."fileId";
+
+CREATE INDEX files_inner_join_pages_bm25 ON files_inner_join_pages
+USING bm25 (row_id, file_content, file_title, page_content, page_title)
+WITH (key_field = 'row_id');
+
+CREATE MATERIALIZED VIEW files_left_join_documents AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at
+FROM files f
+LEFT JOIN documents d ON f."documentId" = d.id;
+
+CREATE INDEX files_left_join_documents_bm25 ON files_left_join_documents
+USING bm25 (row_id, file_title, doc_title, doc_parents)
+WITH (key_field = 'row_id');
+
+CREATE MATERIALIZED VIEW documents_inner_join_files_inner_join_pages AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    p.id AS page_id,
+    p."fileId" AS page_file_id,
+    p.content AS page_content,
+    p.title AS page_title,
+    p.parents AS page_parents,
+    p."sizeInBytes" AS page_size_in_bytes,
+    p."createdAt" AS page_created_at
+FROM documents d
+JOIN files f ON d.id = f."documentId"
+JOIN pages p ON f.id = p."fileId";
+
+CREATE INDEX documents_inner_join_files_inner_join_pages_bm25 ON documents_inner_join_files_inner_join_pages
+USING bm25 (row_id, doc_parents, doc_title, file_title, file_content, page_content, page_title)
+WITH (key_field = 'row_id');
+
+CREATE MATERIALIZED VIEW files_inner_join_documents AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at
+FROM files f
+JOIN documents d ON f."documentId" = d.id;
+
+CREATE INDEX files_inner_join_documents_bm25 ON files_inner_join_documents
+USING bm25 (row_id, file_title, file_content, doc_parents, doc_title)
+WITH (key_field = 'row_id');

@@ -135,7 +135,7 @@ impl TableProvider for PgSearchTableProvider {
 
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            query,
+            query.clone(),
             self.scan_info.score_needed,
             MvccSatisfies::Snapshot,
             None,
@@ -155,6 +155,7 @@ impl TableProvider for PgSearchTableProvider {
             scanner,
             ffhelper,
             Box::new(visibility),
+            Some(query),
         )))
     }
 }

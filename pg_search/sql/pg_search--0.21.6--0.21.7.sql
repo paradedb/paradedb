@@ -3,7 +3,15 @@
 --- BEGIN SUGGESTED UPGRADE SCRIPT ---
 /* </end connected objects> */
 
+/* <begin connected objects> */
+-- pg_search/src/api/mod.rs:230
+-- requires:
+--   text_to_fieldname
 
+;
+    CREATE CAST (varchar AS paradedb.fieldname) WITH INOUT AS IMPLICIT;
+CREATE CAST (text AS paradedb.fieldname) WITH INOUT AS IMPLICIT;
+/* </end connected objects> */
 
 /* <begin connected objects> */
 -- pg_search/src/api/tokenizers/definitions.rs:563
@@ -113,15 +121,6 @@ CREATE CAST (varchar AS pdb.jieba) WITH INOUT AS IMPLICIT;
 
         CREATE CAST (text AS pdb.whitespace) WITH INOUT AS IMPLICIT;
 CREATE CAST (varchar AS pdb.whitespace) WITH INOUT AS IMPLICIT;
-/* </end connected objects> */
-
-/* <begin connected objects> */
--- pg_search/src/api/mod.rs:230
--- requires:
---   text_to_fieldname
-
-
-    CREATE CAST (varchar AS paradedb.fieldname) WITH INOUT AS IMPLICIT;
 /* </end connected objects> */
 
 /* <begin connected objects> */

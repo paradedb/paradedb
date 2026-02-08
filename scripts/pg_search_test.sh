@@ -15,26 +15,9 @@ set -Eeuo pipefail
 # Get script directory
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-# Extract --release flag if present
-COMMON_ARGS=()
-i=1
-while [ $i -le $# ]; do
-  arg="${!i}"
-  if [ "$arg" = "--release" ]; then
-    COMMON_ARGS+=("$arg")
-  elif [ "$arg" = "--profile" ]; then
-    COMMON_ARGS+=("$arg")
-    i=$((i+1))
-    if [ $i -le $# ]; then
-      COMMON_ARGS+=("${!i}")
-    fi
-  fi
-  i=$((i+1))
-done
-
-# Source the common setup script with appropriate arguments
+# Source the common setup script — it parses args into BUILD_PARAMS and EXTRA_ARGS
 # shellcheck source=./scripts/pg_search_common.sh
-source "${SCRIPT_DIR}/pg_search_common.sh" "${COMMON_ARGS[@]+"${COMMON_ARGS[@]}"}"
+source "${SCRIPT_DIR}/pg_search_common.sh" "$@"
 
-# Run the test suite with backtrace enabled and pass along all arguments
-RUST_BACKTRACE=1 cargo test --package tests --package tokenizers "$@"
+# Run the test suite with backtrace enabled and pass any non-build arguments
+RUST_BACKTRACE=1 cargo test --package tests --package tokenizers "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"

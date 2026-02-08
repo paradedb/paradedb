@@ -1,0 +1,49 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- jsonb_values field-agnostic search with a large path list
+DROP TABLE IF EXISTS jsonb_values_large_paths;
+CREATE TABLE jsonb_values_large_paths (
+  id SERIAL PRIMARY KEY,
+  metadata JSONB
+);
+INSERT INTO jsonb_values_large_paths (metadata) VALUES
+('{"p1":"alpha","p25":"target","p60":"omega"}'),
+('{"p2":"beta","p30":"target"}'),
+('{"p3":"gamma","p40":"delta"}');
+CREATE INDEX jsonb_values_large_paths_idx ON jsonb_values_large_paths
+USING bm25 (id, metadata)
+WITH (key_field='id', jsonb_values_paths='{"metadata":["p1","p2","p3","p4","p5","p6","p7","p8","p9","p10","p11","p12","p13","p14","p15","p16","p17","p18","p19","p20","p21","p22","p23","p24","p25","p26","p27","p28","p29","p30","p31","p32","p33","p34","p35","p36","p37","p38","p39","p40","p41","p42","p43","p44","p45","p46","p47","p48","p49","p50","p51","p52","p53","p54","p55","p56","p57","p58","p59","p60"]}');
+SELECT id FROM jsonb_values_large_paths
+WHERE metadata::pdb.jsonb_values === 'target'
+ORDER BY id;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SELECT id FROM jsonb_values_large_paths
+WHERE metadata::pdb.jsonb_values === 'omega'
+ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+DROP INDEX jsonb_values_large_paths_idx;
+DROP TABLE jsonb_values_large_paths;
+\i common/common_cleanup.sql
+-- Reset parallel workers setting to default
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_mixed_fast_field_exec;
+SELECT 'Common tests cleanup complete' AS status; 
+            status             
+-------------------------------
+ Common tests cleanup complete
+(1 row)
+

@@ -54,6 +54,7 @@ use crate::postgres::var::{
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
+use crate::scan::info::RowEstimate;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
@@ -220,15 +221,12 @@ pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
-    let reltuples = indexrel
+    let heap_rel = indexrel
         .heap_relation()
-        .expect("indexrel should be an index")
-        .reltuples()
-        .unwrap_or(1.0) as f64;
-    if !reltuples.is_normal() || reltuples.is_sign_negative() {
-        // we can't estimate against a non-normal or negative estimate of heap tuples
-        return None;
-    }
+        .expect("indexrel should be an index");
+    let reltuples = heap_rel.reltuples().map(|r| r as f64);
+
+    let row_estimate = RowEstimate::from_reltuples(reltuples);
 
     let search_reader = SearchIndexReader::open(
         indexrel,
@@ -237,8 +235,20 @@ pub(crate) fn estimate_selectivity(
         MvccSatisfies::LargestSegment,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");
-    let estimate = search_reader.estimate_docs(reltuples) as f64;
-    let mut selectivity = estimate / reltuples;
+
+    // We estimate both the number of matching docs and the total number of docs.
+    // If reltuples is Known, total_rows will match it. If Unknown, total_rows
+    // will be estimated from the index (by scaling the largest segment).
+    let (estimate, total_rows) = search_reader.estimate_docs(row_estimate);
+    let total_rows = total_rows as f64;
+
+    if total_rows <= 0.0 {
+        // We still don't have a valid total count (e.g. index is empty), so we can't
+        // estimate selectivity.
+        return None;
+    }
+
+    let mut selectivity = estimate as f64 / total_rows;
     if selectivity > 1.0 {
         selectivity = 1.0;
     }

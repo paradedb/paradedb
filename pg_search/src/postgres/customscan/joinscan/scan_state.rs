@@ -15,11 +15,41 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Execution state and plan building for JoinScan custom scan.
+//! # Parallel Partitioning Strategy & Correctness
 //!
-//! This module defines the runtime state of the custom scan, including the DataFusion
-//! execution context. It also contains the logic for building the DataFusion logical plan
-//! from the serialized planning data.
+//! `JoinScan` implements parallel execution by **partitioning the first (outermost) table**
+//! across workers while **replicating (fully scanning)** all subsequent tables in the join tree.
+//!
+//! This is equivalent to a "Broadcast Join" or "Fragment-and-Replicate" strategy in distributed
+//! databases.
+//!
+//! ## Correctness
+//!
+//! This strategy relies on the distributive property of Inner Joins:
+//!
+//! (A_part1 JOIN B) UNION (A_part2 JOIN B) = (A_part1 UNION A_part2) JOIN B = A JOIN B
+//!
+//! Each worker computes a partial join result for its subset of `A`. When these partial results
+//! are gathered by PostgreSQL, the union forms the complete, correct result set.
+//!
+//! ## SAFETY WARNING
+//!
+//! This strategy is **ONLY CORRECT** for:
+//! 1.  **Inner Joins**: `JOIN_INNER`
+//! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
+//! 3.  **Semi Joins** (where the Left table is partitioned)
+//! 4.  **Anti Joins** (where the Left table is partitioned)
+//!
+//! It is **INCORRECT** and will produce duplicate or wrong results for:
+//! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
+//!     as `(NULL, b)` by *every* worker, causing duplicates.
+//! 2.  **Full Outer Joins**: Same duplicate issue for the replicated side.
+//! 3.  **Aggregations**: If DataFusion were performing global aggregations (e.g. `COUNT`),
+//!     each worker would emit a partial count, and PostgreSQL's `Gather` would treat them as
+//!     distinct rows rather than summing them.
+//!
+//! **Before enabling any JoinType other than `JOIN_INNER`, you must verify that the partitioning
+//! logic in `build_clause_df` respects these constraints.**
 
 use std::sync::Arc;
 
@@ -48,6 +78,7 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::ParallelScanState;
 use crate::scan::{PgSearchTableProvider, Scanner};
 
 /// Execution state for a single base relation in a join.
@@ -92,6 +123,9 @@ pub struct JoinScanState {
     // === Serialized Plan ===
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
+
+    // === Parallel State ===
+    pub parallel_state: Option<*mut ParallelScanState>,
 }
 
 impl JoinScanState {
@@ -478,6 +512,7 @@ fn build_source_df<'a>(
         let provider = Arc::new(PgSearchTableProvider::new(
             scan_info.clone(),
             fields.clone(),
+            None,
         ));
         ctx.register_table(alias, provider)?;
 

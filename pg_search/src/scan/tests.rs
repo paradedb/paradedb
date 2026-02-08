@@ -24,7 +24,7 @@ mod tests {
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::datafusion_plan::SegmentPlan;
+    use crate::scan::execution_plan::SegmentPlan;
     use crate::scan::Scanner;
     use crate::schema::SearchFieldType;
     use datafusion::execution::TaskContext;

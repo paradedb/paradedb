@@ -117,38 +117,34 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Incremental Sort
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
    Sort Key: d.id, p.fileid, p.id
-   Presorted Key: d.id
-   ->  Nested Loop
-         Join Filter: (f.id = p.fileid)
-         ->  Merge Join
-               Merge Cond: (d.id = f.documentid)
-               ->  Sort
-                     Sort Key: d.id
-                     ->  Custom Scan (ParadeDB Scan) on documents d
-                           Table: documents
-                           Index: documents_search
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-               ->  Sort
-                     Sort Key: f.documentid
-                     ->  Custom Scan (ParadeDB Scan) on files f
-                           Table: files
-                           Index: files_search
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-         ->  Custom Scan (ParadeDB Scan) on pages p
-               Table: pages
-               Index: pages_search
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(29 rows)
+   ->  Hash Join
+         Hash Cond: (f.documentid = d.id)
+         ->  Nested Loop
+               Join Filter: (f.id = p.fileid)
+               ->  Custom Scan (ParadeDB Scan) on files f
+                     Table: files
+                     Index: files_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+               ->  Custom Scan (ParadeDB Scan) on pages p
+                     Table: pages
+                     Index: pages_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+         ->  Hash
+               ->  Custom Scan (ParadeDB Scan) on documents d
+                     Table: documents
+                     Index: documents_search
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+(25 rows)
 
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
 FROM documents d

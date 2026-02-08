@@ -1,5 +1,6 @@
 \i common/common_setup.sql
 
+SET max_parallel_maintenance_workers TO 2;
 DROP TABLE IF EXISTS benchmark_logs CASCADE;
 CREATE TABLE benchmark_logs (
     id SERIAL PRIMARY KEY,

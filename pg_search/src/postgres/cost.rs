@@ -40,6 +40,7 @@ pub unsafe extern "C-unwind" fn amcostestimate(
         )
     };
     let index_clauses = PgList::<pg_sys::IndexClause>::from_pg((*path).indexclauses);
+    // TODO: Convert to use RowEstimate.
     let reltuples = indexrel
         .heap_relation()
         .expect("index relation must have a valid corresponding heap relation")

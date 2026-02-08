@@ -31,6 +31,12 @@ pub struct PrivateData {
     heaprelid: Option<pg_sys::Oid>,
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
+    /// The search query as extracted during planning.
+    ///
+    /// NOTE: For parallel execution, this query must be updated with resolved
+    /// expressions from `ParallelScanState` using `apply_solved_expressions()`.
+    /// This ensures that `PostgresExpression` nodes (which may contain `InitPlan`
+    /// parameters) are correctly re-hydrated in parallel workers.
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
     // ORDER-BY info that will be used iff the appropriate ExecMethodType is chosen.

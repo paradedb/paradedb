@@ -56,19 +56,22 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless';
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
    Output: count(*)
    ->  Gather
+         Output: (PARTIAL count(*))
          Workers Planned: 3
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.places
-               Table: places
-               Index: places_parade_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-(10 rows)
+         ->  Partial Aggregate
+               Output: PARTIAL count(*)
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+                     Table: places
+                     Index: places_parade_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(13 rows)
 
 SELECT COUNT(*) as count
 FROM places 
@@ -86,19 +89,22 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us';
-                                                                                                                                                                           QUERY PLAN                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
+                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
    Output: count(*)
    ->  Gather
+         Output: (PARTIAL count(*))
          Workers Planned: 3
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.places
-               Table: places
-               Index: places_parade_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}]}},"field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
-(10 rows)
+         ->  Partial Aggregate
+               Output: PARTIAL count(*)
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+                     Table: places
+                     Index: places_parade_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}]}},"field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
+(13 rows)
 
 SELECT COUNT(*) as count
 FROM places 
@@ -146,19 +152,22 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
-                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
+                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
    Output: count(*)
    ->  Gather
+         Output: (PARTIAL count(*))
          Workers Planned: 3
-         ->  Parallel Custom Scan (ParadeDB Scan) on public.places
-               Table: places
-               Index: places_parade_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
-(10 rows)
+         ->  Partial Aggregate
+               Output: PARTIAL count(*)
+               ->  Parallel Custom Scan (ParadeDB Scan) on public.places
+                     Table: places
+                     Index: places_parade_idx
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"name","value":"assist wireless","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(country_code = 'us'::text)"}]}}]}}
+(13 rows)
 
 SELECT COUNT(*) as count
 FROM places 

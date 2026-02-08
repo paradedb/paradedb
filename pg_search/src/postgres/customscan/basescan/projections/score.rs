@@ -25,8 +25,9 @@ use std::ptr::addr_of_mut;
 mod pdb {
     use pgrx::{extension_sql, pg_extern, AnyElement};
 
+    #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-    fn score_from_relation(_relation_reference: AnyElement) -> f32 {
+    fn score_from_relation(relation_reference: AnyElement) -> f32 {
         panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
     }
 
@@ -42,8 +43,9 @@ mod pdb {
 // In `0.19.0`, we renamed the schema from `paradedb` to `pdb`.
 // This is a backwards compatibility shim to ensure that old queries continue to work.
 #[warn(deprecated)]
+#[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
-fn paradedb_score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
+fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
     panic!("Unsupported query shape. Please report at https://github.com/orgs/paradedb/discussions/3678");
 }
 

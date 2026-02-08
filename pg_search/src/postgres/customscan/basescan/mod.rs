@@ -159,10 +159,7 @@ impl BaseScan {
         state.custom_state_mut().init_exec_method(csstate);
 
         if state.custom_state().need_snippets() {
-            let mut snippet_generators: HashMap<
-                SnippetType,
-                Option<(tantivy::schema::Field, SnippetGenerator)>,
-            > = state
+            let mut snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>> = state
                 .custom_state_mut()
                 .snippet_generators
                 .drain()
@@ -201,7 +198,7 @@ impl BaseScan {
 
                 snippet_type.configure_generator(&mut new_generator.1);
 
-                *generator = Some(new_generator);
+                *generator = Some(new_generator.1);
             }
 
             state.custom_state_mut().snippet_generators = snippet_generators;
@@ -222,7 +219,7 @@ impl BaseScan {
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
         attempt_pushdown: bool,
-    ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
+    ) -> Option<Qual> {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
 
@@ -246,7 +243,7 @@ impl BaseScan {
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        let (quals, ri_type, restrict_info) = if quals.is_none() {
+        let quals = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
             let mut quals = extract_quals(
@@ -261,7 +258,7 @@ impl BaseScan {
                 attempt_pushdown,
             );
 
-            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
+            let quals = Self::handle_heap_expr_optimization(&state, &mut quals);
 
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
@@ -274,13 +271,12 @@ impl BaseScan {
             // why it only makes sense to use the Join quals if we have used our operator and
             // also used pdb.score or pdb.snippet functions in the query.
             if state.uses_our_operator && uses_score_or_snippet {
-                (quals, RestrictInfoType::Join, joinri)
+                quals
             } else {
-                (None, ri_type, restrict_info)
+                None
             }
         } else {
-            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
-            (quals, ri_type, restrict_info)
+            Self::handle_heap_expr_optimization(&state, &mut quals)
         };
 
         // Finally, decide whether we can actually use the extracted quals.
@@ -291,17 +287,15 @@ impl BaseScan {
         let has_window_aggs = query_has_window_agg_functions(root);
         if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
         {
-            (quals, ri_type, restrict_info)
+            quals
         } else {
-            (None, ri_type, restrict_info)
+            None
         }
     }
 
     unsafe fn handle_heap_expr_optimization(
         state: &QualExtractState,
         quals: &mut Option<Qual>,
-        root: *mut pg_sys::PlannerInfo,
-        rti: pg_sys::Index,
     ) -> Option<Qual> {
         if state.uses_heap_expr && !state.uses_our_operator {
             return None;
@@ -309,21 +303,7 @@ impl BaseScan {
 
         // Apply HeapExpr optimization to the base relation quals
         if let Some(ref mut q) = quals {
-            let rtable = (*(*root).parse).rtable;
-            let rtable_size = if !rtable.is_null() {
-                PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
-            } else {
-                0
-            };
-
-            // Bounds check: rti is 1-indexed, so it must be between 1 and rtable_size
-            if rti > 0 && (rti as usize) <= rtable_size {
-                let rte = pg_sys::rt_fetch(rti, rtable);
-                let relation_oid = (*rte).relid;
-                optimize_quals_with_heap_expr(q);
-            }
-            // Skip optimization silently if RTE is out of bounds
-            // This can happen with OR EXISTS subqueries where variables reference RTEs from different contexts
+            optimize_quals_with_heap_expr(q);
         }
 
         quals.clone()
@@ -521,11 +501,11 @@ impl CustomScan for BaseScan {
             //
             let is_select =
                 (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
-            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
+            let quals = Self::extract_all_possible_quals(
                 &mut builder,
                 root,
                 rti,
-                restrict_info,
+                PgList::from_pg(restrict_info.as_ptr()),
                 ri_type,
                 &bm25_index,
                 maybe_needs_const_projections,
@@ -607,14 +587,16 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
-            let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
-            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
-            let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let segment_count = segment_count.load(Ordering::Relaxed);
+            let segment_count = {
+                let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+                let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
+                Index::open(directory).expect("custom_scan: should be able to open index");
+                segment_count.load(Ordering::Relaxed)
+            };
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let topn_pathkey_info = pullup_topn_pathkeys(&mut builder, rti, &schema, root);
+            let topn_pathkey_info = pullup_topn_pathkeys(rti, &schema, root);
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -709,7 +691,6 @@ impl CustomScan for BaseScan {
 
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
-                let pathkeys = topn_pathkey_info.pathkeys().unwrap();
                 custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
             }
 
@@ -977,21 +958,12 @@ impl CustomScan for BaseScan {
             // Extract the indexrelid early to avoid borrow checker issues later
             let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
             let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-            let directory = MvccSatisfies::Snapshot.directory(&indexrel);
-            let index = Index::open(directory)
-                .expect("should be able to open index for snippet extraction");
 
-            let base_query = builder
-                .custom_private()
-                .query()
-                .clone()
-                .expect("should have a SearchQueryInput");
             let join_predicates = extract_join_predicates(
                 &PlannerContext::from_planner(builder.args().root),
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
                 &indexrel,
-                &base_query,
                 true,
             );
 
@@ -1123,7 +1095,7 @@ impl CustomScan for BaseScan {
                 snippet_positions_funcoids,
             )
             .into_iter()
-            .map(|field| (field, None))
+            .map(|snippet_type| (snippet_type, None))
             .collect();
 
             builder.custom_state().ambulkdelete_epoch =
@@ -1137,7 +1109,7 @@ impl CustomScan for BaseScan {
 
     fn explain_custom_scan(
         state: &CustomScanStateWrapper<Self>,
-        ancestors: *mut pg_sys::List,
+        _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
         explainer.add_text("Table", state.custom_state().heaprelname());
@@ -1369,7 +1341,7 @@ impl CustomScan for BaseScan {
                 ExecState::FromHeap {
                     ctid,
                     score,
-                    doc_address,
+                    doc_address: _,
                 } => {
                     unsafe {
                         let slot = match check_visibility(state, ctid, state.scanslot().cast()) {
@@ -1788,7 +1760,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             heaprelid,
             limit,
             orderby_info,
-            window_aggregates,
+            window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
@@ -1938,7 +1910,7 @@ fn check_visibility(
     state
         .custom_state_mut()
         .visibility_checker()
-        .exec_if_visible(ctid, bslot.cast(), move |heaprel| bslot.cast())
+        .exec_if_visible(ctid, bslot.cast(), move |_| bslot.cast())
 }
 
 /// Inject ParadeDB-specific placeholders (score, snippets, window aggregates) into the tuple slot
@@ -2115,7 +2087,6 @@ unsafe fn replace_window_agg_with_const(
 /// This function must be kept in sync with `validate_topn_compatibility` in `hook.rs` to ensure
 /// that queries validated during the planner hook phase can be executed by the custom scan.
 unsafe fn pullup_topn_pathkeys(
-    builder: &mut CustomPathBuilder<BaseScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
@@ -2306,7 +2277,7 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
 
     for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
         match snippet_type {
-            SnippetType::SingleText(_, config, _) => {
+            SnippetType::SingleText(_, _, _) => {
                 let snippet = state.make_snippet(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {
@@ -2322,7 +2293,7 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
                     }
                 }
             }
-            SnippetType::MultipleText(_, config, _, _) => {
+            SnippetType::MultipleText(_, _, _, _) => {
                 let snippets = state.make_snippets(ctid, snippet_type);
 
                 for const_ in const_snippet_nodes {

@@ -126,7 +126,7 @@ LIMIT 5;
 ## Byte Offsets
 
 `pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns an array of
-tuples, where the the first element of the tuple is the byte index of the first byte of the highlighted region, and the second element is the byte index after the last byte of the region.
+tuples, where the first element of the tuple is the byte index of the first byte of the highlighted region, and the second element is the byte index after the last byte of the region.
 
 ```sql
 SELECT id, pdb.snippet(description), pdb.snippet_positions(description)

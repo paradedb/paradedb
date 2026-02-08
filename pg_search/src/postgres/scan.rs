@@ -340,7 +340,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
                                 heap_compute_data_size((*scan).xs_hitupdesc, values, nulls);
                             let td = (*(*scan).xs_hitup).t_data;
 
-                            // TODO:  seems like this could crash with a varlena "key_field" of varrying sizes per row
+                            // TODO:  seems like this could crash with a varlena "key_field" of varying sizes per row
                             heap_fill_tuple(
                                 (*scan).xs_hitupdesc,
                                 values,

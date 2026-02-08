@@ -641,7 +641,7 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::Bytes(options) => options.is_fast(),
-            // TODO: Neither JSON nor range fields are not yet sortable by us
+            // TODO: JSON and range fields are not yet sortable by us
             FieldType::JsonObject(_) => false,
             _ => false,
         }

@@ -155,7 +155,7 @@ impl TableProvider for PgSearchTableProvider {
             scanner,
             ffhelper,
             Box::new(visibility),
-            Some(query),
+            query,
         )))
     }
 }

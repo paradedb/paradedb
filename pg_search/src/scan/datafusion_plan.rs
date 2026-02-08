@@ -78,8 +78,7 @@ pub struct SegmentPlan {
     // This is safe because we are running in a single-threaded environment (Postgres)
     state: Mutex<Option<UnsafeSendSync<ScanState>>>,
     properties: PlanProperties,
-    /// Query to display in EXPLAIN output. None displays as "all".
-    query_for_display: Option<SearchQueryInput>,
+    query_for_display: SearchQueryInput,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -95,7 +94,7 @@ impl SegmentPlan {
         scanner: Scanner,
         ffhelper: FFHelper,
         visibility: Box<dyn VisibilityChecker>,
-        query_for_display: Option<SearchQueryInput>,
+        query_for_display: SearchQueryInput,
     ) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
@@ -123,7 +122,7 @@ impl SegmentPlan {
         scanner: Scanner,
         ffhelper: Arc<FFHelper>,
         visibility: Box<dyn VisibilityChecker>,
-        query_for_display: Option<SearchQueryInput>,
+        query_for_display: SearchQueryInput,
     ) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
@@ -178,10 +177,11 @@ fn build_equivalence_properties(
 
 impl DisplayAs for SegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match &self.query_for_display {
-            Some(query) => write!(f, "PgSearchScan: {}", query.explain_format()),
-            None => write!(f, "PgSearchScan: all"),
-        }
+        write!(
+            f,
+            "PgSearchScan: {}",
+            self.query_for_display.explain_format()
+        )
     }
 }
 

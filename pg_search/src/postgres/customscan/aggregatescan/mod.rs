@@ -92,7 +92,7 @@ impl CustomScan for AggregateScan {
         let Some(heap_rte) = heap_rte else {
             return Vec::new();
         };
-        let Some((table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
+        let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
             return Vec::new();
         };
         let Some((builder, aggregate_clause)) = AggregateCSClause::build(builder, heap_rti, &index)
@@ -157,7 +157,7 @@ impl CustomScan for AggregateScan {
 
     fn explain_custom_scan(
         state: &CustomScanStateWrapper<Self>,
-        ancestors: *mut pg_sys::List,
+        _ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
@@ -179,7 +179,7 @@ impl CustomScan for AggregateScan {
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         estate: *mut pg_sys::EState,
-        eflags: i32,
+        _eflags: i32,
     ) {
         unsafe {
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
@@ -473,7 +473,7 @@ impl CustomScan for AggregateScan {
         }
     }
 
-    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Clean up the reusable scan slot

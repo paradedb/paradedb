@@ -479,7 +479,6 @@ impl AggregationResults {
         sentinel_sub.collect_group_keys(Vec::new(), &mut rows);
 
         // for each row of group keys, collect aggregates
-        let num_filters = filter_entries.len();
         for row in &mut rows {
             let mut aggregates = Vec::new();
 

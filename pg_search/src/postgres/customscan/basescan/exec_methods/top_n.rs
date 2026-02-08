@@ -143,13 +143,13 @@ impl TopNScanExecState {
             (None, _) => {
                 // Not parallel: will search all segments.
                 let all_segments = search_reader.segment_ids();
-                Box::new(all_segments.into_iter().inspect(|segment_id| {
+                Box::new(all_segments.into_iter().inspect(|_segment_id| {
                     check_for_interrupts!();
                 }))
             }
             (Some(_), Some(claimed_segments)) => {
                 // Parallel, but we have already claimed our segments. Emit them again.
-                Box::new(claimed_segments.into_iter().inspect(|segment_id| {
+                Box::new(claimed_segments.into_iter().inspect(|_segment_id| {
                     check_for_interrupts!();
                 }))
             }
@@ -288,7 +288,7 @@ impl TopNScanExecState {
 
 impl ExecMethod for TopNScanExecState {
     /// Initialize the exec method with data from the scan state
-    fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
+    fn init(&mut self, state: &mut BaseScanState, _cstate: *mut pg_sys::CustomScanState) {
         // Call the default init behavior first
         self.reset(state);
 

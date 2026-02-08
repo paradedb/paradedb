@@ -79,8 +79,7 @@ pub struct BaseScanState {
     pub snippets_funcoids: [pg_sys::Oid; 2],
     pub snippet_positions_funcoids: [pg_sys::Oid; 2],
 
-    pub snippet_generators:
-        HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    pub snippet_generators: HashMap<SnippetType, Option<SnippetGenerator>>,
 
     pub var_attname_lookup: HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
     pub placeholder_targetlist: Option<*mut pg_sys::List>,
@@ -258,7 +257,7 @@ impl BaseScanState {
 
     pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
         if let SnippetType::SingleText(_, config, _) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
@@ -274,7 +273,7 @@ impl BaseScanState {
 
     pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippets: Vec<_> = generator
             .snippets(&text)
             .into_iter()
@@ -300,7 +299,7 @@ impl BaseScanState {
         snippet_type: &SnippetType,
     ) -> Option<IntArray2D> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
-        let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let snippet = generator.snippet(&text);
         let highlighted = snippet.highlighted();
 
@@ -440,11 +439,10 @@ impl BaseScanState {
                                     .0;
                                 json_value.pointer(&pointer).cloned()?
                             }
-                            unsupported => {
+                            _ => {
                                 return None;
                             }
                         };
-
                         match field {
                             serde_json::Value::String(val) => Some(val),
                             serde_json::Value::Array(array) => Some(array.into_iter().filter_map(|v| match v {

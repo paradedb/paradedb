@@ -270,6 +270,12 @@ impl ParallelQueryCapable for JoinScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
+
+        // Workers must wait for the leader to finish populating the segment pool.
+        unsafe {
+            (*pscan_state).wait_for_initialization();
+        }
+
         // We don't need to deserialize query from parallel state for JoinScan
         // because the full plan (including query) is serialized in PrivateData
         // and available to the worker via the plan.

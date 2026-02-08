@@ -31,12 +31,12 @@ use serde::{Deserialize, Serialize};
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::parallel::list_segment_ids;
+use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::execution_plan::{ParallelSegmentPlan, SegmentPlan};
+use crate::scan::execution_plan::{MultiSegmentPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::ScanInfo;
 use crate::scan::{Scanner, VisibilityChecker};
@@ -130,6 +130,113 @@ impl PgSearchTableProvider {
         let mut all_queries = vec![base_query];
         all_queries.extend(filter_queries);
         combine_with_and(all_queries).unwrap_or(SearchQueryInput::All)
+    }
+
+    /// Creates a MultiSegmentPlan for parallel scans.
+    ///
+    /// This method uses a throttled loop to claim segments from the shared `parallel_state`.
+    /// It ensures fair work distribution by prefetching data from each claimed segment
+    /// before attempting to claim the next one.
+    #[allow(clippy::too_many_arguments)]
+    fn create_throttled_scan(
+        &self,
+        parallel_state: *mut ParallelScanState,
+        reader: &SearchIndexReader,
+        ffhelper: FFHelper,
+        visibility: HeapVisibilityChecker,
+        heap_relid: pg_sys::Oid,
+        query_for_display: SearchQueryInput,
+        sort_order: Option<&crate::postgres::options::SortByField>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        // Only declare sort order if the field exists in the schema
+        let actual_sort_order = sort_order.and_then(|so| {
+            let field_name = so.field_name.as_ref();
+            if self.get_schema().column_with_name(field_name).is_some() {
+                Some(so)
+            } else {
+                None
+            }
+        });
+
+        let mut segments = Vec::new();
+        let ffhelper = Arc::new(ffhelper);
+
+        loop {
+            pgrx::check_for_interrupts!();
+
+            let segment_id = unsafe { checkout_segment(parallel_state) };
+            let Some(segment_id) = segment_id else {
+                break;
+            };
+
+            let search_results = reader.search_segments(std::iter::once(segment_id));
+            let mut scanner =
+                Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+            let mut visibility = visibility.clone();
+            // Do real work between checkouts to avoid one worker claiming all segments.
+            scanner.prefetch_next(&ffhelper, &mut visibility, &[]);
+
+            segments.push((
+                scanner,
+                Arc::clone(&ffhelper),
+                Box::new(visibility) as Box<dyn VisibilityChecker>,
+            ));
+        }
+
+        // Return MultiSegmentPlan directly (without SortPreservingMergeExec).
+        Ok(Arc::new(MultiSegmentPlan::new(
+            segments,
+            self.get_schema(),
+            query_for_display,
+            actual_sort_order,
+        )))
+    }
+
+    /// Creates a MultiSegmentPlan for serial scans (or fully replicated parallel joins).
+    ///
+    /// This method opens all segments upfront as separate partitions, allowing DataFusion
+    /// to treat them as distinct streams (sorted or not).
+    fn create_serial_scan(
+        &self,
+        reader: &SearchIndexReader,
+        ffhelper: FFHelper,
+        visibility: HeapVisibilityChecker,
+        heap_relid: pg_sys::Oid,
+        query_for_display: SearchQueryInput,
+        sort_order: Option<&crate::postgres::options::SortByField>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        // Only declare sort order if the field exists in the schema
+        let actual_sort_order = sort_order.and_then(|so| {
+            let field_name = so.field_name.as_ref();
+            if self.get_schema().column_with_name(field_name).is_some() {
+                Some(so)
+            } else {
+                None
+            }
+        });
+
+        let ffhelper = Arc::new(ffhelper);
+        let segments: Vec<ScanState> = reader
+            .segment_readers()
+            .iter()
+            .map(|r| {
+                let search_results = reader.search_segments(std::iter::once(r.segment_id()));
+                let scanner =
+                    Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+                (
+                    scanner,
+                    Arc::clone(&ffhelper),
+                    Box::new(visibility.clone()) as Box<dyn VisibilityChecker>,
+                )
+            })
+            .collect();
+
+        Ok(Arc::new(MultiSegmentPlan::new(
+            segments,
+            self.get_schema(),
+            query_for_display,
+            actual_sort_order,
+        )))
     }
 }
 
@@ -239,33 +346,39 @@ impl TableProvider for PgSearchTableProvider {
         let ffhelper = FFHelper::with_fields(&reader, &self.fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let sort_order = self.scan_info.sort_order.as_ref();
 
         if let Some(parallel_state) = self.parallel_state {
-            let parts = (
+            // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
+            // strategy to dynamically claim segments.
+            self.create_throttled_scan(
                 parallel_state,
-                reader,
-                Arc::new(ffhelper),
-                Box::new(visibility) as Box<dyn VisibilityChecker>,
-                self.fields.clone(),
-                heap_relid.into(),
-            );
-            // TODO: In joinscan, only the "partitioning source" (the first source) needs to use
-            // ParallelSegmentPlan to dynamically claim segments. Subsequent sources (inner sides
-            // of the join) are fully replicated and should likely use MultiSegmentPlan to
-            // expose sorted partitions to DataFusion, allowing for sorted merge joins.
-            // See https://github.com/paradedb/paradedb/issues/4062
-            Ok(Arc::new(ParallelSegmentPlan::new(parts, self.get_schema())))
-        } else {
-            let search_results = reader.search();
-            let scanner =
-                Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
-
-            Ok(Arc::new(SegmentPlan::new(
-                scanner,
+                &reader,
                 ffhelper,
-                Box::new(visibility),
+                visibility,
+                heap_relid,
                 query,
-            )))
+                sort_order,
+            )
+        } else if let Some(sort_order) = sort_order {
+            // Serial sorted scan (or replicated source with sorting)
+            self.create_serial_scan(
+                &reader,
+                ffhelper,
+                visibility,
+                heap_relid,
+                query,
+                Some(sort_order),
+            )
+        } else {
+            // For serial/replicated scans without sorting, we can either use MultiSegmentPlan
+            // (1 partition per segment) or SegmentPlan (1 partition total).
+            //
+            // Using MultiSegmentPlan is beneficial because it exposes segments as partitions to
+            // DataFusion, allowing parallel processing within the DataFusion executor if we
+            // configured target_partitions > 1 (though currently joinscan uses 1).
+            // It also unifies the code path.
+            self.create_serial_scan(&reader, ffhelper, visibility, heap_relid, query, None)
         }
     }
 }

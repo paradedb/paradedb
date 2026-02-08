@@ -124,7 +124,6 @@ macro_rules! pushdown {
                 let context = PlannerContext::from_planner($root);
                 Qual::Expr {
                     node: funcexpr.cast(),
-                    expr_state: std::ptr::null_mut(),
                     expr_desc: deparse_expr(Some(&context), $indexrel, funcexpr.cast()),
                 }
             }

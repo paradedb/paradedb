@@ -67,7 +67,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
     fn from_pg(
         args: &Self::Args,
-        heap_rti: pg_sys::Index,
+        _heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Option<Self> {
         let mut grouping_columns = Vec::new();

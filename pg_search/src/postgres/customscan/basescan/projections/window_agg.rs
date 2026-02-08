@@ -514,11 +514,7 @@ unsafe fn validate_and_build_target_list(
     let window_clause = window_clauses.get_ptr(window_clause_idx).unwrap();
 
     let has_partition_by = window_has_partition_by(parse, (*window_clause).partitionClause);
-    let has_frame_clause = window_has_custom_frame_clause(
-        (*window_clause).frameOptions,
-        (*window_clause).startOffset,
-        (*window_clause).endOffset,
-    );
+    let has_frame_clause = window_has_custom_frame_clause((*window_clause).frameOptions);
     let has_order_by = window_has_order_by(parse, (*window_clause).orderClause);
 
     // Reject if PARTITION BY, frame clause, or ORDER BY is present
@@ -533,8 +529,6 @@ unsafe fn validate_and_build_target_list(
 /// (not the default RANGE UNBOUNDED PRECEDING AND CURRENT ROW)
 unsafe fn window_has_custom_frame_clause(
     frame_options: i32, // frameOptions is a bitmask containing frame type and bounds
-    start_offset: *mut pg_sys::Node,
-    end_offset: *mut pg_sys::Node,
 ) -> bool {
     const FRAMEOPTION_NONDEFAULT: i32 = 0x00001;
     // Check if there's a non-default frame clause

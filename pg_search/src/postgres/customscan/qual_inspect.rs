@@ -57,7 +57,6 @@ pub enum Qual {
     /// `solve_postgres_expressions` before the search query is executed.
     Expr {
         node: *mut pg_sys::Node,
-        expr_state: *mut pg_sys::ExprState,
         expr_desc: String,
     },
     /// Represents an expression that can be evaluated at planning time.
@@ -297,11 +296,9 @@ impl From<&Qual> for SearchQueryInput {
             },
             // Convert to SearchQueryInput::PostgresExpression, which will be solved by
             // `solve_postgres_expressions`.
-            Qual::Expr {
-                node,
-                expr_state,
-                expr_desc,
-            } => SearchQueryInput::postgres_expression(*node, expr_desc.clone()),
+            Qual::Expr { node, expr_desc } => {
+                SearchQueryInput::postgres_expression(*node, expr_desc.clone())
+            }
             // Solve the expression immediately to produce a concrete SearchQueryInput
             Qual::PushdownExpr { funcexpr } => unsafe {
                 let expr_state = pg_sys::ExecInitExpr((*funcexpr).cast(), std::ptr::null_mut());
@@ -428,7 +425,8 @@ impl From<&Qual> for SearchQueryInput {
                 };
 
                 // wrap the basic boolean query, iteratively, in each of the extracted ScoreFilters
-                while let Some(SearchQueryInput::ScoreFilter { bounds, query }) = must_scores.pop()
+                while let Some(SearchQueryInput::ScoreFilter { bounds, query: _ }) =
+                    must_scores.pop()
                 {
                     boolean = SearchQueryInput::ScoreFilter {
                         bounds,
@@ -643,7 +641,6 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
             let mut quals = list(
                 context,
                 rti,
@@ -772,15 +769,7 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            context,
-            rti,
-            node,
-            ri_type,
-            indexrel,
-            convert_external_to_special_qual,
-            state,
-        ),
+        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, indexrel, state),
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -1013,7 +1002,6 @@ unsafe fn node_opexpr(
                 state.uses_tantivy_to_query = true;
                 return Some(Qual::Expr {
                     node: rhs,
-                    expr_state: std::ptr::null_mut(),
                     expr_desc: deparse_expr(Some(context), indexrel, rhs),
                 });
             }
@@ -1127,7 +1115,6 @@ unsafe fn try_pushdown(
             // Return as Expr to be evaluated at execution time
             return Some(Qual::Expr {
                 node: opexpr_node,
-                expr_state: std::ptr::null_mut(),
                 expr_desc: deparse_expr(Some(context), indexrel, opexpr_node),
             });
         }
@@ -1317,11 +1304,8 @@ unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
 /// that will correctly handle NULL values in the query.
 unsafe fn booltest(
     context: &PlannerContext,
-    rti: pg_sys::Index,
     node: *mut pg_sys::Node,
-    ri_type: RestrictInfoType,
     indexrel: &PgSearchRelation,
-    convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
@@ -1362,7 +1346,6 @@ pub unsafe fn extract_join_predicates(
     current_rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
     indexrel: &PgSearchRelation,
-    base_query: &SearchQueryInput,
     attempt_pushdown: bool,
 ) -> Option<SearchQueryInput> {
     // Only look at the current relation's join clauses
@@ -1431,8 +1414,6 @@ unsafe fn simplify_join_clause_for_relation(
         return None;
     }
 
-    let input_type = (*node).type_;
-
     match (*node).type_ {
         pg_sys::NodeTag::T_OpExpr => simplify_node_for_relation(node, current_rti),
 
@@ -1442,7 +1423,7 @@ unsafe fn simplify_join_clause_for_relation(
             let mut simplified_args = Vec::new();
 
             // Recursively simplify each argument
-            for (i, arg) in args.iter_ptr().enumerate() {
+            for arg in args.iter_ptr() {
                 if let Some(simplified_arg) = simplify_join_clause_for_relation(arg, current_rti) {
                     simplified_args.push(simplified_arg);
                 }
@@ -1938,7 +1919,7 @@ mod tests {
 
             // Match boolean field TRUE cases
             (
-                qual @ (Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field }),
+                Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field },
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query: pdb::Query::Term { value, .. },
@@ -1947,7 +1928,7 @@ mod tests {
 
             // Match boolean field FALSE cases
             (
-                qual @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
+                Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field },
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query: pdb::Query::Term { value, .. },
@@ -1985,10 +1966,10 @@ mod tests {
 
             // Match NOT clauses
             (
-                Qual::Not(inner),
+                Qual::Not(_inner),
                 SearchQueryInput::Boolean {
                     must,
-                    should,
+                    should: _,
                     must_not,
                 },
             ) => must.len() == 1 && matches!(must[0], SearchQueryInput::All) && must_not.len() == 1,

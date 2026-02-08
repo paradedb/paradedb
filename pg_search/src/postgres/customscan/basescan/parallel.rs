@@ -41,7 +41,7 @@ pub enum RowEstimate {
 impl ParallelQueryCapable for BaseScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _pcxt: *mut ParallelContext,
     ) -> Size {
         if state.custom_state().search_reader.is_none() {
             BaseScan::init_search_reader(state);
@@ -57,7 +57,7 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let args = state.custom_state().parallel_scan_args();
@@ -71,8 +71,8 @@ impl ParallelQueryCapable for BaseScan {
     }
 
     fn reinitialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        pcxt: *mut ParallelContext,
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut ParallelContext,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
@@ -81,7 +81,7 @@ impl ParallelQueryCapable for BaseScan {
 
     fn initialize_worker_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        toc: *mut shm_toc,
+        _toc: *mut shm_toc,
         coordinate: *mut c_void,
     ) {
         let pscan_state = coordinate.cast::<ParallelScanState>();

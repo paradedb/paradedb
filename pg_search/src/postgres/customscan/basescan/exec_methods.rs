@@ -58,7 +58,7 @@ pub trait ExecMethod {
         self.reset(state)
     }
 
-    fn uses_visibility_map(&self, state: &BaseScanState) -> bool {
+    fn uses_visibility_map(&self, _state: &BaseScanState) -> bool {
         true
     }
 

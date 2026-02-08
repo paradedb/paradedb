@@ -650,7 +650,7 @@ unsafe fn query_has_window_func_nodes(parse: *mut pg_sys::Query) -> bool {
     // Check subqueries in RTEs
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for (idx, rte) in rtable.iter_ptr().enumerate() {
+        for rte in rtable.iter_ptr() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY
                 && !(*rte).subquery.is_null()
                 && query_has_window_func_nodes((*rte).subquery)
@@ -960,7 +960,7 @@ unsafe fn replace_windowfuncs_recursively(parse: *mut pg_sys::Query) {
     // Recursively process subqueries in RTEs
     if !(*parse).rtable.is_null() {
         let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*parse).rtable);
-        for (idx, rte) in rtable.iter_ptr().enumerate() {
+        for rte in rtable.iter_ptr() {
             if (*rte).rtekind == pg_sys::RTEKind::RTE_SUBQUERY && !(*rte).subquery.is_null() {
                 // For subqueries, check if they should have window functions replaced
                 // Each subquery is independent and may have its own TopN context

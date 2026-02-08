@@ -18,6 +18,7 @@
 pub mod batch_scanner;
 pub mod codec;
 pub mod datafusion_plan;
+pub mod filter_pushdown;
 pub mod info;
 pub mod search_predicate_udf;
 pub mod table_provider;

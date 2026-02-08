@@ -74,33 +74,30 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                      QUERY PLAN                                                                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                   QUERY PLAN                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -125,33 +122,30 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                               QUERY PLAN                                                                                                                                                                
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor OR webcam","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor OR webcam","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -178,33 +172,30 @@ WHERE p.price > 100
   AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                         QUERY PLAN                                                                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, p.price, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -231,33 +222,30 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -284,33 +272,30 @@ WHERE p.stock >= 25
   AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                     QUERY PLAN                                                                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                  QUERY PLAN                                                                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, p.price, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio OR display","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio OR display","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -341,34 +326,30 @@ WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
   AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Tantivy Query 1: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
-(25 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -395,33 +376,30 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -448,34 +426,29 @@ WHERE (p.description @@@ 'laptop OR headphones')
   AND (s.description @@@ 'technology OR audio')
 ORDER BY p.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Tantivy Query 0: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
-               Tantivy Query 1: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -502,35 +475,30 @@ WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
     OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Tantivy Query 0: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}
-               Tantivy Query 1: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}
-               Join Predicate: ((p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}) OR (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}))
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_2@0) OR pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(26 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: ((p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}) OR (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}))
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_2@0) OR pdb_search_predicate(ctid_1@1) AND pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -556,33 +524,30 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
-   ->  Sort
+   ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Sort Key: p.id
-         ->  Custom Scan (ParadeDB Join Scan)
-               Output: p.id, p.name, s.name
-               Join Type: Inner
-               Relation 0: suppliers (s)
-               Relation 1: products (p)
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Order By: p.id asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-(24 rows)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: (p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

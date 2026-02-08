@@ -466,7 +466,7 @@ pub unsafe fn inject_placeholders(
     snippets_funcoids: [pg_sys::Oid; 2],
     snippet_positions_funcoids: [pg_sys::Oid; 2],
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
-    snippet_generators: &HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+    snippet_generators: &HashMap<SnippetType, Option<SnippetGenerator>>,
 ) -> (
     *mut pg_sys::List,
     *mut pg_sys::Const,
@@ -484,7 +484,6 @@ pub unsafe fn inject_placeholders(
         #[inline(always)]
         unsafe fn inner(node: *mut pg_sys::Node, data: &mut Data) -> Option<*mut pg_sys::Node> {
             let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
-            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
 
             if data.score_funcoids.contains(&(*funcexpr).funcid) {
                 return Some(data.const_score_node.cast());
@@ -575,8 +574,7 @@ pub unsafe fn inject_placeholders(
         snippet_positions_funcoids: [pg_sys::Oid; 2],
         attname_lookup: &'a HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 
-        snippet_generators:
-            &'a HashMap<SnippetType, Option<(tantivy::schema::Field, SnippetGenerator)>>,
+        snippet_generators: &'a HashMap<SnippetType, Option<SnippetGenerator>>,
         const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
     }
 

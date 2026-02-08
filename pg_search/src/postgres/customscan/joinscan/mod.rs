@@ -659,17 +659,6 @@ impl CustomScan for JoinScan {
             explainer.add_text("Join Cond", keys_str.join(", "));
         }
 
-        for (i, source) in join_clause.sources.iter().enumerate() {
-            if source.has_search_predicate() {
-                let label = format!("Tantivy Query {}", i);
-                if let Some(ref query) = source.scan_info.query {
-                    explainer.add_explainable(&label, query);
-                } else {
-                    explainer.add_text(&label, "Nested");
-                }
-            }
-        }
-
         if let Some(ref expr) = join_clause.join_level_expr {
             explainer.add_text("Join Predicate", format_join_level_expr(expr, join_clause));
         }

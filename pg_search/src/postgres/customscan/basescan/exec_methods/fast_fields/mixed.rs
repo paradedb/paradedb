@@ -446,6 +446,7 @@ impl MixedFastFieldExecState {
             scanner,
             Arc::clone(ffhelper),
             Box::new(visibility),
+            state.search_query_input().clone(),
         );
 
         let task_ctx = Arc::new(TaskContext::default());

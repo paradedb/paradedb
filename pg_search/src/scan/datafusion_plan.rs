@@ -34,7 +34,9 @@ use datafusion::physical_plan::{
 use futures::Stream;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::query::SearchQueryInput;
 use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -76,6 +78,7 @@ pub struct SegmentPlan {
     // This is safe because we are running in a single-threaded environment (Postgres)
     state: Mutex<Option<UnsafeSendSync<ScanState>>>,
     properties: PlanProperties,
+    query_for_display: SearchQueryInput,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -91,6 +94,7 @@ impl SegmentPlan {
         scanner: Scanner,
         ffhelper: FFHelper,
         visibility: Box<dyn VisibilityChecker>,
+        query_for_display: SearchQueryInput,
     ) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
@@ -106,6 +110,7 @@ impl SegmentPlan {
                 visibility,
             )))),
             properties,
+            query_for_display,
         }
     }
 
@@ -117,6 +122,7 @@ impl SegmentPlan {
         scanner: Scanner,
         ffhelper: Arc<FFHelper>,
         visibility: Box<dyn VisibilityChecker>,
+        query_for_display: SearchQueryInput,
     ) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
@@ -128,6 +134,7 @@ impl SegmentPlan {
         Self {
             state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
             properties,
+            query_for_display,
         }
     }
 }
@@ -170,7 +177,11 @@ fn build_equivalence_properties(
 
 impl DisplayAs for SegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchScan")
+        write!(
+            f,
+            "PgSearchScan: {}",
+            self.query_for_display.explain_format()
+        )
     }
 }
 

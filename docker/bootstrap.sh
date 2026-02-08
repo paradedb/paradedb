@@ -9,9 +9,9 @@ set -Eeuo pipefail
 # Perform all actions as $POSTGRES_USER
 export PGUSER="$POSTGRES_USER"
 
-# The `pg_cron` and `pg_stat_statements` extensions can only be installed in the
-# `postgres` database, as per our configuration in our Dockerfile. Therefore, we
-# install them separately here.
+# The `pg_cron` extension can only be installed in the `postgres` database, as per
+# our configuration in our Dockerfile. `pg_stat_statements` is a system-level
+# monitoring extension that we install here alongside it for convenience.
 psql -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_cron;"
 psql -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
 

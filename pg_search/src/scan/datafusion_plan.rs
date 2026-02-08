@@ -34,8 +34,9 @@ use datafusion::physical_plan::{
 use futures::Stream;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
-use crate::scan::{Scanner, VisibilityChecker};
+use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -47,7 +48,7 @@ unsafe impl<T> Sync for UnsafeSendSync<T> {}
 
 /// State for a scan partition.
 /// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
-pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
+pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
 
 /// Factory function that creates a ScanState for a given partition on demand.
 /// This enables lazy segment checkout - segments are only checked out when execute() is called.
@@ -87,11 +88,7 @@ impl std::fmt::Debug for SegmentPlan {
 }
 
 impl SegmentPlan {
-    pub fn new(
-        scanner: Scanner,
-        ffhelper: FFHelper,
-        visibility: Box<dyn VisibilityChecker>,
-    ) -> Self {
+    pub fn new(scanner: Scanner, ffhelper: FFHelper, visibility: Box<VisibilityChecker>) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
             EquivalenceProperties::new(schema),
@@ -116,7 +113,7 @@ impl SegmentPlan {
     pub fn new_with_shared_ffhelper(
         scanner: Scanner,
         ffhelper: Arc<FFHelper>,
-        visibility: Box<dyn VisibilityChecker>,
+        visibility: Box<VisibilityChecker>,
     ) -> Self {
         let schema = scanner.schema();
         let properties = PlanProperties::new(
@@ -227,7 +224,7 @@ impl ExecutionPlan for SegmentPlan {
 struct ScanStream {
     scanner: Scanner,
     ffhelper: Arc<FFHelper>,
-    visibility: Box<dyn VisibilityChecker>,
+    visibility: Box<VisibilityChecker>,
     schema: SchemaRef,
 }
 
@@ -236,7 +233,7 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
+        match this.scanner.next(&this.ffhelper, &mut this.visibility) {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
             None => Poll::Ready(None),
         }

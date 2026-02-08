@@ -31,9 +31,8 @@ use tantivy::{DocAddress, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
-
-use super::VisibilityChecker;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -109,6 +108,7 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
+    visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
 }
 
@@ -137,6 +137,7 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
+            visibility_results: Vec::new(),
             prefetched: None,
         }
     }
@@ -182,7 +183,7 @@ impl Scanner {
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
+        visibility: &mut VisibilityChecker,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -202,12 +203,13 @@ impl Scanner {
         };
 
         // Filter out invisible rows.
-        let mut write_idx = 0;
-        for read_idx in 0..ctids.len() {
-            let ctid = ctids[read_idx];
+        self.visibility_results.resize(ctids.len(), None);
+        visibility.check_batch(&ctids[..], &mut self.visibility_results);
 
-            if let Some(visible_ctid) = visibility.check(ctid) {
-                ctids[write_idx] = visible_ctid;
+        let mut write_idx = 0;
+        for (read_idx, maybe_visible_ctid) in self.visibility_results.iter().enumerate() {
+            if let Some(visible_ctid) = maybe_visible_ctid {
+                ctids[write_idx] = *visible_ctid;
                 if read_idx != write_idx {
                     ids[write_idx] = ids[read_idx];
                     scores[write_idx] = scores[read_idx];
@@ -297,11 +299,7 @@ impl Scanner {
     ///
     /// This is used to force some work between parallel segment checkouts while
     /// preserving correctness (the prefetched batch will still be returned).
-    pub fn prefetch_next(
-        &mut self,
-        ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
-    ) {
+    pub fn prefetch_next(&mut self, ffhelper: &FFHelper, visibility: &mut VisibilityChecker) {
         if self.prefetched.is_none() {
             if let Some(batch) = self.next(ffhelper, visibility) {
                 self.prefetched = Some(batch);

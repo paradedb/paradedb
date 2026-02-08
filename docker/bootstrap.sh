@@ -10,10 +10,8 @@ set -Eeuo pipefail
 export PGUSER="$POSTGRES_USER"
 
 # The `pg_cron` extension can only be installed in the `postgres` database, as per
-# our configuration in our Dockerfile. `pg_stat_statements` is a system-level
-# monitoring extension that we install here alongside it for convenience.
+# our configuration in our Dockerfile. Therefore, we install it separately here.
 psql -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_cron;"
-psql -d postgres -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
 
 # Load ParadeDB and third-party extensions into both template1 and $POSTGRES_DB
 # Creating extensions in template1 ensures that they are available in all new databases.
@@ -27,6 +25,7 @@ for DB in template1 "$POSTGRES_DB"; do
     CREATE EXTENSION IF NOT EXISTS postgis_topology;
     CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
     CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 EOSQL
 done
 

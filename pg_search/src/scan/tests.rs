@@ -92,16 +92,11 @@ mod tests {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(
-            search_results,
-            Some(10), // batch size hint
-            fields,
-            heap_oid.into(),
-        );
+        let scanner = Scanner::new(search_results, None, fields, heap_oid.into());
 
         let plan = SegmentPlan::new(
             scanner,
-            ffhelper,
+            ffhelper.into(),
             Box::new(visibility),
             SearchQueryInput::All,
         );

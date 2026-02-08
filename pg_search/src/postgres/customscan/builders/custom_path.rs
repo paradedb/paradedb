@@ -272,6 +272,11 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self
     }
 
+    pub fn set_pathkeys(mut self, pathkeys: *mut pg_sys::List) -> Self {
+        self.custom_path_node.path.pathkeys = pathkeys;
+        self
+    }
+
     pub fn set_force_path(mut self, force: bool) -> Self {
         if force {
             self.flags.insert(Flags::Force);

@@ -156,16 +156,8 @@ impl<'a> FilterAnalyzer<'a> {
         let field: FieldName = column_name.into();
 
         match op {
-            Operator::Eq => Some(self.range_query(
-                field,
-                Bound::Included(value.clone()),
-                Bound::Included(value),
-            )),
-            Operator::NotEq => Some(self.not_query(self.range_query(
-                field,
-                Bound::Included(value.clone()),
-                Bound::Included(value),
-            ))),
+            Operator::Eq => Some(self.term_query(field, value)),
+            Operator::NotEq => Some(self.not_query(self.term_query(field, value))),
             Operator::Lt => Some(self.range_query(field, Bound::Unbounded, Bound::Excluded(value))),
             Operator::LtEq => {
                 Some(self.range_query(field, Bound::Unbounded, Bound::Included(value)))
@@ -194,29 +186,20 @@ impl<'a> FilterAnalyzer<'a> {
         let field_type = self.find_field(&column_name)?;
         let field: FieldName = column_name.into();
 
-        let should: Vec<_> = in_list
+        let terms: Vec<_> = in_list
             .list
             .iter()
             .filter_map(|expr| {
                 let scalar = extract_scalar_value(expr)?;
-                let value = scalar_to_owned_value(&scalar, field_type)?;
-                Some(self.range_query(
-                    field.clone(),
-                    Bound::Included(value.clone()),
-                    Bound::Included(value),
-                ))
+                scalar_to_owned_value(&scalar, field_type)
             })
             .collect();
 
-        if should.len() != in_list.list.len() {
+        if terms.len() != in_list.list.len() {
             return None;
         }
 
-        Some(SearchQueryInput::Boolean {
-            must: vec![],
-            should,
-            must_not: vec![],
-        })
+        Some(self.term_set_query(field, terms))
     }
 
     // -------------------------------------------------------------------------
@@ -243,6 +226,23 @@ impl<'a> FilterAnalyzer<'a> {
     // -------------------------------------------------------------------------
     // Query builders
     // -------------------------------------------------------------------------
+
+    fn term_query(&self, field: FieldName, value: OwnedValue) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field,
+            query: pdb::Query::Term {
+                value,
+                is_datetime: false,
+            },
+        }
+    }
+
+    fn term_set_query(&self, field: FieldName, terms: Vec<OwnedValue>) -> SearchQueryInput {
+        SearchQueryInput::FieldedQuery {
+            field,
+            query: pdb::Query::TermSet { terms },
+        }
+    }
 
     fn range_query(
         &self,

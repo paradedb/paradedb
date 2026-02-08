@@ -71,7 +71,7 @@ impl PgSearchTableProvider {
             &self.fields,
             self.scan_info
                 .indexrelid
-                .unwrap_or(pgrx::pg_sys::InvalidOid),
+                .expect("PgSearchTableProvider requires indexrelid to be set"),
         )
     }
 

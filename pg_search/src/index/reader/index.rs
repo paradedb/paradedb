@@ -273,7 +273,7 @@ pub struct TopNAuxiliaryCollector {
     pub aggregation_collector: DistributedAggregationCollector,
     /// If MVCC filtering should be applied, then the visibility checker to use for that.
     ///
-    /// Note: If enabled, visibility checking is applied to to _both_ the TopN and to any
+    /// Note: If enabled, visibility checking is applied to _both_ the TopN and to any
     /// aggregation collector: this is because once you've bothered to filter for MVCC, you might
     /// as well feed the filtered result to TopN too.
     pub vischeck: Option<VisibilityChecker>,

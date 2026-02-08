@@ -183,14 +183,13 @@ pub fn init() {
         c"paradedb.enable_mixed_fast_field_sort",
         c"Enable sorted execution for MixedFastFieldExecState",
         c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-        &ENABLE_MIXED_FAST_FIELD_SORT,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
+                &ENABLE_MIXED_FAST_FIELD_SORT,
+                GucContext::Userset,
+                GucFlags::default(),
+            );
 
     GucRegistry::define_int_guc(
-        MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,
-        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
+                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
         c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
          than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",

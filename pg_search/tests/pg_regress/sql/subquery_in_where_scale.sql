@@ -1,6 +1,8 @@
 -- Test scalar subquery pattern at larger scale
 -- This tests the paging-string-max benchmark pattern with more realistic data volume
 
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
 -- Cleanup
 DROP TABLE IF EXISTS test_pages_scale CASCADE;
 DROP TABLE IF EXISTS test_metadata_scale CASCADE;

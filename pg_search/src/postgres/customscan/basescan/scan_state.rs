@@ -52,6 +52,7 @@ pub struct BaseScanState {
 
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
+    pub solved_expressions: Vec<SearchQueryInput>,
     pub search_reader: Option<SearchIndexReader>,
 
     pub targetlist_len: usize,
@@ -135,6 +136,10 @@ impl BaseScanState {
         self.base_search_query_input = input;
     }
 
+    pub fn base_search_query_input_mut(&mut self) -> &mut SearchQueryInput {
+        &mut self.base_search_query_input
+    }
+
     pub fn search_query_input(&self) -> &SearchQueryInput {
         if matches!(self.search_query_input, SearchQueryInput::Uninitialized) {
             panic!("search_query_input should be initialized");
@@ -183,21 +188,10 @@ impl BaseScanState {
     }
 
     pub fn parallel_scan_args(&self) -> ParallelScanArgs<'_> {
-        let query = serde_json::to_vec(self.search_query_input())
-            .expect("should be able to serialize query");
-
-        let segment_readers = self
-            .search_reader
-            .as_ref()
-            .expect("search reader must be initialized to build parallel serialization data")
-            .segment_readers();
-
-        let with_aggregates = !self.window_aggregates.is_empty();
-
         ParallelScanArgs {
-            segment_readers,
-            query,
-            with_aggregates,
+            segment_readers: self.search_reader.as_ref().unwrap().segment_readers(),
+            solved_expressions: serde_json::to_vec(&self.solved_expressions).unwrap(),
+            with_aggregates: !self.window_aggregates.is_empty(),
         }
     }
 
@@ -488,8 +482,13 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input.init_postgres_expressions(planstate);
     }
 
-    fn solve_postgres_expressions(&mut self, expr_context: *mut pg_sys::ExprContext) {
-        self.search_query_input
+    fn solve_postgres_expressions(
+        &mut self,
+        expr_context: *mut pg_sys::ExprContext,
+    ) -> Vec<SearchQueryInput> {
+        self.solved_expressions = self
+            .search_query_input
             .solve_postgres_expressions(expr_context);
+        self.solved_expressions.clone()
     }
 }

@@ -36,7 +36,7 @@ impl ParallelQueryCapable for BaseScan {
         let args = state.custom_state().parallel_scan_args();
         ParallelScanState::size_of(
             args.segment_readers.len(),
-            &args.query,
+            &args.solved_expressions,
             args.with_aggregates,
         )
     }
@@ -78,12 +78,14 @@ impl ParallelQueryCapable for BaseScan {
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
         unsafe {
-            match (*pscan_state)
-                .query()
-                .expect("should be able to deserialize the query from the ParallelScanState")
-            {
-                Some(query) => state.custom_state_mut().set_base_search_query_input(query),
-                None => panic!("no query in ParallelScanState"),
+            if let Some(solved) = (*pscan_state).solved_expressions().expect(
+                "should be able to deserialize the solved expressions from the ParallelScanState",
+            ) {
+                let mut solved = std::collections::VecDeque::from(solved);
+                state
+                    .custom_state_mut()
+                    .base_search_query_input_mut()
+                    .apply_solved_expressions(&mut solved);
             }
         }
     }

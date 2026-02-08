@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2026 ParadeDB, Inc.
+// Copyright (c) 2023-2025 ParadeDB, Inc.
 //
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
@@ -202,29 +202,31 @@ impl<'a> ParallelAggregationWorker<'a> {
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = HashSet::default();
-        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
-        while let Some(segment_id) = self.checkout_segment() {
-            segment_ids.insert(segment_id);
+        let (_, target_count) = chunk_range(nsegments, nworkers, worker_number as usize);
+        {
+            let _lock = self.state.mutex.acquire();
 
-            if segment_ids.len() == many_segments {
-                // we have all the segments we need
-                break;
+            let available_count = self.state.remaining_segments;
+            // we take the minimum of what we want which is the target vs what is left which is available
+            let count_to_take = std::cmp::min(target_count, available_count);
+
+            for _ in 0..count_to_take {
+                // treating the segment list as a stack and popping a batch from the end by calculating the slice range
+                if self.state.remaining_segments > 0 {
+                    self.state.remaining_segments -= 1;
+                    if let Some((segment_id, _)) =
+                        self.segment_ids.get(self.state.remaining_segments)
+                    {
+                        segment_ids.insert(*segment_id);
+                    }
+                }
             }
         }
+
         segment_ids
     }
 
-    fn checkout_segment(&mut self) -> Option<SegmentId> {
-        let _lock = self.state.mutex.acquire();
-        if self.state.remaining_segments == 0 {
-            return None;
-        }
-        self.state.remaining_segments -= 1;
-        self.segment_ids
-            .get(self.state.remaining_segments)
-            .cloned()
-            .map(|(segment_id, _)| segment_id)
-    }
+    // removed the checkout_segment func
 
     fn execute_aggregate(
         &mut self,

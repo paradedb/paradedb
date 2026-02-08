@@ -838,11 +838,7 @@ impl CustomScan for BaseScan {
                         ..
                     }
                 ) {
-                    if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
-                        for pathkey in pathkeys {
-                            path_builder = path_builder.add_path_key(pathkey);
-                        }
-                    }
+                    path_builder = path_builder.set_pathkeys((*builder.args().root).query_pathkeys);
                 } else if is_sorted {
                     // For sorted mixed fast field execution, add the sort pathkey
                     if let Some(ref pathkey_style) = sort_by_pathkey {

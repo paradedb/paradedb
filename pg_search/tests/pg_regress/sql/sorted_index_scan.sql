@@ -263,6 +263,66 @@ WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
 SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
 DROP TABLE dtype_date_test CASCADE;
 
+-- 4.5: UUID type
+\echo 'Test 4.5: UUID field sorting'
+DROP TABLE IF EXISTS dtype_uuid_test CASCADE;
+CREATE TABLE dtype_uuid_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    uuid_col UUID
+);
+
+INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
+    ('uuid', '00000000-0000-0000-0000-000000000002'),
+    ('uuid', '00000000-0000-0000-0000-000000000010'),
+    ('uuid', '00000000-0000-0000-0000-000000000001'),
+    ('uuid', NULL),
+    ('uuid', '00000000-0000-0000-0000-000000000003'),
+    ('uuid', '00000000-0000-0000-0000-000000000100');
+
+CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
+USING bm25 (id, content, uuid_col)
+WITH (
+    key_field = 'id',
+    text_fields = '{"content": {}, "uuid_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+    sort_by = 'uuid_col ASC NULLS FIRST'
+);
+
+SELECT id, uuid_col::text FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+DROP TABLE dtype_uuid_test CASCADE;
+
+-- 4.6: NUMERIC type (NumericBytes)
+\echo 'Test 4.6: NUMERIC field sorting (NumericBytes)'
+DROP TABLE IF EXISTS dtype_numeric_test CASCADE;
+CREATE TABLE dtype_numeric_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    amount NUMERIC(30,0)
+);
+
+INSERT INTO dtype_numeric_test (content, amount) VALUES
+    ('num', NULL),
+    ('num', 100000000000000000000000000000),
+    ('num', 5),
+    ('num', 10),
+    ('num', 1),
+    ('num', 100000000000000000000000000001),
+    ('num', 500),
+    ('num', 50);
+
+CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
+USING bm25 (id, content, amount)
+WITH (
+    key_field = 'id',
+    text_fields = '{"content": {}}',
+    numeric_fields = '{"amount": {"fast": true}}',
+    sort_by = 'amount ASC NULLS FIRST'
+);
+
+-- Order by the source NUMERIC column to avoid sorting text output lexicographically.
+SELECT id, amount::text FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY dtype_numeric_test.amount ASC NULLS FIRST;
+DROP TABLE dtype_numeric_test CASCADE;
+
 -- =============================================================================
 -- SECTION 5: EDGE CASES
 -- =============================================================================

@@ -460,6 +460,317 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
     );
 }
 
+/// Test sort_by on TEXT fields across multiple segments (ASC).
+#[rstest]
+fn index_sort_by_text_asc_multi_segment(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_sort_text_asc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            name TEXT
+        );
+
+        CREATE INDEX test_sort_text_asc_idx ON test_sort_text_asc
+        USING bm25 (id, content, name)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}, "name": {"fast": true, "tokenizer": {"type": "raw"}}}',
+            sort_by = 'name ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Insert in batches to create multiple segments
+    r#"
+        INSERT INTO test_sort_text_asc (content, name) VALUES
+        ('fruit', 'mango'),
+        ('fruit', 'apple');
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_text_asc (content, name) VALUES
+        ('fruit', 'zebra'),
+        ('fruit', 'banana');
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_text_asc (content, name) VALUES
+        ('fruit', 'cherry'),
+        ('fruit', NULL);
+    "#
+    .execute(&mut conn);
+
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT id, name FROM test_sort_text_asc
+        WHERE content @@@ 'fruit'
+        ORDER BY name ASC NULLS FIRST
+    "#
+    .fetch_one(&mut conn);
+
+    let segment_count = plan
+        .pointer("/0/Plan/Plans/0/Plans/0/Segment Count")
+        .or_else(|| plan.pointer("/0/Plan/Plans/0/Segment Count"))
+        .or_else(|| plan.pointer("/0/Plan/Segment Count"))
+        .and_then(|v| v.as_i64())
+        .filter(|v| *v > 0)
+        .expect("Could not extract Segment Count from EXPLAIN output");
+    assert!(
+        segment_count > 1,
+        "Test requires multiple segments, got {}",
+        segment_count
+    );
+
+    let results: Vec<(i32, Option<String>)> = r#"
+        SELECT id, name FROM test_sort_text_asc
+        WHERE content @@@ 'fruit'
+        ORDER BY name ASC NULLS FIRST
+    "#
+    .fetch(&mut conn);
+
+    let names: Vec<Option<String>> = results.iter().map(|(_, name)| name.clone()).collect();
+    let expected = vec![
+        None,
+        Some("apple".to_string()),
+        Some("banana".to_string()),
+        Some("cherry".to_string()),
+        Some("mango".to_string()),
+        Some("zebra".to_string()),
+    ];
+    assert_eq!(
+        names, expected,
+        "Text sort_by ASC should match expected order"
+    );
+}
+
+/// Test sort_by on TEXT fields across multiple segments (DESC).
+#[rstest]
+fn index_sort_by_text_desc_multi_segment(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_sort_text_desc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            name TEXT
+        );
+
+        CREATE INDEX test_sort_text_desc_idx ON test_sort_text_desc
+        USING bm25 (id, content, name)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}, "name": {"fast": true, "tokenizer": {"type": "raw"}}}',
+            sort_by = 'name DESC NULLS LAST'
+        );
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_text_desc (content, name) VALUES
+        ('fruit', 'mango'),
+        ('fruit', 'apple');
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_text_desc (content, name) VALUES
+        ('fruit', 'zebra'),
+        ('fruit', 'banana');
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_text_desc (content, name) VALUES
+        ('fruit', 'cherry'),
+        ('fruit', NULL);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, Option<String>)> = r#"
+        SELECT id, name FROM test_sort_text_desc
+        WHERE content @@@ 'fruit'
+        ORDER BY name DESC NULLS LAST
+    "#
+    .fetch(&mut conn);
+
+    let names: Vec<Option<String>> = results.iter().map(|(_, name)| name.clone()).collect();
+    let expected = vec![
+        Some("zebra".to_string()),
+        Some("mango".to_string()),
+        Some("cherry".to_string()),
+        Some("banana".to_string()),
+        Some("apple".to_string()),
+        None,
+    ];
+    assert_eq!(
+        names, expected,
+        "Text sort_by DESC should match expected order"
+    );
+}
+
+/// Test sort_by on UUID fields across multiple segments (ASC).
+#[rstest]
+fn index_sort_by_uuid_asc_multi_segment(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_sort_uuid_asc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            uuid_col UUID
+        );
+
+        CREATE INDEX test_sort_uuid_asc_idx ON test_sort_uuid_asc
+        USING bm25 (id, content, uuid_col)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}, "uuid_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+            sort_by = 'uuid_col ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Insert in batches to create multiple segments
+    r#"
+        INSERT INTO test_sort_uuid_asc (content, uuid_col) VALUES
+        ('uuid', '00000000-0000-0000-0000-000000000002'),
+        ('uuid', '00000000-0000-0000-0000-000000000010');
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_uuid_asc (content, uuid_col) VALUES
+        ('uuid', '00000000-0000-0000-0000-000000000001'),
+        ('uuid', NULL);
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_uuid_asc (content, uuid_col) VALUES
+        ('uuid', '00000000-0000-0000-0000-000000000003'),
+        ('uuid', '00000000-0000-0000-0000-000000000100');
+    "#
+    .execute(&mut conn);
+
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, FORMAT JSON)
+        SELECT id, uuid_col FROM test_sort_uuid_asc
+        WHERE content @@@ 'uuid'
+        ORDER BY uuid_col ASC NULLS FIRST
+    "#
+    .fetch_one(&mut conn);
+
+    let segment_count = plan
+        .pointer("/0/Plan/Plans/0/Plans/0/Segment Count")
+        .or_else(|| plan.pointer("/0/Plan/Plans/0/Segment Count"))
+        .or_else(|| plan.pointer("/0/Plan/Segment Count"))
+        .and_then(|v| v.as_i64())
+        .filter(|v| *v > 0)
+        .expect("Could not extract Segment Count from EXPLAIN output");
+    assert!(
+        segment_count > 1,
+        "Test requires multiple segments, got {}",
+        segment_count
+    );
+
+    let results: Vec<Option<String>> = r#"
+        SELECT uuid_col::text FROM test_sort_uuid_asc
+        WHERE content @@@ 'uuid'
+        ORDER BY uuid_col ASC NULLS FIRST
+    "#
+    .fetch_scalar(&mut conn);
+
+    let expected = vec![
+        None,
+        Some("00000000-0000-0000-0000-000000000001".to_string()),
+        Some("00000000-0000-0000-0000-000000000002".to_string()),
+        Some("00000000-0000-0000-0000-000000000003".to_string()),
+        Some("00000000-0000-0000-0000-000000000010".to_string()),
+        Some("00000000-0000-0000-0000-000000000100".to_string()),
+    ];
+    assert_eq!(
+        results, expected,
+        "UUID sort_by ASC should match expected order"
+    );
+}
+
+/// Test sort_by on NUMERIC(precision > 18) which uses NumericBytes storage.
+#[rstest]
+fn index_sort_by_numeric_bytes_asc(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_sort_numeric_bytes (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            amount NUMERIC(30,0)
+        );
+
+        CREATE INDEX test_sort_numeric_bytes_idx ON test_sort_numeric_bytes
+        USING bm25 (id, content, amount)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"amount": {"fast": true}}',
+            sort_by = 'amount ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Insert in multiple batches to create multiple segments
+    r#"
+        INSERT INTO test_sort_numeric_bytes (content, amount) VALUES
+        ('num', NULL),
+        ('num', 100000000000000000000000000000),
+        ('num', 5);
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_numeric_bytes (content, amount) VALUES
+        ('num', 10),
+        ('num', 1),
+        ('num', 100000000000000000000000000001);
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_sort_numeric_bytes (content, amount) VALUES
+        ('num', 500),
+        ('num', 50);
+    "#
+    .execute(&mut conn);
+
+    // Order by the numeric column explicitly. If we just write ORDER BY amount,
+    // Postgres will resolve it to the output column (amount::text) and sort
+    // lexicographically instead of numerically.
+    let results: Vec<Option<String>> = r#"
+        SELECT amount::text FROM test_sort_numeric_bytes
+        WHERE content @@@ 'num'
+        ORDER BY test_sort_numeric_bytes.amount ASC NULLS FIRST
+    "#
+    .fetch_scalar(&mut conn);
+
+    let expected = vec![
+        None,
+        Some("1".to_string()),
+        Some("5".to_string()),
+        Some("10".to_string()),
+        Some("50".to_string()),
+        Some("500".to_string()),
+        Some("100000000000000000000000000000".to_string()),
+        Some("100000000000000000000000000001".to_string()),
+    ];
+    assert_eq!(
+        results, expected,
+        "NumericBytes sort_by ASC should match expected order"
+    );
+}
+
 // ============================================================================
 // Parallel Execution Tests
 // ============================================================================

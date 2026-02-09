@@ -1,7 +1,7 @@
 -- Join with scores/order-by/limit, large target list.
 
 -- Directly, without a CTE.
-SET paradedb.enable_join_custom_scan TO off; SELECT
+SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
   *,
   pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM
@@ -12,7 +12,7 @@ ORDER BY score DESC
 LIMIT 1000;
 
 -- CTE to execute a smaller join before Top-N and then fetch the rest of the content after Top-N.
-WITH topn AS (
+SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; WITH topn AS (
   SELECT
     documents.id AS doc_id,
     files.id AS file_id,
@@ -46,7 +46,7 @@ ORDER BY
   topn.score DESC;
 
 -- Directly, without a CTE.
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
   *,
   pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
 FROM
@@ -55,3 +55,48 @@ WHERE
   documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages."content" @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
+
+-- Sortedness enabled (no join scan).
+SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
+  *,
+  pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
+FROM
+  documents JOIN files ON documents.id = files."documentId" JOIN pages ON pages."fileId" = files.id
+WHERE
+  documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages."content" @@@ 'Single Number Reach'
+ORDER BY score DESC
+LIMIT 1000;
+
+-- Sortedness enabled (no join scan, CTE).
+SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; WITH topn AS (
+  SELECT
+    documents.id AS doc_id,
+    files.id AS file_id,
+    pages.id AS page_id,
+    pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score
+  FROM
+    documents
+    JOIN files ON documents.id = files."documentId"
+    JOIN pages ON pages."fileId" = files.id
+  WHERE
+    documents.parents @@@ 'SFR'
+    AND files.title @@@ 'collab12'
+    AND pages."content" @@@ 'Single Number Reach'
+  ORDER BY
+    score DESC
+  LIMIT 1000
+)
+SELECT
+  d.*,
+  f.*,
+  p.*,
+  topn.score
+FROM
+  topn
+  JOIN documents d ON topn.doc_id = d.id
+  JOIN files f ON topn.file_id = f.id
+  JOIN pages p ON topn.page_id = p.id
+WHERE
+  topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id
+ORDER BY
+  topn.score DESC;

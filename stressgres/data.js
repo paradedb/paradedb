@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770611297826,
+  "lastUpdate": 1770611303406,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -514,6 +514,64 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.58656791319846, max segment_count: 130.0, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b91006e07d5c6fc93a8bb38ca19094ef5f3081f7",
+          "message": "fix: Early return in fieldname extraction causes pushdown to not happen (#4075)\n\n# Description\nBackport of #4071 to `0.21.x`.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-02-03T20:28:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b91006e07d5c6fc93a8bb38ca19094ef5f3081f7"
+        },
+        "date": 1770611299018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.259072140337338, max cpu: 42.72997, count: 57902"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 232.8323612121559, max mem: 234.4453125, count: 57902"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.327023764671164, max cpu: 33.267326, count: 57902"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 172.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 172.0855480353658, max mem: 173.09765625, count: 57902"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33775,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33398.72722876585, max block_count: 36088.0, count: 57902"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.0958343407827, max segment_count: 127.0, count: 57902"
           }
         ]
       }

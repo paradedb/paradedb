@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770611303406,
+  "lastUpdate": 1770611947140,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -572,6 +572,54 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.0958343407827, max segment_count: 127.0, count: 57902"
+          }
+        ]
+      }
+    ],
+    "pg_search wide-table.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770611942930,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1135.1821210046344,
+            "unit": "median tps",
+            "extra": "avg tps: 1141.5176581838195, max tps: 1192.092575386586, count: 55405"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1186.9992237890751,
+            "unit": "median tps",
+            "extra": "avg tps: 1188.2297494295433, max tps: 1273.247891879775, count: 55405"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1898.6714837924858,
+            "unit": "median tps",
+            "extra": "avg tps: 1884.4992034802265, max tps: 2054.067593875601, count: 55405"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.669895362615561,
+            "unit": "median tps",
+            "extra": "avg tps: 5.642040403231506, max tps: 6.848778752825472, count: 55405"
           }
         ]
       }

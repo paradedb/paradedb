@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770611040507,
+  "lastUpdate": 1770611297826,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -420,6 +420,40 @@ window.BENCHMARK_DATA = {
             "value": 5.323796506604033,
             "unit": "median tps",
             "extra": "avg tps: 4.772389363788728, max tps: 5.9722371440075, count: 57787"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b91006e07d5c6fc93a8bb38ca19094ef5f3081f7",
+          "message": "fix: Early return in fieldname extraction causes pushdown to not happen (#4075)\n\n# Description\nBackport of #4071 to `0.21.x`.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-02-03T20:28:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b91006e07d5c6fc93a8bb38ca19094ef5f3081f7"
+        },
+        "date": 1770611293449,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.527352454600586,
+            "unit": "median tps",
+            "extra": "avg tps: 6.439218337354045, max tps: 9.66083256147737, count: 57902"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.49867850514885,
+            "unit": "median tps",
+            "extra": "avg tps: 4.929503119331737, max tps: 6.15630524801993, count: 57902"
           }
         ]
       }

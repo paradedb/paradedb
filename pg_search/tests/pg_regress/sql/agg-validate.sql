@@ -166,25 +166,13 @@ SELECT sort_agg_buckets(agg) FROM (
 -- =====================================================================
 
 -- Test 13: Valid field via paradedb.aggregate() - should succeed
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"avg_rating": {"avg": {"field": "rating"}}}'
-);
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_rating": {"avg": {"field": "rating"}}}');
 
 -- Test 14: Invalid field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"avg_bad": {"avg": {"field": "nonexistent_field"}}}'
-);
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_bad": {"avg": {"field": "nonexistent_field"}}}');
 
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}'
-);
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
 
 -- Cleanup
 DROP TABLE mock_items CASCADE;

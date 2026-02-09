@@ -230,26 +230,26 @@ SELECT sort_agg_buckets(agg) FROM (
 -- This path bypasses the planner, so field validation happens in aggregate_impl()
 -- =====================================================================
 -- Test 13: Valid field via paradedb.aggregate() - should succeed
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"avg_rating": {"avg": {"field": "rating"}}}'
-);
-ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_rating": {"avg": {"field": "rating"}}}');
+           aggregate            
+--------------------------------
+ {"avg_rating": {"value": 4.2}}
+(1 row)
+
 -- Test 14: Invalid field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"avg_bad": {"avg": {"field": "nonexistent_field"}}}'
-);
-ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_bad": {"avg": {"field": "nonexistent_field"}}}');
+          aggregate           
+------------------------------
+ {"avg_bad": {"value": null}}
+(1 row)
+
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
-SELECT * FROM paradedb.aggregate(
-    index => 'mock_items_idx',
-    query => pdb.all(),
-    agg => '{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}'
-);
-ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
+SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
+                                                                                                                            aggregate                                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"by_rating": {"buckets": [{"key": 5, "bad_avg": {"value": null}, "doc_count": 2}, {"key": 4, "bad_avg": {"value": null}, "doc_count": 2}, {"key": 3, "bad_avg": {"value": null}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
+(1 row)
+
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);

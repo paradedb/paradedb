@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770611035044,
+  "lastUpdate": 1770611040507,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -420,6 +420,66 @@ window.BENCHMARK_DATA = {
             "value": 5.323796506604033,
             "unit": "median tps",
             "extra": "avg tps: 4.772389363788728, max tps: 5.9722371440075, count: 57787"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770611036166,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.04075997203024, max cpu: 42.772278, count: 57787"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.90127861802827, max mem: 237.5078125, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.470302276083196, max cpu: 33.366436, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.15582075661482, max mem: 175.8515625, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34256,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33530.154359977154, max block_count: 36247.0, count: 57787"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.58656791319846, max segment_count: 130.0, count: 57787"
           }
         ]
       }

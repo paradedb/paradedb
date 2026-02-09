@@ -160,6 +160,32 @@ SELECT sort_agg_buckets(agg) FROM (
     WHERE id @@@ pdb.all()
 ) sub;
 
+-- =====================================================================
+-- SECTION 5: paradedb.aggregate() direct API - field validation
+-- This path bypasses the planner, so field validation happens in aggregate_impl()
+-- =====================================================================
+
+-- Test 13: Valid field via paradedb.aggregate() - should succeed
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"avg_rating": {"avg": {"field": "rating"}}}'
+);
+
+-- Test 14: Invalid field via paradedb.aggregate() - should error
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"avg_bad": {"avg": {"field": "nonexistent_field"}}}'
+);
+
+-- Test 15: Invalid nested field via paradedb.aggregate() - should error
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}'
+);
+
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);

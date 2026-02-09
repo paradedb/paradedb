@@ -225,6 +225,31 @@ SELECT sort_agg_buckets(agg) FROM (
  {"buckets": [{"key": 3, "doc_count": 1, "avg_rating": {"value": 3.0}}, {"key": 4, "doc_count": 2, "avg_rating": {"value": 4.0}}, {"key": 5, "doc_count": 2, "avg_rating": {"value": 5.0}}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}
 (1 row)
 
+-- =====================================================================
+-- SECTION 5: paradedb.aggregate() direct API - field validation
+-- This path bypasses the planner, so field validation happens in aggregate_impl()
+-- =====================================================================
+-- Test 13: Valid field via paradedb.aggregate() - should succeed
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"avg_rating": {"avg": {"field": "rating"}}}'
+);
+ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
+-- Test 14: Invalid field via paradedb.aggregate() - should error
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"avg_bad": {"avg": {"field": "nonexistent_field"}}}'
+);
+ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
+-- Test 15: Invalid nested field via paradedb.aggregate() - should error
+SELECT * FROM paradedb.aggregate(
+    index => 'mock_items_idx',
+    query => pdb.all(),
+    agg => '{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}'
+);
+ERROR:  function paradedb.aggregate(index => unknown, query => pdb.query, agg => unknown) does not exist at character 15
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);

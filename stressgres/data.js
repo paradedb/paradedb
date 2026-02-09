@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770667159482,
+  "lastUpdate": 1770668101488,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -966,6 +966,54 @@ window.BENCHMARK_DATA = {
             "value": 5.553028817504838,
             "unit": "median tps",
             "extra": "avg tps: 5.563482341576923, max tps: 7.504011973101344, count: 55927"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "589fa838de3d99e5efefeee907cc9e85086e4d13",
+          "message": "chore: create `SearchPredicateUDF` for lazy Tantivy query evaluation (#4122)\n\n## Ticket(s) Closed\n\n- Partially helps #4061 \n\n## What\n\nReplace `RowInSetUDF` with a new `SearchPredicateUDF` that carries the\nsearch query and defers execution, enabling future filter pushdown to\n`PgSearchTableProvider`.\n\n## Why\n\nThe previous `RowInSetUDF` eagerly pre-computed all matching CTIDs\nbefore join execution by running the Tantivy search upfront. This\napproach:\n- Cannot benefit from DataFusion's filter pushdown mechanism\n- Executes searches even when results might not be needed\n- Doesn't preserve expression context for EXPLAIN output\n\nThe new `SearchPredicateUDF` enables lazy evaluation and is designed to\nintegrate with DataFusion's filter pushdown, allowing single-table\npredicates to be pushed to individual table scans.\n\n## How\n\n- Created `SearchPredicateUDF` in `scan/search_predicate_udf.rs` that:\n  - Carries the search query, index OID, and heap OID\n- Stores raw pointers (`expr_ptr`, `planner_info_ptr`) for lazy deparse\nin EXPLAIN\n- Falls back to executing the search when not pushed down (cross-table\npredicates)\n- Added `RawPtr<T>` utility in `postgres/utils.rs` for type-safe\nserializable pointer handling\n- Updated `JoinLevelSearchPredicate` to store expression pointers\n- Removed eager `compute_predicate_matches` from scan_state\n- Updated translator to create `SearchPredicateUDF` instead of\n`RowInSetUDF`\n- Deleted `joinscan/udf.rs` (no longer needed)\n\n## Tests\n\n- Updated `join_custom_scan` regression test for new UDF name\n(`pdb_search_predicate` instead of `row_in_set`)\n- Added unit tests for `SearchPredicateUDF` (name, into_expr,\ntry_from_expr)",
+          "timestamp": "2026-02-09T11:24:14-08:00",
+          "tree_id": "7f721858975e5cac391d211ec704d17b33841d28",
+          "url": "https://github.com/paradedb/paradedb/commit/589fa838de3d99e5efefeee907cc9e85086e4d13"
+        },
+        "date": 1770668097284,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1094.1597551230295,
+            "unit": "median tps",
+            "extra": "avg tps: 1098.0865973884493, max tps: 1138.1031059763216, count: 55997"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1248.7181399135563,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.3707637062698, max tps: 1261.5043276963152, count: 55997"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1931.7194341400732,
+            "unit": "median tps",
+            "extra": "avg tps: 1908.8382810698859, max tps: 2083.6750135113007, count: 55997"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.497376984873781,
+            "unit": "median tps",
+            "extra": "avg tps: 5.52430015268192, max tps: 7.688268453483811, count: 55997"
           }
         ]
       }

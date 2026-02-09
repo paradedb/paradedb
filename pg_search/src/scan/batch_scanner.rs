@@ -147,6 +147,11 @@ impl Scanner {
         build_arrow_schema(&self.which_fast_fields)
     }
 
+    /// Returns the estimated number of rows that will be produced by this scanner.
+    pub fn estimated_rows(&self) -> usize {
+        self.search_results.estimated_doc_count() as usize
+    }
+
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
         // Collect a batch of ids for a single segment.
         loop {

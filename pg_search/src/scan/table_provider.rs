@@ -38,7 +38,7 @@ use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{MultiSegmentPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
-use crate::scan::info::ScanInfo;
+use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::{Scanner, VisibilityChecker};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -263,9 +263,25 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn statistics(&self) -> Option<Statistics> {
-        // TODO: Provide a useful implementation of statistics to allow DataFusion to
-        // re-order joins effectively.
-        None
+        use datafusion::common::stats::{ColumnStatistics, Precision};
+
+        let num_rows = match self.scan_info.estimate {
+            Some(RowEstimate::Known(n)) => Precision::Inexact(n as usize),
+            _ => Precision::Absent,
+        };
+
+        let column_statistics = self
+            .get_schema()
+            .fields
+            .iter()
+            .map(|_| ColumnStatistics::default())
+            .collect();
+
+        Some(Statistics {
+            num_rows,
+            total_byte_size: Precision::Absent,
+            column_statistics,
+        })
     }
 
     fn supports_filters_pushdown(

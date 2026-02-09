@@ -43,7 +43,8 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::stats::{ColumnStatistics, Precision};
+use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalSortExpr};
@@ -176,6 +177,39 @@ impl ExecutionPlan for SegmentPlan {
 
     fn properties(&self) -> &PlanProperties {
         &self.properties
+    }
+
+    fn statistics(&self) -> Result<Statistics> {
+        self.partition_statistics(None)
+    }
+
+    fn partition_statistics(&self, _partition: Option<usize>) -> Result<Statistics> {
+        // SegmentPlan always represents a single partition/segment, so we return the
+        // statistics for that single segment regardless of the partition argument.
+        let state_guard = self.state.lock().map_err(|e| {
+            DataFusionError::Internal(format!("Failed to lock SegmentPlan state: {e}"))
+        })?;
+
+        let num_rows = if let Some(UnsafeSendSync((scanner, _, _))) = state_guard.as_ref() {
+            Precision::Inexact(scanner.estimated_rows())
+        } else {
+            Precision::Absent
+        };
+
+        let column_statistics = self
+            .properties
+            .eq_properties
+            .schema()
+            .fields
+            .iter()
+            .map(|_| ColumnStatistics::default())
+            .collect();
+
+        Ok(Statistics {
+            num_rows,
+            total_byte_size: Precision::Absent,
+            column_statistics,
+        })
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -386,6 +420,60 @@ impl ExecutionPlan for MultiSegmentPlan {
 
     fn properties(&self) -> &PlanProperties {
         &self.properties
+    }
+
+    fn statistics(&self) -> Result<Statistics> {
+        self.partition_statistics(None)
+    }
+
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
+        let state_guard = self.states.lock().map_err(|e| {
+            DataFusionError::Internal(format!("Failed to lock MultiSegmentPlan state: {e}"))
+        })?;
+
+        let num_rows = match partition {
+            Some(i) => {
+                if i >= state_guard.len() {
+                    Precision::Absent
+                } else if let Some(UnsafeSendSync((scanner, _, _))) = state_guard[i].as_ref() {
+                    Precision::Inexact(scanner.estimated_rows())
+                } else {
+                    Precision::Absent
+                }
+            }
+            None => {
+                let mut total = 0;
+                let mut valid = true;
+                for item in state_guard.iter() {
+                    if let Some(UnsafeSendSync((scanner, _, _))) = item.as_ref() {
+                        total += scanner.estimated_rows();
+                    } else {
+                        valid = false;
+                        break;
+                    }
+                }
+                if valid {
+                    Precision::Inexact(total)
+                } else {
+                    Precision::Absent
+                }
+            }
+        };
+
+        let column_statistics = self
+            .properties
+            .eq_properties
+            .schema()
+            .fields
+            .iter()
+            .map(|_| ColumnStatistics::default())
+            .collect();
+
+        Ok(Statistics {
+            num_rows,
+            total_byte_size: Precision::Absent,
+            column_statistics,
+        })
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {

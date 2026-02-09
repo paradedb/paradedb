@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770613710769,
+  "lastUpdate": 1770613975290,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1236,6 +1236,52 @@ window.BENCHMARK_DATA = {
             "value": 553.4145464573752,
             "unit": "median tps",
             "extra": "avg tps: 503.94402034484847, max tps: 666.0724127786973, count: 107740"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b91006e07d5c6fc93a8bb38ca19094ef5f3081f7",
+          "message": "fix: Early return in fieldname extraction causes pushdown to not happen (#4075)\n\n# Description\nBackport of #4071 to `0.21.x`.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-02-03T20:28:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b91006e07d5c6fc93a8bb38ca19094ef5f3081f7"
+        },
+        "date": 1770613970960,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 538.3907275399067,
+            "unit": "median tps",
+            "extra": "avg tps: 539.5431053215324, max tps: 715.5627016417359, count: 53774"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 639.9845157500472,
+            "unit": "median tps",
+            "extra": "avg tps: 641.8743425776631, max tps: 760.1398365569922, count: 53774"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 85.22779959761478,
+            "unit": "median tps",
+            "extra": "avg tps: 85.33324503663393, max tps: 92.01518833983901, count: 53774"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 109.12036912833446,
+            "unit": "median tps",
+            "extra": "avg tps: 106.70566946942041, max tps: 135.19354093714767, count: 107548"
           }
         ]
       }

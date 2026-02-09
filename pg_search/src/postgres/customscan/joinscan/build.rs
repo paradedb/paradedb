@@ -103,6 +103,9 @@ pub struct JoinLevelSearchPredicate {
     pub heaprelid: pg_sys::Oid,
     /// The search query.
     pub query: SearchQueryInput,
+    /// Human-readable representation of the original PostgreSQL expression (for EXPLAIN output).
+    /// Eagerly computed during planning via `deparse_expr`.
+    pub display_string: String,
 }
 
 /// Projection information for a child join.
@@ -292,6 +295,7 @@ impl JoinCSClause {
         indexrelid: pg_sys::Oid,
         heaprelid: pg_sys::Oid,
         query: SearchQueryInput,
+        display_string: String,
     ) -> usize {
         let idx = self.join_level_predicates.len();
         self.join_level_predicates.push(JoinLevelSearchPredicate {
@@ -299,6 +303,7 @@ impl JoinCSClause {
             indexrelid,
             heaprelid,
             query,
+            display_string,
         });
         idx
     }

@@ -18,7 +18,9 @@
 pub mod batch_scanner;
 pub mod codec;
 pub mod datafusion_plan;
+pub mod filter_pushdown;
 pub mod info;
+pub mod search_predicate_udf;
 pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
@@ -26,6 +28,7 @@ mod tests;
 pub use batch_scanner::Scanner;
 pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
+pub use search_predicate_udf::SearchPredicateUDF;
 pub use table_provider::PgSearchTableProvider;
 
 /// A trait for checking visibility of rows.

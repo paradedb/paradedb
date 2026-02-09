@@ -32,6 +32,7 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -312,7 +313,15 @@ pub(super) unsafe fn extract_single_table_predicate(
     )?;
 
     let query = SearchQueryInput::from(&qual);
-    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query);
+
+    // Eagerly deparse the expression for EXPLAIN output while planner pointers are valid
+    let display_str = {
+        let context = PlannerContext::from_planner(root);
+        let index_rel = PgSearchRelation::open(indexrelid);
+        deparse_expr(Some(&context), &index_rel, expr)
+    };
+
+    let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, display_str);
     Some(idx)
 }
 

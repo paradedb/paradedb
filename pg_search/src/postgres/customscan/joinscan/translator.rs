@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use datafusion::common::{Column, ScalarValue, TableReference};
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
@@ -26,10 +26,10 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
-use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
 use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OperatorAccepts, PostgresOperatorOid, TantivyOperator,
 };
+use crate::scan::SearchPredicateUDF;
 
 static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
 
@@ -58,10 +58,13 @@ impl<'a> PredicateTranslator<'a> {
     }
 
     /// Translate a `JoinLevelExpr` tree to a DataFusion `Expr`.
+    ///
+    /// This creates `SearchPredicateUDF` expressions for single-table predicates,
+    /// which can be pushed down to `PgSearchTableProvider` via DataFusion's
+    /// filter pushdown mechanism.
     pub unsafe fn translate_join_level_expr(
         expr: &JoinLevelExpr,
         custom_exprs: &[Expr],
-        join_level_sets: &[Arc<Vec<u64>>],
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
     ) -> Option<Expr> {
@@ -70,11 +73,17 @@ impl<'a> PredicateTranslator<'a> {
                 source_idx: _,
                 predicate_idx,
             } => {
-                let set = join_level_sets.get(*predicate_idx)?.clone();
                 let predicate = predicates.get(*predicate_idx)?;
                 let col = ctid_map.get(&predicate.rti)?;
-                let udf = datafusion::logical_expr::ScalarUDF::new_from_impl(RowInSetUDF::new(set));
-                Some(udf.call(vec![col.clone()]))
+                // Create a SearchPredicateUDF that carries the search query.
+                // This will be pushed down to PgSearchTableProvider via filter pushdown.
+                let udf = SearchPredicateUDF::new(
+                    predicate.indexrelid,
+                    predicate.heaprelid,
+                    predicate.query.clone(),
+                    predicate.display_string.clone(),
+                );
+                Some(udf.into_expr(col.clone()))
             }
             JoinLevelExpr::MultiTablePredicate { predicate_idx } => {
                 custom_exprs.get(*predicate_idx).cloned()
@@ -86,18 +95,12 @@ impl<'a> PredicateTranslator<'a> {
                 let mut result = Self::translate_join_level_expr(
                     &children[0],
                     custom_exprs,
-                    join_level_sets,
                     ctid_map,
                     predicates,
                 )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(
-                        child,
-                        custom_exprs,
-                        join_level_sets,
-                        ctid_map,
-                        predicates,
-                    )?;
+                    let right =
+                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -113,18 +116,12 @@ impl<'a> PredicateTranslator<'a> {
                 let mut result = Self::translate_join_level_expr(
                     &children[0],
                     custom_exprs,
-                    join_level_sets,
                     ctid_map,
                     predicates,
                 )?;
                 for child in &children[1..] {
-                    let right = Self::translate_join_level_expr(
-                        child,
-                        custom_exprs,
-                        join_level_sets,
-                        ctid_map,
-                        predicates,
-                    )?;
+                    let right =
+                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -134,13 +131,8 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner = Self::translate_join_level_expr(
-                    child,
-                    custom_exprs,
-                    join_level_sets,
-                    ctid_map,
-                    predicates,
-                )?;
+                let inner =
+                    Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
                 Some(Expr::Not(Box::new(inner)))
             }
         }

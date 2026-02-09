@@ -25,7 +25,7 @@ use datafusion::execution::TaskContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
 
-use crate::postgres::customscan::joinscan::udf::RowInSetUDF;
+use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
@@ -149,10 +149,10 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     decode_udfs! {
-        "row_in_set" => RowInSetUDF,
+        "pdb_search_predicate" => SearchPredicateUDF,
     }
 
     encode_udfs! {
-        "row_in_set" => RowInSetUDF,
+        "pdb_search_predicate" => SearchPredicateUDF,
     }
 }

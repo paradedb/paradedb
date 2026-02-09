@@ -39,6 +39,7 @@ use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, HashSet};
+
 use std::ptr::addr_of_mut;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;

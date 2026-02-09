@@ -46,7 +46,6 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -63,41 +62,31 @@ use tantivy::schema::OwnedValue;
 #[derive(Default)]
 pub struct AggregateScan;
 
-impl ParallelQueryCapable for AggregateScan {
-    fn estimate_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-    ) -> pg_sys::Size {
-        0
-    }
-
-    fn initialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
-    }
-
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
-    }
-
-    fn initialize_worker_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        _coordinate: *mut std::os::raw::c_void,
-    ) {
-    }
-}
-
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
     type Args = CreateUpperPathsHookArgs;
     type State = AggregateScanState;
     type PrivateData = PrivateData;
+
+    fn exec_methods() -> pg_sys::CustomExecMethods {
+        pg_sys::CustomExecMethods {
+            CustomName: Self::NAME.as_ptr(),
+            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
+            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
+            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
+            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            MarkPosCustomScan: None,
+            RestrPosCustomScan: None,
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
+            ShutdownCustomScan: Some(
+                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
+            ),
+            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+        }
+    }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         // We can only handle single base relations as input
@@ -513,8 +502,6 @@ impl CustomScan for AggregateScan {
         }
     }
 }
-
-crate::impl_custom_scan! { AggregateScan }
 
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;

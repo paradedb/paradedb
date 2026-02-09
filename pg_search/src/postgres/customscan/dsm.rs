@@ -16,14 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::postgres::customscan::exec::{
-    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
-    shutdown_custom_scan,
-};
-use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan, ExecMethod};
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use crate::postgres::customscan::{wrap_custom_scan_state, CustomScan};
+use pgrx::{pg_guard, pg_sys};
 
-pub trait ParallelQueryCapable: ExecMethod
+pub trait ParallelQueryCapable
 where
     Self: CustomScan,
 {
@@ -49,27 +45,6 @@ where
         toc: *mut pg_sys::shm_toc,
         coordinate: *mut std::os::raw::c_void,
     );
-}
-
-/// Helper function to create the CustomExecMethods struct.
-/// This should be used by the `impl_custom_scan!` macro.
-pub fn create_custom_exec_methods<T: CustomScan + ParallelQueryCapable>(
-) -> *mut pg_sys::CustomExecMethods {
-    PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(pg_sys::CustomExecMethods {
-        CustomName: T::NAME.as_ptr(),
-        BeginCustomScan: Some(begin_custom_scan::<T>),
-        ExecCustomScan: Some(exec_custom_scan::<T>),
-        EndCustomScan: Some(end_custom_scan::<T>),
-        ReScanCustomScan: Some(rescan_custom_scan::<T>),
-        MarkPosCustomScan: None,
-        RestrPosCustomScan: None,
-        EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<T>),
-        InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<T>),
-        ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<T>),
-        InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<T>),
-        ShutdownCustomScan: Some(shutdown_custom_scan::<T>),
-        ExplainCustomScan: Some(explain_custom_scan::<T>),
-    })
 }
 
 /// Estimate the amount of dynamic shared memory that will be required for parallel operation. This

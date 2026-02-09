@@ -177,7 +177,7 @@ use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
@@ -235,7 +235,7 @@ impl ParallelQueryCapable for JoinScan {
         )
         .expect("Failed to open reader for DSM initialization");
 
-        let args = ParallelScanArgs {
+        let args = crate::postgres::ParallelScanArgs {
             segment_readers: reader.segment_readers(),
             query: vec![], // We don't need to pass query bytes for JoinScan (handled by plan)
             with_aggregates: false,
@@ -279,6 +279,34 @@ impl CustomScan for JoinScan {
     type Args = JoinPathlistHookArgs;
     type State = JoinScanState;
     type PrivateData = PrivateData;
+
+    fn exec_methods() -> pg_sys::CustomExecMethods {
+        pg_sys::CustomExecMethods {
+            CustomName: Self::NAME.as_ptr(),
+            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
+            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
+            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
+            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            MarkPosCustomScan: None,
+            RestrPosCustomScan: None,
+            EstimateDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
+            ),
+            InitializeDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
+            ),
+            ReInitializeDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
+            ),
+            InitializeWorkerCustomScan: Some(
+                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
+            ),
+            ShutdownCustomScan: Some(
+                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
+            ),
+            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+        }
+    }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         unsafe {
@@ -1129,5 +1157,3 @@ impl JoinScan {
         Some(result_slot)
     }
 }
-
-crate::impl_custom_scan! { JoinScan }

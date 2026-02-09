@@ -28,8 +28,8 @@ use std::ptr::NonNull;
 pub mod aggregatescan;
 pub mod basescan;
 mod builders;
-mod dsm;
-mod exec;
+pub mod dsm;
+pub mod exec;
 pub mod explain;
 mod explainer;
 mod hook;
@@ -77,6 +77,11 @@ struct CustomScanMethodsWrapper(*const pg_sys::CustomScanMethods);
 unsafe impl Send for CustomScanMethodsWrapper {}
 unsafe impl Sync for CustomScanMethodsWrapper {}
 
+struct CustomExecMethodsWrapper(*const pg_sys::CustomExecMethods);
+
+unsafe impl Send for CustomExecMethodsWrapper {}
+unsafe impl Sync for CustomExecMethodsWrapper {}
+
 lazy_static::lazy_static! {
     // We need to allocate the structs to define functions once, however
     // all the methods are generic over this trait ([`CustomScan]).  Because Rust
@@ -87,13 +92,39 @@ lazy_static::lazy_static! {
     // process, which Postgres requires of these.
     static ref PATH_METHODS: Mutex<HashMap<&'static CStr, CustomPathMethodsWrapper>> = Mutex::default();
     static ref SCAN_METHODS: Mutex<HashMap<&'static CStr, CustomScanMethodsWrapper>> = Mutex::default();
+    static ref EXEC_METHODS: Mutex<HashMap<&'static CStr, CustomExecMethodsWrapper>> = Mutex::default();
 }
 
-pub trait CustomScan: ExecMethod + Default + Sized {
+pub trait CustomScan: Default + Sized {
     const NAME: &'static CStr;
     type Args;
     type State: CustomScanState;
     type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List>;
+
+    /// Returns the execution methods for this custom scan.
+    ///
+    /// This method is called exactly once per custom scan type and the result is memoized
+    /// in `TopMemoryContext`. Implementations should return a [`pg_sys::CustomExecMethods`]
+    /// struct populated with the appropriate callback functions.
+    ///
+    /// Common callback wrappers are available in the [`exec`] and [`dsm`] modules.
+    /// Scanners that implement capability traits (like [`ParallelQueryCapable` or [`MarkRestoreCapable`])
+    /// can use the generic versions of these callbacks by passing themselves as the generic
+    /// argument (e.g. `Some(exec::begin_custom_scan::<Self>)`).
+    fn exec_methods() -> pg_sys::CustomExecMethods;
+
+    fn custom_exec_methods() -> *const pg_sys::CustomExecMethods {
+        EXEC_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomExecMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext
+                        .leak_and_drop_on_delete(Self::exec_methods()),
+                )
+            })
+            .0
+    }
 
     fn custom_path_methods() -> *const pg_sys::CustomPathMethods {
         PATH_METHODS
@@ -200,42 +231,8 @@ pub trait CustomScan: ExecMethod + Default + Sized {
     }
 }
 
-pub trait ExecMethod {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods;
-}
-
-/// Macro to implement the `ExecMethod` trait for a custom scan type.
-///
-/// This macro generates a unique `static mut` storage for the `CustomExecMethods` vtable
-/// for each type it is invoked on. This prevents different custom scan implementations
-/// from accidentally sharing the same vtable pointer due to linker folding or
-/// monomorphization issues with generic statics.
-///
-/// # Usage
-/// ```rust
-/// impl_custom_scan!(MyCustomScan);
-/// ```
-#[macro_export]
-macro_rules! impl_custom_scan {
-    ($t:ty) => {
-        impl $crate::postgres::customscan::ExecMethod for $t {
-            fn exec_methods() -> *const pgrx::pg_sys::CustomExecMethods {
-                unsafe {
-                    static mut METHODS: *mut pgrx::pg_sys::CustomExecMethods = std::ptr::null_mut();
-                    if METHODS.is_null() {
-                        // Use the generic helper to build the struct, but store it in THIS static
-                        METHODS =
-                            $crate::postgres::customscan::dsm::create_custom_exec_methods::<$t>();
-                    }
-                    METHODS
-                }
-            }
-        }
-    };
-}
-
 #[allow(dead_code)]
-pub trait MarkRestoreCapable: ExecMethod
+pub trait MarkRestoreCapable
 where
     Self: CustomScan,
 {

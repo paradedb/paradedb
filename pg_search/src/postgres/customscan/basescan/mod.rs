@@ -69,7 +69,9 @@ use crate::postgres::customscan::qual_inspect::{
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{range_table, CustomScan, CustomScanState, RelPathlistHookArgs};
+use crate::postgres::customscan::{
+    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
+};
 use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -306,8 +308,6 @@ impl BaseScan {
     }
 }
 
-crate::impl_custom_scan! { BaseScan }
-
 /// Check if the query's target list contains window_agg() function calls
 ///
 /// This is called AFTER window function replacement in BaseScan's create_custom_path.
@@ -440,6 +440,26 @@ impl CustomScan for BaseScan {
     type Args = RelPathlistHookArgs;
     type State = BaseScanState;
     type PrivateData = PrivateData;
+
+    fn exec_methods() -> pg_sys::CustomExecMethods {
+        pg_sys::CustomExecMethods {
+            CustomName: Self::NAME.as_ptr(),
+            BeginCustomScan: Some(customscan::exec::begin_custom_scan::<Self>),
+            ExecCustomScan: Some(customscan::exec::exec_custom_scan::<Self>),
+            EndCustomScan: Some(customscan::exec::end_custom_scan::<Self>),
+            ReScanCustomScan: Some(customscan::exec::rescan_custom_scan::<Self>),
+            MarkPosCustomScan: None,
+            RestrPosCustomScan: None,
+            EstimateDSMCustomScan: Some(customscan::dsm::estimate_dsm_custom_scan::<Self>),
+            InitializeDSMCustomScan: Some(customscan::dsm::initialize_dsm_custom_scan::<Self>),
+            ReInitializeDSMCustomScan: Some(customscan::dsm::reinitialize_dsm_custom_scan::<Self>),
+            InitializeWorkerCustomScan: Some(
+                customscan::dsm::initialize_worker_custom_scan::<Self>,
+            ),
+            ShutdownCustomScan: Some(customscan::exec::shutdown_custom_scan::<Self>),
+            ExplainCustomScan: Some(customscan::exec::explain_custom_scan::<Self>),
+        }
+    }
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         let paths = (|| unsafe {

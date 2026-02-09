@@ -81,8 +81,7 @@ impl<'a> PredicateTranslator<'a> {
                     predicate.indexrelid,
                     predicate.heaprelid,
                     predicate.query.clone(),
-                    predicate.expr_ptr.as_ptr(),
-                    predicate.planner_info_ptr.as_ptr(),
+                    predicate.display_string.clone(),
                 );
                 Some(udf.into_expr(col.clone()))
             }

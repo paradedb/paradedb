@@ -42,8 +42,6 @@ use pgrx::pg_sys;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::RawPtr;
 use crate::query::SearchQueryInput;
 
 /// The name of our search predicate UDF - used for recognition in filter pushdown
@@ -67,11 +65,9 @@ pub struct SearchPredicateUDF {
     pub heap_oid: pg_sys::Oid,
     /// The search query as JSON (stored as string for Hash/Eq derivation)
     query_json: String,
-    /// Raw pointer to the original PostgreSQL expression (for lazy deparse).
-    /// Only valid within the same query execution.
-    expr_ptr: RawPtr<pg_sys::Node>,
-    /// Raw pointer to PlannerInfo (for lazy deparse context).
-    planner_info_ptr: RawPtr<pg_sys::PlannerInfo>,
+    /// Human-readable representation of the original PostgreSQL expression (for EXPLAIN output).
+    /// Eagerly computed during planning via `deparse_expr`.
+    display_string: String,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
 }
@@ -81,8 +77,7 @@ impl SearchPredicateUDF {
         index_oid: pg_sys::Oid,
         heap_oid: pg_sys::Oid,
         query: SearchQueryInput,
-        expr_ptr: *mut pg_sys::Node,
-        planner_info_ptr: *mut pg_sys::PlannerInfo,
+        display_string: String,
     ) -> Self {
         let query_json =
             serde_json::to_string(&query).expect("SearchQueryInput should be serializable");
@@ -90,37 +85,16 @@ impl SearchPredicateUDF {
             index_oid,
             heap_oid,
             query_json,
-            expr_ptr: RawPtr::new(expr_ptr),
-            planner_info_ptr: RawPtr::new(planner_info_ptr),
+            display_string,
             signature: Self::make_signature(),
         }
     }
 
-    /// Get a human-readable display string for EXPLAIN output (computed lazily).
-    /// Uses deparse_expr with the stored expression pointer.
+    /// Get a human-readable display string for EXPLAIN output.
+    /// This was eagerly computed during planning via `deparse_expr`.
     pub fn display(&self) -> String {
-        use crate::postgres::customscan::qual_inspect::PlannerContext;
-        use crate::postgres::deparse::deparse_expr;
-
-        // expr_ptr should always be available
-        assert!(
-            !self.expr_ptr.is_null(),
-            "SearchPredicateUDF::display() requires expr_ptr to be set"
-        );
-
-        let expr = self.expr_ptr.as_ptr();
-        let index_rel = PgSearchRelation::open(self.index_oid);
-
-        let context = if !self.planner_info_ptr.is_null() {
-            let root = self.planner_info_ptr.as_ptr();
-            Some(PlannerContext::from_planner(root))
-        } else {
-            None
-        };
-
-        let deparsed = unsafe { deparse_expr(context.as_ref(), &index_rel, expr) };
         // Strip dynamic OID values for deterministic output
-        strip_oids(&deparsed)
+        strip_oids(&self.display_string)
     }
 
     fn make_signature() -> Signature {
@@ -300,7 +274,6 @@ mod tests {
     use super::*;
     use datafusion::logical_expr::col;
     use pgrx::prelude::*;
-    use std::ptr;
 
     #[pg_test]
     fn test_udf_name() {
@@ -308,8 +281,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
-            ptr::null_mut(), // no expr_ptr in tests
-            ptr::null_mut(), // no planner_info_ptr in tests
+            "test display".to_string(),
         );
         assert_eq!(udf.name(), SEARCH_PREDICATE_UDF_NAME);
     }
@@ -320,8 +292,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
-            ptr::null_mut(),
-            ptr::null_mut(),
+            "test display".to_string(),
         );
         let expr = udf.into_expr(col("ctid"));
 
@@ -335,8 +306,7 @@ mod tests {
             pg_sys::Oid::INVALID,
             pg_sys::Oid::INVALID,
             SearchQueryInput::All,
-            ptr::null_mut(),
-            ptr::null_mut(),
+            "test display".to_string(),
         );
         let expr = udf.clone().into_expr(col("ctid"));
 

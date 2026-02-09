@@ -158,28 +158,28 @@ ORDER BY id DESC LIMIT 3;
 SELECT pdb.agg('{"avg": {"field": "not_valid"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 6: Invalid field in date_histogram - should error
 SELECT pdb.agg('{"date_histogram": {"field": "not_valid", "fixed_interval": "30d"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'not_valid'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 7: Invalid field in terms aggregation - should error
 SELECT pdb.agg('{"terms": {"field": "nonexistent_column"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'nonexistent_column'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'nonexistent_column'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 8: Invalid field in window function context - should error
 SELECT *, pdb.agg('{"avg": {"field": "no_such_field"}}'::jsonb) OVER ()
 FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY id DESC LIMIT 3;
-ERROR:  pdb.agg() references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 9: Invalid field in range aggregation - should error
 SELECT pdb.agg('{"range": {"field": "invalid_field", "ranges": [{"to": 3}, {"from": 3}]}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'invalid_field'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'invalid_field'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 3: Nested aggregations with invalid fields
 -- =====================================================================
@@ -187,12 +187,12 @@ ERROR:  pdb.agg() references invalid field 'invalid_field'. Available indexed fi
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"avg_invalid": {"avg": {"field": "bad_field"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'bad_field'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'bad_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 11: Multiple levels of nesting with invalid field - should error
 SELECT pdb.agg('{"terms": {"field": "rating"}, "aggs": {"nested": {"terms": {"field": "also_invalid"}}}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-ERROR:  pdb.agg() references invalid field 'also_invalid'. Available indexed fields are: [created_at, description, id, rating]
+ERROR:  Aggregation references invalid field 'also_invalid'. Available indexed fields are: [created_at, description, id, rating]
 -- =====================================================================
 -- SECTION 4: Valid nested aggregations (should succeed)
 -- =====================================================================
@@ -238,18 +238,10 @@ SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(),
 
 -- Test 14: Invalid field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"avg_bad": {"avg": {"field": "nonexistent_field"}}}');
-          aggregate           
-------------------------------
- {"avg_bad": {"value": null}}
-(1 row)
-
+ERROR:  Aggregation references invalid field 'nonexistent_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Test 15: Invalid nested field via paradedb.aggregate() - should error
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"by_rating": {"terms": {"field": "rating"}, "aggs": {"bad_avg": {"avg": {"field": "no_such_field"}}}}}');
-                                                                                                                            aggregate                                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"by_rating": {"buckets": [{"key": 5, "bad_avg": {"value": null}, "doc_count": 2}, {"key": 4, "bad_avg": {"value": null}, "doc_count": 2}, {"key": 3, "bad_avg": {"value": null}, "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
-(1 row)
-
+ERROR:  Aggregation references invalid field 'no_such_field'. Available indexed fields are: [created_at, description, id, rating]
 -- Cleanup
 DROP TABLE mock_items CASCADE;
 DROP FUNCTION sort_agg_buckets(jsonb);

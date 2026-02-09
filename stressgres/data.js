@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770610107417,
+  "lastUpdate": 1770610113100,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -70,6 +70,138 @@ window.BENCHMARK_DATA = {
             "value": 56.884004666833754,
             "unit": "median tps",
             "extra": "avg tps: 75.57458274653905, max tps: 676.1338934426507, count: 29932"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770610108861,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.936195449402945, max cpu: 22.89348, count: 29932"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 58.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.77868115645463, max mem: 63.98828125, count: 29932"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.60582090797109, max cpu: 9.384164, count: 29932"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 34.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.48554692720166, max mem: 35.46875, count: 29932"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.625412881184036, max cpu: 4.738401, count: 29932"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 55.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.379200275833554, max mem: 62.37890625, count: 29932"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.653208168648449, max cpu: 9.467456, count: 59864"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 44.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 44.164418319545135, max mem: 50.3515625, count: 59864"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4355368070757395, max cpu: 15.130024, count: 29932"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 57.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.9986648121158, max mem: 63.36328125, count: 29932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1142,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1144.8037885874649, max block_count: 1874.0, count: 29932"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.309835627422157, max segment_count: 17.0, count: 29932"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.367413275353657, max cpu: 18.934912, count: 29932"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 57.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.86202593065114, max mem: 63.125, count: 29932"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.48981890434958, max cpu: 4.7244096, count: 29932"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 47.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 46.85442275929607, max mem: 52.91015625, count: 29932"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 29932"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 48.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 47.811727676483365, max mem: 55.58984375, count: 29932"
           }
         ]
       }

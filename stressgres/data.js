@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770610387607,
+  "lastUpdate": 1770611035044,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -384,6 +384,42 @@ window.BENCHMARK_DATA = {
             "value": 51.34375,
             "unit": "median mem",
             "extra": "avg mem: 50.72060774031853, max mem: 63.296875, count: 55286"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770611026125,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.734170460752499,
+            "unit": "median tps",
+            "extra": "avg tps: 6.639922827873307, max tps: 10.014262572041444, count: 57787"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.323796506604033,
+            "unit": "median tps",
+            "extra": "avg tps: 4.772389363788728, max tps: 5.9722371440075, count: 57787"
           }
         ]
       }

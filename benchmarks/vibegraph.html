@@ -157,11 +157,13 @@
             // Render each prefix
             Object.entries(prefixGroups).forEach(([prefix, group]) => {
                 const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
+                // We do not sort by timestamp here because our fork of github-action-benchmark
+                // (https://github.com/paradedb/github-action-benchmark) is expected to insert
+                // them in commit-graph-aware order.
                 const runs = runKeys.map(k => {
                     const [ts, r, sh] = k.split('|');
                     return {timestamp: +ts, run: +r, short: sh};
-                })
-                    .sort((a, b) => a.timestamp - b.timestamp || a.run - b.run);
+                });
                 const labels = runs.map(r => {
                     const lbl = hashInfo[r.short]?.label || r.short;
                     return lbl.length > 25 ? `${lbl.slice(0, 25)}…` : lbl;

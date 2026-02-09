@@ -15,18 +15,40 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! SearchPredicateUDF - A marker UDF for lazy search predicate evaluation.
+//! SearchPredicateUDF - A UDF for search predicate evaluation in DataFusion plans.
 //!
-//! This UDF acts as a marker in DataFusion expressions to represent a search predicate
-//! that should be evaluated by the underlying `PgSearchTableProvider`. Unlike `RowInSetUDF`
-//! which pre-computes matching CTIDs, this UDF carries the search query information and
-//! defers execution to the `scan()` method via DataFusion's filter pushdown mechanism.
+//! This UDF represents a search predicate (@@@ operator) inside a DataFusion plan.
+//! It carries the Tantivy query and defers execution until DataFusion evaluates it.
 //!
-//! Flow:
-//! 1. Translator creates `search_predicate(ctid_col, index_oid, heap_oid, query_json)` expression
-//! 2. DataFusion calls `supports_filters_pushdown` - we return `Exact` for our UDF
-//! 3. DataFusion passes the filter to `scan()`
-//! 4. `scan()` extracts the query and adds it to the Tantivy search
+//! ## Execution Paths
+//!
+//! **Pushed-down path** (preferred): `PgSearchTableProvider::supports_filters_pushdown`
+//! returns `Exact` and DataFusion passes the filter to `scan()`, which folds it into
+//! the Tantivy search.
+//!
+//! **Direct execution path**: When the predicate sits on a join filter (e.g., a
+//! cross-table OR like `p.desc @@@ 'x' OR s.info @@@ 'y'`), DataFusion calls
+//! `invoke_with_args` at join time. This runs `execute_search` to materialize matching
+//! CTIDs and checks each row via binary search.
+//!
+//! Both paths can be active simultaneously: for a cross-table OR, DataFusion pushes the
+//! per-table arms down to individual scans (reducing rows entering the join), while the
+//! full expression also remains as a `HashJoinExec` filter evaluated via `execute_search`.
+//!
+//! ## Future Work: Optimizing the Direct Execution Path
+//!
+//! The direct execution path materializes all matching CTIDs upfront. For query patterns
+//! that consistently hit this path, we could improve performance with plan rewrites:
+//!
+//! - **Rewrite as a join**: A DataFusion optimizer rule could detect an unpushed
+//!   `SearchPredicateUDF` and convert it into a join against a virtual table that
+//!   executes the Tantivy search (similar to correlated subquery decorrelation).
+//!
+//! - **Semi-join injection**: For existence checks (e.g., `WHERE EXISTS (... @@@ ...)`),
+//!   the optimizer could inject a semi-join node.
+//!
+//! - **Materialized CTE**: Eagerly execute the search into a temporary result set and
+//!   reference it as a CTE, avoiding repeated evaluation.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -158,19 +180,13 @@ impl ScalarUDFImpl for SearchPredicateUDF {
         &self,
         args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> Result<ColumnarValue> {
-        // This UDF is designed to be pushed down to PgSearchTableProvider when possible.
-        // If we reach here, it means the filter wasn't pushed down (e.g., cross-table OR
-        // predicates) and we need to evaluate it manually.
-        //
-        // In the pushed-down path, the filter is converted to a Tantivy query
-        // and only matching rows are returned from scan().
-        //
-        // In this fallback path, we execute the search and check CTIDs against the results.
-        // This is used for cross-table predicates that cannot be pushed to individual tables.
+        // Direct execution path: DataFusion did not push this filter down, so we execute
+        // the Tantivy search here and match CTIDs against the input batch.
+        // This happens for cross-table predicates (e.g., OR conditions spanning multiple
+        // tables) that cannot be pushed to individual table scans.
+        // See module-level docs for future optimization strategies.
 
         let arg = &args.args[0];
-
-        // Execute the search to get matching CTIDs
         let matching_ctids = self.execute_search()?;
 
         match arg {
@@ -180,12 +196,15 @@ impl ScalarUDFImpl for SearchPredicateUDF {
                     .downcast_ref::<UInt64Array>()
                     .expect("Expected UInt64Array for ctid");
                 let mut builder = BooleanBuilder::with_capacity(ctids.len());
+                // Binary search per row: batch CTIDs are not necessarily sorted after
+                // a join (the join strategy may reorder rows), so a merge-join cursor
+                // would skip valid matches. Binary search is O(n log m) and correct
+                // regardless of input order.
                 for i in 0..ctids.len() {
                     if ctids.is_null(i) {
                         builder.append_null();
                     } else {
                         let ctid = ctids.value(i);
-                        // Binary search since matching_ctids is sorted
                         builder.append_value(matching_ctids.binary_search(&ctid).is_ok());
                     }
                 }
@@ -206,10 +225,10 @@ impl ScalarUDFImpl for SearchPredicateUDF {
 
 impl SearchPredicateUDF {
     /// Execute the search and return sorted matching CTIDs.
-    /// This is the fallback path when the filter isn't pushed down.
     ///
-    /// This is used for cross-table predicates (e.g., OR conditions between tables)
-    /// which cannot be pushed down to individual table scans.
+    /// This is the direct execution path used when the filter is not pushed down
+    /// (e.g., cross-table OR predicates). It materializes all matching CTIDs upfront
+    /// for binary-search filtering against incoming batches.
     fn execute_search(&self) -> Result<Vec<u64>> {
         use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
         use crate::index::mvcc::MvccSatisfies;

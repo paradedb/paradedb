@@ -64,8 +64,12 @@ impl<'a> FilterAnalyzer<'a> {
 
     fn try_analyze(&self, expr: &Expr) -> Option<SearchQueryInput> {
         // SearchPredicateUDF contains the Tantivy query for @@@ predicates at the join level.
-        // These MUST always be pushed down - they cannot be evaluated by DataFusion's
-        // execution engine. Returning None here would cause execution failure.
+        // When pushed down here, the query is folded into the Tantivy scan (preferred path).
+        //
+        // For cross-table ORs (e.g., `p @@@ 'x' OR s @@@ 'y'`), both paths are active:
+        // DataFusion pushes the per-table arms down to individual scans (reducing rows
+        // entering the join), while the full cross-table expression also remains as a
+        // HashJoinExec filter where invoke_with_args / execute_search evaluates it.
         if let Some(search_udf) = SearchPredicateUDF::try_from_expr(expr) {
             // Only process if it matches our index
             if search_udf.index_oid == self.index_oid {

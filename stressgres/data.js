@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770613084896,
+  "lastUpdate": 1770613705557,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1188,6 +1188,54 @@ window.BENCHMARK_DATA = {
             "value": 168.0390625,
             "unit": "median mem",
             "extra": "avg mem: 164.96804126252758, max mem: 169.05859375, count: 55777"
+          }
+        ]
+      }
+    ],
+    "pg_search logical-replication.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770613701362,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 650.532871805831,
+            "unit": "median tps",
+            "extra": "avg tps: 649.1498567388547, max tps: 675.3727127995704, count: 53870"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 617.3248934549949,
+            "unit": "median tps",
+            "extra": "avg tps: 617.5275292596172, max tps: 770.9269237726517, count: 53870"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.5765689931535,
+            "unit": "median tps",
+            "extra": "avg tps: 88.60896199247046, max tps: 89.78555907553091, count: 53870"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 553.4145464573752,
+            "unit": "median tps",
+            "extra": "avg tps: 503.94402034484847, max tps: 666.0724127786973, count: 107740"
           }
         ]
       }

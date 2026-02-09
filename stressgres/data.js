@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770612813608,
+  "lastUpdate": 1770612818828,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -922,6 +922,114 @@ window.BENCHMARK_DATA = {
             "value": 15.1872163560583,
             "unit": "median tps",
             "extra": "avg tps: 15.210449577106186, max tps: 20.756491073671015, count: 55416"
+          }
+        ]
+      }
+    ],
+    "pg_search background-merge.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "05025da0ce66b0606497b092203538a732534d16",
+          "message": "chore: Fix benchmark data destination. (#4135)\n\n## What\n\nSend all query benchmark data to the same directory.\n\n## Why\n\nIn #4080, we accidentally introduced subdirectories of our `benchmarks`\ndataset, which resulted in separate datasets and pages to render them,\nrather than a single dataset and page.\n\n<img width=\"145\" height=\"413\" alt=\"Screenshot 2026-02-08 at 5 04 35 PM\"\nsrc=\"https://github.com/user-attachments/assets/5afbcaf0-d823-4507-b0ab-36494b839661\"\n/>\n\nEach subdirectory has its own `data.js` and `index.html`, but we want it\nto be merged into the parent directory's data.",
+          "timestamp": "2026-02-09T01:08:28Z",
+          "url": "https://github.com/paradedb/paradedb/commit/05025da0ce66b0606497b092203538a732534d16"
+        },
+        "date": 1770612814691,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.05581804108024, max cpu: 57.83132, count: 55416"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.2470539589198, max mem: 176.78125, count: 55416"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.731840969845872, max cpu: 38.554214, count: 55416"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.60175958883715, max mem: 120.9609375, count: 55416"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.806808758621002, max cpu: 9.495549, count: 55416"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 125.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.53520996305218, max mem: 159.96875, count: 55416"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13777,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13898.909827486646, max block_count: 24701.0, count: 55416"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.522304472560878, max cpu: 4.64666, count: 55416"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 96.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.53876291932835, max mem: 134.31640625, count: 55416"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.64012198642991, max segment_count: 40.0, count: 55416"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.042165393843302, max cpu: 57.83132, count: 110832"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.28773852965526, max mem: 164.609375, count: 110832"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.595139447435345, max cpu: 27.799229, count: 55416"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.76749988157752, max mem: 171.8046875, count: 55416"
           }
         ]
       }

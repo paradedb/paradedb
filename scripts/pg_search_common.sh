@@ -10,32 +10,39 @@
 #  - 16.11
 #  - 17.7
 #  - 18.1 (default)
+#
+# After sourcing, the following are available:
+#  - BUILD_PARAMS: array of build flags (--release, --profile <value>)
+#  - EXTRA_ARGS: array of remaining arguments (everything else)
+#  - DATABASE_URL: connection string for the running database
+#  - PG_CONFIG: path to pg_config binary
 
 set -Eeuo pipefail
 
-# Parse arguments for the --release flag
+# Parse arguments: separate build flags from the rest
 BUILD_PARAMS=()
+EXTRA_ARGS=()
 
-# Loop through arguments
 i=1
 while [ $i -le $# ]; do
   arg="${!i}"
   if [ "$arg" = "--release" ]; then
-    BUILD_PARAMS=("${BUILD_PARAMS[@]}" "--release")
+    BUILD_PARAMS+=("--release")
   elif [ "$arg" = "--profile" ]; then
     i=$((i+1))
     if [ $i -le $# ]; then
       PROFILE_VALUE="${!i}"
-      # Check if the next argument is another flag
       if [[ "$PROFILE_VALUE" == --* ]]; then
         echo "Error: --profile requires a value"
         exit 1
       fi
-      BUILD_PARAMS=("${BUILD_PARAMS[@]}" "--profile" "${PROFILE_VALUE}")
+      BUILD_PARAMS+=("--profile" "${PROFILE_VALUE}")
     else
       echo "Error: --profile requires a value"
       exit 1
     fi
+  else
+    EXTRA_ARGS+=("$arg")
   fi
   i=$((i+1))
 done

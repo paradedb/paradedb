@@ -43,7 +43,7 @@ jobs:
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-queries')
     env:
-      pg_version: 18
+      pg_version: 17
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step

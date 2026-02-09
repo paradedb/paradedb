@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770668101488,
+  "lastUpdate": 1770668107050,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1216,6 +1216,108 @@ window.BENCHMARK_DATA = {
             "value": 159.9375,
             "unit": "median mem",
             "extra": "avg mem: 178.88472864180093, max mem: 220.43359375, count: 55927"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "589fa838de3d99e5efefeee907cc9e85086e4d13",
+          "message": "chore: create `SearchPredicateUDF` for lazy Tantivy query evaluation (#4122)\n\n## Ticket(s) Closed\n\n- Partially helps #4061 \n\n## What\n\nReplace `RowInSetUDF` with a new `SearchPredicateUDF` that carries the\nsearch query and defers execution, enabling future filter pushdown to\n`PgSearchTableProvider`.\n\n## Why\n\nThe previous `RowInSetUDF` eagerly pre-computed all matching CTIDs\nbefore join execution by running the Tantivy search upfront. This\napproach:\n- Cannot benefit from DataFusion's filter pushdown mechanism\n- Executes searches even when results might not be needed\n- Doesn't preserve expression context for EXPLAIN output\n\nThe new `SearchPredicateUDF` enables lazy evaluation and is designed to\nintegrate with DataFusion's filter pushdown, allowing single-table\npredicates to be pushed to individual table scans.\n\n## How\n\n- Created `SearchPredicateUDF` in `scan/search_predicate_udf.rs` that:\n  - Carries the search query, index OID, and heap OID\n- Stores raw pointers (`expr_ptr`, `planner_info_ptr`) for lazy deparse\nin EXPLAIN\n- Falls back to executing the search when not pushed down (cross-table\npredicates)\n- Added `RawPtr<T>` utility in `postgres/utils.rs` for type-safe\nserializable pointer handling\n- Updated `JoinLevelSearchPredicate` to store expression pointers\n- Removed eager `compute_predicate_matches` from scan_state\n- Updated translator to create `SearchPredicateUDF` instead of\n`RowInSetUDF`\n- Deleted `joinscan/udf.rs` (no longer needed)\n\n## Tests\n\n- Updated `join_custom_scan` regression test for new UDF name\n(`pdb_search_predicate` instead of `row_in_set`)\n- Added unit tests for `SearchPredicateUDF` (name, into_expr,\ntry_from_expr)",
+          "timestamp": "2026-02-09T11:24:14-08:00",
+          "tree_id": "7f721858975e5cac391d211ec704d17b33841d28",
+          "url": "https://github.com/paradedb/paradedb/commit/589fa838de3d99e5efefeee907cc9e85086e4d13"
+        },
+        "date": 1770668102726,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08004000214297194, max background_merging: 2.0, count: 55997"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706867159826482, max cpu: 9.638554, count: 55997"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.246110212935516, max mem: 29.26953125, count: 55997"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.947969775248089, max cpu: 9.856263, count: 55997"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.31546011951534, max mem: 168.828125, count: 55997"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50955,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50813.72544957766, max block_count: 50955.0, count: 55997"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.77716663392682, max segment_count: 62.0, count: 55997"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.661053247054649, max cpu: 9.523809, count: 55997"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.69642367838902, max mem: 137.8125, count: 55997"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77926552424967, max cpu: 9.648242, count: 55997"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.06738363215888, max mem: 168.47265625, count: 55997"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.937371652887563, max cpu: 33.333336, count: 55997"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.08817659874637, max mem: 223.140625, count: 55997"
           }
         ]
       }

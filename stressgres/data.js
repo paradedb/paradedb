@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770610113100,
+  "lastUpdate": 1770610382232,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -70,6 +70,70 @@ window.BENCHMARK_DATA = {
             "value": 56.884004666833754,
             "unit": "median tps",
             "extra": "avg tps: 75.57458274653905, max tps: 676.1338934426507, count: 29932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b91006e07d5c6fc93a8bb38ca19094ef5f3081f7",
+          "message": "fix: Early return in fieldname extraction causes pushdown to not happen (#4075)\n\n# Description\nBackport of #4071 to `0.21.x`.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-02-03T20:28:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b91006e07d5c6fc93a8bb38ca19094ef5f3081f7"
+        },
+        "date": 1770610373414,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 576.9271273931454,
+            "unit": "median tps",
+            "extra": "avg tps: 576.9830043436718, max tps: 635.5297465679338, count: 55286"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3204.9024242604264,
+            "unit": "median tps",
+            "extra": "avg tps: 3194.961836768077, max tps: 3219.601327688294, count: 55286"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 550.1662553448517,
+            "unit": "median tps",
+            "extra": "avg tps: 550.3130535478572, max tps: 663.0059450013507, count: 55286"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 471.6853506083667,
+            "unit": "median tps",
+            "extra": "avg tps: 473.5374473483095, max tps: 524.6292800272076, count: 55286"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3278.503369482497,
+            "unit": "median tps",
+            "extra": "avg tps: 3260.6341072329715, max tps: 3300.321925523087, count: 110572"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2177.4200905084954,
+            "unit": "median tps",
+            "extra": "avg tps: 2164.3130756931096, max tps: 2187.8838007956565, count: 55286"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 135.1278900207408,
+            "unit": "median tps",
+            "extra": "avg tps: 131.43541511759994, max tps: 211.8584819238106, count: 55286"
           }
         ]
       }

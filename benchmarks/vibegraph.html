@@ -54,7 +54,6 @@
         <div class="mt-4">
             <label class="font-medium mr-2">Dataset:</label>
             <select id="dataset-filter" class="px-3 py-2 border rounded-lg bg-white">
-                <option value="all">All Datasets</option>
             </select>
         </div>
     </header>
@@ -85,12 +84,11 @@
         Object.keys(rawData).forEach(key => {
             datasets.add(parseDatasetId(key));
         });
-        return Array.from(datasets).sort();
+        return Array.from(datasets);
     }
 
     // Filter rawData by selected dataset
     function filterData(rawData, selectedDataset) {
-        if (selectedDataset === 'all') return rawData;
         const filtered = {};
         Object.entries(rawData).forEach(([key, value]) => {
             if (parseDatasetId(key) === selectedDataset) {
@@ -404,7 +402,16 @@
 
             // Populate dropdown and render charts
             populateDropdown(allRawData);
-            renderCharts(allRawData);
+            
+            const datasets = getUniqueDatasets(allRawData);
+            if (datasets.length > 0) {
+                const lastDataset = datasets[datasets.length - 1];
+                document.getElementById('dataset-filter').value = lastDataset;
+                const filtered = filterData(allRawData, lastDataset);
+                renderCharts(filtered);
+            } else {
+                renderCharts(allRawData);
+            }
 
             // Handle dropdown change
             document.getElementById('dataset-filter').addEventListener('change', e => {

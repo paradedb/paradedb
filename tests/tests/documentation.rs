@@ -1576,6 +1576,18 @@ fn compound_queries(mut conn: PgConnection) {
     .fetch(&mut conn);
     assert_eq!(rows.len(), 3);
 
+    // Disjunction max (V2 pdb schema)
+    let rows: Vec<(String, i32, String, f32)> = r#"
+    SELECT description, rating, category, pdb.score(id)
+    FROM mock_items
+    WHERE id @@@ pdb.disjunction_max(ARRAY[
+      paradedb.term('description', 'shoes'),
+      paradedb.term('description', 'running')
+    ]);
+    "#
+    .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
     // Empty
     let rows: Vec<(String, i32, String, f32)> = r#"
     -- Returns no rows

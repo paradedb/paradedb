@@ -24,6 +24,7 @@ mod pdb {
     use crate::api::HashSet;
     use crate::postgres::types::TantivyValue;
     use crate::query::pdb_query::pdb;
+    use crate::query::SearchQueryInput;
     use crate::schema::AnyEnum;
 
     use macros::builder_fn;
@@ -725,6 +726,17 @@ mod pdb {
             pdb::Query::TermSet {
                 terms: inner.iter().cloned().map(OwnedValue::I64).collect(),
             }
+        }
+    }
+
+    #[pg_extern(immutable, parallel_safe, name = "disjunction_max")]
+    pub fn pdb_disjunction_max(
+        disjuncts: Vec<SearchQueryInput>,
+        tie_breaker: default!(Option<f32>, "NULL"),
+    ) -> SearchQueryInput {
+        SearchQueryInput::DisjunctionMax {
+            disjuncts,
+            tie_breaker,
         }
     }
 }

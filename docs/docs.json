@@ -151,6 +151,7 @@
                         "pages": [
                           "documentation/query-builder/overview",
                           "documentation/query-builder/compound/all",
+                          "documentation/query-builder/compound/disjunction-max",
                           "documentation/query-builder/specialized/more-like-this",
                           "documentation/query-builder/phrase/phrase-prefix",
                           "documentation/query-builder/compound/query-parser",

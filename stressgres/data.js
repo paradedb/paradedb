@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770613981137,
+  "lastUpdate": 1770666228778,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -134,6 +134,78 @@ window.BENCHMARK_DATA = {
             "value": 135.1278900207408,
             "unit": "median tps",
             "extra": "avg tps: 131.43541511759994, max tps: 211.8584819238106, count: 55286"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "589fa838de3d99e5efefeee907cc9e85086e4d13",
+          "message": "chore: create `SearchPredicateUDF` for lazy Tantivy query evaluation (#4122)\n\n## Ticket(s) Closed\n\n- Partially helps #4061 \n\n## What\n\nReplace `RowInSetUDF` with a new `SearchPredicateUDF` that carries the\nsearch query and defers execution, enabling future filter pushdown to\n`PgSearchTableProvider`.\n\n## Why\n\nThe previous `RowInSetUDF` eagerly pre-computed all matching CTIDs\nbefore join execution by running the Tantivy search upfront. This\napproach:\n- Cannot benefit from DataFusion's filter pushdown mechanism\n- Executes searches even when results might not be needed\n- Doesn't preserve expression context for EXPLAIN output\n\nThe new `SearchPredicateUDF` enables lazy evaluation and is designed to\nintegrate with DataFusion's filter pushdown, allowing single-table\npredicates to be pushed to individual table scans.\n\n## How\n\n- Created `SearchPredicateUDF` in `scan/search_predicate_udf.rs` that:\n  - Carries the search query, index OID, and heap OID\n- Stores raw pointers (`expr_ptr`, `planner_info_ptr`) for lazy deparse\nin EXPLAIN\n- Falls back to executing the search when not pushed down (cross-table\npredicates)\n- Added `RawPtr<T>` utility in `postgres/utils.rs` for type-safe\nserializable pointer handling\n- Updated `JoinLevelSearchPredicate` to store expression pointers\n- Removed eager `compute_predicate_matches` from scan_state\n- Updated translator to create `SearchPredicateUDF` instead of\n`RowInSetUDF`\n- Deleted `joinscan/udf.rs` (no longer needed)\n\n## Tests\n\n- Updated `join_custom_scan` regression test for new UDF name\n(`pdb_search_predicate` instead of `row_in_set`)\n- Added unit tests for `SearchPredicateUDF` (name, into_expr,\ntry_from_expr)",
+          "timestamp": "2026-02-09T11:24:14-08:00",
+          "tree_id": "7f721858975e5cac391d211ec704d17b33841d28",
+          "url": "https://github.com/paradedb/paradedb/commit/589fa838de3d99e5efefeee907cc9e85086e4d13"
+        },
+        "date": 1770666224605,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 122.74751665665711,
+            "unit": "median tps",
+            "extra": "avg tps: 122.78991712707466, max tps: 151.54773840025243, count: 55047"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3067.6667031168226,
+            "unit": "median tps",
+            "extra": "avg tps: 3048.1976684575848, max tps: 3099.1990718359057, count: 55047"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 460.0316132283007,
+            "unit": "median tps",
+            "extra": "avg tps: 458.38785285663283, max tps: 568.2568170117257, count: 55047"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3121.254921368446,
+            "unit": "median tps",
+            "extra": "avg tps: 3117.307777261769, max tps: 3162.600890315277, count: 110094"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 516.1818404825675,
+            "unit": "median tps",
+            "extra": "avg tps: 512.1554992367344, max tps: 619.3854234443678, count: 55047"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 556.5972695549005,
+            "unit": "median tps",
+            "extra": "avg tps: 552.7509383534145, max tps: 675.3703590824006, count: 55047"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1924.6977945449914,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.8354160735992, max tps: 1935.690414833309, count: 55047"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 34.22371173108364,
+            "unit": "median tps",
+            "extra": "avg tps: 68.08545761403, max tps: 696.6170187717388, count: 55047"
           }
         ]
       }

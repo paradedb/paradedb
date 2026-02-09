@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770611952434,
+  "lastUpdate": 1770612212800,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -620,6 +620,52 @@ window.BENCHMARK_DATA = {
             "value": 5.669895362615561,
             "unit": "median tps",
             "extra": "avg tps: 5.642040403231506, max tps: 6.848778752825472, count: 55405"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b91006e07d5c6fc93a8bb38ca19094ef5f3081f7",
+          "message": "fix: Early return in fieldname extraction causes pushdown to not happen (#4075)\n\n# Description\nBackport of #4071 to `0.21.x`.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2026-02-03T20:28:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b91006e07d5c6fc93a8bb38ca19094ef5f3081f7"
+        },
+        "date": 1770612208492,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1132.4624602011081,
+            "unit": "median tps",
+            "extra": "avg tps: 1135.431260806755, max tps: 1183.6204968225818, count: 55927"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1248.92694398444,
+            "unit": "median tps",
+            "extra": "avg tps: 1242.1948507636223, max tps: 1261.3168782392343, count: 55927"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1802.8410873796174,
+            "unit": "median tps",
+            "extra": "avg tps: 1780.8975077676332, max tps: 1930.5241292557973, count: 55927"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.553028817504838,
+            "unit": "median tps",
+            "extra": "avg tps: 5.563482341576923, max tps: 7.504011973101344, count: 55927"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770669001972,
+  "lastUpdate": 1770669007844,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1692,6 +1692,114 @@ window.BENCHMARK_DATA = {
             "value": 168.0390625,
             "unit": "median mem",
             "extra": "avg mem: 164.96804126252758, max mem: 169.05859375, count: 55777"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "589fa838de3d99e5efefeee907cc9e85086e4d13",
+          "message": "chore: create `SearchPredicateUDF` for lazy Tantivy query evaluation (#4122)\n\n## Ticket(s) Closed\n\n- Partially helps #4061 \n\n## What\n\nReplace `RowInSetUDF` with a new `SearchPredicateUDF` that carries the\nsearch query and defers execution, enabling future filter pushdown to\n`PgSearchTableProvider`.\n\n## Why\n\nThe previous `RowInSetUDF` eagerly pre-computed all matching CTIDs\nbefore join execution by running the Tantivy search upfront. This\napproach:\n- Cannot benefit from DataFusion's filter pushdown mechanism\n- Executes searches even when results might not be needed\n- Doesn't preserve expression context for EXPLAIN output\n\nThe new `SearchPredicateUDF` enables lazy evaluation and is designed to\nintegrate with DataFusion's filter pushdown, allowing single-table\npredicates to be pushed to individual table scans.\n\n## How\n\n- Created `SearchPredicateUDF` in `scan/search_predicate_udf.rs` that:\n  - Carries the search query, index OID, and heap OID\n- Stores raw pointers (`expr_ptr`, `planner_info_ptr`) for lazy deparse\nin EXPLAIN\n- Falls back to executing the search when not pushed down (cross-table\npredicates)\n- Added `RawPtr<T>` utility in `postgres/utils.rs` for type-safe\nserializable pointer handling\n- Updated `JoinLevelSearchPredicate` to store expression pointers\n- Removed eager `compute_predicate_matches` from scan_state\n- Updated translator to create `SearchPredicateUDF` instead of\n`RowInSetUDF`\n- Deleted `joinscan/udf.rs` (no longer needed)\n\n## Tests\n\n- Updated `join_custom_scan` regression test for new UDF name\n(`pdb_search_predicate` instead of `row_in_set`)\n- Added unit tests for `SearchPredicateUDF` (name, into_expr,\ntry_from_expr)",
+          "timestamp": "2026-02-09T11:24:14-08:00",
+          "tree_id": "7f721858975e5cac391d211ec704d17b33841d28",
+          "url": "https://github.com/paradedb/paradedb/commit/589fa838de3d99e5efefeee907cc9e85086e4d13"
+        },
+        "date": 1770669003425,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.820309536233538, max cpu: 46.466602, count: 55466"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 174.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 154.74090623929524, max mem: 176.234375, count: 55466"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.723379151126835, max cpu: 42.60355, count: 55466"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 118.8472919361636, max mem: 120.2109375, count: 55466"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.757180701235227, max cpu: 9.402546, count: 55466"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 126.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.14312920865936, max mem: 158.921875, count: 55466"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13592,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13605.410503732017, max block_count: 23844.0, count: 55466"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.510747141471511, max cpu: 4.64666, count: 55466"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.60416361487218, max mem: 134.94140625, count: 55466"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.74625896945877, max segment_count: 38.0, count: 55466"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.868715748260165, max cpu: 42.60355, count: 110932"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.36243536299264, max mem: 163.8984375, count: 110932"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.774380953500971, max cpu: 27.906979, count: 55466"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.9917086734441, max mem: 171.45703125, count: 55466"
           }
         ]
       }

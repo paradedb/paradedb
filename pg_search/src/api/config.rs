@@ -38,7 +38,7 @@ pub fn field(
             "the `stored` option is deprecated",
             function_name!(),
         )
-        .set_detail("the `stored` option is deprecated sine it is no longer needed by the index")
+        .set_detail("the `stored` option is deprecated since it is no longer needed by the index")
         .set_hint("remove it from the index configuration")
         .report(PgLogLevel::WARNING);
     }

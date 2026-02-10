@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770690570974,
+  "lastUpdate": 1770691486101,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1314,6 +1314,54 @@ window.BENCHMARK_DATA = {
             "value": 5.497376984873781,
             "unit": "median tps",
             "extra": "avg tps: 5.52430015268192, max tps: 7.688268453483811, count: 55997"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30c4c9cbf69783f13dbfa4ed26b331f441be585c",
+          "message": "perf: Use parallel workers for the join scan (#4101)\n\n## Ticket(s) Closed\n\n- Closes #4063\n\n## What\n\nAdds support for parallel workers in the `joinscan`, by relying (for\nnow) on the fact that we only support INNER joins, and can thus do a\nbroadcast join.\n\n## Why\n\nTo get an implementation of parallel workers in place without (yet)\ntackling the problem of partitioning DataFusion plans across parallel\nworkers and introducing RPC.\n\n## How\n\n- Implemented a \"broadcast join\" strategy for `JoinScan` where the\nlargest index scan is partitioned across workers while the others are\nreplicated.\n- Introduced `ParallelSegmentPlan` and `ParallelScanStream` for dynamic\nworker-driven scanning.\n- This strategy is necessary in order to continue to use the lazy work\nclaiming strategy that we use in `ParallelScanState`, but after #4062\nthe replicated/un-partitioned indexes could begin using\n`MultiSegmentPlan` to provide sorted access.\n- In future, if/when we change our parallel worker partitioning\nstrategy, we might be able to use `MultiSegmentPlan` and assign _ranges_\nof an index to the parallel workers. TBD.\n- Centralized `RowEstimate` handling to better manage unanalyzed tables,\nand ease determining the largest index to scan.\n- Cleaned up registration of the `CustomScan`'s vtable\n(`CustomExecMethods`).\n- Before this, encountered some segfaults due to registration issues\naround having multiple parallel `CustomScan` implementations.\n- Remove \"lazy checkout\" from `MultiSegmentPlan`, as no consumer will\nactually use it lazily.\n\n## Tests\n\nExisting tests (and proptests) pass.\n\nBenchmarks show speedups across a few of our joins. Notably: we are\nfaster than Postgres for the `semi_join_filter` join for the first time.",
+          "timestamp": "2026-02-09T17:53:18-08:00",
+          "tree_id": "6616d18d10f8cf9e48caa5c264c26297828fd02b",
+          "url": "https://github.com/paradedb/paradedb/commit/30c4c9cbf69783f13dbfa4ed26b331f441be585c"
+        },
+        "date": 1770691481768,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1098.0423592839659,
+            "unit": "median tps",
+            "extra": "avg tps: 1100.6077733235857, max tps: 1141.5840679968992, count: 56047"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1230.4496943869392,
+            "unit": "median tps",
+            "extra": "avg tps: 1226.885902355026, max tps: 1246.477804641551, count: 56047"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1868.5699245697276,
+            "unit": "median tps",
+            "extra": "avg tps: 1843.207000563869, max tps: 2014.5476335535614, count: 56047"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.376099275101758,
+            "unit": "median tps",
+            "extra": "avg tps: 5.400312166640497, max tps: 7.022703180944993, count: 56047"
           }
         ]
       }

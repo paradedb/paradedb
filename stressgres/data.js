@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770752177130,
+  "lastUpdate": 1770753087844,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1138,6 +1138,42 @@ window.BENCHMARK_DATA = {
             "value": 5.54940259819862,
             "unit": "median tps",
             "extra": "avg tps: 4.967600101198495, max tps: 6.2603639715073705, count: 57290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff10528e88ec12dd794b2a6e8b75996ad447a713",
+          "message": "fix: Joinscan row estimation needs `ExprContext` (#4147)\n\n# Ticket(s) Closed\n\n- Closes #4146 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-10T14:16:35-05:00",
+          "tree_id": "bba16dfdbd260ac92fb27be55e3b411b77039476",
+          "url": "https://github.com/paradedb/paradedb/commit/ff10528e88ec12dd794b2a6e8b75996ad447a713"
+        },
+        "date": 1770753084105,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.618990872966136,
+            "unit": "median tps",
+            "extra": "avg tps: 6.492983603921218, max tps: 9.742258240326677, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.30596871304801,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7420553388129445, max tps: 5.997889859587869, count: 57786"
           }
         ]
       }

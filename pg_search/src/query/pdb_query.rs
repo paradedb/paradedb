@@ -1771,7 +1771,7 @@ fn match_query(
     // For conjunction mode, duplicate terms produce redundant Must clauses.
     // This can happen with ngram tokenizers on strings with repeated substrings.
     if conjunction_mode {
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = crate::api::HashSet::default();
         terms.retain(|term| seen.insert(term.clone()));
     }
 

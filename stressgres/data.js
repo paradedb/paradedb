@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770766273455,
+  "lastUpdate": 1770766278132,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1068,6 +1068,138 @@ window.BENCHMARK_DATA = {
             "value": 55.0625,
             "unit": "median mem",
             "extra": "avg mem: 54.272079041352534, max mem: 67.3671875, count: 55178"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770766274436,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.22921346606804, max cpu: 23.369036, count: 55182"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.87380353308144, max mem: 74.36328125, count: 55182"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6360412185760485, max cpu: 9.29332, count: 55182"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 34.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.191710569683046, max mem: 35.55078125, count: 55182"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.491934702549757, max cpu: 9.213051, count: 55182"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.04986899883567, max mem: 72.92578125, count: 55182"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.583658430182306, max cpu: 9.320388, count: 110364"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.307457170137, max mem: 60.390625, count: 110364"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.330492885719985, max cpu: 18.550726, count: 55182"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.085424779026674, max mem: 73.57421875, count: 55182"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1840,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1821.7869413939327, max block_count: 3210.0, count: 55182"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.209814794679424, max segment_count: 30.0, count: 55182"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.34014572914909, max cpu: 18.479307, count: 55182"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.07321673904081, max mem: 73.515625, count: 55182"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.578849176816376, max cpu: 4.7999997, count: 55182"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.78627046070277, max mem: 62.91015625, count: 55182"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.076284347426473, max cpu: 4.7619047, count: 55182"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.05010422896053, max mem: 66.0390625, count: 55182"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770766278132,
+  "lastUpdate": 1770766364939,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -422,6 +422,78 @@ window.BENCHMARK_DATA = {
             "value": 265.20542686076334,
             "unit": "median tps",
             "extra": "avg tps: 211.47180219514135, max tps: 335.355390599562, count: 55182"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59354e0de782d993f3e4a260eb7c56ad4804a1ad",
+          "message": "fix: add field validation for `paradedb.aggregate()` API (#4141)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds field validation to the `paradedb.aggregate()` direct SQL function\nso that referencing a nonexistent or unsupported field returns a clear\nerror instead of silently producing null results.\n\n## Why\n\nThe `pdb.agg()` aggregate path already validates fields at plan time via\n`AggregateType::validate_fields()`. However, the `paradedb.aggregate()`\nfunction is a plain `pg_extern` that calls `execute_aggregate()`\ndirectly — it never enters the custom scan planner, so it skipped\nvalidation entirely. An invalid field like `\"nonexistent_field\"` would\nquietly return `{\"value\": null}` instead of telling the user something\nis wrong.\n\n## How\n\n- Extracted the field validation logic from\n`AggregateType::validate_fields()` into a standalone\n`validate_agg_json_fields()` function in `aggregate_type.rs`. The\nexisting `validate_fields()` now delegates to it for custom aggregates.\n- Called `validate_agg_json_fields()` in `aggregate_impl()`\n(`api/aggregate.rs`) before executing, so the direct API gets the same\nvalidation as the planner path.\n\n## Tests\n\n- Added regression tests (tests 13–15 in `agg-validate.sql`) covering\nthe `paradedb.aggregate()` path: valid field succeeds, invalid field\nerrors, invalid nested field errors.",
+          "timestamp": "2026-02-10T15:12:54-08:00",
+          "tree_id": "a2a30dc05294896dfaef747d15452a4024f5d8aa",
+          "url": "https://github.com/paradedb/paradedb/commit/59354e0de782d993f3e4a260eb7c56ad4804a1ad"
+        },
+        "date": 1770766361186,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.46908984637332,
+            "unit": "median tps",
+            "extra": "avg tps: 124.04942838864258, max tps: 141.2146340667349, count: 55160"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3087.089790931307,
+            "unit": "median tps",
+            "extra": "avg tps: 3063.646407012724, max tps: 3103.168633503268, count: 55160"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 454.4472351692372,
+            "unit": "median tps",
+            "extra": "avg tps: 451.32415083417334, max tps: 538.7382095411183, count: 55160"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3106.393087977146,
+            "unit": "median tps",
+            "extra": "avg tps: 3096.66646739803, max tps: 3126.9605887868856, count: 110320"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 520.4348201663356,
+            "unit": "median tps",
+            "extra": "avg tps: 516.6190201749807, max tps: 641.0854345709807, count: 55160"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 539.4345715187845,
+            "unit": "median tps",
+            "extra": "avg tps: 534.9728883260256, max tps: 615.1854025772762, count: 55160"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1959.3422364749827,
+            "unit": "median tps",
+            "extra": "avg tps: 1945.7876502540364, max tps: 1966.313121916722, count: 55160"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.34129545595227,
+            "unit": "median tps",
+            "extra": "avg tps: 71.2559536476258, max tps: 294.2350814722229, count: 55160"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770755871359,
+  "lastUpdate": 1770766273455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -350,6 +350,78 @@ window.BENCHMARK_DATA = {
             "value": 82.48756136183405,
             "unit": "median tps",
             "extra": "avg tps: 114.25498824530281, max tps: 271.68973901211984, count: 55178"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770766269711,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 127.13617328155539,
+            "unit": "median tps",
+            "extra": "avg tps: 126.73338506938191, max tps: 131.12043743726005, count: 55182"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2961.0720946763895,
+            "unit": "median tps",
+            "extra": "avg tps: 2946.7773327341456, max tps: 2989.199196190458, count: 55182"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 468.893761466032,
+            "unit": "median tps",
+            "extra": "avg tps: 467.0566005527532, max tps: 625.633780053231, count: 55182"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3005.6715843811066,
+            "unit": "median tps",
+            "extra": "avg tps: 2997.2589259970273, max tps: 3039.5591209577588, count: 110364"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 537.6306225862224,
+            "unit": "median tps",
+            "extra": "avg tps: 533.7407204647441, max tps: 627.5103464254536, count: 55182"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 543.2376963665822,
+            "unit": "median tps",
+            "extra": "avg tps: 539.9546031841996, max tps: 611.3579427813658, count: 55182"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1908.7487905362907,
+            "unit": "median tps",
+            "extra": "avg tps: 1904.1916923149345, max tps: 1914.7304475215662, count: 55182"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 265.20542686076334,
+            "unit": "median tps",
+            "extra": "avg tps: 211.47180219514135, max tps: 335.355390599562, count: 55182"
           }
         ]
       }

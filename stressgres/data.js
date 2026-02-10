@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770691491344,
+  "lastUpdate": 1770692367667,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1928,6 +1928,60 @@ window.BENCHMARK_DATA = {
             "value": 14.5260597612265,
             "unit": "median tps",
             "extra": "avg tps: 14.239282236418822, max tps: 19.246776626837644, count: 55466"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30c4c9cbf69783f13dbfa4ed26b331f441be585c",
+          "message": "perf: Use parallel workers for the join scan (#4101)\n\n## Ticket(s) Closed\n\n- Closes #4063\n\n## What\n\nAdds support for parallel workers in the `joinscan`, by relying (for\nnow) on the fact that we only support INNER joins, and can thus do a\nbroadcast join.\n\n## Why\n\nTo get an implementation of parallel workers in place without (yet)\ntackling the problem of partitioning DataFusion plans across parallel\nworkers and introducing RPC.\n\n## How\n\n- Implemented a \"broadcast join\" strategy for `JoinScan` where the\nlargest index scan is partitioned across workers while the others are\nreplicated.\n- Introduced `ParallelSegmentPlan` and `ParallelScanStream` for dynamic\nworker-driven scanning.\n- This strategy is necessary in order to continue to use the lazy work\nclaiming strategy that we use in `ParallelScanState`, but after #4062\nthe replicated/un-partitioned indexes could begin using\n`MultiSegmentPlan` to provide sorted access.\n- In future, if/when we change our parallel worker partitioning\nstrategy, we might be able to use `MultiSegmentPlan` and assign _ranges_\nof an index to the parallel workers. TBD.\n- Centralized `RowEstimate` handling to better manage unanalyzed tables,\nand ease determining the largest index to scan.\n- Cleaned up registration of the `CustomScan`'s vtable\n(`CustomExecMethods`).\n- Before this, encountered some segfaults due to registration issues\naround having multiple parallel `CustomScan` implementations.\n- Remove \"lazy checkout\" from `MultiSegmentPlan`, as no consumer will\nactually use it lazily.\n\n## Tests\n\nExisting tests (and proptests) pass.\n\nBenchmarks show speedups across a few of our joins. Notably: we are\nfaster than Postgres for the `semi_join_filter` join for the first time.",
+          "timestamp": "2026-02-09T17:53:18-08:00",
+          "tree_id": "6616d18d10f8cf9e48caa5c264c26297828fd02b",
+          "url": "https://github.com/paradedb/paradedb/commit/30c4c9cbf69783f13dbfa4ed26b331f441be585c"
+        },
+        "date": 1770692363343,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.519618368190162,
+            "unit": "median tps",
+            "extra": "avg tps: 31.391583100685033, max tps: 35.91969155411928, count: 55513"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 241.39378286819556,
+            "unit": "median tps",
+            "extra": "avg tps: 268.57088934725334, max tps: 2674.6101597815828, count: 55513"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1905.724468821617,
+            "unit": "median tps",
+            "extra": "avg tps: 1890.0603994689673, max tps: 2250.3609109045515, count: 55513"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.9649612401569,
+            "unit": "median tps",
+            "extra": "avg tps: 197.1169333587316, max tps: 1769.0928293205554, count: 111026"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.79737993378904,
+            "unit": "median tps",
+            "extra": "avg tps: 14.799080552474917, max tps: 21.324158599879627, count: 55513"
           }
         ]
       }

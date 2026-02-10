@@ -24,6 +24,7 @@ use crate::query::pdb_query::pdb::{FuzzyData, ScoreAdjustStyle, SlopData};
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
+use crate::query::synonym::{build_query as build_synonym_query, expand_tokens, SynonymMap};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
@@ -225,6 +226,7 @@ pub mod pdb {
             transposition_cost_one: Option<bool>,
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
+            synonyms_table: Option<String>,
         },
         MatchArray {
             tokens: Vec<String>,
@@ -523,6 +525,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms_table,
             } => match_query(
                 &field,
                 schema,
@@ -533,6 +536,7 @@ impl pdb::Query {
                 transposition_cost_one,
                 prefix,
                 conjunction_mode,
+                synonyms_table,
             )?,
             pdb::Query::MatchArray {
                 tokens: value,
@@ -1476,12 +1480,37 @@ fn tokenized_phrase(
 
     let field_type = search_field.field_entry().field_type();
     let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
-    let mut stream = tokenizer.token_stream(phrase);
     let path = field.path();
 
-    let mut tokens = Vec::new();
-    while let Some(token) = stream.next() {
-        let value = OwnedValue::Str(token.text.clone());
+    // Collect tokens (in a block to drop stream before reusing tokenizer)
+    let tokens: Vec<String> = {
+        let mut stream = tokenizer.token_stream(phrase);
+        let mut tokens = Vec::new();
+        while let Some(token) = stream.next() {
+            tokens.push(token.text.to_string());
+        }
+        tokens
+    };
+
+    // Check for synonyms_table in field config
+    let synonyms_table = search_field
+        .field_config()
+        .tokenizer()
+        .map(|t| t.filters())
+        .and_then(|f| f.synonyms_table.clone());
+
+    // If synonyms available, use synonym expansion
+    if let Some(table_name) = synonyms_table {
+        if let Ok(synonym_map) = SynonymMap::load_from_table(&table_name, &tokens, &mut tokenizer) {
+            let expanded = expand_tokens(&tokens, &synonym_map, &mut tokenizer);
+            return Ok(build_synonym_query(&expanded, search_field.field()));
+        }
+    }
+
+    // Standard phrase query (no synonyms)
+    let mut terms = Vec::new();
+    for token in tokens {
+        let value = OwnedValue::Str(token);
         let term = value_to_term(
             search_field.field(),
             &value,
@@ -1489,17 +1518,18 @@ fn tokenized_phrase(
             path.as_deref(),
             false,
         )?;
-        tokens.push(term);
+        terms.push(term);
     }
-    Ok(if tokens.is_empty() {
+
+    Ok(if terms.is_empty() {
         Box::new(EmptyQuery)
-    } else if tokens.len() == 1 {
+    } else if terms.len() == 1 {
         Box::new(TermQuery::new(
-            tokens.remove(0),
+            terms.remove(0),
             IndexRecordOption::WithFreqs.into(),
         ))
     } else {
-        let mut query = PhraseQuery::new(tokens);
+        let mut query = PhraseQuery::new(terms);
         query.set_slop(slop.unwrap_or(0));
         Box::new(query)
     })
@@ -1738,6 +1768,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
+    synonyms_table: Option<String>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
@@ -1754,11 +1785,37 @@ fn match_query(
             .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => searcher.index().tokenizer_for_field(search_field.field())?,
     };
-    let mut stream = analyzer.token_stream(value);
-    let mut terms = Vec::new();
 
-    while stream.advance() {
-        let token = stream.token().text.clone();
+    // Collect tokens (in a block to drop stream before reusing analyzer)
+    let tokens = {
+        let mut stream = analyzer.token_stream(value);
+        let mut tokens = Vec::new();
+        while stream.advance() {
+            tokens.push(stream.token().text.clone());
+        }
+        tokens
+    };
+
+    // Get synonyms_table: use explicit param, or fall back to field's index config
+    let synonyms_table = synonyms_table.or_else(|| {
+        search_field
+            .field_config()
+            .tokenizer()
+            .map(|t| t.filters())
+            .and_then(|f| f.synonyms_table.clone())
+    });
+
+    // If synonyms_table is available, use query-time synonym expansion
+    if let Some(table_name) = synonyms_table {
+        let synonym_map = SynonymMap::load_from_table(&table_name, &tokens, &mut analyzer)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        let expanded = expand_tokens(&tokens, &synonym_map, &mut analyzer);
+        return Ok(build_synonym_query(&expanded, search_field.field()));
+    }
+
+    // Standard match query behavior (no synonyms)
+    let mut terms = Vec::new();
+    for token in tokens {
         let term = value_to_term(
             search_field.field(),
             &OwnedValue::Str(token),

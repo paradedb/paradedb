@@ -52,6 +52,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            synonyms_table: None,
         }
     }
     #[builder_fn]
@@ -76,6 +77,7 @@ mod pdb {
             distance: None,
             transposition_cost_one: None,
             prefix: None,
+            synonyms_table: None,
         }
     }
 
@@ -134,6 +136,7 @@ mod pdb {
         transposition_cost_one: default!(Option<bool>, "NULL"),
         prefix: default!(Option<bool>, "NULL"),
         conjunction_mode: default!(Option<bool>, "NULL"),
+        synonyms_table: default!(Option<String>, "NULL"),
     ) -> pdb::Query {
         pdb::Query::Match {
             value,
@@ -142,6 +145,7 @@ mod pdb {
             transposition_cost_one,
             prefix,
             conjunction_mode,
+            synonyms_table,
         }
     }
 

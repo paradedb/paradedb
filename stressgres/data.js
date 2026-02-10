@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770693253108,
+  "lastUpdate": 1770752172346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -278,6 +278,78 @@ window.BENCHMARK_DATA = {
             "value": 32.03653871588129,
             "unit": "median tps",
             "extra": "avg tps: 106.26783759314996, max tps: 362.8590272359083, count: 55138"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff10528e88ec12dd794b2a6e8b75996ad447a713",
+          "message": "fix: Joinscan row estimation needs `ExprContext` (#4147)\n\n# Ticket(s) Closed\n\n- Closes #4146 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-10T14:16:35-05:00",
+          "tree_id": "bba16dfdbd260ac92fb27be55e3b411b77039476",
+          "url": "https://github.com/paradedb/paradedb/commit/ff10528e88ec12dd794b2a6e8b75996ad447a713"
+        },
+        "date": 1770752168729,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 123.18450148520687,
+            "unit": "median tps",
+            "extra": "avg tps: 123.53700460515647, max tps: 136.47429568387093, count: 55178"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2961.030896064569,
+            "unit": "median tps",
+            "extra": "avg tps: 2944.087246136454, max tps: 2972.9608623947206, count: 55178"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 486.78143850478307,
+            "unit": "median tps",
+            "extra": "avg tps: 483.934473577815, max tps: 542.6322779791208, count: 55178"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3007.7288610295345,
+            "unit": "median tps",
+            "extra": "avg tps: 3007.4863359780375, max tps: 3064.3312995077827, count: 110356"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 544.2135623362619,
+            "unit": "median tps",
+            "extra": "avg tps: 544.9029129893462, max tps: 635.1594270986917, count: 55178"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 534.1785888859409,
+            "unit": "median tps",
+            "extra": "avg tps: 533.4631826510314, max tps: 627.7998845671557, count: 55178"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1933.2779559865312,
+            "unit": "median tps",
+            "extra": "avg tps: 1920.8972277157334, max tps: 1939.581523384379, count: 55178"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 82.48756136183405,
+            "unit": "median tps",
+            "extra": "avg tps: 114.25498824530281, max tps: 271.68973901211984, count: 55178"
           }
         ]
       }

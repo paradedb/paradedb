@@ -420,10 +420,6 @@ SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId";
 
-CREATE INDEX files_inner_join_pages_bm25 ON files_inner_join_pages
-USING bm25 (row_id, file_content, file_title, page_content, page_title)
-WITH (key_field = 'row_id');
-
 CREATE MATERIALIZED VIEW files_left_join_documents AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,
@@ -441,10 +437,6 @@ SELECT
     d."createdAt" AS doc_created_at
 FROM files f
 LEFT JOIN documents d ON f."documentId" = d.id;
-
-CREATE INDEX files_left_join_documents_bm25 ON files_left_join_documents
-USING bm25 (row_id, file_title, doc_title, doc_parents)
-WITH (key_field = 'row_id');
 
 CREATE MATERIALIZED VIEW documents_inner_join_files_inner_join_pages AS
 SELECT
@@ -472,10 +464,6 @@ FROM documents d
 JOIN files f ON d.id = f."documentId"
 JOIN pages p ON f.id = p."fileId";
 
-CREATE INDEX documents_inner_join_files_inner_join_pages_bm25 ON documents_inner_join_files_inner_join_pages
-USING bm25 (row_id, doc_parents, doc_title, file_title, file_content, page_content, page_title)
-WITH (key_field = 'row_id');
-
 CREATE MATERIALIZED VIEW files_inner_join_documents AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,
@@ -493,7 +481,3 @@ SELECT
     d."createdAt" AS doc_created_at
 FROM files f
 JOIN documents d ON f."documentId" = d.id;
-
-CREATE INDEX files_inner_join_documents_bm25 ON files_inner_join_documents
-USING bm25 (row_id, file_title, file_content, doc_parents, doc_title)
-WITH (key_field = 'row_id');

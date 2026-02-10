@@ -11,7 +11,6 @@ JOIN files f ON d.id = f."documentId"
 JOIN pages p ON f.id = p."fileId"
 WHERE
     p."sizeInBytes" > 5000            -- Filter on the "Many" side
-    AND d.parents LIKE 'SFR%'       -- Local Filter
     AND d.id @@@ pdb.all()
 ORDER BY
     d.title ASC                     -- Single Feature Sort (Parent Field)
@@ -26,7 +25,6 @@ JOIN files f ON d.id = f."documentId"
 JOIN pages p ON f.id = p."fileId"
 WHERE
     p."sizeInBytes" > 5000            -- Filter on the "Many" side
-    AND d.parents LIKE 'SFR%'       -- Local Filter
     AND d.id @@@ pdb.all()
 ORDER BY
     d.title ASC                     -- Single Feature Sort (Parent Field)
@@ -40,8 +38,7 @@ SELECT DISTINCT
 FROM documents_inner_join_files_inner_join_pages djfp
 WHERE
     djfp.page_size_in_bytes > 5000
-    AND djfp.doc_parents LIKE 'SFR%'
-    AND djfp.doc_id @@@ pdb.all()
+    AND djfp.row_id @@@ pdb.all()
 ORDER BY
     djfp.doc_title ASC
 LIMIT 50;

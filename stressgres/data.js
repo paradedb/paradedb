@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770753087844,
+  "lastUpdate": 1770753092564,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1412,6 +1412,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.3794204922325, max segment_count: 127.0, count: 57290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff10528e88ec12dd794b2a6e8b75996ad447a713",
+          "message": "fix: Joinscan row estimation needs `ExprContext` (#4147)\n\n# Ticket(s) Closed\n\n- Closes #4146 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-10T14:16:35-05:00",
+          "tree_id": "bba16dfdbd260ac92fb27be55e3b411b77039476",
+          "url": "https://github.com/paradedb/paradedb/commit/ff10528e88ec12dd794b2a6e8b75996ad447a713"
+        },
+        "date": 1770753088894,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.14997887702312, max cpu: 42.899704, count: 57786"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.76220897470841, max mem: 237.38671875, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.50588240970629, max cpu: 33.333336, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.31616255721542, max mem: 176.5078125, count: 57786"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33901,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33381.07228394421, max block_count: 35822.0, count: 57786"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.26108399958467, max segment_count: 125.0, count: 57786"
           }
         ]
       }

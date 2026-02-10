@@ -28,14 +28,15 @@ use std::ptr::NonNull;
 pub mod aggregatescan;
 pub mod basescan;
 mod builders;
-mod dsm;
-mod exec;
+pub mod dsm;
+pub mod exec;
 pub mod explain;
 mod explainer;
 mod hook;
 pub mod joinscan;
 pub mod opexpr;
 pub mod orderby;
+pub mod parallel;
 mod path;
 pub mod projections;
 pub mod pullup;
@@ -46,10 +47,6 @@ mod scan;
 pub mod solve_expr;
 
 use crate::api::HashMap;
-use crate::postgres::customscan::exec::{
-    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
-    mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
-};
 
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
@@ -80,6 +77,11 @@ struct CustomScanMethodsWrapper(*const pg_sys::CustomScanMethods);
 unsafe impl Send for CustomScanMethodsWrapper {}
 unsafe impl Sync for CustomScanMethodsWrapper {}
 
+struct CustomExecMethodsWrapper(*const pg_sys::CustomExecMethods);
+
+unsafe impl Send for CustomExecMethodsWrapper {}
+unsafe impl Sync for CustomExecMethodsWrapper {}
+
 lazy_static::lazy_static! {
     // We need to allocate the structs to define functions once, however
     // all the methods are generic over this trait ([`CustomScan]).  Because Rust
@@ -90,13 +92,39 @@ lazy_static::lazy_static! {
     // process, which Postgres requires of these.
     static ref PATH_METHODS: Mutex<HashMap<&'static CStr, CustomPathMethodsWrapper>> = Mutex::default();
     static ref SCAN_METHODS: Mutex<HashMap<&'static CStr, CustomScanMethodsWrapper>> = Mutex::default();
+    static ref EXEC_METHODS: Mutex<HashMap<&'static CStr, CustomExecMethodsWrapper>> = Mutex::default();
 }
 
-pub trait CustomScan: ExecMethod + Default + Sized {
+pub trait CustomScan: Default + Sized {
     const NAME: &'static CStr;
     type Args;
     type State: CustomScanState;
     type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List>;
+
+    /// Returns the execution methods for this custom scan.
+    ///
+    /// This method is called exactly once per custom scan type and the result is memoized
+    /// in `TopMemoryContext`. Implementations should return a [`pg_sys::CustomExecMethods`]
+    /// struct populated with the appropriate callback functions.
+    ///
+    /// Common callback wrappers are available in the [`exec`] and [`dsm`] modules.
+    /// Scanners that implement capability traits (like [`ParallelQueryCapable` or [`MarkRestoreCapable`])
+    /// can use the generic versions of these callbacks by passing themselves as the generic
+    /// argument (e.g. `Some(exec::begin_custom_scan::<Self>)`).
+    fn exec_methods() -> pg_sys::CustomExecMethods;
+
+    fn custom_exec_methods() -> *const pg_sys::CustomExecMethods {
+        EXEC_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomExecMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext
+                        .leak_and_drop_on_delete(Self::exec_methods()),
+                )
+            })
+            .0
+    }
 
     fn custom_path_methods() -> *const pg_sys::CustomPathMethods {
         PATH_METHODS
@@ -203,75 +231,11 @@ pub trait CustomScan: ExecMethod + Default + Sized {
     }
 }
 
-pub trait ExecMethod {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods;
-}
-
 #[allow(dead_code)]
-pub trait PlainExecCapable: ExecMethod
+pub trait MarkRestoreCapable
 where
     Self: CustomScan,
 {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: None,
-                        RestrPosCustomScan: None,
-                        EstimateDSMCustomScan: None,
-                        InitializeDSMCustomScan: None,
-                        ReInitializeDSMCustomScan: None,
-                        InitializeWorkerCustomScan: None,
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub trait MarkRestoreCapable: ExecMethod
-where
-    Self: CustomScan,
-{
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomExecMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomExecMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        BeginCustomScan: Some(begin_custom_scan::<Self>),
-                        ExecCustomScan: Some(exec_custom_scan::<Self>),
-                        EndCustomScan: Some(end_custom_scan::<Self>),
-                        ReScanCustomScan: Some(rescan_custom_scan::<Self>),
-                        MarkPosCustomScan: Some(mark_pos_custom_scan::<Self>),
-                        RestrPosCustomScan: Some(restr_pos_custom_scan::<Self>),
-                        EstimateDSMCustomScan: None,
-                        InitializeDSMCustomScan: None,
-                        ReInitializeDSMCustomScan: None,
-                        InitializeWorkerCustomScan: None,
-                        ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
-                        ExplainCustomScan: Some(explain_custom_scan::<Self>),
-                    },
-                );
-            }
-            METHODS
-        }
-    }
-
     fn mark_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);

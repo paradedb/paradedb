@@ -32,7 +32,13 @@ use crate::scan::table_provider::PgSearchTableProvider;
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
 /// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec;
+pub struct PgSearchExtensionCodec {
+    /// Shared state for parallel scans, containing the list of segments to be processed.
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+}
+
+unsafe impl Send for PgSearchExtensionCodec {}
+unsafe impl Sync for PgSearchExtensionCodec {}
 
 /// Generated code for `try_decode_udf` for a list of UDF types.
 macro_rules! decode_udfs {
@@ -121,9 +127,15 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         _schema: SchemaRef,
         _ctx: &TaskContext,
     ) -> Result<Arc<dyn TableProvider>> {
-        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+        let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
+        // Only inject parallel state if this provider is explicitly marked as parallel.
+        // In a JoinScan, only the first source is marked parallel and dynamicially claims
+        // segments from `parallel_state`, while subsequent sources are fully replicated.
+        if provider.is_parallel() {
+            provider.set_parallel_state(self.parallel_state);
+        }
         Ok(Arc::new(provider))
     }
 

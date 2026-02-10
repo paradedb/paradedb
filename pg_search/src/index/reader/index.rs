@@ -34,6 +34,7 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
+use crate::scan::info::RowEstimate;
 use crate::schema::SearchIndexSchema;
 
 use anyhow::Result;
@@ -287,6 +288,8 @@ pub struct SearchIndexReader {
     underlying_index: Index,
     query: Box<dyn Query>,
     need_scores: bool,
+    total_segment_count: usize,
+    total_docs: u64,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -305,6 +308,8 @@ impl Clone for SearchIndexReader {
             underlying_index: self.underlying_index.clone(),
             query: self.query.box_clone(),
             need_scores: self.need_scores,
+            total_segment_count: self.total_segment_count,
+            total_docs: self.total_docs,
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -356,7 +361,15 @@ impl SearchIndexReader {
         let cleanup_lock = MetaPage::open(index_relation).cleanup_lock_pinned();
 
         let directory = mvcc_style.directory(index_relation);
-        let mut index = Index::open(directory)?;
+        let mut index = Index::open(directory.clone())?;
+        // The total_segment_count in the directory is updated as part of Index::open (via load_metas).
+        // It reflects the total number of visible segments, even if we are in LargestSegment mode.
+        let total_segment_count = directory
+            .total_segment_count()
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let total_docs = directory
+            .total_docs()
+            .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
 
@@ -394,6 +407,8 @@ impl SearchIndexReader {
             underlying_index: index,
             query,
             need_scores,
+            total_segment_count,
+            total_docs,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -480,6 +495,16 @@ impl SearchIndexReader {
 
     pub fn searcher(&self) -> &Searcher {
         &self.searcher
+    }
+
+    /// Returns the total number of segments in the index, according to the MVCC directory.
+    pub fn total_segment_count(&self) -> usize {
+        self.total_segment_count
+    }
+
+    /// Returns the total number of docs in the index, according to the MVCC directory.
+    pub fn total_docs(&self) -> u64 {
+        self.total_docs
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -903,15 +928,16 @@ impl SearchIndexReader {
         }
     }
 
-    /// Given an estimate of the total number of rows in the relation, return an estimate of the
-    /// number of rows which will be matched by the configured query.
+    /// Given an estimate of the total number of rows in the relation, return estimates of:
+    /// 1. The number of rows which will be matched by the configured query.
+    /// 2. The total number of rows in the index (estimated if total_docs is Unknown).
     ///
     /// Expects to be called using an index opened with `MvccSatisfies::LargestSegment`, and thus
     /// to contain exactly 0 or 1 Segment.
-    pub fn estimate_docs(&self, total_docs: f64) -> usize {
+    pub fn estimate_docs(&self, total_docs: RowEstimate) -> (usize, u64) {
         match self.searcher.segment_readers().len() {
             1 => {}
-            0 => return 0,
+            0 => return (0, 0),
             x => {
                 panic!(
                     "estimate_docs(): expected an index with only one segment, \
@@ -931,9 +957,22 @@ impl SearchIndexReader {
             // but when it doesn't, we need to do a full count
             count = scorer.count_including_deleted() as usize;
         }
-        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
 
-        (count as f64 / segment_doc_proportion).ceil() as usize
+        match total_docs {
+            RowEstimate::Known(total_docs) if total_docs > 0 => {
+                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
+                (matching, total_docs)
+            }
+            _ => {
+                // If total docs is unknown or 0, we can't use proportion of heap.
+                // Instead, we scale by the total number of docs in the index.
+                let total_docs = self.total_docs();
+                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
+                (matching, total_docs)
+            }
+        }
     }
 
     /// Build a query tree with recursive estimates for EXPLAIN output.

@@ -328,6 +328,7 @@ pub struct LoadedMetas {
     pub meta: IndexMeta,
     pub pin_cushion: PinCushion,
     pub total_segments: usize,
+    pub total_docs: usize,
 }
 
 pub unsafe fn load_metas(
@@ -337,6 +338,7 @@ pub unsafe fn load_metas(
     tantivy_schema: &Schema,
 ) -> tantivy::Result<LoadedMetas> {
     let mut total_segments = 0;
+    let mut total_docs = 0usize;
     let mut alive_segments = vec![];
     let mut alive_entries = vec![];
     let mut opstamp = None;
@@ -372,6 +374,7 @@ pub unsafe fn load_metas(
             };
 
             total_segments += 1;
+            total_docs += entry.num_docs();
 
             let mut need_entry = true;
             if is_largest_only {
@@ -465,6 +468,7 @@ pub unsafe fn load_metas(
         },
         pin_cushion,
         total_segments,
+        total_docs,
     })
 }
 

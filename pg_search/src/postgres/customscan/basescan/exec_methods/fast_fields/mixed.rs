@@ -28,12 +28,12 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::parallel::checkout_segment;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
+use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::datafusion_plan::{create_sorted_scan, make_checkout_factory, SegmentPlan};
+use crate::scan::execution_plan::{create_sorted_scan, SegmentPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -473,8 +473,7 @@ impl MixedFastFieldExecState {
         &mut self,
         state: &mut BaseScanState,
     ) -> Option<SendableRecordBatchStream> {
-        use crate::scan::datafusion_plan::ScanState;
-        use std::cell::RefCell;
+        use crate::scan::execution_plan::ScanState;
 
         if self.inner.did_query {
             return None;
@@ -504,10 +503,8 @@ impl MixedFastFieldExecState {
             .expect("MixedFastFieldsExecState: visibility_checker should be initialized");
         let ffhelper = Arc::clone(ffhelper);
 
-        // Pre-open segments as we check them out. We store Option<ScanState>
-        // so we can take ownership in the factory.
-        let pre_opened: Vec<Option<ScanState>> = if let Some(parallel_state) = state.parallel_state
-        {
+        // Pre-open segments as we check them out.
+        let pre_opened: Vec<ScanState> = if let Some(parallel_state) = state.parallel_state {
             // Parallel execution: check out and open segments one at a time.
             let mut segments = Vec::new();
             loop {
@@ -532,11 +529,11 @@ impl MixedFastFieldExecState {
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
                 scanner.prefetch_next(&ffhelper, &mut visibility);
-                segments.push(Some((
+                segments.push((
                     scanner,
                     Arc::clone(&ffhelper),
                     Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
-                )));
+                ));
             }
 
             if segments.is_empty() {
@@ -562,33 +559,18 @@ impl MixedFastFieldExecState {
                         heaprel.oid().into(),
                     );
                     let visibility = visibility_checker.clone();
-                    Some((
+                    (
                         scanner,
                         Arc::clone(&ffhelper),
                         Box::new(visibility) as Box<dyn crate::scan::VisibilityChecker>,
-                    ))
+                    )
                 })
                 .collect()
         };
 
-        let segment_count = pre_opened.len();
-
-        // Wrap in RefCell for interior mutability so factory can take() ownership.
-        // This is safe because PostgreSQL is single-threaded per connection.
-        let pre_opened = RefCell::new(pre_opened);
-
-        // Capture variables for the factory closure
-        // Create factory that uses the pre-opened segment search results.
-        // The pre_opened vector contains only the segments THIS worker checked out.
-        let checkout_factory = make_checkout_factory(move |partition: usize| {
-            pre_opened.borrow_mut()[partition]
-                .take()
-                .expect("Partition executed more than once")
-        });
-
         // Create sorted scan plan with SortPreservingMergeExec
         // Returns Error if the sort field is not in the schema
-        let plan = match create_sorted_scan(segment_count, checkout_factory, schema, sort_order) {
+        let plan = match create_sorted_scan(pre_opened, schema, sort_order) {
             Ok(plan) => plan,
             Err(e) => {
                 // Sort field not in schema - this is a fatal error.

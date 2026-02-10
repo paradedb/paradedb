@@ -49,9 +49,7 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
-use crate::postgres::customscan::{
-    range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
-};
+use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::PgSearchRelation;
@@ -69,6 +67,26 @@ impl CustomScan for AggregateScan {
     type Args = CreateUpperPathsHookArgs;
     type State = AggregateScanState;
     type PrivateData = PrivateData;
+
+    fn exec_methods() -> pg_sys::CustomExecMethods {
+        pg_sys::CustomExecMethods {
+            CustomName: Self::NAME.as_ptr(),
+            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
+            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
+            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
+            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            MarkPosCustomScan: None,
+            RestrPosCustomScan: None,
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
+            ShutdownCustomScan: Some(
+                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
+            ),
+            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+        }
+    }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         // We can only handle single base relations as input
@@ -484,14 +502,6 @@ impl CustomScan for AggregateScan {
         }
     }
 }
-
-impl ExecMethod for AggregateScan {
-    fn exec_methods() -> *const pg_sys::CustomExecMethods {
-        <AggregateScan as PlainExecCapable>::exec_methods()
-    }
-}
-
-impl PlainExecCapable for AggregateScan {}
 
 pub trait CustomScanClause<CS: CustomScan> {
     type Args;

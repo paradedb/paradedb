@@ -1749,7 +1749,7 @@ fn match_query(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let mut analyzer = match tokenizer {
-        Some(tokenizer) => SearchTokenizer::from_json_value(&tokenizer)?
+        Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
             .to_tantivy_tokenizer()
             .expect("tantivy should support tokenizer {tokenizer:?}"),
         None => searcher.index().tokenizer_for_field(search_field.field())?,
@@ -1759,38 +1759,41 @@ fn match_query(
 
     while stream.advance() {
         let token = stream.token().text.clone();
-        let term = value_to_term(
+        terms.push(value_to_term(
             search_field.field(),
             &OwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
             false,
-        )?;
-        let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
-            (0, _) => Box::new(TermQuery::new(
-                term,
-                IndexRecordOption::WithFreqsAndPositions.into(),
-            )),
-            (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
-                term,
-                distance,
-                transposition_cost_one,
-            )),
-            (distance, false) => {
-                Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
-            }
-        };
-
-        let occur = if conjunction_mode {
-            Occur::Must
-        } else {
-            Occur::Should
-        };
-
-        terms.push((occur, term_query));
+        )?);
     }
 
-    Ok(Box::new(BooleanQuery::new(terms)))
+    // For conjunction mode, duplicate terms produce redundant Must clauses.
+    // This can happen with ngram tokenizers on strings with repeated substrings.
+    if conjunction_mode {
+        let mut seen = crate::api::HashSet::default();
+        terms.retain(|term| seen.insert(term.clone()));
+    }
+
+    let occur = if conjunction_mode {
+        Occur::Must
+    } else {
+        Occur::Should
+    };
+
+    let clauses: Vec<_> = terms
+        .into_iter()
+        .map(|term| {
+            let query: Box<dyn TantivyQuery> = match (distance, prefix) {
+                (0, _) => Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs.into())),
+                (d, true) => Box::new(FuzzyTermQuery::new_prefix(term, d, transposition_cost_one)),
+                (d, false) => Box::new(FuzzyTermQuery::new(term, d, transposition_cost_one)),
+            };
+            (occur, query)
+        })
+        .collect();
+
+    Ok(Box::new(BooleanQuery::new(clauses)))
 }
 #[allow(clippy::too_many_arguments)]
 fn match_array_query(

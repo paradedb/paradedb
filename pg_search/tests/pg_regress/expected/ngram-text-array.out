@@ -1,0 +1,258 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Test: ngram match + conjunction_mode on TEXT[] columns
+CREATE TABLE books (
+    id SERIAL PRIMARY KEY,
+    all_titles TEXT[]
+);
+INSERT INTO books (all_titles) VALUES
+    (ARRAY['The Dragon Hatchling', 'A Tale of Fire', 'Wings of Gold']),
+    (ARRAY['PostgreSQL Database Guide', 'SQL for Beginners', 'Advanced Queries']),
+    (ARRAY['The Hatchling Returns', 'Dragon Slayer', 'Fire and Ice']),
+    (ARRAY['Cooking with Dragon Fruit', 'Hatchling Care Guide']),
+    (ARRAY['Mystery at the Library', 'The Lost Book', 'Hidden Pages']),
+    (ARRAY['Science of Flight', 'Bird Watching 101', 'Wings and Feathers']),
+    (ARRAY['Database Internals', 'Index Structures', 'B-Tree Deep Dive']),
+    (ARRAY['The Dragon Chronicles', 'Rise of the Phoenix', 'Ancient Legends']);
+CREATE INDEX idx_books ON books
+USING bm25 (id, all_titles)
+WITH (
+    key_field = 'id',
+    text_fields = '{
+        "all_titles": {
+            "fast": true,
+            "record": "position",
+            "tokenizer": {
+                "type": "icu"
+            }
+        },
+        "all_titles_ngram": {
+            "column": "all_titles",
+            "fast": true,
+            "record": "position",
+            "tokenizer": {
+                "type": "ngram",
+                "min_gram": 4,
+                "max_gram": 4,
+                "prefix_only": false
+            }
+        }
+    }'
+);
+-- Test 1: Single-word ngram match with conjunction_mode
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+ORDER BY id;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+ORDER BY id;
+ id |                            all_titles                             
+----+-------------------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
+  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
+  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
+(4 rows)
+
+-- Test 2: Multi-word ngram match with conjunction_mode (13 Must clauses)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon Hatchling', conjunction_mode => true)
+ORDER BY id;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon Hatchling","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon Hatchling', conjunction_mode => true)
+ORDER BY id;
+ id |                        all_titles                         
+----+-----------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+(1 row)
+
+-- Test 3: disjunction_max combining boosted ICU match with ngram conjunction
+-- Matches the pattern from the reported issue
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.disjunction_max(
+    disjuncts => ARRAY[
+        paradedb.boost(50, paradedb.match('all_titles', 'Dragon', prefix => true, conjunction_mode => true)),
+        paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+    ]
+)
+ORDER BY id;
+                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}],"tie_breaker":null}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.disjunction_max(
+    disjuncts => ARRAY[
+        paradedb.boost(50, paradedb.match('all_titles', 'Dragon', prefix => true, conjunction_mode => true)),
+        paradedb.match('all_titles_ngram', 'Dragon', conjunction_mode => true)
+    ]
+)
+ORDER BY id;
+ id |                            all_titles                             
+----+-------------------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
+  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
+  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
+(4 rows)
+
+-- Test 4: Short query (fewer than min_gram characters — no tokens)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'SQL', conjunction_mode => true)
+ORDER BY id;
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"SQL","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'SQL', conjunction_mode => true)
+ORDER BY id;
+ id | all_titles 
+----+------------
+(0 rows)
+
+-- Test 5: Exact min_gram length query (single ngram token)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Fire', conjunction_mode => true)
+ORDER BY id;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Fire","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Fire', conjunction_mode => true)
+ORDER BY id;
+ id |                        all_titles                         
+----+-----------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
+(2 rows)
+
+-- Test 6: JSON-based disjunction_max via ::jsonb path
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ '{"disjunction_max":{"disjuncts":[{"boost":{"factor":50,"query":{"match":{"field":"all_titles","value":"Dragon","prefix":true,"conjunction_mode":true}}}},{"match":{"field":"all_titles_ngram","value":"Dragon","prefix":false,"conjunction_mode":true}}]}}'::jsonb
+ORDER BY id;
+                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"all_titles","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":true,"conjunction_mode":true}},"factor":50.0}},{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":null}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ '{"disjunction_max":{"disjuncts":[{"boost":{"factor":50,"query":{"match":{"field":"all_titles","value":"Dragon","prefix":true,"conjunction_mode":true}}}},{"match":{"field":"all_titles_ngram","value":"Dragon","prefix":false,"conjunction_mode":true}}]}}'::jsonb
+ORDER BY id;
+ id |                            all_titles                             
+----+-------------------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
+  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
+  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
+(4 rows)
+
+-- Test 7: Ngram match without conjunction_mode (disjunction baseline)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon')
+ORDER BY id;
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: id, all_titles
+   Sort Key: books.id
+   ->  Custom Scan (ParadeDB Scan) on public.books
+         Output: id, all_titles
+         Table: books
+         Index: idx_books
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"match":{"field":"all_titles_ngram","value":"Dragon","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT id, all_titles FROM books
+WHERE id @@@ paradedb.match('all_titles_ngram', 'Dragon')
+ORDER BY id;
+ id |                            all_titles                             
+----+-------------------------------------------------------------------
+  1 | {"The Dragon Hatchling","A Tale of Fire","Wings of Gold"}
+  3 | {"The Hatchling Returns","Dragon Slayer","Fire and Ice"}
+  4 | {"Cooking with Dragon Fruit","Hatchling Care Guide"}
+  8 | {"The Dragon Chronicles","Rise of the Phoenix","Ancient Legends"}
+(4 rows)
+
+DROP TABLE books;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770689597394,
+  "lastUpdate": 1770689602719,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -660,6 +660,138 @@ window.BENCHMARK_DATA = {
             "value": 53.875,
             "unit": "median mem",
             "extra": "avg mem: 53.39942337627391, max mem: 66.6328125, count: 55047"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30c4c9cbf69783f13dbfa4ed26b331f441be585c",
+          "message": "perf: Use parallel workers for the join scan (#4101)\n\n## Ticket(s) Closed\n\n- Closes #4063\n\n## What\n\nAdds support for parallel workers in the `joinscan`, by relying (for\nnow) on the fact that we only support INNER joins, and can thus do a\nbroadcast join.\n\n## Why\n\nTo get an implementation of parallel workers in place without (yet)\ntackling the problem of partitioning DataFusion plans across parallel\nworkers and introducing RPC.\n\n## How\n\n- Implemented a \"broadcast join\" strategy for `JoinScan` where the\nlargest index scan is partitioned across workers while the others are\nreplicated.\n- Introduced `ParallelSegmentPlan` and `ParallelScanStream` for dynamic\nworker-driven scanning.\n- This strategy is necessary in order to continue to use the lazy work\nclaiming strategy that we use in `ParallelScanState`, but after #4062\nthe replicated/un-partitioned indexes could begin using\n`MultiSegmentPlan` to provide sorted access.\n- In future, if/when we change our parallel worker partitioning\nstrategy, we might be able to use `MultiSegmentPlan` and assign _ranges_\nof an index to the parallel workers. TBD.\n- Centralized `RowEstimate` handling to better manage unanalyzed tables,\nand ease determining the largest index to scan.\n- Cleaned up registration of the `CustomScan`'s vtable\n(`CustomExecMethods`).\n- Before this, encountered some segfaults due to registration issues\naround having multiple parallel `CustomScan` implementations.\n- Remove \"lazy checkout\" from `MultiSegmentPlan`, as no consumer will\nactually use it lazily.\n\n## Tests\n\nExisting tests (and proptests) pass.\n\nBenchmarks show speedups across a few of our joins. Notably: we are\nfaster than Postgres for the `semi_join_filter` join for the first time.",
+          "timestamp": "2026-02-09T17:53:18-08:00",
+          "tree_id": "6616d18d10f8cf9e48caa5c264c26297828fd02b",
+          "url": "https://github.com/paradedb/paradedb/commit/30c4c9cbf69783f13dbfa4ed26b331f441be585c"
+        },
+        "date": 1770689598411,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.135305058972593, max cpu: 23.59882, count: 55138"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.962134567471615, max mem: 74.26953125, count: 55138"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.641103795843249, max cpu: 9.221902, count: 55138"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.0771790071049, max mem: 37.27734375, count: 55138"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.627651369067488, max cpu: 9.230769, count: 55138"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.25555254543146, max mem: 72.9375, count: 55138"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.635773490505873, max cpu: 9.302325, count: 110276"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.22245193310421, max mem: 60.40234375, count: 110276"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.491172226480156, max cpu: 19.009901, count: 55138"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.11503586739182, max mem: 73.44921875, count: 55138"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1788.4568718488158, max block_count: 3161.0, count: 55138"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 16,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 16.07463092604012, max segment_count: 31.0, count: 55138"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.454125935488214, max cpu: 14.229248, count: 55138"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.11130042461642, max mem: 73.3671875, count: 55138"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.642600667926891, max cpu: 9.421001, count: 55138"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.79941968050618, max mem: 62.7265625, count: 55138"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.2078166230886254, max cpu: 9.239654, count: 55138"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.499304514921654, max mem: 66.70703125, count: 55138"
           }
         ]
       }

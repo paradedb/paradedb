@@ -414,9 +414,16 @@ impl JoinCSClause {
     /// Returns the source that should be partitioned for parallel execution.
     /// This is the source with the largest row estimate.
     pub fn partitioning_source(&self) -> &JoinSource {
+        &self.sources[self.partitioning_source_index()]
+    }
+
+    /// Returns the index of the source that should be partitioned for parallel execution.
+    pub fn partitioning_source_index(&self) -> usize {
         self.sources
             .iter()
-            .max_by(|a, b| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+            .map(|(i, _)| i)
             .expect("JoinScan requires at least one source")
     }
 

@@ -35,10 +35,6 @@ use crate::scan::table_provider::PgSearchTableProvider;
 pub struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-    /// The OID of the index being parallelized. In a JoinScan, only the first table
-    /// is partitioned using `parallel_state`, while subsequent tables are fully replicated.
-    /// This OID ensures `parallel_state` is only injected into the correct `PgSearchTableProvider`.
-    pub parallel_index_relid: Option<pgrx::pg_sys::Oid>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -134,8 +130,10 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // Only inject parallel state if this provider matches the index we parallelized (the first one)
-        if provider.index_relid() == self.parallel_index_relid {
+        // Only inject parallel state if this provider is explicitly marked as parallel.
+        // In a JoinScan, only the first source is marked parallel and dynamicially claims
+        // segments from `parallel_state`, while subsequent sources are fully replicated.
+        if provider.is_parallel() {
             provider.set_parallel_state(self.parallel_state);
         }
         Ok(Arc::new(provider))

@@ -47,6 +47,11 @@ pub struct PgSearchTableProvider {
     fields: Vec<WhichFastField>,
     #[serde(skip)]
     schema: OnceLock<SchemaRef>,
+    is_parallel: bool,
+    /// Parallel state is skipped during serialization because it's a raw pointer
+    /// to shared memory that is only valid in the current process. It is
+    /// re-injected by the `PgSearchExtensionCodec` during deserialization
+    /// if `is_parallel` is true.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
 }
@@ -59,21 +64,24 @@ impl PgSearchTableProvider {
         scan_info: ScanInfo,
         fields: Vec<WhichFastField>,
         parallel_state: Option<*mut ParallelScanState>,
+        is_parallel: bool,
     ) -> Self {
         Self {
             scan_info,
             fields,
             schema: OnceLock::new(),
+            is_parallel,
             parallel_state,
         }
     }
 
-    pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        self.parallel_state = parallel_state;
+    pub(crate) fn is_parallel(&self) -> bool {
+        self.is_parallel
     }
 
-    pub(crate) fn index_relid(&self) -> Option<pg_sys::Oid> {
-        self.scan_info.indexrelid
+    pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
+        assert!(self.is_parallel);
+        self.parallel_state = parallel_state;
     }
 
     fn get_schema(&self) -> SchemaRef {

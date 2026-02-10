@@ -94,7 +94,6 @@ pub struct JoinScanState {
     /// Map of range table index (RTI) to relation execution state.
     pub relations: crate::api::HashMap<pg_sys::Index, RelationState>,
 
-    // === Result state ===
     /// Result tuple slot.
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
 
@@ -104,20 +103,20 @@ pub struct JoinScanState {
     pub current_batch: Option<arrow_array::RecordBatch>,
     pub batch_index: usize,
 
-    // === Output column mapping ===
     /// Mapping of output column positions to their source (outer/inner) and original attribute numbers.
     /// Populated from PrivateData during create_custom_scan_state.
     pub output_columns: Vec<OutputColumnInfo>,
 
-    // === Memory tracking ===
     /// Maximum allowed memory for execution (from work_mem, in bytes).
     pub max_memory: usize,
 
-    // === Serialized Plan ===
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
-    // === Parallel State ===
+    /// Shared state for parallel execution.
+    /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
+    /// `initialize_worker_custom_scan` (in a worker), and then consumed in
+    /// `exec_custom_scan` to initialize the DataFusion execution plan.
     pub parallel_state: Option<*mut ParallelScanState>,
 }
 
@@ -193,8 +192,10 @@ fn build_clause_df<'a>(
             ));
         }
 
+        let partitioning_idx = join_clause.partitioning_source_index();
+
         // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0]).await?;
+        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
         df = df.alias(&alias0)?;
 
@@ -207,7 +208,7 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source).await?;
+            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -491,6 +492,7 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
+    is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = &source.scan_info;
@@ -501,6 +503,7 @@ fn build_source_df<'a>(
             scan_info.clone(),
             fields.clone(),
             None,
+            is_parallel,
         ));
         ctx.register_table(alias, provider)?;
 

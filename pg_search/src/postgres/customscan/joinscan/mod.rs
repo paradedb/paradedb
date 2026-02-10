@@ -950,10 +950,8 @@ impl CustomScan for JoinScan {
 
                 // Deserialize the logical plan
                 let ctx = create_session_context();
-                let parallel_index_relid = join_clause.partitioning_source().scan_info.indexrelid;
                 let codec = PgSearchExtensionCodec {
                     parallel_state: state.custom_state().parallel_state,
-                    parallel_index_relid,
                 };
                 let logical_plan = logical_plan_from_bytes_with_extension_codec(
                     plan_bytes,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770691486101,
+  "lastUpdate": 1770691491344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1666,6 +1666,108 @@ window.BENCHMARK_DATA = {
             "value": 162.6953125,
             "unit": "median mem",
             "extra": "avg mem: 181.08817659874637, max mem: 223.140625, count: 55997"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30c4c9cbf69783f13dbfa4ed26b331f441be585c",
+          "message": "perf: Use parallel workers for the join scan (#4101)\n\n## Ticket(s) Closed\n\n- Closes #4063\n\n## What\n\nAdds support for parallel workers in the `joinscan`, by relying (for\nnow) on the fact that we only support INNER joins, and can thus do a\nbroadcast join.\n\n## Why\n\nTo get an implementation of parallel workers in place without (yet)\ntackling the problem of partitioning DataFusion plans across parallel\nworkers and introducing RPC.\n\n## How\n\n- Implemented a \"broadcast join\" strategy for `JoinScan` where the\nlargest index scan is partitioned across workers while the others are\nreplicated.\n- Introduced `ParallelSegmentPlan` and `ParallelScanStream` for dynamic\nworker-driven scanning.\n- This strategy is necessary in order to continue to use the lazy work\nclaiming strategy that we use in `ParallelScanState`, but after #4062\nthe replicated/un-partitioned indexes could begin using\n`MultiSegmentPlan` to provide sorted access.\n- In future, if/when we change our parallel worker partitioning\nstrategy, we might be able to use `MultiSegmentPlan` and assign _ranges_\nof an index to the parallel workers. TBD.\n- Centralized `RowEstimate` handling to better manage unanalyzed tables,\nand ease determining the largest index to scan.\n- Cleaned up registration of the `CustomScan`'s vtable\n(`CustomExecMethods`).\n- Before this, encountered some segfaults due to registration issues\naround having multiple parallel `CustomScan` implementations.\n- Remove \"lazy checkout\" from `MultiSegmentPlan`, as no consumer will\nactually use it lazily.\n\n## Tests\n\nExisting tests (and proptests) pass.\n\nBenchmarks show speedups across a few of our joins. Notably: we are\nfaster than Postgres for the `semi_join_filter` join for the first time.",
+          "timestamp": "2026-02-09T17:53:18-08:00",
+          "tree_id": "6616d18d10f8cf9e48caa5c264c26297828fd02b",
+          "url": "https://github.com/paradedb/paradedb/commit/30c4c9cbf69783f13dbfa4ed26b331f441be585c"
+        },
+        "date": 1770691487030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08014701946580549, max background_merging: 2.0, count: 56047"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.78034936111944, max cpu: 9.667674, count: 56047"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 24.760412996012274, max mem: 24.8359375, count: 56047"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.960115977688028, max cpu: 14.243324, count: 56047"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.11866317276125, max mem: 168.7734375, count: 56047"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51594,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51455.523685478256, max block_count: 51594.0, count: 56047"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.461184363123806, max segment_count: 62.0, count: 56047"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.651393938876497, max cpu: 9.458128, count: 56047"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 124.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 112.9052134118463, max mem: 139.07421875, count: 56047"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.770450868992074, max cpu: 9.504951, count: 56047"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.76768430680946, max mem: 168.2421875, count: 56047"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.18832752182028, max cpu: 33.870968, count: 56047"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.17679400213214, max mem: 223.0234375, count: 56047"
           }
         ]
       }

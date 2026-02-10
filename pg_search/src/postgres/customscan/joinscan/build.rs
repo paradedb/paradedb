@@ -24,11 +24,13 @@
 //! time. See `extract_score_pathkey()` in mod.rs.
 
 use crate::api::OrderByInfo;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::ptr::NonNull;
 
 /// Represents the join type for serialization.
 ///
@@ -151,7 +153,7 @@ impl JoinSource {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
-
+        let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             self.scan_info
@@ -160,7 +162,7 @@ impl JoinSource {
                 .unwrap_or(crate::query::SearchQueryInput::All),
             false,
             MvccSatisfies::LargestSegment,
-            None,
+            NonNull::new(expr_context.as_ptr()),
             None,
         )
         .expect("Failed to open index reader for estimation");

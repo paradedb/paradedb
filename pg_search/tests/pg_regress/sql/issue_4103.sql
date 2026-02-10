@@ -3,6 +3,7 @@
 -- Issue 4103: custom scan hook should ignore databases without pg_search installed
 SELECT current_database() AS orig_db \gset
 
+DROP DATABASE IF EXISTS issue_4103_noext;
 CREATE DATABASE issue_4103_noext TEMPLATE template0;
 
 \set QUIET 1

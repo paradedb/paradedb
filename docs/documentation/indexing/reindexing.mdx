@@ -4,8 +4,6 @@ description: Rebuild an existing index with zero downtime
 canonical: https://docs.paradedb.com/documentation/indexing/reindexing
 ---
 
-ParadeDB supports rebuild an index without any downtime with the `CONCURRENTLY` clause.
-
 ## Changing the Schema
 
 If an index's schema is changed, it must be rebuilt. This includes:
@@ -24,7 +22,10 @@ ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
 ```
 
-<Note>Note that the `CONCURRENTLY` clause is required.</Note>
+<Note>
+  The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing
+  index to continue serving queries while the new index is being built.
+</Note>
 
 From another session, you can use `pg_stat_progress_create_index` to [track the progress](/documentation/indexing/create-index#track-create-index-progress) of the new index.
 

@@ -367,40 +367,54 @@ impl AggregateType {
 
         // For Custom aggregates, validate field existence and NUMERIC support
         if let AggregateType::Custom { agg_json, .. } = self {
-            let mut fields = HashSet::default();
-            extract_fields_from_agg_json(agg_json, &mut fields);
-            let indexed_fields: HashSet<String> = schema
-                .fields()
-                .map(|(_, entry)| entry.name().to_string())
-                .collect();
-
-            for field in &fields {
-                // Check field exists
-                if !indexed_fields.contains(field) {
-                    let mut available: Vec<_> = indexed_fields
-                        .iter()
-                        .filter(|f| *f != "ctid")
-                        .cloned()
-                        .collect();
-                    available.sort();
-                    return Err(format!(
-                        "pdb.agg() references invalid field '{}'. Available indexed fields are: [{}]",
-                        field,
-                        available.join(", ")
-                    ));
-                }
-                // Check NUMERIC support
-                if !schema.field_supports_aggregate(field) {
-                    return Err(format!(
-                        "pdb.agg() references NUMERIC field '{}' which cannot be aggregated. \
-                         NUMERIC columns do not support aggregate pushdown.",
-                        field
-                    ));
-                }
-            }
+            validate_agg_json_fields(agg_json, schema)?;
         }
         Ok(())
     }
+}
+
+/// Validate that all fields referenced in a JSON aggregation request exist in the
+/// index schema and are supported for aggregate pushdown.
+///
+/// Returns an error if:
+/// - Any referenced field doesn't exist in the index
+/// - Any referenced field is a NUMERIC type (not supported for aggregation)
+pub(crate) fn validate_agg_json_fields(
+    agg_json: &serde_json::Value,
+    schema: &SearchIndexSchema,
+) -> Result<(), String> {
+    let mut fields = HashSet::default();
+    extract_fields_from_agg_json(agg_json, &mut fields);
+    let indexed_fields: HashSet<String> = schema
+        .fields()
+        .map(|(_, entry)| entry.name().to_string())
+        .collect();
+
+    for field in &fields {
+        // Check field exists
+        if !indexed_fields.contains(field) {
+            let mut available: Vec<_> = indexed_fields
+                .iter()
+                .filter(|f| *f != "ctid")
+                .cloned()
+                .collect();
+            available.sort();
+            return Err(format!(
+                "Aggregation references invalid field '{}'. Available indexed fields are: [{}]",
+                field,
+                available.join(", ")
+            ));
+        }
+        // Check NUMERIC support
+        if !schema.field_supports_aggregate(field) {
+            return Err(format!(
+                "Aggregation references NUMERIC field '{}' which cannot be aggregated. \
+                 NUMERIC columns do not support aggregate pushdown.",
+                field
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn extract_fields_from_agg_json(json: &serde_json::Value, fields: &mut HashSet<String>) {

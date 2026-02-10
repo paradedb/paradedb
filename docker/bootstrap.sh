@@ -25,6 +25,7 @@ for DB in template1 "$POSTGRES_DB"; do
     CREATE EXTENSION IF NOT EXISTS postgis_topology;
     CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
     CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder;
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 EOSQL
 done
 

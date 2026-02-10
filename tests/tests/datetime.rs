@@ -141,3 +141,108 @@ fn datetime_term_second(mut conn: PgConnection) {
     let rows: Vec<(i32,)> = "SELECT id FROM ts WHERE id @@@ paradedb.range('t', tsrange('2025-01-28T18:19:14.001Z'::timestamp, NULL, '(]')) ORDER BY id".fetch(&mut conn);
     assert_eq!(rows, expected);
 }
+
+#[rstest]
+fn datetime_wide_range_dates(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE wide_dates (id SERIAL, d DATE);
+    INSERT INTO wide_dates (d) VALUES ('2200-06-15');
+    INSERT INTO wide_dates (d) VALUES ('1700-01-01');
+    INSERT INTO wide_dates (d) VALUES ('1980-07-04');
+    CREATE INDEX wide_dates_idx ON wide_dates USING bm25 (id, d) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM wide_dates WHERE id @@@ paradedb.term('d', '2200-06-15'::date)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM wide_dates WHERE id @@@ paradedb.term('d', '1700-01-01'::date)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_dates ORDER BY id".fetch(&mut conn);
+    assert_eq!(all_rows.len(), 3);
+}
+
+#[rstest]
+fn datetime_wide_range_timestamps(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE wide_ts (id SERIAL, t TIMESTAMP);
+    INSERT INTO wide_ts (t) VALUES ('2200-06-15 12:00:00');
+    INSERT INTO wide_ts (t) VALUES ('1700-01-01 00:00:00');
+    INSERT INTO wide_ts (t) VALUES ('1980-07-04 12:30:00');
+    CREATE INDEX wide_ts_idx ON wide_ts USING bm25 (id, t) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM wide_ts WHERE id @@@ paradedb.term('t', '2200-06-15 12:00:00'::timestamp)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_ts ORDER BY id".fetch(&mut conn);
+    assert_eq!(all_rows.len(), 3);
+}
+
+#[rstest]
+fn datetime_overflow_date_reports_error(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE overflow_dates (id SERIAL, d DATE);
+    INSERT INTO overflow_dates (d) VALUES ('57439-03-01');
+    "#
+    .execute(&mut conn);
+
+    let result = r#"
+    CREATE INDEX overflow_dates_idx ON overflow_dates USING bm25 (id, d) WITH (key_field = 'id');
+    "#
+    .execute_result(&mut conn);
+    assert!(result.is_err(), "expected error for date beyond Tantivy nanosecond range");
+}
+
+#[rstest]
+fn datetime_overflow_ancient_date_reports_error(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE ancient_dates (id SERIAL, d DATE);
+    INSERT INTO ancient_dates (d) VALUES ('0001-01-01');
+    "#
+    .execute(&mut conn);
+
+    let result = r#"
+    CREATE INDEX ancient_dates_idx ON ancient_dates USING bm25 (id, d) WITH (key_field = 'id');
+    "#
+    .execute_result(&mut conn);
+    assert!(result.is_err(), "expected error for date beyond Tantivy nanosecond range");
+}
+
+#[rstest]
+fn datetime_overflow_timestamp_reports_error(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE overflow_ts (id SERIAL, t TIMESTAMP);
+    INSERT INTO overflow_ts (t) VALUES ('57439-03-01 00:00:00');
+    "#
+    .execute(&mut conn);
+
+    let result = r#"
+    CREATE INDEX overflow_ts_idx ON overflow_ts USING bm25 (id, t) WITH (key_field = 'id');
+    "#
+    .execute_result(&mut conn);
+    assert!(result.is_err(), "expected error for timestamp beyond Tantivy nanosecond range");
+}
+
+#[rstest]
+fn datetime_overflow_ancient_timestamp_reports_error(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE ancient_ts (id SERIAL, t TIMESTAMP);
+    INSERT INTO ancient_ts (t) VALUES ('0001-01-01 00:00:00');
+    "#
+    .execute(&mut conn);
+
+    let result = r#"
+    CREATE INDEX ancient_ts_idx ON ancient_ts USING bm25 (id, t) WITH (key_field = 'id');
+    "#
+    .execute_result(&mut conn);
+    assert!(result.is_err(), "expected error for timestamp beyond Tantivy nanosecond range");
+}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770767195313,
+  "lastUpdate": 1770767284311,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1618,6 +1618,42 @@ window.BENCHMARK_DATA = {
             "value": 5.420415459232548,
             "unit": "median tps",
             "extra": "avg tps: 4.859189884214031, max tps: 6.065683963042209, count: 57763"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59354e0de782d993f3e4a260eb7c56ad4804a1ad",
+          "message": "fix: add field validation for `paradedb.aggregate()` API (#4141)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds field validation to the `paradedb.aggregate()` direct SQL function\nso that referencing a nonexistent or unsupported field returns a clear\nerror instead of silently producing null results.\n\n## Why\n\nThe `pdb.agg()` aggregate path already validates fields at plan time via\n`AggregateType::validate_fields()`. However, the `paradedb.aggregate()`\nfunction is a plain `pg_extern` that calls `execute_aggregate()`\ndirectly — it never enters the custom scan planner, so it skipped\nvalidation entirely. An invalid field like `\"nonexistent_field\"` would\nquietly return `{\"value\": null}` instead of telling the user something\nis wrong.\n\n## How\n\n- Extracted the field validation logic from\n`AggregateType::validate_fields()` into a standalone\n`validate_agg_json_fields()` function in `aggregate_type.rs`. The\nexisting `validate_fields()` now delegates to it for custom aggregates.\n- Called `validate_agg_json_fields()` in `aggregate_impl()`\n(`api/aggregate.rs`) before executing, so the direct API gets the same\nvalidation as the planner path.\n\n## Tests\n\n- Added regression tests (tests 13–15 in `agg-validate.sql`) covering\nthe `paradedb.aggregate()` path: valid field succeeds, invalid field\nerrors, invalid nested field errors.",
+          "timestamp": "2026-02-10T15:12:54-08:00",
+          "tree_id": "a2a30dc05294896dfaef747d15452a4024f5d8aa",
+          "url": "https://github.com/paradedb/paradedb/commit/59354e0de782d993f3e4a260eb7c56ad4804a1ad"
+        },
+        "date": 1770767280541,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.561244615250255,
+            "unit": "median tps",
+            "extra": "avg tps: 6.46598828845343, max tps: 9.798809739933926, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.418886361932809,
+            "unit": "median tps",
+            "extra": "avg tps: 4.862213777012628, max tps: 6.0682034087617325, count: 57786"
           }
         ]
       }

@@ -153,6 +153,9 @@ impl JoinSource {
 
         let index_rel = PgSearchRelation::open(indexrelid);
         let heap_rel = PgSearchRelation::open(heaprelid);
+
+        // `expr_context` only lives until the end of this function,
+        // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,

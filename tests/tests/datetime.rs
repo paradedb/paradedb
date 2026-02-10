@@ -209,3 +209,39 @@ fn datetime_overflow_reports_error(
         "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
     );
 }
+
+#[rstest]
+fn datetime_mutable_segment_validates_on_insert(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mutable_dates (id SERIAL, d DATE);
+    CREATE INDEX mutable_dates_idx ON mutable_dates USING bm25 (id, d)
+        WITH (key_field = 'id', mutable_segment_rows = 1000);
+    "#
+    .execute(&mut conn);
+
+    let result = "INSERT INTO mutable_dates (d) VALUES ('57439-03-01')".execute_result(&mut conn);
+    assert!(
+        result.is_err(),
+        "mutable segment insert should fail for date beyond Tantivy nanosecond range"
+    );
+}
+
+#[rstest]
+fn datetime_mutable_segment_accepts_valid_dates(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mutable_valid (id SERIAL, d DATE);
+    CREATE INDEX mutable_valid_idx ON mutable_valid USING bm25 (id, d)
+        WITH (key_field = 'id', mutable_segment_rows = 1000);
+    INSERT INTO mutable_valid (d) VALUES ('2024-06-15');
+    INSERT INTO mutable_valid (d) VALUES ('1980-01-01');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> =
+        "SELECT id FROM mutable_valid WHERE id @@@ paradedb.term('d', '2024-06-15'::date)"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_valid ORDER BY id".fetch(&mut conn);
+    assert_eq!(all_rows.len(), 2);
+}

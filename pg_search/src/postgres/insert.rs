@@ -28,8 +28,10 @@ use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
+    FieldSource,
 };
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
@@ -64,11 +66,18 @@ impl InsertModeImmutable {
     }
 }
 
+struct DatumValidation {
+    attno: usize,
+    oid: pgrx::PgOid,
+    field_name: FieldName,
+}
+
 pub struct InsertModeMutable {
     ctids: Vec<u64>,
     key_field_name: FieldName,
     key_field_attno: usize,
     row_limit: usize,
+    validations: Vec<DatumValidation>,
 }
 
 pub enum InsertMode {
@@ -104,9 +113,9 @@ impl InsertState {
         );
 
         let mode = if let Some(row_limit) = indexrel.options().mutable_segment_rows() {
-            let (key_field_name, key_field_attno) = indexrel
-                .schema()?
-                .categorized_fields()
+            let schema = indexrel.schema()?;
+            let categorized_fields = schema.categorized_fields();
+            let (key_field_name, key_field_attno) = categorized_fields
                 .iter()
                 .find(|(_, categorized_field)| categorized_field.is_key_field)
                 .map(|(search_field, categorized_field)| {
@@ -114,11 +123,37 @@ impl InsertState {
                 })
                 .expect("No key field defined.");
 
+            let validations: Vec<DatumValidation> = categorized_fields
+                .iter()
+                .filter(|(_, cat)| {
+                    matches!(
+                        cat.source,
+                        FieldSource::Heap { .. } | FieldSource::Expression { .. }
+                    ) && matches!(
+                        cat.base_oid.value(),
+                        pg_sys::DATEOID
+                            | pg_sys::TIMESTAMPOID
+                            | pg_sys::TIMESTAMPTZOID
+                            | pg_sys::TIMEOID
+                            | pg_sys::TIMETZOID
+                            | pg_sys::DATERANGEOID
+                            | pg_sys::TSRANGEOID
+                            | pg_sys::TSTZRANGEOID
+                    )
+                })
+                .map(|(sf, cat)| DatumValidation {
+                    attno: cat.attno,
+                    oid: cat.base_oid,
+                    field_name: sf.field_name().clone(),
+                })
+                .collect();
+
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
                 key_field_name,
                 key_field_attno,
                 row_limit: row_limit.into(),
+                validations,
             })
         } else {
             InsertMode::Immutable(InsertModeImmutable::new(indexrel)?)
@@ -313,6 +348,15 @@ unsafe fn insert(
         InsertMode::Mutable(mode) => {
             if *isnull.add(mode.key_field_attno) {
                 panic!("{}", IndexError::KeyIdNull(mode.key_field_name.to_string()));
+            }
+
+            for v in &mode.validations {
+                if !*isnull.add(v.attno) {
+                    TantivyValue::try_from_datum(*values.add(v.attno), v.oid)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", v.field_name)
+                        });
+                }
             }
 
             if mode.ctids.len() < mode.row_limit {

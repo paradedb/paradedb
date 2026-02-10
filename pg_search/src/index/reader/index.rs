@@ -289,6 +289,7 @@ pub struct SearchIndexReader {
     query: Box<dyn Query>,
     need_scores: bool,
     total_segment_count: usize,
+    total_docs: u64,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -308,6 +309,7 @@ impl Clone for SearchIndexReader {
             query: self.query.box_clone(),
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
+            total_docs: self.total_docs,
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -365,6 +367,9 @@ impl SearchIndexReader {
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
+        let total_docs = directory
+            .total_docs()
+            .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
 
@@ -403,6 +408,7 @@ impl SearchIndexReader {
             query,
             need_scores,
             total_segment_count,
+            total_docs,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
     }
@@ -494,6 +500,11 @@ impl SearchIndexReader {
     /// Returns the total number of segments in the index, according to the MVCC directory.
     pub fn total_segment_count(&self) -> usize {
         self.total_segment_count
+    }
+
+    /// Returns the total number of docs in the index, according to the MVCC directory.
+    pub fn total_docs(&self) -> u64 {
+        self.total_docs
     }
 
     /// Returns the sort order of the index segments, if the index was created with `sort_by`.
@@ -955,11 +966,11 @@ impl SearchIndexReader {
             }
             _ => {
                 // If total docs is unknown or 0, we can't use proportion of heap.
-                // Instead, we scale by the number of segments, assuming they are roughly equal size.
-                let total_segments = self.total_segment_count();
-                let matching = count * total_segments;
-                let total_estimated = largest_reader.num_docs() as u64 * total_segments as u64;
-                (matching, total_estimated)
+                // Instead, we scale by the total number of docs in the index.
+                let total_docs = self.total_docs();
+                let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs as f64;
+                let matching = (count as f64 / segment_doc_proportion).ceil() as usize;
+                (matching, total_docs)
             }
         }
     }

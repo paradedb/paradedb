@@ -127,6 +127,7 @@ pub struct MVCCDirectory {
     all_entries: Arc<Mutex<HashMap<SegmentId, LoadedSegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
+    total_docs: Arc<AtomicUsize>,
     heap_fetch_state: Arc<OnceLock<HeapFetchState>>,
     expression_state: Arc<OnceLock<ExpressionState>>,
 }
@@ -153,6 +154,7 @@ impl MVCCDirectory {
             pin_cushion: Default::default(),
             all_entries: Default::default(),
             total_segment_count: Default::default(),
+            total_docs: Default::default(),
             heap_fetch_state: Default::default(),
             expression_state: Default::default(),
         }
@@ -281,6 +283,10 @@ impl MVCCDirectory {
     /// segments rather than `1` (one).
     pub(crate) fn total_segment_count(&self) -> Arc<AtomicUsize> {
         self.total_segment_count.clone()
+    }
+
+    pub(crate) fn total_docs(&self) -> Arc<AtomicUsize> {
+        self.total_docs.clone()
     }
 }
 
@@ -504,6 +510,7 @@ impl Directory for MVCCDirectory {
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
                         .store(loaded.total_segments, Ordering::Relaxed);
+                    self.total_docs.store(loaded.total_docs, Ordering::Relaxed);
                     Ok(loaded.meta)
                 }
             }

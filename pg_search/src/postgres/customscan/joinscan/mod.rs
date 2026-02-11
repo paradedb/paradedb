@@ -870,7 +870,32 @@ impl CustomScan for JoinScan {
             );
         }
 
-        if let Some(ref logical_plan) = state.custom_state().logical_plan {
+        // For EXPLAIN ANALYZE, use the executed physical plan (which has
+        // populated metrics). For plain EXPLAIN, reconstruct the plan.
+        if explainer.is_analyze() {
+            if let Some(ref physical_plan) = state.custom_state().physical_plan {
+                let displayable = displayable(physical_plan.as_ref());
+                explainer.add_text("DataFusion Physical Plan", "");
+                for line in displayable.indent(false).to_string().lines() {
+                    explainer.add_text("  ", line);
+                }
+
+                // Collect dynamic filter metrics from PgSearchScan nodes.
+                let mut scan_metrics = Vec::new();
+                collect_scan_metrics(physical_plan.as_ref(), &mut scan_metrics);
+                for (query, scanned, pruned) in &scan_metrics {
+                    if *scanned > 0 {
+                        explainer.add_text(
+                            "Dynamic Filter",
+                            format!(
+                                "{query}: {scanned} scanned, {pruned} pruned ({:.1}%)",
+                                (*pruned as f64 / *scanned as f64) * 100.0
+                            ),
+                        );
+                    }
+                }
+            }
+        } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
@@ -980,6 +1005,9 @@ impl CustomScan for JoinScan {
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+
+                // Retain the physical plan for EXPLAIN ANALYZE metrics.
+                state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {
@@ -1153,5 +1181,37 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
+    }
+}
+
+/// Walk the physical plan tree and collect dynamic filter metrics from PgSearchScan nodes.
+/// Returns (query_display, rows_scanned, rows_pruned) for each node that has metrics.
+fn collect_scan_metrics(
+    plan: &dyn datafusion::physical_plan::ExecutionPlan,
+    out: &mut Vec<(String, usize, usize)>,
+) {
+    use crate::scan::execution_plan::SegmentPlan;
+    use datafusion::physical_plan::ExecutionPlan as _;
+
+    if let Some(segment) = plan.as_any().downcast_ref::<SegmentPlan>() {
+        if let Some(metrics) = segment.metrics() {
+            let scanned = metrics
+                .sum_by_name("rows_scanned")
+                .map(|m| m.as_usize())
+                .unwrap_or(0);
+            let pruned = metrics
+                .sum_by_name("rows_pruned")
+                .map(|m| m.as_usize())
+                .unwrap_or(0);
+            if scanned > 0 {
+                let query_str = displayable(segment).one_line().to_string();
+                let query_str = query_str.trim().to_string();
+                out.push((query_str, scanned, pruned));
+            }
+        }
+    }
+
+    for child in plan.children() {
+        collect_scan_metrics(child.as_ref(), out);
     }
 }

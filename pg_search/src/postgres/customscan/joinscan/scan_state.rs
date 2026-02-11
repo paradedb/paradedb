@@ -118,6 +118,9 @@ pub struct JoinScanState {
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in
     /// `exec_custom_scan` to initialize the DataFusion execution plan.
     pub parallel_state: Option<*mut ParallelScanState>,
+
+    /// The executed physical plan, retained for EXPLAIN ANALYZE metrics.
+    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 }
 
 impl JoinScanState {

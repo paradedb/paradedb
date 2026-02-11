@@ -64,6 +64,9 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
+use datafusion::physical_plan::metrics::{
+    Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
+};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -117,6 +120,8 @@ pub struct SegmentPlan {
     /// by the scanner is filtered against all of these expressions so that rows
     /// which cannot contribute to the final result are pruned early.
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Metrics exposed via EXPLAIN ANALYZE.
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -150,6 +155,7 @@ impl SegmentPlan {
             properties,
             query_for_display,
             dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 
@@ -175,6 +181,7 @@ impl SegmentPlan {
             properties,
             query_for_display,
             dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 }
@@ -394,6 +401,10 @@ impl ExecutionPlan for SegmentPlan {
         self
     }
 
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
     fn properties(&self) -> &PlanProperties {
         &self.properties
     }
@@ -411,7 +422,7 @@ impl ExecutionPlan for SegmentPlan {
 
     fn execute(
         &self,
-        _partition: usize,
+        partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut state = self.state.lock().map_err(|e| {
@@ -420,6 +431,15 @@ impl ExecutionPlan for SegmentPlan {
         let UnsafeSendSync((scanner, ffhelper, visibility)) = state.take().ok_or_else(|| {
             DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
         })?;
+
+        let scan_metrics = if self.dynamic_filters.is_empty() {
+            None
+        } else {
+            Some(ScanStreamMetrics {
+                rows_scanned: MetricBuilder::new(&self.metrics).counter("rows_scanned", partition),
+                rows_pruned: MetricBuilder::new(&self.metrics).counter("rows_pruned", partition),
+            })
+        };
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
@@ -430,8 +450,7 @@ impl ExecutionPlan for SegmentPlan {
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
                 dynamic_filters: self.dynamic_filters.clone(),
-                rows_before_filter: 0,
-                rows_after_filter: 0,
+                metrics: scan_metrics,
             })
         };
         Ok(Box::pin(stream))
@@ -485,6 +504,7 @@ impl ExecutionPlan for SegmentPlan {
                 properties: self.properties.clone(),
                 query_for_display: self.query_for_display.clone(),
                 dynamic_filters,
+                metrics: ExecutionPlanMetricsSet::new(),
             });
 
             Ok(
@@ -497,15 +517,19 @@ impl ExecutionPlan for SegmentPlan {
     }
 }
 
+/// Metrics counters for tracking dynamic filter effectiveness.
+struct ScanStreamMetrics {
+    rows_scanned: Count,
+    rows_pruned: Count,
+}
+
 struct ScanStream {
     scanner: Scanner,
     ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
-    /// Running totals for dynamic filter effectiveness logging.
-    rows_before_filter: usize,
-    rows_after_filter: usize,
+    metrics: Option<ScanStreamMetrics>,
 }
 
 impl ScanStream {
@@ -530,8 +554,10 @@ impl ScanStream {
         }
 
         let after = current.num_rows();
-        self.rows_before_filter += before;
-        self.rows_after_filter += after;
+        if let Some(ref metrics) = self.metrics {
+            metrics.rows_scanned.add(before);
+            metrics.rows_pruned.add(before - after);
+        }
 
         if after == 0 {
             Ok(None)
@@ -556,9 +582,7 @@ impl Stream for ScanStream {
                         Err(e) => return Poll::Ready(Some(Err(e))),
                     }
                 }
-                None => {
-                    return Poll::Ready(None);
-                }
+                None => return Poll::Ready(None),
             }
         }
     }
@@ -729,8 +753,7 @@ impl ExecutionPlan for MultiSegmentPlan {
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
                 dynamic_filters: Vec::new(),
-                rows_before_filter: 0,
-                rows_after_filter: 0,
+                metrics: None,
             })
         };
         Ok(Box::pin(stream))

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770769896675,
+  "lastUpdate": 1770770026395,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4534,6 +4534,54 @@ window.BENCHMARK_DATA = {
             "value": 499.41845306559674,
             "unit": "median tps",
             "extra": "avg tps: 461.53405870709287, max tps: 705.5485466586914, count: 107668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59354e0de782d993f3e4a260eb7c56ad4804a1ad",
+          "message": "fix: add field validation for `paradedb.aggregate()` API (#4141)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds field validation to the `paradedb.aggregate()` direct SQL function\nso that referencing a nonexistent or unsupported field returns a clear\nerror instead of silently producing null results.\n\n## Why\n\nThe `pdb.agg()` aggregate path already validates fields at plan time via\n`AggregateType::validate_fields()`. However, the `paradedb.aggregate()`\nfunction is a plain `pg_extern` that calls `execute_aggregate()`\ndirectly — it never enters the custom scan planner, so it skipped\nvalidation entirely. An invalid field like `\"nonexistent_field\"` would\nquietly return `{\"value\": null}` instead of telling the user something\nis wrong.\n\n## How\n\n- Extracted the field validation logic from\n`AggregateType::validate_fields()` into a standalone\n`validate_agg_json_fields()` function in `aggregate_type.rs`. The\nexisting `validate_fields()` now delegates to it for custom aggregates.\n- Called `validate_agg_json_fields()` in `aggregate_impl()`\n(`api/aggregate.rs`) before executing, so the direct API gets the same\nvalidation as the planner path.\n\n## Tests\n\n- Added regression tests (tests 13–15 in `agg-validate.sql`) covering\nthe `paradedb.aggregate()` path: valid field succeeds, invalid field\nerrors, invalid nested field errors.",
+          "timestamp": "2026-02-10T15:12:54-08:00",
+          "tree_id": "a2a30dc05294896dfaef747d15452a4024f5d8aa",
+          "url": "https://github.com/paradedb/paradedb/commit/59354e0de782d993f3e4a260eb7c56ad4804a1ad"
+        },
+        "date": 1770770022658,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 605.2634126590865,
+            "unit": "median tps",
+            "extra": "avg tps: 606.6950661153709, max tps: 712.0222869811239, count: 53871"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 671.3516092971279,
+            "unit": "median tps",
+            "extra": "avg tps: 672.8135425192027, max tps: 855.7817691537016, count: 53871"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.17511266725795,
+            "unit": "median tps",
+            "extra": "avg tps: 84.22569549006897, max tps: 85.73210408033455, count: 53871"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 570.6105747638405,
+            "unit": "median tps",
+            "extra": "avg tps: 512.3676310586563, max tps: 715.7971639916606, count: 107742"
           }
         ]
       }

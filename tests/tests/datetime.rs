@@ -199,7 +199,10 @@ fn datetime_overflow_date_reports_error(mut conn: PgConnection) {
     CREATE INDEX overflow_dates_idx ON overflow_dates USING bm25 (id, d) WITH (key_field = 'id');
     "#
     .execute_result(&mut conn);
-    assert!(result.is_err(), "expected error for date beyond Tantivy nanosecond range");
+    assert!(
+        result.is_err(),
+        "expected error for date beyond Tantivy nanosecond range"
+    );
 }
 
 #[rstest]
@@ -214,7 +217,10 @@ fn datetime_overflow_ancient_date_reports_error(mut conn: PgConnection) {
     CREATE INDEX ancient_dates_idx ON ancient_dates USING bm25 (id, d) WITH (key_field = 'id');
     "#
     .execute_result(&mut conn);
-    assert!(result.is_err(), "expected error for date beyond Tantivy nanosecond range");
+    assert!(
+        result.is_err(),
+        "expected error for date beyond Tantivy nanosecond range"
+    );
 }
 
 #[rstest]
@@ -229,7 +235,10 @@ fn datetime_overflow_timestamp_reports_error(mut conn: PgConnection) {
     CREATE INDEX overflow_ts_idx ON overflow_ts USING bm25 (id, t) WITH (key_field = 'id');
     "#
     .execute_result(&mut conn);
-    assert!(result.is_err(), "expected error for timestamp beyond Tantivy nanosecond range");
+    assert!(
+        result.is_err(),
+        "expected error for timestamp beyond Tantivy nanosecond range"
+    );
 }
 
 #[rstest]
@@ -244,7 +253,10 @@ fn datetime_overflow_ancient_timestamp_reports_error(mut conn: PgConnection) {
     CREATE INDEX ancient_ts_idx ON ancient_ts USING bm25 (id, t) WITH (key_field = 'id');
     "#
     .execute_result(&mut conn);
-    assert!(result.is_err(), "expected error for timestamp beyond Tantivy nanosecond range");
+    assert!(
+        result.is_err(),
+        "expected error for timestamp beyond Tantivy nanosecond range"
+    );
 }
 
 #[rstest]

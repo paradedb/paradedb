@@ -352,10 +352,9 @@ unsafe fn insert(
 
             for v in &mode.validations {
                 if !*isnull.add(v.attno) {
-                    TantivyValue::try_from_datum(*values.add(v.attno), v.oid)
-                        .unwrap_or_else(|e| {
-                            panic!("could not parse field `{}`: {e}", v.field_name)
-                        });
+                    TantivyValue::try_from_datum(*values.add(v.attno), v.oid).unwrap_or_else(|e| {
+                        panic!("could not parse field `{}`: {e}", v.field_name)
+                    });
                 }
             }
 

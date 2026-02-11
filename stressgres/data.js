@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770829306622,
+  "lastUpdate": 1770830236958,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1858,6 +1858,42 @@ window.BENCHMARK_DATA = {
             "value": 5.418886361932809,
             "unit": "median tps",
             "extra": "avg tps: 4.862213777012628, max tps: 6.0682034087617325, count: 57786"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44d1f928882599cf5fd9fbc853c8eee1fb5c57ed",
+          "message": "fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155)\n\n# Ticket(s) Closed\n\n- Closes #4149 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-11T11:47:17-05:00",
+          "tree_id": "b88ad04015b13dee26d44c4c9d585ea252d0323c",
+          "url": "https://github.com/paradedb/paradedb/commit/44d1f928882599cf5fd9fbc853c8eee1fb5c57ed"
+        },
+        "date": 1770830233059,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.76401206267423,
+            "unit": "median tps",
+            "extra": "avg tps: 6.646171767550437, max tps: 10.025221353608849, count: 57588"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.23223560772492,
+            "unit": "median tps",
+            "extra": "avg tps: 4.673588714027965, max tps: 5.884365888882815, count: 57588"
           }
         ]
       }

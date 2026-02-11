@@ -528,7 +528,7 @@ impl MixedFastFieldExecState {
                 );
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
-                scanner.prefetch_next(&ffhelper, &mut visibility);
+                scanner.prefetch_next(&ffhelper, &mut visibility, &[]);
                 segments.push((
                     scanner,
                     Arc::clone(&ffhelper),

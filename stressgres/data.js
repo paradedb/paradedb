@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770769127663,
+  "lastUpdate": 1770769132372,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4140,6 +4140,114 @@ window.BENCHMARK_DATA = {
             "value": 171.34375,
             "unit": "median mem",
             "extra": "avg mem: 168.22757872066458, max mem: 172.17578125, count: 55479"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59354e0de782d993f3e4a260eb7c56ad4804a1ad",
+          "message": "fix: add field validation for `paradedb.aggregate()` API (#4141)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n\nAdds field validation to the `paradedb.aggregate()` direct SQL function\nso that referencing a nonexistent or unsupported field returns a clear\nerror instead of silently producing null results.\n\n## Why\n\nThe `pdb.agg()` aggregate path already validates fields at plan time via\n`AggregateType::validate_fields()`. However, the `paradedb.aggregate()`\nfunction is a plain `pg_extern` that calls `execute_aggregate()`\ndirectly — it never enters the custom scan planner, so it skipped\nvalidation entirely. An invalid field like `\"nonexistent_field\"` would\nquietly return `{\"value\": null}` instead of telling the user something\nis wrong.\n\n## How\n\n- Extracted the field validation logic from\n`AggregateType::validate_fields()` into a standalone\n`validate_agg_json_fields()` function in `aggregate_type.rs`. The\nexisting `validate_fields()` now delegates to it for custom aggregates.\n- Called `validate_agg_json_fields()` in `aggregate_impl()`\n(`api/aggregate.rs`) before executing, so the direct API gets the same\nvalidation as the planner path.\n\n## Tests\n\n- Added regression tests (tests 13–15 in `agg-validate.sql`) covering\nthe `paradedb.aggregate()` path: valid field succeeds, invalid field\nerrors, invalid nested field errors.",
+          "timestamp": "2026-02-10T15:12:54-08:00",
+          "tree_id": "a2a30dc05294896dfaef747d15452a4024f5d8aa",
+          "url": "https://github.com/paradedb/paradedb/commit/59354e0de782d993f3e4a260eb7c56ad4804a1ad"
+        },
+        "date": 1770769128636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.74282027554478, max cpu: 52.071007, count: 55599"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 162.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 146.43788374678502, max mem: 176.84765625, count: 55599"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6416882834139255, max cpu: 27.906979, count: 55599"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.13811694567349, max mem: 119.5546875, count: 55599"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.788760154192649, max cpu: 13.806328, count: 55599"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 125.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.78047990690031, max mem: 159.9765625, count: 55599"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13535,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13728.3754563931, max block_count: 24400.0, count: 55599"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.268180628278826, max cpu: 4.6966734, count: 55599"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.26775359325258, max mem: 134.56640625, count: 55599"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.485044695048472, max segment_count: 38.0, count: 55599"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.801807852318095, max cpu: 27.934044, count: 111198"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.66190489037572, max mem: 164.15625, count: 111198"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.40321571824946, max cpu: 27.934044, count: 55599"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.4005037747981, max mem: 172.41015625, count: 55599"
           }
         ]
       }

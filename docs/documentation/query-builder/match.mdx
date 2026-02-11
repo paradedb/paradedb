@@ -79,7 +79,7 @@ WHERE description @@@ pdb.match('ruining shoez', distance => 2);
 from paradedb.search import Fuzzy, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Fuzzy('ruining', distance=2), Fuzzy('shoez', distance=2))
+    description=ParadeDB(Fuzzy('ruining shoez', distance=2))
 ).values('description', 'rating', 'category')
 ```
 

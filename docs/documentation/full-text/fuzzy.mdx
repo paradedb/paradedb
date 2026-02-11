@@ -48,7 +48,7 @@ from paradedb.search import Fuzzy, ParadeDB
 
 # Fuzzy match disjunction
 MockItem.objects.filter(
-    description=ParadeDB(Fuzzy('runing', distance=2), Fuzzy('shose', distance=2))
+    description=ParadeDB(Fuzzy('runing shose', distance=2))
 ).values('id', 'description')[:5]
 
 # Fuzzy match conjunction is not currently exposed by django-paradedb.

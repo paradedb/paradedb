@@ -17,11 +17,13 @@
 
 //! # Parallel Partitioning Strategy & Correctness
 //!
-//! `JoinScan` implements parallel execution by **partitioning the first (outermost) table**
-//! across workers while **replicating (fully scanning)** all subsequent tables in the join tree.
+//! `JoinScan` uses a symmetrical MPP execution model.
 //!
-//! This is equivalent to a "Broadcast Join" or "Fragment-and-Replicate" strategy in distributed
-//! databases.
+//! 1. Every participant (leader and background workers) receives the exact same `LogicalPlan`.
+//! 2. Participants are configured with a `MppParticipantConfig` identifying their index.
+//! 3. `PgSearchTableProvider` performs segment slicing at the physical level based on this index.
+//! 4. A physical optimizer rule `EnforceDsmShuffle` injects DSM-based exchange operators
+//!    to handle data movement between participants.
 //!
 //! ## Correctness
 //!
@@ -29,8 +31,8 @@
 //!
 //! (A_part1 JOIN B) UNION (A_part2 JOIN B) = (A_part1 UNION A_part2) JOIN B = A JOIN B
 //!
-//! Each worker computes a partial join result for its subset of `A`. When these partial results
-//! are gathered by PostgreSQL, the union forms the complete, correct result set.
+//! Each worker computes a partial join result for its assigned fragment. When these
+//! partial results are gathered, the union forms the complete result set.
 //!
 //! ## SAFETY WARNING
 //!
@@ -42,27 +44,25 @@
 //!
 //! It is **INCORRECT** and will produce duplicate or wrong results for:
 //! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
-//!     as `(NULL, b)` by *every* worker, causing duplicates.
+//!     by *every* worker, causing duplicates.
 //! 2.  **Full Outer Joins**: Same duplicate issue for the replicated side.
 //! 3.  **Aggregations**: If DataFusion were performing global aggregations (e.g. `COUNT`),
-//!     each worker would emit a partial count, and PostgreSQL's `Gather` would treat them as
+//!     each worker would emit a partial count, and the final merge would treat them as
 //!     distinct rows rather than summing them.
-//!
-//! **Before enabling any JoinType other than `JOIN_INNER`, you must verify that the partitioning
-//! logic in `build_clause_df` respects these constraints.**
 
 use std::sync::Arc;
 
-use datafusion::common::{DataFusionError, JoinType, Result};
-use datafusion::logical_expr::{col, Expr};
+use datafusion::common::Result;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
+use futures::stream::BoxStream;
 use pgrx::pg_sys;
 
-use crate::api::{OrderByFeature, SortDirection};
+use crate::api::SortDirection;
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::parallel_worker::builder::ParallelProcessMessageQueue;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -71,7 +71,6 @@ use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
 
 /// Execution state for a single base relation in a join.
@@ -98,8 +97,9 @@ pub struct JoinScanState {
     pub result_slot: Option<*mut pg_sys::TupleTableSlot>,
 
     // === DataFusion State ===
-    pub datafusion_stream: Option<datafusion::execution::SendableRecordBatchStream>,
+    pub unified_stream: Option<BoxStream<'static, Result<arrow_array::RecordBatch>>>,
     pub runtime: Option<tokio::runtime::Runtime>,
+    pub local_set: Option<tokio::task::LocalSet>,
     pub current_batch: Option<arrow_array::RecordBatch>,
     pub batch_index: usize,
 
@@ -116,17 +116,17 @@ pub struct JoinScanState {
     /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
     pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
 
-    /// Shared state for parallel execution.
-    /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
-    /// `initialize_worker_custom_scan` (in a worker), and then consumed in
-    /// `exec_custom_scan` to initialize the DataFusion execution plan.
-    pub parallel_state: Option<*mut ParallelScanState>,
+    /// Handle for background workers.
+    pub parallel_process: Option<ParallelProcessMessageQueue>,
 }
+
+unsafe impl Send for JoinScanState {}
+unsafe impl Sync for JoinScanState {}
 
 impl JoinScanState {
     /// Reset the scan state for a rescan.
     pub fn reset(&mut self) {
-        self.datafusion_stream = None;
+        self.unified_stream = None;
         self.current_batch = None;
         self.batch_index = 0;
     }
@@ -138,17 +138,62 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with parallelization disabled.
-///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
-/// across machines with different CPU counts.
-pub fn create_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
+/// Creates a DataFusion SessionContext with specified parallelization and memory limit.
+pub fn create_session_context(
+    participant_index: usize,
+    total_participants: usize,
+    max_memory: usize,
+) -> SessionContext {
+    let mut config = SessionConfig::new().with_target_partitions(total_participants);
+    // Force partitioned joins by setting thresholds to 0.
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold = 0;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_single_partition_threshold_rows = 0;
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
-    SessionContext::new_with_config(config)
+
+    // Set MPP config.
+    config.set_extension(Arc::new(
+        crate::scan::table_provider::MppParticipantConfig {
+            index: participant_index,
+            total_participants,
+        },
+    ));
+
+    let memory_pool = Arc::new(super::memory::PanicOnOOMMemoryPool::new(max_memory));
+    let runtime = datafusion::execution::runtime_env::RuntimeEnvBuilder::new()
+        .with_memory_pool(memory_pool)
+        .build()
+        .expect("Failed to create RuntimeEnv");
+
+    let mut builder = datafusion::execution::SessionStateBuilder::new()
+        .with_config(config)
+        .with_runtime_env(Arc::new(runtime))
+        .with_default_features();
+
+    // Register our MPP shuffle enforcement rule.
+
+    // We add it to the physical optimizer rules so it runs after standard rules.
+
+    if total_participants > 1 {
+        let rule = Arc::new(
+            crate::postgres::customscan::joinscan::exchange::EnforceDsmShuffle {
+                participant_index,
+                total_participants,
+            },
+        );
+        builder = builder.with_physical_optimizer_rule(rule);
+    }
+
+    let state = builder.build();
+    SessionContext::new_with_state(state)
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -158,7 +203,7 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_session_context();
+    let ctx = create_session_context(0, 1, 1024 * 1024 * 1024); // 1GB default for planning
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }
@@ -171,7 +216,11 @@ pub async fn build_joinscan_physical_plan(
     let df = ctx.execute_logical_plan(plan).await?;
     let plan = df.create_physical_plan().await?;
 
-    if plan.output_partitioning().partition_count() > 1 {
+    // In MPP mode, we don't want to coalesce partitions here,
+    // as EnforceDsmShuffle will handle the final result gathering if needed.
+    if ctx.state().config().target_partitions() == 1
+        && plan.output_partitioning().partition_count() > 1
+    {
         Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
     } else {
         Ok(plan)
@@ -194,15 +243,13 @@ fn build_clause_df<'a>(
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
         if join_clause.sources.len() < 2 {
-            return Err(DataFusionError::Internal(
+            return Err(datafusion::error::DataFusionError::Internal(
                 "JoinScan requires at least 2 sources".into(),
             ));
         }
 
-        let partitioning_idx = join_clause.partitioning_source_index();
-
         // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
+        let mut df = build_source_df(ctx, &join_clause.sources[0]).await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
         df = df.alias(&alias0)?;
 
@@ -215,16 +262,18 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let right_df = build_source_df(ctx, right_source).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
             let right_rti = right_source.scan_info.heap_rti.ok_or_else(|| {
-                DataFusionError::Internal("JoinScan source missing heap_rti".into())
+                datafusion::error::DataFusionError::Internal(
+                    "JoinScan source missing heap_rti".into(),
+                )
             })?;
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
-            let mut on: Vec<Expr> = Vec::new();
+            let mut on: Vec<datafusion::logical_expr::Expr> = Vec::new();
 
             for jk in &join_clause.join_keys {
                 // Case 1: Key connects Left(outer) -> Right(inner)
@@ -238,12 +287,16 @@ fn build_clause_df<'a>(
                         let left_alias = left_src.execution_alias(left_idx);
                         let left_col_name =
                             left_src.column_name(jk.outer_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
+                                datafusion::error::DataFusionError::Internal(
+                                    "Missing column name".into(),
+                                )
                             })?;
 
                         let right_col_name =
                             right_source.column_name(jk.inner_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
+                                datafusion::error::DataFusionError::Internal(
+                                    "Missing column name".into(),
+                                )
                             })?;
 
                         on.push(
@@ -265,12 +318,16 @@ fn build_clause_df<'a>(
                         let left_alias = left_src.execution_alias(left_idx);
                         let left_col_name =
                             left_src.column_name(jk.inner_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
+                                datafusion::error::DataFusionError::Internal(
+                                    "Missing column name".into(),
+                                )
                             })?;
 
                         let right_col_name =
                             right_source.column_name(jk.outer_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
+                                datafusion::error::DataFusionError::Internal(
+                                    "Missing column name".into(),
+                                )
                             })?;
 
                         on.push(
@@ -282,16 +339,15 @@ fn build_clause_df<'a>(
             }
 
             if on.is_empty() {
-                // Fallback: cross join if no keys found?
-                // But JoinScan requires equi-keys.
-                // If we have (A,B,C) and A=C, B=C.
-                // Step 1: A.
-                // Step 2: Join B. No keys A=B? Cross join?
-                // Or we rely on the planner having ordered them such that there is connectivity.
-                // If not connected, it's a cross join.
-                df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
+                df = df.join(
+                    right_df,
+                    datafusion::common::JoinType::Inner,
+                    &[],
+                    &[],
+                    None,
+                )?;
             } else {
-                df = df.join_on(right_df, JoinType::Inner, on)?;
+                df = df.join_on(right_df, datafusion::common::JoinType::Inner, on)?;
             }
 
             left_rtis.insert(right_rti);
@@ -317,7 +373,7 @@ fn build_clause_df<'a>(
                 let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
                 for (i, expr_node) in expr_list.iter_ptr().enumerate() {
                     let expr = translator.translate(expr_node).ok_or_else(|| {
-                        DataFusionError::Internal(format!(
+                        datafusion::error::DataFusionError::Internal(format!(
                             "Failed to translate custom expression at index {}",
                             i
                         ))
@@ -355,7 +411,7 @@ fn build_clause_df<'a>(
                 )
             }
             .ok_or_else(|| {
-                DataFusionError::Internal(format!(
+                datafusion::error::DataFusionError::Internal(format!(
                     "Failed to translate join level expression tree: {:?}",
                     join_level_expr
                 ))
@@ -369,7 +425,7 @@ fn build_clause_df<'a>(
             let mut sort_exprs = Vec::new();
             for info in &join_clause.order_by {
                 let expr = match &info.feature {
-                    OrderByFeature::Score => {
+                    crate::api::OrderByFeature::Score => {
                         // For N-way, 'ordering_side_is_outer' is insufficient.
                         // We need the index of the ordering side.
                         let ordering_idx = join_clause.ordering_side_index();
@@ -383,11 +439,13 @@ fn build_clause_df<'a>(
                             make_col(&alias, SCORE_COL_NAME)
                         } else {
                             // Fallback
-                            col("unknown_score")
+                            datafusion::logical_expr::col("unknown_score")
                         }
                     }
-                    OrderByFeature::Field(name) => col(name.as_ref()),
-                    OrderByFeature::Var {
+                    crate::api::OrderByFeature::Field(name) => {
+                        datafusion::logical_expr::col(name.as_ref())
+                    }
+                    crate::api::OrderByFeature::Var {
                         rti,
                         attno,
                         name: _,
@@ -403,7 +461,8 @@ fn build_clause_df<'a>(
                                 }
                             }
                         }
-                        resolved_expr.unwrap_or_else(|| col("unknown_col"))
+                        resolved_expr
+                            .unwrap_or_else(|| datafusion::logical_expr::col("unknown_col"))
                     }
                 };
 
@@ -444,13 +503,13 @@ fn build_clause_df<'a>(
                     // Check if it already exists in df schema (it should)
                     if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
                         // Carry it.
-                        final_cols.push(col(&ctid_name));
+                        final_cols.push(datafusion::logical_expr::col(&ctid_name));
                     }
                 }
             }
         } else {
             for field in df.schema().fields() {
-                final_cols.push(col(field.name()));
+                final_cols.push(datafusion::logical_expr::col(field.name()));
             }
         }
 
@@ -468,7 +527,7 @@ fn build_clause_df<'a>(
 fn build_projection_expr(
     proj: &crate::postgres::customscan::joinscan::build::ChildProjection,
     join_clause: &JoinCSClause,
-) -> Expr {
+) -> datafusion::logical_expr::Expr {
     for (i, source) in join_clause.sources.iter().enumerate() {
         let alias = source.execution_alias(i);
 
@@ -499,7 +558,6 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
-    is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = &source.scan_info;
@@ -509,8 +567,6 @@ fn build_source_df<'a>(
         let provider = Arc::new(PgSearchTableProvider::new(
             scan_info.clone(),
             fields.clone(),
-            None,
-            is_parallel,
         ));
         ctx.register_table(alias, provider)?;
 

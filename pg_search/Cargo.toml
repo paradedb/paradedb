@@ -28,6 +28,7 @@ stable_deref_trait = "1.2.1"
 anyhow = { version = "1.0.100", features = ["backtrace"] }
 arrow-array = "57.2.0"
 arrow-buffer = "57.2.0"
+arrow-ipc = "57.2.0"
 arrow-schema = "57.2.0"
 bitpacking = "0.9.2"
 chrono = "0.4.42"
@@ -73,11 +74,13 @@ bytemuck = { version = "1.24.0", features = ["derive", "min_const_generics"] }
 decimal-bytes = "0.4.2"
 paste = "1.0.15"
 typetag = "0.2"
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "net", "macros", "signal"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "=52.0.0", default-features = false }
 datafusion-proto = { version = "=52.0.0", default-features = false }
 futures = "0.3"
+async-stream = "0.3.6"
+interprocess = { version = "2.3.1", features = ["tokio"] }
 
 [dev-dependencies]
 pgrx-tests.workspace = true

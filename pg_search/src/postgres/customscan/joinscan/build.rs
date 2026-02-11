@@ -305,11 +305,18 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Number of parallel workers planned for this join.
+    pub planned_workers: usize,
 }
 
 impl JoinCSClause {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_planned_workers(mut self, nworkers: usize) -> Self {
+        self.planned_workers = nworkers;
+        self
     }
 
     pub fn add_source(mut self, source: JoinSource) -> Self {
@@ -414,22 +421,6 @@ impl JoinCSClause {
     /// Get the ordering side source (side with search predicate).
     pub fn ordering_side(&self) -> Option<&JoinSource> {
         self.ordering_side_index().map(|i| &self.sources[i])
-    }
-
-    /// Returns the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
-    pub fn partitioning_source(&self) -> &JoinSource {
-        &self.sources[self.partitioning_source_index()]
-    }
-
-    /// Returns the index of the source that should be partitioned for parallel execution.
-    pub fn partitioning_source_index(&self) -> usize {
-        self.sources
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
-            .map(|(i, _)| i)
-            .expect("JoinScan requires at least one source")
     }
 
     /// Recursively collect all base relations in this join tree.

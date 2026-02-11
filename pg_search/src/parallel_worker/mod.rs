@@ -178,6 +178,14 @@ impl ParallelStateManager {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     unsafe fn decode_info<T: ParallelStateType>(
         &self,
         i: usize,

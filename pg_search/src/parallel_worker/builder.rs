@@ -140,6 +140,15 @@ pub struct ParallelProcessLauncher {
     mq_handles: Vec<MessageQueueReceiver>,
 }
 
+impl Drop for ParallelProcessLauncher {
+    fn drop(&mut self) {
+        unsafe {
+            pg_sys::DestroyParallelContext(self.pcxt.as_ptr());
+            pg_sys::ExitParallelMode();
+        }
+    }
+}
+
 impl ParallelProcessLauncher {
     pub fn launch(self) -> Option<ParallelProcessAttach> {
         unsafe {
@@ -257,11 +266,8 @@ impl ParallelProcessFinish {
             let pcxt = self.launcher.pcxt.as_ptr();
 
             let messages = self.recv().unwrap_or_default();
-            drop(self.launcher);
 
             pg_sys::WaitForParallelWorkersToFinish(pcxt);
-            pg_sys::DestroyParallelContext(pcxt);
-            pg_sys::ExitParallelMode();
 
             messages
         }
@@ -301,6 +307,9 @@ impl Iterator for ParallelProcessMessageQueue {
                 Some(batch) => {
                     self.batch = batch;
                 }
+            }
+            if self.batch.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
     }

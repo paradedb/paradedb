@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use crate::postgres::customscan::joinscan::exchange::{DsmReaderExec, DsmWriterExec};
 use arrow_schema::SchemaRef;
 use datafusion::catalog::TableProvider;
 use datafusion::common::TableReference;
@@ -24,21 +25,68 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
+use datafusion_proto::physical_plan::PhysicalExtensionCodec;
+use serde::{Deserialize, Serialize};
 
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
+
+#[derive(Serialize, Deserialize)]
+enum PhysicalNode {
+    DsmReader,
+    DsmWriter,
+}
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
 /// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec {
-    /// Shared state for parallel scans, containing the list of segments to be processed.
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-}
+pub struct PgSearchExtensionCodec {}
 
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
+
+impl PhysicalExtensionCodec for PgSearchExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        _inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        _ctx: &TaskContext,
+    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        let node: PhysicalNode = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize PhysicalNode: {e}"))
+        })?;
+
+        match node {
+            PhysicalNode::DsmReader => Err(DataFusionError::NotImplemented(
+                "DsmReader decoding".to_string(),
+            )),
+            PhysicalNode::DsmWriter => Err(DataFusionError::NotImplemented(
+                "DsmWriter decoding".to_string(),
+            )),
+        }
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        if node.as_any().is::<DsmReaderExec>() {
+            Err(DataFusionError::NotImplemented(
+                "DsmReader encoding".to_string(),
+            ))
+        } else if node.as_any().is::<DsmWriterExec>() {
+            Err(DataFusionError::NotImplemented(
+                "DsmWriter encoding".to_string(),
+            ))
+        } else {
+            Err(DataFusionError::Internal(
+                "Unknown physical node".to_string(),
+            ))
+        }
+    }
+}
 
 /// Generated code for `try_decode_udf` for a list of UDF types.
 macro_rules! decode_udfs {
@@ -127,15 +175,9 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         _schema: SchemaRef,
         _ctx: &TaskContext,
     ) -> Result<Arc<dyn TableProvider>> {
-        let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // Only inject parallel state if this provider is explicitly marked as parallel.
-        // In a JoinScan, only the first source is marked parallel and dynamicially claims
-        // segments from `parallel_state`, while subsequent sources are fully replicated.
-        if provider.is_parallel() {
-            provider.set_parallel_state(self.parallel_state);
-        }
         Ok(Arc::new(provider))
     }
 

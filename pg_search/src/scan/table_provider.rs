@@ -23,66 +23,80 @@ use arrow_schema::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::{DataFusionError, Result, Statistics};
-use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
+use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableSource, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-use tantivy::index::SegmentId;
 
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
+use crate::scan::execution_plan::ScanState;
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::{Scanner, VisibilityChecker};
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MppParticipantConfig {
+    pub index: usize,
+    pub total_participants: usize,
+}
+
+impl datafusion::common::config::ExtensionOptions for MppParticipantConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn cloned(&self) -> Box<dyn datafusion::common::config::ExtensionOptions> {
+        Box::new(self.clone())
+    }
+
+    fn set(&mut self, _key: &str, _value: &str) -> Result<()> {
+        Err(DataFusionError::Internal(
+            "MppParticipantConfig is read-only".into(),
+        ))
+    }
+
+    fn entries(&self) -> Vec<datafusion::common::config::ConfigEntry> {
+        vec![]
+    }
+}
+
+impl datafusion::common::config::ConfigExtension for MppParticipantConfig {
+    const PREFIX: &'static str = "mpp";
+}
+
+/// A DataFusion `TableProvider` for scanning ParadeDB indexes.
+///
+/// This provider supports parallel execution via a symmetrical MPP model.
+/// Every participant (leader or background worker) executes the same physical plan,
+/// and this provider performs segment slicing at the physical level based on the
+/// participant's index provided in the session configuration.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
     schema: OnceLock<SchemaRef>,
-    is_parallel: bool,
-    /// Parallel state is skipped during serialization because it's a raw pointer
-    /// to shared memory that is only valid in the current process. It is
-    /// re-injected by the `PgSearchExtensionCodec` during deserialization
-    /// if `is_parallel` is true.
-    #[serde(skip)]
-    parallel_state: Option<*mut ParallelScanState>,
 }
 
 unsafe impl Send for PgSearchTableProvider {}
 unsafe impl Sync for PgSearchTableProvider {}
 
 impl PgSearchTableProvider {
-    pub fn new(
-        scan_info: ScanInfo,
-        fields: Vec<WhichFastField>,
-        parallel_state: Option<*mut ParallelScanState>,
-        is_parallel: bool,
-    ) -> Self {
+    pub fn new(scan_info: ScanInfo, fields: Vec<WhichFastField>) -> Self {
         Self {
             scan_info,
             fields,
             schema: OnceLock::new(),
-            is_parallel,
-            parallel_state,
         }
-    }
-
-    pub(crate) fn is_parallel(&self) -> bool {
-        self.is_parallel
-    }
-
-    pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        assert!(self.is_parallel);
-        self.parallel_state = parallel_state;
     }
 
     fn get_schema(&self) -> SchemaRef {
@@ -133,31 +147,52 @@ impl PgSearchTableProvider {
         combine_with_and(all_queries).unwrap_or(SearchQueryInput::All)
     }
 
-    /// Creates a single scan partition for a segment.
-    fn create_scan_partition(
+    /// Creates a MultiSegmentPlan for serial scans (or fully replicated parallel joins).
+    ///
+    /// This method opens all segments upfront as separate partitions, allowing DataFusion
+    /// to treat them as distinct streams (sorted or not).
+    #[allow(clippy::too_many_arguments)]
+    fn create_serial_scan(
         &self,
         reader: &SearchIndexReader,
-        segment_id: SegmentId,
-        ffhelper: &Arc<FFHelper>,
-        visibility: &HeapVisibilityChecker,
+        ffhelper: FFHelper,
+        visibility: HeapVisibilityChecker,
         heap_relid: pg_sys::Oid,
-    ) -> ScanState {
-        let search_results = reader.search_segments(std::iter::once(segment_id));
-        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
-        (
-            scanner,
-            Arc::clone(ffhelper),
-            Box::new(visibility.clone()) as Box<dyn VisibilityChecker>,
-        )
-    }
-
-    /// Creates a PgSearchScanPlan from a list of segments.
-    fn create_scan(
-        &self,
-        segments: Vec<ScanState>,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
+        participant_index: usize,
+        total_participants: usize,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        let ffhelper = Arc::new(ffhelper);
+        let segment_readers = reader.segment_readers();
+        let segments: Vec<ScanState> = segment_readers
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                // Context-aware slicing
+                if total_participants > 1 {
+                    let (start, length) = crate::parallel_worker::chunk_range(
+                        segment_readers.len(),
+                        total_participants,
+                        participant_index,
+                    );
+                    *i >= start && *i < start + length
+                } else {
+                    true
+                }
+            })
+            .map(|(_, r)| {
+                let search_results = reader.search_segments(std::iter::once(r.segment_id()));
+                let scanner =
+                    Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+                (
+                    scanner,
+                    Arc::clone(&ffhelper),
+                    Box::new(visibility.clone()) as Box<dyn VisibilityChecker>,
+                )
+            })
+            .collect();
+
         // Only declare sort order if the field exists in the schema
         let actual_sort_order = sort_order.and_then(|so| {
             let field_name = so.field_name.as_ref();
@@ -168,81 +203,73 @@ impl PgSearchTableProvider {
             }
         });
 
-        Ok(Arc::new(PgSearchScanPlan::new(
+        let partitioning = if total_participants > 1 {
+            let schema = self.get_schema();
+            // Find CTID column for partitioning.
+            // We use CTID because it's guaranteed to be unique and present.
+            let ctid_col = self
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, ff)| matches!(ff, WhichFastField::Ctid));
+
+            match ctid_col {
+                Some((idx, _)) => {
+                    let field = &schema.fields()[idx];
+                    let expr = Arc::new(datafusion::physical_expr::expressions::Column::new(
+                        field.name(),
+                        idx,
+                    ))
+                        as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+                    datafusion::physical_plan::Partitioning::Hash(vec![expr], total_participants)
+                }
+                None => {
+                    datafusion::physical_plan::Partitioning::UnknownPartitioning(total_participants)
+                }
+            }
+        } else {
+            datafusion::physical_plan::Partitioning::UnknownPartitioning(segments.len().max(1))
+        };
+
+        Ok(Arc::new(crate::scan::execution_plan::MultiSegmentPlan::new_with_partitioning(
             segments,
             self.get_schema(),
             query_for_display,
             actual_sort_order,
+            Some(partitioning),
         )))
     }
+}
 
-    /// Creates a PgSearchScanPlan for throttled parallel scans.
-    ///
-    /// This method uses a throttled loop to claim segments from the shared `parallel_state`.
-    /// It ensures fair work distribution by prefetching data from each claimed segment
-    /// before attempting to claim the next one.
-    #[allow(clippy::too_many_arguments)]
-    fn create_throttled_scan(
-        &self,
-        parallel_state: *mut ParallelScanState,
-        reader: &SearchIndexReader,
-        ffhelper: FFHelper,
-        visibility: HeapVisibilityChecker,
-        heap_relid: pg_sys::Oid,
-        query_for_display: SearchQueryInput,
-        sort_order: Option<&crate::postgres::options::SortByField>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let mut segments = Vec::new();
-        let ffhelper = Arc::new(ffhelper);
-
-        loop {
-            pgrx::check_for_interrupts!();
-
-            let segment_id = unsafe { checkout_segment(parallel_state) };
-            let Some(segment_id) = segment_id else {
-                break;
-            };
-
-            let mut partition =
-                self.create_scan_partition(reader, segment_id, &ffhelper, &visibility, heap_relid);
-            // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut *partition.2, &[]);
-
-            segments.push(partition);
-        }
-
-        self.create_scan(segments, query_for_display, sort_order)
+impl TableSource for PgSearchTableProvider {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    /// Creates a PgSearchScanPlan for eager scans (or fully replicated parallel joins).
-    ///
-    /// This method opens all segments upfront as separate partitions, allowing DataFusion
-    /// to treat them as distinct streams (sorted or not).
-    fn create_eager_scan(
+    fn schema(&self) -> SchemaRef {
+        self.get_schema()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    fn supports_filters_pushdown(
         &self,
-        reader: &SearchIndexReader,
-        ffhelper: FFHelper,
-        visibility: HeapVisibilityChecker,
-        heap_relid: pg_sys::Oid,
-        query_for_display: SearchQueryInput,
-        sort_order: Option<&crate::postgres::options::SortByField>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        let ffhelper = Arc::new(ffhelper);
-        let segments: Vec<ScanState> = reader
-            .segment_readers()
+        filters: &[&Expr],
+    ) -> Result<Vec<TableProviderFilterPushDown>> {
+        let analyzer = self.analyzer();
+        let results = filters
             .iter()
-            .map(|r| {
-                self.create_scan_partition(
-                    reader,
-                    r.segment_id(),
-                    &ffhelper,
-                    &visibility,
-                    heap_relid,
-                )
+            .map(|filter| {
+                if analyzer.supports(filter) {
+                    TableProviderFilterPushDown::Exact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
             })
             .collect();
-
-        self.create_scan(segments, query_for_display, sort_order)
+        Ok(results)
     }
 }
 
@@ -340,26 +367,11 @@ impl TableProvider for PgSearchTableProvider {
         // Convert pushed-down filters to SearchQueryInput and combine with base query
         let query = self.combine_query_with_filters(base_query, filters);
 
-        // Determine MVCC strategy based on whether we are running in parallel mode
-        let mvcc_style = if let Some(parallel_state) = self.parallel_state {
-            unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // Leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else {
-                    // Workers see all segments listed in shared state
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
-                }
-            }
-        } else {
-            MvccSatisfies::Snapshot
-        };
-
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query.clone(),
             self.scan_info.score_needed,
-            mvcc_style,
+            MvccSatisfies::Snapshot,
             None,
             None,
         )
@@ -370,36 +382,42 @@ impl TableProvider for PgSearchTableProvider {
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();
 
-        if let Some(parallel_state) = self.parallel_state {
-            // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
-            // strategy to dynamically claim segments.
-            self.create_throttled_scan(
-                parallel_state,
-                &reader,
-                ffhelper,
-                visibility,
-                heap_relid,
-                query,
-                sort_order,
-            )
-        } else if let Some(sort_order) = sort_order {
+        let mpp_config = _state
+            .config_options()
+            .extensions
+            .get::<MppParticipantConfig>();
+        let participant_index = mpp_config.map(|c| c.index).unwrap_or(0);
+        let total_participants = mpp_config.map(|c| c.total_participants).unwrap_or(1);
+
+        if let Some(sort_order) = sort_order {
             // Serial sorted scan (or replicated source with sorting)
-            self.create_eager_scan(
+            self.create_serial_scan(
                 &reader,
                 ffhelper,
                 visibility,
                 heap_relid,
                 query,
                 Some(sort_order),
+                participant_index,
+                total_participants,
             )
         } else {
-            // For serial/replicated scans without sorting, we use a multi-partition scan
+            // For serial/replicated scans without sorting, we use MultiSegmentPlan
             // (1 partition per segment).
             //
-            // Exposing segments as partitions to DataFusion allows parallel processing within
-            // the DataFusion executor if we configured target_partitions > 1 (though
-            // currently joinscan uses 1). It also unifies the code path.
-            self.create_eager_scan(&reader, ffhelper, visibility, heap_relid, query, None)
+            // Using MultiSegmentPlan is beneficial because it exposes segments as partitions to
+            // DataFusion, allowing parallel processing within the DataFusion executor.
+            // It also unifies the code path.
+            self.create_serial_scan(
+                &reader,
+                ffhelper,
+                visibility,
+                heap_relid,
+                query,
+                None,
+                participant_index,
+                total_participants,
+            )
         }
     }
 }

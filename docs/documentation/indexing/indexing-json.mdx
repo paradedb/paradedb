@@ -7,11 +7,35 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-json
 When indexing JSON, ParadeDB automatically indexes all sub-fields of the JSON object. The type of each sub-field is also inferred automatically.
 For example, consider the following statement where `metadata` is `JSONB`:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, metadata)
 WITH (key_field='id');
 ```
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    metadata = models.JSONField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'metadata': {},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
 
 A single `metadata` JSON may look like:
 
@@ -23,17 +47,69 @@ ParadeDB will automatically index both `metadata.color` and `metadata.location` 
 
 By default, all text sub-fields of a JSON object use the same tokenizer. The tokenizer can be configured the same way as text fields:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (metadata::pdb.ngram(2,3)))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    metadata = models.JSONField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'metadata': {'tokenizer': 'ngram(2,3)'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
 within a larger JSON:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((metadata->>'color')::pdb.ngram(2,3)))
 WITH (key_field='id');
 ```
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    metadata = models.JSONField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'metadata': {
+                        'json_keys': {
+                            'color': {'tokenizer': 'ngram(2,3)'},
+                        },
+                    },
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>

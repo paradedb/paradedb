@@ -189,6 +189,11 @@ impl SegmentPlan {
             metrics: ExecutionPlanMetricsSet::new(),
         }
     }
+
+    /// Returns the query description used in EXPLAIN output.
+    pub fn query_label(&self) -> String {
+        self.query_for_display.explain_format()
+    }
 }
 
 /// A DataFusion `ExecutionPlan` that dynamically claims and scans segments from a shared `ParallelScanState`.

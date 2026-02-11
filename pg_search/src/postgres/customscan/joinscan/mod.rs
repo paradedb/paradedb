@@ -178,10 +178,12 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
+use crate::scan::execution_plan::SegmentPlan;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
@@ -189,6 +191,31 @@ use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
+
+/// Recursively walk a DataFusion physical plan tree and collect dynamic filter
+/// metrics from every `SegmentPlan` node that has them.
+///
+/// Each entry is `(scan_display_name, rows_scanned, rows_pruned)`.
+fn collect_scan_metrics(plan: &dyn ExecutionPlan, out: &mut Vec<(String, usize, usize)>) {
+    if let Some(segment) = plan.as_any().downcast_ref::<SegmentPlan>() {
+        if let Some(metrics) = segment.metrics() {
+            let scanned = metrics
+                .sum_by_name("rows_scanned")
+                .map(|m| m.as_usize())
+                .unwrap_or(0);
+            let pruned = metrics
+                .sum_by_name("rows_pruned")
+                .map(|m| m.as_usize())
+                .unwrap_or(0);
+            if scanned > 0 || pruned > 0 {
+                out.push((segment.query_label(), scanned, pruned));
+            }
+        }
+    }
+    for child in plan.children() {
+        collect_scan_metrics(child.as_ref(), out);
+    }
+}
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -870,7 +897,32 @@ impl CustomScan for JoinScan {
             );
         }
 
-        if let Some(ref logical_plan) = state.custom_state().logical_plan {
+        if explainer.is_analyze() {
+            // For EXPLAIN ANALYZE, use the retained executed plan to show runtime metrics.
+            if let Some(ref physical_plan) = state.custom_state().physical_plan {
+                let displayable = displayable(physical_plan.as_ref());
+                explainer.add_text("DataFusion Physical Plan", "");
+                for line in displayable.indent(false).to_string().lines() {
+                    explainer.add_text("  ", line);
+                }
+                // Extract dynamic filter metrics from SegmentPlan nodes.
+                let mut metrics = Vec::new();
+                collect_scan_metrics(physical_plan.as_ref(), &mut metrics);
+                for (scan_name, scanned, pruned) in &metrics {
+                    if *scanned > 0 {
+                        let pct = (*pruned as f64 / *scanned as f64) * 100.0;
+                        explainer.add_text(
+                            "Dynamic Filter",
+                            format!(
+                                "{} — {} scanned, {} pruned ({:.1}%)",
+                                scan_name, scanned, pruned, pct
+                            ),
+                        );
+                    }
+                }
+            }
+        } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
+            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
@@ -980,6 +1032,9 @@ impl CustomScan for JoinScan {
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+
+                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {

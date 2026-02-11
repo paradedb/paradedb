@@ -147,6 +147,41 @@ LIMIT 3;
 (3 rows)
 
 -- =============================================================================
+-- TEST 2b: EXPLAIN ANALYZE shows Dynamic Filter metrics
+-- Using COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF to keep output stable.
+-- =============================================================================
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE s.region @@@ 'wireless'
+ORDER BY p.id
+LIMIT 3;
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Limit: 3
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 14]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all", dynamic_filter=true
+         Dynamic Filter: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} — 1 scanned, 0 pruned (0.0%)
+         Dynamic Filter: "all" — 36 scanned, 24 pruned (66.7%)
+(20 rows)
+
+-- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -289,7 +324,65 @@ LIMIT 5;
 (5 rows)
 
 -- =============================================================================
--- TEST 6: Without LIMIT - no dynamic filter should appear
+-- TEST 6: Semi-join (IN subquery) with ORDER BY + LIMIT
+-- This mirrors the semi_join_filter benchmark pattern. The IN (SELECT ...)
+-- becomes a semi join. The build side (suppliers filtered by BM25) restricts
+-- join keys, and the probe side (products) benefits from pre-materialization
+-- filtering: the HashJoin dynamic filter prunes products by supplier_id range,
+-- and the TopK dynamic filter prunes by the sort column (name).
+-- =============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+                                                                                         QUERY PLAN                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, p.price
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, p.price
+         Join Type: Inner
+         Relation 0: suppliers (s)
+         Relation 1: products (p)
+         Join Cond: p.supplier_id = s.id
+         Limit: 3
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_3@0, ctid_1@2, id@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         CooperativeExec
+           :           PgSearchScan: "all", dynamic_filter=true
+(20 rows)
+
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+ id |    name    | price  
+----+------------+--------
+  4 | Product 4  |  49.20
+  9 | Product 9  |  98.20
+ 14 | Product 14 | 147.20
+(3 rows)
+
+-- =============================================================================
+-- TEST 7: Without LIMIT - no dynamic filter should appear
 -- =============================================================================
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name

@@ -102,6 +102,19 @@ ORDER BY p.id
 LIMIT 3;
 
 -- =============================================================================
+-- TEST 2b: EXPLAIN ANALYZE shows Dynamic Filter metrics
+-- Using COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF to keep output stable.
+-- =============================================================================
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE s.region @@@ 'wireless'
+ORDER BY p.id
+LIMIT 3;
+
+-- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
 -- =============================================================================
 
@@ -160,7 +173,37 @@ ORDER BY p.id
 LIMIT 5;
 
 -- =============================================================================
--- TEST 6: Without LIMIT - no dynamic filter should appear
+-- TEST 6: Semi-join (IN subquery) with ORDER BY + LIMIT
+-- This mirrors the semi_join_filter benchmark pattern. The IN (SELECT ...)
+-- becomes a semi join. The build side (suppliers filtered by BM25) restricts
+-- join keys, and the probe side (products) benefits from pre-materialization
+-- filtering: the HashJoin dynamic filter prunes products by supplier_id range,
+-- and the TopK dynamic filter prunes by the sort column (name).
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+
+-- =============================================================================
+-- TEST 7: Without LIMIT - no dynamic filter should appear
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

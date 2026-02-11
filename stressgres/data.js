@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770767288969,
+  "lastUpdate": 1770768117823,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2310,6 +2310,54 @@ window.BENCHMARK_DATA = {
             "value": 5.601855236911998,
             "unit": "median tps",
             "extra": "avg tps: 5.5869130916079985, max tps: 6.3053123118794305, count: 55373"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770768114198,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1138.7621385996117,
+            "unit": "median tps",
+            "extra": "avg tps: 1139.5674881733623, max tps: 1187.4389777339322, count: 56262"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1279.2329310216578,
+            "unit": "median tps",
+            "extra": "avg tps: 1273.4208647784003, max tps: 1294.7039736583133, count: 56262"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1808.9313625231289,
+            "unit": "median tps",
+            "extra": "avg tps: 1793.2262204644308, max tps: 1937.9017651068864, count: 56262"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.450642681828197,
+            "unit": "median tps",
+            "extra": "avg tps: 5.461248320007809, max tps: 7.450437325397604, count: 56262"
           }
         ]
       }

@@ -6,11 +6,23 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/regex
 
 Regex queries search for terms that follow a pattern. For example, the wildcard pattern `key.*` finds all terms that start with `key`.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex('key.*');
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Regex
+
+MockItem.objects.filter(
+    description=ParadeDB(Regex('key.*'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:
 

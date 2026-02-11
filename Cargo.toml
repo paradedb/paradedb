@@ -28,7 +28,11 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
+<<<<<<< HEAD
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "aa5a0e1a3bc48a1f6cdfd1575c6c538897c83813", features = [
+=======
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "e4a008758321cb6b5f19e69c442fb7d7c90e3290", features = [
+>>>>>>> 44d1f928 (fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155))
   "columnar-zstd-compression",
   "lz4-compression",
   "quickwit",                  # for sstable support
@@ -40,4 +44,8 @@ pgrx-tests = "=0.16.1"
 tantivy-jieba = "0.17.0"
 
 [patch.crates-io]
+<<<<<<< HEAD
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "aa5a0e1a3bc48a1f6cdfd1575c6c538897c83813" }
+=======
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "e4a008758321cb6b5f19e69c442fb7d7c90e3290" }
+>>>>>>> 44d1f928 (fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155))

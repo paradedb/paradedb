@@ -9,19 +9,30 @@ This guide will walk you through a few queries to give you a feel for ParadeDB.
 ## Create Example Table
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
-you get started. Once connected with `psql`, run the following commands to create and inspect
-this table.
+you get started. Once connected with `psql`, run the following command to create this table.
 
 ```sql
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
+```
 
+Then inspect the first 3 rows:
+
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 LIMIT 3;
 ```
+
+```python Django
+MockItem.objects.values('description', 'rating', 'category')[:3]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
        description        | rating |  category
@@ -160,13 +171,30 @@ MockItem.objects.filter(
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `pdb.snippet`.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, pdb.snippet(description), pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.functions import Score, Snippet
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes')),
+    rating__gt=2
+).annotate(
+    snippet=Snippet('description'),
+    score=Score()
+).values('description', 'snippet', 'score').order_by('-score')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     |              snippet              |   score
@@ -181,13 +209,25 @@ LIMIT 5;
 
 ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes'))
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category
@@ -205,7 +245,9 @@ which is more CPU-efficient than issuing two separate queries.
 
 For example, the following query returns the top 3 results as well as the total number of results matched.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT
      description, rating, category,
      pdb.agg('{"value_count": {"field": "id"}}') OVER ()
@@ -214,6 +256,20 @@ WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+rows, facets = (
+    MockItem.objects.filter(
+        description=ParadeDB(PQ('running') | PQ('shoes'))
+    )
+    .order_by('rating')[:5]
+    .facets(agg={'value_count': {'field': 'id'}})
+)
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category |      agg

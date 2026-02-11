@@ -126,6 +126,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -174,6 +178,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
  id  |   name   | supplier_name 
 -----+----------+---------------
  203 | Keyboard | TechCorp
@@ -221,6 +229,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY s.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 3 rows (5 pruned)
+WARNING:  dynamic filter total: 8 -> 3 rows (5 pruned, 62.5%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  203 | Keyboard       | TechCorp
@@ -345,6 +357,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
@@ -399,6 +413,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name |   score    
 -----+----------------+---------------+------------
  201 | Wireless Mouse | TechCorp      | 0.96774966
@@ -455,6 +473,10 @@ WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
  id  |      name      | supplier_name | supplier_score 
 -----+----------------+---------------+----------------
  201 | Wireless Mouse | TechCorp      |      1.2039728
@@ -514,6 +536,10 @@ WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
  id  |      name      | supplier_name | product_score | supplier_score 
 -----+----------------+---------------+---------------+----------------
  201 | Wireless Mouse | TechCorp      |    0.96774966 |      1.2039728
@@ -561,6 +587,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -622,6 +652,10 @@ WHERE p.description @@@ 'wireless'
   AND (p.name @@@ 'headphones' OR s.name @@@ 'TechCorp')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -699,6 +733,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 8 rows (0 pruned)
+WARNING:  dynamic filter total: 8 -> 8 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -786,6 +824,10 @@ WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
 WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name | category_name 
 -----+----------------+---------------+---------------
  201 | Wireless Mouse | TechCorp      | Electronics
@@ -879,6 +921,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' OR s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 8 rows (0 pruned)
+WARNING:  dynamic filter total: 8 -> 8 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -953,6 +999,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.id
 LIMIT 3;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -999,6 +1049,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  207 | Mouse Pad      | GlobalSupply
@@ -1074,6 +1126,8 @@ JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id |       description        | customer_name  
 ----+--------------------------+----------------
   1 | wireless mouse order     | Alice Corp
@@ -1157,6 +1211,8 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id |    product_name     |   warehouse_name   
 ----+---------------------+--------------------
   1 | wireless mouse      | East Coast Main
@@ -1233,6 +1289,8 @@ JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
  id |      name      |   type_name   
 ----+----------------+---------------
   1 | Mystery Box    | Uncategorized
@@ -1325,6 +1383,10 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 100 -> 100 rows (0 pruned)
+WARNING:  dynamic filter total: 100 -> 100 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 200 -> 200 rows (0 pruned)
+WARNING:  dynamic filter total: 200 -> 200 rows (0 pruned, 0.0%)
 ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
 -- Reset work_mem
 RESET work_mem;
@@ -1376,6 +1438,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND NOT p.description @@@ 'mouse') OR s.contact_info @@@ 'shipping'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 8 rows (0 pruned)
+WARNING:  dynamic filter total: 8 -> 8 rows (0 pruned, 0.0%)
  id  |    name    | supplier_name 
 -----+------------+---------------
  202 | USB Cable  | GlobalSupply
@@ -1422,6 +1488,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
+WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -1479,6 +1549,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 6 -> 6 rows (0 pruned)
+WARNING:  dynamic filter total: 6 -> 6 rows (0 pruned, 0.0%)
  id  |    name    | supplier_name 
 -----+------------+---------------
  202 | USB Cable  | GlobalSupply
@@ -1526,6 +1600,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'wireless' AND p.description @@@ 'mouse') OR (s.contact_info @@@ 'shipping' AND s.country @@@ 'UK')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 8 rows (0 pruned)
+WARNING:  dynamic filter total: 8 -> 8 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -1572,6 +1650,10 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 6 -> 6 rows (0 pruned)
+WARNING:  dynamic filter total: 6 -> 6 rows (0 pruned, 0.0%)
  id  |      name      | supplier_name 
 -----+----------------+---------------
  201 | Wireless Mouse | TechCorp
@@ -1652,6 +1734,8 @@ JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
 ORDER BY d.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
         title        |    name     
 ---------------------+-------------
  Database Indexing   | Alice Smith
@@ -1731,6 +1815,10 @@ JOIN categories_with_nulls c ON i.category_id = c.id
 WHERE i.content @@@ 'item OR laptop OR novel'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 4 -> 2 rows (2 pruned)
+WARNING:  dynamic filter total: 4 -> 2 rows (2 pruned, 50.0%)
  item_name | category_name 
 -----------+---------------
  Laptop    | Electronics
@@ -1878,6 +1966,10 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
  product_name | quantity |         notes         
 --------------+----------+-----------------------
  Gadget X     |        3 | Wireless gadget order
@@ -1941,6 +2033,10 @@ JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 100 -> 100 rows (0 pruned)
+WARNING:  dynamic filter total: 100 -> 100 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 166 -> 166 rows (0 pruned)
+WARNING:  dynamic filter total: 166 -> 166 rows (0 pruned, 0.0%)
 ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
 RESET work_mem;
 -- =============================================================================
@@ -2016,6 +2112,10 @@ JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
        description       | name  
 -------------------------+-------
  Wireless keyboard order | Alice
@@ -2144,6 +2244,10 @@ JOIN large_categories lc ON li.category_id = lc.id
 WHERE li.content @@@ 'wireless'
 ORDER BY li.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 50 -> 50 rows (0 pruned)
+WARNING:  dynamic filter total: 50 -> 50 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 200 -> 200 rows (0 pruned)
+WARNING:  dynamic filter total: 200 -> 200 rows (0 pruned, 0.0%)
   name   | category_name 
 ---------+---------------
  Item 5  | Category 6
@@ -2188,6 +2292,10 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |        content        | ref_name | version 
 -----+-----------------------+----------+---------
  101 | wireless device alpha | Ref A    |       1
@@ -2203,6 +2311,10 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |        content        | ref_name | version 
 -----+-----------------------+----------+---------
  101 | wireless device alpha | Ref A    |       2
@@ -2218,6 +2330,11 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |         content         | ref_name | version 
 -----+-------------------------+----------+---------
  101 | updated wireless device | Ref A    |       3
@@ -2233,6 +2350,11 @@ JOIN update_test_refs r ON i.ref_id = r.id
 WHERE i.content @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter: batch 0 -> 0 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |         content         | ref_name | version 
 -----+-------------------------+----------+---------
  101 | updated wireless device | Ref A    |       3
@@ -2357,6 +2479,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE qgen_users.name @@@ 'bob' 
 ORDER BY qgen_users.id 
 LIMIT 5;
+WARNING:  dynamic filter: batch 13 -> 7 rows (6 pruned)
+WARNING:  dynamic filter total: 13 -> 7 rows (6 pruned, 46.2%)
  id | name 
 ----+------
   1 | bob
@@ -2405,6 +2529,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE NOT (qgen_users.name @@@ 'bob') 
 ORDER BY qgen_users.id 
 LIMIT 5;
+WARNING:  dynamic filter: batch 88 -> 61 rows (27 pruned)
+WARNING:  dynamic filter total: 88 -> 61 rows (27 pruned, 30.7%)
  id |  name   
 ----+---------
   2 | brisket
@@ -2453,6 +2579,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE (qgen_products.name @@@ 'alice') OR (qgen_users.name @@@ 'bob')
 ORDER BY qgen_users.id 
 LIMIT 5;
+WARNING:  dynamic filter: batch 101 -> 68 rows (33 pruned)
+WARNING:  dynamic filter total: 101 -> 68 rows (33 pruned, 32.7%)
  id | name 
 ----+------
   1 | bob
@@ -2527,6 +2655,10 @@ JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
 ORDER BY tp.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id  |      description      | name  
 -----+-----------------------+-------
  101 | wireless device alpha | Ref A
@@ -2600,6 +2732,10 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
 ORDER BY hp.id
 LIMIT 20;
+WARNING:  dynamic filter: batch 50 -> 50 rows (0 pruned)
+WARNING:  dynamic filter total: 50 -> 50 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 66 -> 66 rows (0 pruned)
+WARNING:  dynamic filter total: 66 -> 66 rows (0 pruned, 0.0%)
  id |   description    | category_name 
 ----+------------------+---------------
   3 | wireless product | Category 4
@@ -2736,6 +2872,10 @@ WHERE p.description @@@ 'cable'
    OR p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 4 -> 4 rows (0 pruned)
+WARNING:  dynamic filter total: 4 -> 4 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 8 -> 8 rows (0 pruned)
+WARNING:  dynamic filter total: 8 -> 8 rows (0 pruned, 0.0%)
  id  |      name       | price  |   supplier   | min_order_value 
 -----+-----------------+--------+--------------+-----------------
  202 | USB Cable       |   9.99 | GlobalSupply |           15.00
@@ -2833,6 +2973,8 @@ JOIN suppliers s ON m."JoinKey" = s.id
 WHERE m."Content" @@@ 'wireless'
 ORDER BY m."ID"
 LIMIT 5;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
  Content  |   name   
 ----------+----------
  wireless | TechCorp
@@ -2940,6 +3082,12 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 3 -> 3 rows (0 pruned)
+WARNING:  dynamic filter total: 3 -> 3 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
     product     | supplier |  category   
 ----------------+----------+-------------
  Wireless Mouse | TechCorp | Accessories
@@ -2994,6 +3142,12 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 6 -> 3 rows (3 pruned)
+WARNING:  dynamic filter total: 6 -> 3 rows (3 pruned, 50.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
     product     | supplier |  category   
 ----------------+----------+-------------
  Wireless Mouse | TechCorp | Accessories
@@ -3048,6 +3202,10 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
+WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
+WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
       name      |   score   
 ----------------+-----------
  Wireless Mouse | 1.0935268
@@ -3099,6 +3257,10 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
+WARNING:  dynamic filter: batch 6 -> 3 rows (3 pruned)
+WARNING:  dynamic filter total: 6 -> 3 rows (3 pruned, 50.0%)
+WARNING:  dynamic filter: batch 3 -> 2 rows (1 pruned)
+WARNING:  dynamic filter total: 3 -> 2 rows (1 pruned, 33.3%)
    name   |   score   
 ----------+-----------
  TechCorp | 0.9808292
@@ -3184,6 +3346,14 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description @@@ 'deepest'
 ORDER BY l1.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
  name | name | name | name 
 ------+------+------+------
  L1-A | L2-A | L3-A | L4-A
@@ -3246,6 +3416,14 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
 ORDER BY l1.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
  name | name 
 ------+------
  L1-A | L4-A
@@ -3305,6 +3483,14 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
 ORDER BY l1.id
 LIMIT 5;
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
+WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
+WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
+WARNING:  dynamic filter: batch 2 -> 1 rows (1 pruned)
+WARNING:  dynamic filter total: 2 -> 1 rows (1 pruned, 50.0%)
  name | name 
 ------+------
  L1-B | L4-B

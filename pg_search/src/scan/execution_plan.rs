@@ -112,11 +112,11 @@ pub struct SegmentPlan {
     state: Mutex<Option<UnsafeSendSync<ScanState>>>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
-    /// Dynamic filter pushed down from a TopK (SortExec with LIMIT) operator.
-    /// When set, each batch produced by the scanner is filtered against this
-    /// expression so that rows which cannot make it into the top K are pruned
-    /// before reaching the sort/join operators.
-    dynamic_filter: Option<Arc<dyn PhysicalExpr>>,
+    /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
+    /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
+    /// by the scanner is filtered against all of these expressions so that rows
+    /// which cannot contribute to the final result are pruned early.
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -149,7 +149,7 @@ impl SegmentPlan {
             )))),
             properties,
             query_for_display,
-            dynamic_filter: None,
+            dynamic_filters: Vec::new(),
         }
     }
 
@@ -174,7 +174,7 @@ impl SegmentPlan {
             state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
             properties,
             query_for_display,
-            dynamic_filter: None,
+            dynamic_filters: Vec::new(),
         }
     }
 }
@@ -378,7 +378,7 @@ impl DisplayAs for SegmentPlan {
             "PgSearchScan: {}",
             self.query_for_display.explain_format()
         )?;
-        if self.dynamic_filter.is_some() {
+        if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filter=true")?;
         }
         Ok(())
@@ -429,7 +429,9 @@ impl ExecutionPlan for SegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
-                dynamic_filter: self.dynamic_filter.clone(),
+                dynamic_filters: self.dynamic_filters.clone(),
+                rows_before_filter: 0,
+                rows_after_filter: 0,
             })
         };
         Ok(Box::pin(stream))
@@ -446,8 +448,10 @@ impl ExecutionPlan for SegmentPlan {
             return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
         }
 
-        // Look for a DynamicFilterPhysicalExpr among the parent filters pushed to us.
-        let mut dynamic_filter: Option<Arc<dyn PhysicalExpr>> = None;
+        // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
+        // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
+        // join-key bounds from HashJoinExec). We accept and apply all of them.
+        let mut dynamic_filters = Vec::new();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
 
         for filter_result in &child_pushdown_result.parent_filters {
@@ -457,14 +461,14 @@ impl ExecutionPlan for SegmentPlan {
                 .downcast_ref::<DynamicFilterPhysicalExpr>()
                 .is_some()
             {
-                dynamic_filter = Some(Arc::clone(&filter_result.filter));
+                dynamic_filters.push(Arc::clone(&filter_result.filter));
                 filters.push(PushedDown::Yes);
             } else {
                 filters.push(filter_result.any());
             }
         }
 
-        if let Some(df) = dynamic_filter {
+        if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
             let state = self
                 .state
@@ -480,7 +484,7 @@ impl ExecutionPlan for SegmentPlan {
                 state: Mutex::new(state),
                 properties: self.properties.clone(),
                 query_for_display: self.query_for_display.clone(),
-                dynamic_filter: Some(df),
+                dynamic_filters,
             });
 
             Ok(
@@ -498,27 +502,46 @@ struct ScanStream {
     ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
-    dynamic_filter: Option<Arc<dyn PhysicalExpr>>,
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Running totals for dynamic filter effectiveness logging.
+    rows_before_filter: usize,
+    rows_after_filter: usize,
 }
 
 impl ScanStream {
-    /// Apply the dynamic filter to a RecordBatch, returning only rows that pass.
-    fn apply_dynamic_filter(&self, batch: RecordBatch) -> Result<Option<RecordBatch>> {
-        let Some(ref filter) = self.dynamic_filter else {
+    /// Apply all dynamic filters to a RecordBatch, returning only rows that pass.
+    fn apply_dynamic_filters(&mut self, batch: RecordBatch) -> Result<Option<RecordBatch>> {
+        if self.dynamic_filters.is_empty() {
             return Ok(Some(batch));
-        };
+        }
 
-        let result = filter.evaluate(&batch)?;
-        let mask = result.into_array(batch.num_rows())?;
-        let mask = mask.as_boolean();
+        let before = batch.num_rows();
+        let mut current = batch;
 
-        let filtered = arrow_select::filter::filter_record_batch(&batch, mask)
-            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        for filter in &self.dynamic_filters {
+            if current.num_rows() == 0 {
+                break;
+            }
+            let result = filter.evaluate(&current)?;
+            let mask = result.into_array(current.num_rows())?;
+            let mask = mask.as_boolean();
+            current = arrow_select::filter::filter_record_batch(&current, mask)
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+        }
 
-        if filtered.num_rows() == 0 {
+        let after = current.num_rows();
+        self.rows_before_filter += before;
+        self.rows_after_filter += after;
+
+        pgrx::warning!(
+            "dynamic filter: batch {before} -> {after} rows ({} pruned)",
+            before - after
+        );
+
+        if after == 0 {
             Ok(None)
         } else {
-            Ok(Some(filtered))
+            Ok(Some(current))
         }
     }
 }
@@ -532,13 +555,30 @@ impl Stream for ScanStream {
             match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
                 Some(batch) => {
                     let record_batch = batch.to_record_batch(&this.schema);
-                    match this.apply_dynamic_filter(record_batch) {
+                    match this.apply_dynamic_filters(record_batch) {
                         Ok(Some(filtered)) => return Poll::Ready(Some(Ok(filtered))),
                         Ok(None) => continue, // Entire batch was pruned, get next
                         Err(e) => return Poll::Ready(Some(Err(e))),
                     }
                 }
-                None => return Poll::Ready(None),
+                None => {
+                    if !this.dynamic_filters.is_empty() && this.rows_before_filter > 0 {
+                        let pruned = this.rows_before_filter - this.rows_after_filter;
+                        let pct = if this.rows_before_filter > 0 {
+                            (pruned as f64 / this.rows_before_filter as f64) * 100.0
+                        } else {
+                            0.0
+                        };
+                        pgrx::warning!(
+                            "dynamic filter total: {} -> {} rows ({} pruned, {:.1}%)",
+                            this.rows_before_filter,
+                            this.rows_after_filter,
+                            pruned,
+                            pct
+                        );
+                    }
+                    return Poll::Ready(None);
+                }
             }
         }
     }
@@ -708,7 +748,9 @@ impl ExecutionPlan for MultiSegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
-                dynamic_filter: None,
+                dynamic_filters: Vec::new(),
+                rows_before_filter: 0,
+                rows_after_filter: 0,
             })
         };
         Ok(Box::pin(stream))

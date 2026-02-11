@@ -17,6 +17,8 @@
 
 use std::panic::{catch_unwind, resume_unwind};
 
+use crate::api::tokenizers::definitions::pdb::AliasDatumWithType;
+use crate::api::tokenizers::type_is_alias;
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
@@ -69,6 +71,8 @@ impl InsertModeImmutable {
 struct DatumValidation {
     attno: usize,
     oid: pgrx::PgOid,
+    pg_type: pgrx::PgOid,
+    is_array: bool,
     field_name: FieldName,
 }
 
@@ -144,6 +148,8 @@ impl InsertState {
                 .map(|(sf, cat)| DatumValidation {
                     attno: cat.attno,
                     oid: cat.base_oid,
+                    pg_type: cat.pg_type,
+                    is_array: cat.is_array,
                     field_name: sf.field_name().clone(),
                 })
                 .collect();
@@ -352,10 +358,21 @@ unsafe fn insert(
 
             for v in &mode.validations {
                 if !*isnull.add(v.attno) {
-                    TantivyValue::try_from_datum(*values.add(v.attno), v.oid)
-                        .unwrap_or_else(|e| {
+                    let datum = if type_is_alias(v.pg_type.value()) {
+                        AliasDatumWithType::extract_datum(*values.add(v.attno))
+                    } else {
+                        *values.add(v.attno)
+                    };
+
+                    if v.is_array {
+                        TantivyValue::try_from_datum_array(datum, v.oid).unwrap_or_else(|e| {
                             panic!("could not parse field `{}`: {e}", v.field_name)
                         });
+                    } else {
+                        TantivyValue::try_from_datum(datum, v.oid).unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", v.field_name)
+                        });
+                    }
                 }
             }
 

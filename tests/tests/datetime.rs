@@ -245,3 +245,26 @@ fn datetime_mutable_segment_accepts_valid_dates(mut conn: PgConnection) {
     let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_valid ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 2);
 }
+
+#[rstest]
+fn datetime_mutable_segment_validates_date_array(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mutable_date_arr (id SERIAL, dates DATE[]);
+    CREATE INDEX mutable_date_arr_idx ON mutable_date_arr USING bm25 (id, dates)
+        WITH (key_field = 'id', mutable_segment_rows = 1000);
+    "#
+    .execute(&mut conn);
+
+    let result = "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['57439-03-01'::date])"
+        .execute_result(&mut conn);
+    assert!(
+        result.is_err(),
+        "mutable segment insert should fail for date array with out-of-range element"
+    );
+
+    "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['2024-06-15'::date, '1980-01-01'::date])"
+        .execute(&mut conn);
+
+    let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_date_arr ORDER BY id".fetch(&mut conn);
+    assert_eq!(all_rows.len(), 1);
+}

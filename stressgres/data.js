@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770769891997,
+  "lastUpdate": 1770769896675,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5432,6 +5432,186 @@ window.BENCHMARK_DATA = {
             "value": 32.5234375,
             "unit": "median mem",
             "extra": "avg mem: 31.81417848267373, max mem: 32.6875, count: 53820"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770769892966,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.928160057854427, max cpu: 9.311348, count: 53834"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 50.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.0644420231638, max mem: 55.7265625, count: 53834"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5245632592702303, max cpu: 4.6065254, count: 53834"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.139205996674963, max mem: 32.21484375, count: 53834"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.169055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.83372430532931, max cpu: 18.532818, count: 53834"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 53.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.40540945313371, max mem: 59.40625, count: 53834"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.947672268151997, max cpu: 9.284333, count: 53834"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 49.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.730174297377125, max mem: 55.40625, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.664149754735565, max cpu: 9.257474, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.95321961957127, max mem: 37.984375, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1088,
+            "unit": "median pages",
+            "extra": "avg pages: 1087.6218003492218, max pages: 1793.0, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.497045315228295, max relation_size:MB: 14.0078125, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.87611918118661, max segment_count: 19.0, count: 53834"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.320799467287833, max cpu: 4.5933013, count: 53834"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.755558537007282, max mem: 29.859375, count: 53834"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9881495481405853, max cpu: 4.6153846, count: 53834"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.737907197937176, max mem: 29.76953125, count: 53834"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.570718833964682, max cpu: 13.872832, count: 53834"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 48.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.43494512645354, max mem: 54.109375, count: 53834"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002853547179973971, max replication_lag:MB: 0.21314239501953125, count: 53834"
+          },
+          {
+            "name": "Top N - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.2415491698641095, max cpu: 13.9265, count: 107668"
+          },
+          {
+            "name": "Top N - Subscriber - mem",
+            "value": 48.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.592106166351655, max mem: 54.6640625, count: 107668"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.610642807535867, max cpu: 4.6065254, count: 53834"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.719149448420144, max mem: 32.78515625, count: 53834"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.186518697967765, max cpu: 4.5933013, count: 53834"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 32.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.793193036115653, max mem: 32.6015625, count: 53834"
           }
         ]
       }

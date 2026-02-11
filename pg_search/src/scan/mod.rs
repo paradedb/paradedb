@@ -25,7 +25,7 @@ pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
-pub use batch_scanner::Scanner;
+pub use batch_scanner::{PreFilter, PreFilterValue, Scanner};
 pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;

@@ -21,7 +21,9 @@ a comment with your use case.
 To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).
 Fuzziness is supported for [match](/documentation/full-text/match) and [term](/documentation/full-text/term) queries.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 -- Fuzzy match disjunction
 SELECT id, description
 FROM mock_items
@@ -40,6 +42,20 @@ FROM mock_items
 WHERE description === 'shose'::pdb.fuzzy(2)
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import Fuzzy, ParadeDB
+
+# Fuzzy match disjunction
+MockItem.objects.filter(
+    description=ParadeDB(Fuzzy('runing', distance=2), Fuzzy('shose', distance=2))
+).values('id', 'description')[:5]
+
+# Fuzzy match conjunction is not currently exposed by django-paradedb.
+# Fuzzy term (=== ...::pdb.fuzzy(...)) is not currently exposed by django-paradedb.
+```
+
+</CodeGroup>
 
 ## How It Works
 
@@ -63,12 +79,20 @@ beginning within an edit distance of `1`.
 
 To treat the query string as a prefix, set the second argument of `fuzzy` to either `t` or `"true"`:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE description === 'rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
+
+```python Django
+# Fuzzy prefix options are not currently exposed by django-paradedb.
+```
+
+</CodeGroup>
 
 <Note>
   Postgres requires that `true` be double-quoted, i.e. `fuzzy(1, "true")`.
@@ -77,24 +101,40 @@ LIMIT 5;
 When used with [match](/documentation/full-text/match) queries, fuzzy prefix treats all tokens in the query string as prefixes.
 For instance, the following query means "find all documents containing the fuzzy prefix `rann` AND the fuzzy prefix `slee`":
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
+```python Django
+# Fuzzy prefix options are not currently exposed by django-paradedb.
+```
+
+</CodeGroup>
+
 ## Transposition Cost
 
 By default, the cost of a transposition (i.e. "shose" → "shoes") is `2`. Setting the third argument of `fuzzy` to `t` lowers the
 cost of a transposition to `1`:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT id, description
 FROM mock_items
 WHERE description === 'shose'::pdb.fuzzy(1, f, t)
 LIMIT 5;
 ```
+
+```python Django
+# Fuzzy transposition options are not currently exposed by django-paradedb.
+```
+
+</CodeGroup>
 
 <Note>
   The default value for the second and third arguments of `fuzzy` is `f`, which

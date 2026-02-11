@@ -83,37 +83,18 @@ LIMIT 3;
            :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
 (20 rows)
 
--- EXPLAIN ANALYZE shows the plan structure + Dynamic Filter metrics
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Limit: 3
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 3]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filter=true
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
-         Dynamic Filter: PgSearchScan: "all", dynamic_filter=true: 5 scanned, 0 pruned (0.0%)
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 30 scanned, 0 pruned (0.0%)
-(20 rows)
+ id |   name    | supplier_name 
+----+-----------+---------------
+  1 | Product 1 | BetaGoods
+  2 | Product 2 | GammaParts
+  3 | Product 3 | DeltaCorp
+(3 rows)
 
 -- =============================================================================
 -- TEST 2: Search predicate on the build side (suppliers) restricts join keys,
@@ -152,52 +133,35 @@ LIMIT 3;
            :           PgSearchScan: "all", dynamic_filter=true
 (20 rows)
 
--- EXPLAIN ANALYZE shows Dynamic Filter with pruning (80% for the probe side)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                                        QUERY PLAN                                                                                                        
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
-         Join Cond: p.supplier_id = s.id
-         Limit: 3
-         Order By: p.id asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 14]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filter=true
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 1 scanned, 0 pruned (0.0%)
-         Dynamic Filter: PgSearchScan: "all", dynamic_filter=true: 30 scanned, 24 pruned (80.0%)
-(20 rows)
+ id |    name    | supplier_name 
+----+------------+---------------
+  4 | Product 4  | EpsilonTech
+  9 | Product 9  | EpsilonTech
+ 14 | Product 14 | EpsilonTech
+(3 rows)
 
 -- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
 -- =============================================================================
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=2.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
          Join Type: Inner
          Relation 0: suppliers (s)
          Relation 1: products (p)
@@ -206,7 +170,7 @@ LIMIT 2;
          Order By: p.id desc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=2), expr=[id@2 DESC], preserve_partitioning=[false], filter=[id@2 IS NULL OR id@2 > 29]
+           :   SortExec: TopK(fetch=2), expr=[id@2 DESC], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
@@ -214,8 +178,6 @@ LIMIT 2;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
-         Dynamic Filter: PgSearchScan: "all", dynamic_filter=true: 5 scanned, 0 pruned (0.0%)
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 30 scanned, 0 pruned (0.0%)
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -233,17 +195,19 @@ LIMIT 2;
 -- =============================================================================
 -- TEST 4: ORDER BY price + LIMIT (numeric sort column)
 -- =============================================================================
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
-                                                                                                          QUERY PLAN                                                                                                           
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=2.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=2.00 loops=1)
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, p.price, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, p.price, s.name
          Join Type: Inner
          Relation 0: suppliers (s)
          Relation 1: products (p)
@@ -252,7 +216,7 @@ LIMIT 2;
          Order By: p.price asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=2), expr=[price@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[price@2 < 2960]
+           :   SortExec: TopK(fetch=2), expr=[price@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, price@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
@@ -260,8 +224,7 @@ LIMIT 2;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
            :         CooperativeExec
            :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 30 scanned, 0 pruned (0.0%)
-(19 rows)
+(20 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -279,18 +242,19 @@ LIMIT 2;
 -- TEST 5: Both sides have search predicates with ORDER BY + LIMIT.
 -- Only supplier 3 (GammaParts) matches 'global'. Products are further filtered.
 -- =============================================================================
--- EXPLAIN ANALYZE shows Dynamic Filter with pruning (80% for the probe side)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
 ORDER BY p.id
 LIMIT 5;
-                                                                                                           QUERY PLAN                                                                                                            
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=5.00 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=5.00 loops=1)
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.name, s.name
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.name, s.name
          Join Type: Inner
          Relation 0: suppliers (s)
          Relation 1: products (p)
@@ -299,7 +263,7 @@ LIMIT 5;
          Order By: p.id asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 22]
+           :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
@@ -307,8 +271,6 @@ LIMIT 5;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"global","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 1 scanned, 0 pruned (0.0%)
-         Dynamic Filter: PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true: 30 scanned, 24 pruned (80.0%)
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name

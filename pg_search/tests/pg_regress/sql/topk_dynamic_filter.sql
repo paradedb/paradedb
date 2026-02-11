@@ -72,8 +72,6 @@ WHERE p.description @@@ 'premium'
 ORDER BY p.id
 LIMIT 3;
 
--- EXPLAIN ANALYZE shows the plan structure + Dynamic Filter metrics
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -96,8 +94,6 @@ WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
 
--- EXPLAIN ANALYZE shows Dynamic Filter with pruning (80% for the probe side)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -109,7 +105,7 @@ LIMIT 3;
 -- TEST 3: ORDER BY DESC + LIMIT
 -- =============================================================================
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -128,7 +124,7 @@ LIMIT 2;
 -- TEST 4: ORDER BY price + LIMIT (numeric sort column)
 -- =============================================================================
 
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
@@ -148,8 +144,7 @@ LIMIT 2;
 -- Only supplier 3 (GammaParts) matches 'global'. Products are further filtered.
 -- =============================================================================
 
--- EXPLAIN ANALYZE shows Dynamic Filter with pruning (80% for the probe side)
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id

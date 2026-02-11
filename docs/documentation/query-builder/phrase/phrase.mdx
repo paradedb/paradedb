@@ -11,11 +11,23 @@ By default we recommend using the [phrase operator](/documentation/full-text/ter
 
 Searches for documents containing a phrase.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 <div className="mt-8" />
 
@@ -34,8 +46,20 @@ WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
 Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase as well
 as term transpositions.
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes'], 1);
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes', slop=1))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

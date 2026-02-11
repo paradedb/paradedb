@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770770031138,
+  "lastUpdate": 1770829299334,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -494,6 +494,78 @@ window.BENCHMARK_DATA = {
             "value": 48.34129545595227,
             "unit": "median tps",
             "extra": "avg tps: 71.2559536476258, max tps: 294.2350814722229, count: 55160"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44d1f928882599cf5fd9fbc853c8eee1fb5c57ed",
+          "message": "fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155)\n\n# Ticket(s) Closed\n\n- Closes #4149 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-11T11:47:17-05:00",
+          "tree_id": "b88ad04015b13dee26d44c4c9d585ea252d0323c",
+          "url": "https://github.com/paradedb/paradedb/commit/44d1f928882599cf5fd9fbc853c8eee1fb5c57ed"
+        },
+        "date": 1770829294469,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 126.14075458889957,
+            "unit": "median tps",
+            "extra": "avg tps: 126.07726606714783, max tps: 133.5404837057107, count: 8378"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2868.1868425494176,
+            "unit": "median tps",
+            "extra": "avg tps: 2881.5368466785917, max tps: 3026.175252016383, count: 8378"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 465.2101641805812,
+            "unit": "median tps",
+            "extra": "avg tps: 469.40653177643566, max tps: 555.2385040875271, count: 8378"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2943.547815046841,
+            "unit": "median tps",
+            "extra": "avg tps: 2929.5123454286145, max tps: 3006.87667469181, count: 16756"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 532.2417509682589,
+            "unit": "median tps",
+            "extra": "avg tps: 534.4452930366144, max tps: 661.5550100153812, count: 8378"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 548.6533022530181,
+            "unit": "median tps",
+            "extra": "avg tps: 547.054619833619, max tps: 647.4375752294977, count: 8378"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1800.1068474558576,
+            "unit": "median tps",
+            "extra": "avg tps: 1801.5266779968372, max tps: 1834.4707212251358, count: 8378"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 33.13519010347301,
+            "unit": "median tps",
+            "extra": "avg tps: 42.34235592118829, max tps: 212.05156924522788, count: 8378"
           }
         ]
       }

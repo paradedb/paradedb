@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770768117823,
+  "lastUpdate": 1770768122516,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2866,6 +2866,108 @@ window.BENCHMARK_DATA = {
             "value": 162.44921875,
             "unit": "median mem",
             "extra": "avg mem: 182.49402510869467, max mem: 222.91015625, count: 55373"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770768118794,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07943194340762859, max background_merging: 2.0, count: 56262"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.734356746238106, max cpu: 9.657948, count: 56262"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.928240864171197, max mem: 27.94140625, count: 56262"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.988346912386232, max cpu: 13.994169, count: 56262"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.29037076257066, max mem: 168.95703125, count: 56262"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50863,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50725.116366286304, max block_count: 50863.0, count: 56262"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.597205929401724, max segment_count: 61.0, count: 56262"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5869856425257645, max cpu: 9.504951, count: 56262"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 122.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 112.86584195371654, max mem: 138.4453125, count: 56262"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.731566524062671, max cpu: 9.648242, count: 56262"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.9821762329592, max mem: 168.5625, count: 56262"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.71756430608774, max cpu: 33.333336, count: 56262"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.59294246394103, max mem: 223.1484375, count: 56262"
           }
         ]
       }

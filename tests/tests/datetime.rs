@@ -211,18 +211,27 @@ fn datetime_overflow_reports_error(
 }
 
 #[rstest]
-fn datetime_mutable_segment_validates_on_insert(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE mutable_dates (id SERIAL, d DATE);
-    CREATE INDEX mutable_dates_idx ON mutable_dates USING bm25 (id, d)
-        WITH (key_field = 'id', mutable_segment_rows = 1000);
-    "#
+#[case::scalar_date("DATE", "'57439-03-01'")]
+#[case::date_array("DATE[]", "ARRAY['57439-03-01'::date]")]
+fn datetime_mutable_segment_rejects_overflow(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] bad_val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE mutable_reject (id SERIAL, v {col_type});
+        CREATE INDEX mutable_reject_idx ON mutable_reject USING bm25 (id, v)
+            WITH (key_field = 'id', mutable_segment_rows = 1000);
+        "#
+    )
     .execute(&mut conn);
 
-    let result = "INSERT INTO mutable_dates (d) VALUES ('57439-03-01')".execute_result(&mut conn);
+    let result =
+        format!("INSERT INTO mutable_reject (v) VALUES ({bad_val})").execute_result(&mut conn);
     assert!(
         result.is_err(),
-        "mutable segment insert should fail for date beyond Tantivy nanosecond range"
+        "mutable segment insert should fail for {col_type} with out-of-range value"
     );
 }
 
@@ -244,27 +253,4 @@ fn datetime_mutable_segment_accepts_valid_dates(mut conn: PgConnection) {
 
     let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_valid ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 2);
-}
-
-#[rstest]
-fn datetime_mutable_segment_validates_date_array(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE mutable_date_arr (id SERIAL, dates DATE[]);
-    CREATE INDEX mutable_date_arr_idx ON mutable_date_arr USING bm25 (id, dates)
-        WITH (key_field = 'id', mutable_segment_rows = 1000);
-    "#
-    .execute(&mut conn);
-
-    let result = "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['57439-03-01'::date])"
-        .execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "mutable segment insert should fail for date array with out-of-range element"
-    );
-
-    "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['2024-06-15'::date, '1980-01-01'::date])"
-        .execute(&mut conn);
-
-    let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_date_arr ORDER BY id".fetch(&mut conn);
-    assert_eq!(all_rows.len(), 1);
 }

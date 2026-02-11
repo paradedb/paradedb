@@ -12,11 +12,23 @@ right-hand side. It means "find all rows where the column matches the given quer
 
 For example:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex('key.*rd');
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Regex
+
+MockItem.objects.filter(
+    description=ParadeDB(Regex('key.*rd'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ```ini Expected Response
        description        | rating |  category

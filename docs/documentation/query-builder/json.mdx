@@ -10,9 +10,19 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT pdb.regex('key.*');
 ```
+
+```python Django
+from paradedb.search import Regex
+
+Regex('key.*')
+```
+
+</CodeGroup>
 
 <Accordion title="Expected Response">
 ```csv
@@ -25,7 +35,9 @@ SELECT pdb.regex('key.*');
 
 Next, paste this JSON string into the right-hand side of the `@@@` operator and cast it to `pdb.query`:
 
-```sql
+<CodeGroup>
+
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@
@@ -35,6 +47,12 @@ WHERE description @@@
     }
 }'::pdb.query;
 ```
+
+```python Django
+# JSON query objects cast as ::pdb.query are not currently exposed by django-paradedb.
+```
+
+</CodeGroup>
 
 <Note>
   The JSON query object must be explicitly cast to `pdb.query` using

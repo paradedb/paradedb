@@ -78,6 +78,7 @@ bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "=52.0.0", default-features = false }
 datafusion-proto = { version = "=52.0.0", default-features = false }
 futures = "0.3"
+mimalloc = { version = "0.1.48", default-features = false }
 
 [dev-dependencies]
 pgrx-tests.workspace = true

@@ -961,7 +961,8 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
         let nanos = posix_secs.checked_mul(1_000_000_000).ok_or_else(|| {
             TantivyValueError::DateOutOfRange(
                 val,
-                "date exceeds Tantivy DateTime nanosecond range (max ~year 2262)".to_string(),
+                "date is outside Tantivy DateTime nanosecond range (~year 1678 to ~year 2262)"
+                    .to_string(),
             )
         })?;
         Ok(TantivyValue(OwnedValue::Date(

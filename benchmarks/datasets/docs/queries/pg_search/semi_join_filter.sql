@@ -36,7 +36,7 @@ ORDER BY
     f.title ASC                       -- Single Feature Sort (Local Fast Field)
 LIMIT 25;
 
--- Sortedness enabled (no join scan).
+-- Sortedness enabled, no join scan.
 SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
     f.id,
     f.title,

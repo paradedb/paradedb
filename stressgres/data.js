@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770830236958,
+  "lastUpdate": 1770830242030,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2312,6 +2312,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.00520887412176, max segment_count: 128.0, count: 57786"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44d1f928882599cf5fd9fbc853c8eee1fb5c57ed",
+          "message": "fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155)\n\n# Ticket(s) Closed\n\n- Closes #4149 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-11T11:47:17-05:00",
+          "tree_id": "b88ad04015b13dee26d44c4c9d585ea252d0323c",
+          "url": "https://github.com/paradedb/paradedb/commit/44d1f928882599cf5fd9fbc853c8eee1fb5c57ed"
+        },
+        "date": 1770830238183,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.08839989961961, max cpu: 42.814667, count: 57588"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.82466372117455, max mem: 237.3828125, count: 57588"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.51760637332268, max cpu: 33.23442, count: 57588"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.28135452752744, max mem: 176.515625, count: 57588"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34222,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33581.166458289925, max block_count: 36261.0, count: 57588"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.35278182954782, max segment_count: 127.0, count: 57588"
           }
         ]
       }

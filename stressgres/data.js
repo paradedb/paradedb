@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770832075446,
+  "lastUpdate": 1770832966478,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5194,6 +5194,54 @@ window.BENCHMARK_DATA = {
             "value": 570.6105747638405,
             "unit": "median tps",
             "extra": "avg tps: 512.3676310586563, max tps: 715.7971639916606, count: 107742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44d1f928882599cf5fd9fbc853c8eee1fb5c57ed",
+          "message": "fix: Rebase against Tantivy, inherit upstream bugfix for intersection queries (#4155)\n\n# Ticket(s) Closed\n\n- Closes #4149 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-11T11:47:17-05:00",
+          "tree_id": "b88ad04015b13dee26d44c4c9d585ea252d0323c",
+          "url": "https://github.com/paradedb/paradedb/commit/44d1f928882599cf5fd9fbc853c8eee1fb5c57ed"
+        },
+        "date": 1770832962657,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 577.2938743384723,
+            "unit": "median tps",
+            "extra": "avg tps: 581.4478235675998, max tps: 751.3493946146743, count: 53890"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 615.981318507171,
+            "unit": "median tps",
+            "extra": "avg tps: 623.8089452765196, max tps: 855.653984285548, count: 53890"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 83.59479146501404,
+            "unit": "median tps",
+            "extra": "avg tps: 83.79869165168371, max tps: 92.84956122910421, count: 53890"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 543.2024408588065,
+            "unit": "median tps",
+            "extra": "avg tps: 487.86591102311644, max tps: 728.3732462752495, count: 107780"
           }
         ]
       }

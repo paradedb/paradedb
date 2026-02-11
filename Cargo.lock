@@ -5042,6 +5042,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-schema",
+ "arrow-select",
  "async-trait",
  "bincode",
  "bitpacking",

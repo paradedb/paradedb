@@ -51,13 +51,19 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
+use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::expressions::Column;
-use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalSortExpr};
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::physical_expr::{
+    EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
+};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
+};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -106,6 +112,11 @@ pub struct SegmentPlan {
     state: Mutex<Option<UnsafeSendSync<ScanState>>>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
+    /// Dynamic filter pushed down from a TopK (SortExec with LIMIT) operator.
+    /// When set, each batch produced by the scanner is filtered against this
+    /// expression so that rows which cannot make it into the top K are pruned
+    /// before reaching the sort/join operators.
+    dynamic_filter: Option<Arc<dyn PhysicalExpr>>,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -138,6 +149,7 @@ impl SegmentPlan {
             )))),
             properties,
             query_for_display,
+            dynamic_filter: None,
         }
     }
 
@@ -162,6 +174,7 @@ impl SegmentPlan {
             state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
             properties,
             query_for_display,
+            dynamic_filter: None,
         }
     }
 }
@@ -364,7 +377,11 @@ impl DisplayAs for SegmentPlan {
             f,
             "PgSearchScan: {}",
             self.query_for_display.explain_format()
-        )
+        )?;
+        if self.dynamic_filter.is_some() {
+            write!(f, ", dynamic_filter=true")?;
+        }
+        Ok(())
     }
 }
 
@@ -412,9 +429,67 @@ impl ExecutionPlan for SegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
+                dynamic_filter: self.dynamic_filter.clone(),
             })
         };
         Ok(Box::pin(stream))
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        // Only handle dynamic filters in the Post phase (TopK pushdown happens here).
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
+        }
+
+        // Look for a DynamicFilterPhysicalExpr among the parent filters pushed to us.
+        let mut dynamic_filter: Option<Arc<dyn PhysicalExpr>> = None;
+        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if filter_result
+                .filter
+                .as_any()
+                .downcast_ref::<DynamicFilterPhysicalExpr>()
+                .is_some()
+            {
+                dynamic_filter = Some(Arc::clone(&filter_result.filter));
+                filters.push(PushedDown::Yes);
+            } else {
+                filters.push(filter_result.any());
+            }
+        }
+
+        if let Some(df) = dynamic_filter {
+            // Transfer state from the old plan to the new one.
+            let state = self
+                .state
+                .lock()
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to lock SegmentPlan state during filter pushdown: {e}"
+                    ))
+                })?
+                .take();
+
+            let new_plan = Arc::new(SegmentPlan {
+                state: Mutex::new(state),
+                properties: self.properties.clone(),
+                query_for_display: self.query_for_display.clone(),
+                dynamic_filter: Some(df),
+            });
+
+            Ok(
+                FilterPushdownPropagation::with_parent_pushdown_result(filters)
+                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
+            )
+        } else {
+            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        }
     }
 }
 
@@ -423,6 +498,29 @@ struct ScanStream {
     ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
+    dynamic_filter: Option<Arc<dyn PhysicalExpr>>,
+}
+
+impl ScanStream {
+    /// Apply the dynamic filter to a RecordBatch, returning only rows that pass.
+    fn apply_dynamic_filter(&self, batch: RecordBatch) -> Result<Option<RecordBatch>> {
+        let Some(ref filter) = self.dynamic_filter else {
+            return Ok(Some(batch));
+        };
+
+        let result = filter.evaluate(&batch)?;
+        let mask = result.into_array(batch.num_rows())?;
+        let mask = mask.as_boolean();
+
+        let filtered = arrow_select::filter::filter_record_batch(&batch, mask)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+        if filtered.num_rows() == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(filtered))
+        }
+    }
 }
 
 impl Stream for ScanStream {
@@ -430,9 +528,18 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
-            Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
-            None => Poll::Ready(None),
+        loop {
+            match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
+                Some(batch) => {
+                    let record_batch = batch.to_record_batch(&this.schema);
+                    match this.apply_dynamic_filter(record_batch) {
+                        Ok(Some(filtered)) => return Poll::Ready(Some(Ok(filtered))),
+                        Ok(None) => continue, // Entire batch was pruned, get next
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    }
+                }
+                None => return Poll::Ready(None),
+            }
         }
     }
 }
@@ -601,6 +708,7 @@ impl ExecutionPlan for MultiSegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
+                dynamic_filter: None,
             })
         };
         Ok(Box::pin(stream))

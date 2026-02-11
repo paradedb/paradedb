@@ -143,135 +143,95 @@ fn datetime_term_second(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn datetime_wide_range_dates(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE wide_dates (id SERIAL, d DATE);
-    INSERT INTO wide_dates (d) VALUES ('2200-06-15');
-    INSERT INTO wide_dates (d) VALUES ('1700-01-01');
-    INSERT INTO wide_dates (d) VALUES ('1980-07-04');
-    CREATE INDEX wide_dates_idx ON wide_dates USING bm25 (id, d) WITH (key_field = 'id');
-    "#
+#[case::date(
+    "DATE",
+    "'2200-06-15'",
+    "'1700-01-01'",
+    "'1980-07-04'",
+    "'2200-06-15'::date"
+)]
+#[case::timestamp(
+    "TIMESTAMP",
+    "'2200-06-15 12:00:00'",
+    "'1700-01-01 00:00:00'",
+    "'1980-07-04 12:30:00'",
+    "'2200-06-15 12:00:00'::timestamp"
+)]
+fn datetime_wide_range(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val_future: &str,
+    #[case] val_past: &str,
+    #[case] val_mid: &str,
+    #[case] search_val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE wide_range (id SERIAL, v {col_type});
+        INSERT INTO wide_range (v) VALUES ({val_future});
+        INSERT INTO wide_range (v) VALUES ({val_past});
+        INSERT INTO wide_range (v) VALUES ({val_mid});
+        CREATE INDEX wide_range_idx ON wide_range USING bm25 (id, v) WITH (key_field = 'id');
+        "#
+    )
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM wide_dates WHERE id @@@ paradedb.term('d', '2200-06-15'::date)"
+        format!("SELECT id FROM wide_range WHERE id @@@ paradedb.term('v', {search_val})")
             .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM wide_dates WHERE id @@@ paradedb.term('d', '1700-01-01'::date)"
-            .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-
-    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_dates ORDER BY id".fetch(&mut conn);
+    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_range ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 3);
 }
 
 #[rstest]
-fn datetime_wide_range_timestamps(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE wide_ts (id SERIAL, t TIMESTAMP);
-    INSERT INTO wide_ts (t) VALUES ('2200-06-15 12:00:00');
-    INSERT INTO wide_ts (t) VALUES ('1700-01-01 00:00:00');
-    INSERT INTO wide_ts (t) VALUES ('1980-07-04 12:30:00');
-    CREATE INDEX wide_ts_idx ON wide_ts USING bm25 (id, t) WITH (key_field = 'id');
-    "#
+#[case::future_date("DATE", "'57439-03-01'")]
+#[case::ancient_date("DATE", "'0001-01-01'")]
+#[case::future_timestamp("TIMESTAMP", "'57439-03-01 00:00:00'")]
+#[case::ancient_timestamp("TIMESTAMP", "'0001-01-01 00:00:00'")]
+fn datetime_overflow_reports_error(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE overflow_test (id SERIAL, v {col_type});
+        INSERT INTO overflow_test (v) VALUES ({val});
+        "#
+    )
     .execute(&mut conn);
 
-    let rows: Vec<(i32,)> =
-        "SELECT id FROM wide_ts WHERE id @@@ paradedb.term('t', '2200-06-15 12:00:00'::timestamp)"
-            .fetch(&mut conn);
-    assert_eq!(rows.len(), 1);
-
-    let all_rows: Vec<(i32,)> = "SELECT id FROM wide_ts ORDER BY id".fetch(&mut conn);
-    assert_eq!(all_rows.len(), 3);
-}
-
-#[rstest]
-fn datetime_overflow_date_reports_error(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE overflow_dates (id SERIAL, d DATE);
-    INSERT INTO overflow_dates (d) VALUES ('57439-03-01');
-    "#
-    .execute(&mut conn);
-
-    let result = r#"
-    CREATE INDEX overflow_dates_idx ON overflow_dates USING bm25 (id, d) WITH (key_field = 'id');
-    "#
-    .execute_result(&mut conn);
+    let result = "CREATE INDEX overflow_test_idx ON overflow_test USING bm25 (id, v) WITH (key_field = 'id')".execute_result(&mut conn);
     assert!(
         result.is_err(),
-        "expected error for date beyond Tantivy nanosecond range"
+        "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
     );
 }
 
 #[rstest]
-fn datetime_overflow_ancient_date_reports_error(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE ancient_dates (id SERIAL, d DATE);
-    INSERT INTO ancient_dates (d) VALUES ('0001-01-01');
-    "#
+#[case::scalar_date("DATE", "'57439-03-01'")]
+#[case::date_array("DATE[]", "ARRAY['57439-03-01'::date]")]
+fn datetime_mutable_segment_rejects_overflow(
+    mut conn: PgConnection,
+    #[case] col_type: &str,
+    #[case] bad_val: &str,
+) {
+    format!(
+        r#"
+        CREATE TABLE mutable_reject (id SERIAL, v {col_type});
+        CREATE INDEX mutable_reject_idx ON mutable_reject USING bm25 (id, v)
+            WITH (key_field = 'id', mutable_segment_rows = 1000);
+        "#
+    )
     .execute(&mut conn);
 
-    let result = r#"
-    CREATE INDEX ancient_dates_idx ON ancient_dates USING bm25 (id, d) WITH (key_field = 'id');
-    "#
-    .execute_result(&mut conn);
+    let result =
+        format!("INSERT INTO mutable_reject (v) VALUES ({bad_val})").execute_result(&mut conn);
     assert!(
         result.is_err(),
-        "expected error for date beyond Tantivy nanosecond range"
-    );
-}
-
-#[rstest]
-fn datetime_overflow_timestamp_reports_error(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE overflow_ts (id SERIAL, t TIMESTAMP);
-    INSERT INTO overflow_ts (t) VALUES ('57439-03-01 00:00:00');
-    "#
-    .execute(&mut conn);
-
-    let result = r#"
-    CREATE INDEX overflow_ts_idx ON overflow_ts USING bm25 (id, t) WITH (key_field = 'id');
-    "#
-    .execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "expected error for timestamp beyond Tantivy nanosecond range"
-    );
-}
-
-#[rstest]
-fn datetime_overflow_ancient_timestamp_reports_error(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE ancient_ts (id SERIAL, t TIMESTAMP);
-    INSERT INTO ancient_ts (t) VALUES ('0001-01-01 00:00:00');
-    "#
-    .execute(&mut conn);
-
-    let result = r#"
-    CREATE INDEX ancient_ts_idx ON ancient_ts USING bm25 (id, t) WITH (key_field = 'id');
-    "#
-    .execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "expected error for timestamp beyond Tantivy nanosecond range"
-    );
-}
-
-#[rstest]
-fn datetime_mutable_segment_validates_on_insert(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE mutable_dates (id SERIAL, d DATE);
-    CREATE INDEX mutable_dates_idx ON mutable_dates USING bm25 (id, d)
-        WITH (key_field = 'id', mutable_segment_rows = 1000);
-    "#
-    .execute(&mut conn);
-
-    let result = "INSERT INTO mutable_dates (d) VALUES ('57439-03-01')".execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "mutable segment insert should fail for date beyond Tantivy nanosecond range"
+        "mutable segment insert should fail for {col_type} with out-of-range value"
     );
 }
 
@@ -293,27 +253,4 @@ fn datetime_mutable_segment_accepts_valid_dates(mut conn: PgConnection) {
 
     let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_valid ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 2);
-}
-
-#[rstest]
-fn datetime_mutable_segment_validates_date_array(mut conn: PgConnection) {
-    r#"
-    CREATE TABLE mutable_date_arr (id SERIAL, dates DATE[]);
-    CREATE INDEX mutable_date_arr_idx ON mutable_date_arr USING bm25 (id, dates)
-        WITH (key_field = 'id', mutable_segment_rows = 1000);
-    "#
-    .execute(&mut conn);
-
-    let result = "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['57439-03-01'::date])"
-        .execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "mutable segment insert should fail for date array with out-of-range element"
-    );
-
-    "INSERT INTO mutable_date_arr (dates) VALUES (ARRAY['2024-06-15'::date, '1980-01-01'::date])"
-        .execute(&mut conn);
-
-    let all_rows: Vec<(i32,)> = "SELECT id FROM mutable_date_arr ORDER BY id".fetch(&mut conn);
-    assert_eq!(all_rows.len(), 1);
 }

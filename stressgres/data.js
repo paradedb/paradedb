@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770769005139,
+  "lastUpdate": 1770769009791,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3978,6 +3978,114 @@ window.BENCHMARK_DATA = {
             "value": 170.88671875,
             "unit": "median mem",
             "extra": "avg mem: 167.5897293439572, max mem: 172.1484375, count: 55347"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084451f652ebc5c322fbf12b0189bc5e229dce3a",
+          "message": "fix: reduce overhead for ngram match queries and add TEXT[] regression coverage (#4150)\n\n# Ticket(s) Closed\n\n- Closes #2884\n\n## What\n\nMinor optimization to `match_query` and new regression test covering\nngram search on TEXT[] columns with `conjunction_mode`.\n\n## Why\n\nA it's reported in #2884, slow ngram searches (~16 queries/s vs ~70\nwithout ngram) on a 350k-row TEXT[] column. We investigated and found\nthe N-way posting list intersection in `BooleanQuery` with many Must\nclauses is inherently expensive and can't be fundamentally improved at\nthe pg_search level. However, we identified two sources of unnecessary\noverhead in how `match_query` constructs the query.\n\n## How\n\n1. **`IndexRecordOption::WithFreqs` instead of `WithFreqsAndPositions`**\n— `match_query` creates `TermQuery` instances inside a `BooleanQuery`.\nThe BooleanQuery scorer only uses doc iteration and BM25 scores, never\npositions. `WithFreqsAndPositions` was requesting position data that was\nnever read. `WithFreqs` produces identical BM25 scores with less\nper-document overhead.\n\n2. **Deduplicate terms for conjunction mode** — For queries with\nrepeated ngram tokens (e.g., strings with repeated substrings),\nduplicate Must clauses add intersection work without changing which\ndocuments match. Dedup removes them before building the query.\n\nBoth changes preserve identical matching semantics and BM25 scoring.\n\n## Tests\n\nNew `ngram-text-array` regression test covering the exact pattern from\nthe reported issue: TEXT[] column with ICU + ngram alias fields, `match`\nwith `conjunction_mode`, `disjunction_max`, edge cases (short queries,\nsingle-token queries), and the JSON `::jsonb` query path.",
+          "timestamp": "2026-02-10T15:11:24-08:00",
+          "tree_id": "ce5fefd07b9871c52c5cd32b82b7f79613310334",
+          "url": "https://github.com/paradedb/paradedb/commit/084451f652ebc5c322fbf12b0189bc5e229dce3a"
+        },
+        "date": 1770769006061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.55581444858819, max cpu: 42.436146, count: 55479"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 140.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 135.13516354442672, max mem: 176.57421875, count: 55479"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.654299941189489, max cpu: 33.005894, count: 55479"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.94135238671389, max mem: 120.3125, count: 55479"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819493002518741, max cpu: 13.93998, count: 55479"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 122.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.97202763376683, max mem: 159.55078125, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13653,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13741.56873772058, max block_count: 24104.0, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.131829635994176, max cpu: 4.7058825, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 95.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.23034173121812, max mem: 133.87890625, count: 55479"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 23,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.46500477658213, max segment_count: 40.0, count: 55479"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.828444914629326, max cpu: 42.436146, count: 110958"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 161.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.12939809573217, max mem: 164.45703125, count: 110958"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.532283604645068, max cpu: 27.77242, count: 55479"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.22757872066458, max mem: 172.17578125, count: 55479"
           }
         ]
       }

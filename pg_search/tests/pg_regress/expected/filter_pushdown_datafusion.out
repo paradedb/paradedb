@@ -105,10 +105,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |   name   | supplier_name 
 ----+----------+---------------
   1 | Laptop   | TechCorp
@@ -157,10 +153,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |  name   | supplier_name 
 ----+---------+---------------
   4 | Monitor | DisplayPro
@@ -212,10 +204,6 @@ WHERE p.price > 100
   AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |   name   | price  | supplier_name 
 ----+----------+--------+---------------
   1 | Laptop   | 999.99 | TechCorp
@@ -265,10 +253,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -320,10 +304,6 @@ WHERE p.stock >= 25
   AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |    name    | price  | supplier_name 
 ----+------------+--------+---------------
   1 | Laptop     | 999.99 | TechCorp
@@ -378,10 +358,6 @@ WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
   AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
-WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id |   name   | supplier_name 
 ----+----------+---------------
   1 | Laptop   | TechCorp
@@ -431,10 +407,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 9 -> 9 rows (0 pruned)
-WARNING:  dynamic filter total: 9 -> 9 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   3 | Keyboard   | TechCorp
@@ -485,10 +457,6 @@ WHERE (p.description @@@ 'laptop OR headphones')
   AND (s.description @@@ 'technology OR audio')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
-WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
-WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -539,10 +507,6 @@ WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
     OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
-WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 2 -> 2 rows (0 pruned)
-WARNING:  dynamic filter total: 2 -> 2 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -591,10 +555,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 10 -> 10 rows (0 pruned)
-WARNING:  dynamic filter total: 10 -> 10 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp

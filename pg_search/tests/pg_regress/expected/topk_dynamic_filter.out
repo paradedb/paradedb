@@ -89,10 +89,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id
 LIMIT 3;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 30 -> 30 rows (0 pruned)
-WARNING:  dynamic filter total: 30 -> 30 rows (0 pruned, 0.0%)
  id |   name    | supplier_name 
 ----+-----------+---------------
   1 | Product 1 | BetaGoods
@@ -143,10 +139,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
-WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 30 -> 6 rows (24 pruned)
-WARNING:  dynamic filter total: 30 -> 6 rows (24 pruned, 80.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   4 | Product 4  | EpsilonTech
@@ -194,10 +186,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id DESC
 LIMIT 2;
-WARNING:  dynamic filter: batch 5 -> 5 rows (0 pruned)
-WARNING:  dynamic filter total: 5 -> 5 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 30 -> 30 rows (0 pruned)
-WARNING:  dynamic filter total: 30 -> 30 rows (0 pruned, 0.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
  30 | Product 30 | AlphaSupply
@@ -244,8 +232,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.price ASC
 LIMIT 2;
-WARNING:  dynamic filter: batch 30 -> 30 rows (0 pruned)
-WARNING:  dynamic filter total: 30 -> 30 rows (0 pruned, 0.0%)
  id |   name    | price | supplier_name 
 ----+-----------+-------+---------------
   1 | Product 1 | 19.80 | BetaGoods
@@ -293,10 +279,6 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
 ORDER BY p.id
 LIMIT 5;
-WARNING:  dynamic filter: batch 1 -> 1 rows (0 pruned)
-WARNING:  dynamic filter total: 1 -> 1 rows (0 pruned, 0.0%)
-WARNING:  dynamic filter: batch 30 -> 6 rows (24 pruned)
-WARNING:  dynamic filter total: 30 -> 6 rows (24 pruned, 80.0%)
  id |    name    | supplier_name 
 ----+------------+---------------
   2 | Product 2  | GammaParts

@@ -533,11 +533,6 @@ impl ScanStream {
         self.rows_before_filter += before;
         self.rows_after_filter += after;
 
-        pgrx::warning!(
-            "dynamic filter: batch {before} -> {after} rows ({} pruned)",
-            before - after
-        );
-
         if after == 0 {
             Ok(None)
         } else {
@@ -562,21 +557,6 @@ impl Stream for ScanStream {
                     }
                 }
                 None => {
-                    if !this.dynamic_filters.is_empty() && this.rows_before_filter > 0 {
-                        let pruned = this.rows_before_filter - this.rows_after_filter;
-                        let pct = if this.rows_before_filter > 0 {
-                            (pruned as f64 / this.rows_before_filter as f64) * 100.0
-                        } else {
-                            0.0
-                        };
-                        pgrx::warning!(
-                            "dynamic filter total: {} -> {} rows ({} pruned, {:.1}%)",
-                            this.rows_before_filter,
-                            this.rows_after_filter,
-                            pruned,
-                            pct
-                        );
-                    }
                     return Poll::Ready(None);
                 }
             }

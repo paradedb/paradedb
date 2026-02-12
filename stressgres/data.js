@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770931285415,
+  "lastUpdate": 1770931290346,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3512,6 +3512,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.03561288088643, max segment_count: 123.0, count: 57760"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "655ee8b04cab31c056cb41a89d677b896630ed16",
+          "message": "feat: join-scan: surface dynamic filter metrics in EXPLAIN ANALYZE (#4162)\n\n# Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nUsed DataFusion metrics, and made dynamic filter pruning stats visible\nthrough `EXPLAIN ANALYZE`.\n\n## Why\n\n`EXPLAIN ANALYZE` is the natural place for execution-time stats.\n\n## How\n\n- Added `ExecutionPlanMetricsSet` to `SegmentPlan` with two custom\ncounters (`rows_scanned`, `rows_pruned`), only registered when dynamic\nfilters are present.\n\n## Tests\n\n- Updated `topk_dynamic_filter` regression test to use `EXPLAIN\n(ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)` — verifying\n`Dynamic Filter` lines appear with correct pruning stats (e.g., `30\nscanned, 24 pruned (80.0%)`).\n- Updated `join_custom_scan` and `filter_pushdown_datafusion` expected\noutput.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-02-12T12:45:44-08:00",
+          "tree_id": "8c73104c0b40b30047e010ebfba45fb9add3f7e8",
+          "url": "https://github.com/paradedb/paradedb/commit/655ee8b04cab31c056cb41a89d677b896630ed16"
+        },
+        "date": 1770931286506,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.25296884466299, max cpu: 43.373497, count: 57893"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.60848954374882, max mem: 237.23828125, count: 57893"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43228396080314, max cpu: 33.23442, count: 57893"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 174.875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.12067413158758, max mem: 175.96484375, count: 57893"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33941,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33442.75928005113, max block_count: 35959.0, count: 57893"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.92233948836648, max segment_count: 127.0, count: 57893"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770930320841,
+  "lastUpdate": 1770930327313,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2292,6 +2292,138 @@ window.BENCHMARK_DATA = {
             "value": 53.953125,
             "unit": "median mem",
             "extra": "avg mem: 51.94206449214926, max mem: 65.515625, count: 55154"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "655ee8b04cab31c056cb41a89d677b896630ed16",
+          "message": "feat: join-scan: surface dynamic filter metrics in EXPLAIN ANALYZE (#4162)\n\n# Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nUsed DataFusion metrics, and made dynamic filter pruning stats visible\nthrough `EXPLAIN ANALYZE`.\n\n## Why\n\n`EXPLAIN ANALYZE` is the natural place for execution-time stats.\n\n## How\n\n- Added `ExecutionPlanMetricsSet` to `SegmentPlan` with two custom\ncounters (`rows_scanned`, `rows_pruned`), only registered when dynamic\nfilters are present.\n\n## Tests\n\n- Updated `topk_dynamic_filter` regression test to use `EXPLAIN\n(ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)` — verifying\n`Dynamic Filter` lines appear with correct pruning stats (e.g., `30\nscanned, 24 pruned (80.0%)`).\n- Updated `join_custom_scan` and `filter_pushdown_datafusion` expected\noutput.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-02-12T12:45:44-08:00",
+          "tree_id": "8c73104c0b40b30047e010ebfba45fb9add3f7e8",
+          "url": "https://github.com/paradedb/paradedb/commit/655ee8b04cab31c056cb41a89d677b896630ed16"
+        },
+        "date": 1770930323479,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.21521263379245, max cpu: 24.439917, count: 55049"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.53373556967429, max mem: 74.0390625, count: 55049"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608623959616678, max cpu: 9.302325, count: 55049"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.33349855072299, max mem: 37.30078125, count: 55049"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.673847315387429, max cpu: 9.29332, count: 55049"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.4067821253565, max mem: 72.234375, count: 55049"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.635732689801101, max cpu: 9.67742, count: 110098"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 48.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.75996498573998, max mem: 60.00390625, count: 110098"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.303350515555923, max cpu: 19.551935, count: 55049"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.75799869775109, max mem: 73.1640625, count: 55049"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1734,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1741.582172246544, max block_count: 3125.0, count: 55049"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.707042816399934, max segment_count: 30.0, count: 55049"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.273339356071607, max cpu: 14.51613, count: 55049"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.711756372731564, max mem: 73.078125, count: 55049"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.567020443913195, max cpu: 4.83871, count: 55049"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.605225075046775, max mem: 62.59765625, count: 55049"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.079759486710634, max cpu: 4.64666, count: 55049"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.138149790414, max mem: 66.08203125, count: 55049"
           }
         ]
       }

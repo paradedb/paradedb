@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770938923169,
+  "lastUpdate": 1770938928819,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2700,6 +2700,138 @@ window.BENCHMARK_DATA = {
             "value": 54.203125,
             "unit": "median mem",
             "extra": "avg mem: 53.93595403348969, max mem: 66.33984375, count: 55002"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770938924914,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.120644907311245, max cpu: 29.357798, count: 55147"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.29998727831976, max mem: 74.7734375, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.619364550688875, max cpu: 9.29332, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 35.8688529351098, max mem: 37.83203125, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629923173253462, max cpu: 9.248554, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.079708480855714, max mem: 72.953125, count: 55147"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.683947637488085, max cpu: 9.628887, count: 110294"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.51079207192821, max mem: 60.7578125, count: 110294"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.392260024081133, max cpu: 19.393938, count: 55147"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.75,
+            "unit": "median mem",
+            "extra": "avg mem: 62.47737779253631, max mem: 73.93359375, count: 55147"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1815,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1816.3493027725897, max block_count: 3216.0, count: 55147"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.228734110649718, max segment_count: 31.0, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3631501088200775, max cpu: 18.934912, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.41769674970987, max mem: 73.87109375, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611983332332859, max cpu: 9.257474, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.45661326205415, max mem: 63.51953125, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.687555585449164, max cpu: 4.7058825, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.559063304667525, max mem: 68.03515625, count: 55147"
           }
         ]
       }

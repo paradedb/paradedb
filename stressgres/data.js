@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770918989623,
+  "lastUpdate": 1770918994479,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2912,6 +2912,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.6069865962914, max segment_count: 126.0, count: 57596"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aec8447addadd4def1cf10f4d11e24c1755fadb",
+          "message": "chore: Remove tuned_postgres from /benchmarks (#4167)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nWe are moving user-facing benchmarks to a much more complete project,\nwhich will be in a separate repository. This is no longer relevant to\nkeep here, so removing.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-02-12T12:21:38-05:00",
+          "tree_id": "3502c5fdf7ad1b45110e95b70c181dd5ca1eae37",
+          "url": "https://github.com/paradedb/paradedb/commit/2aec8447addadd4def1cf10f4d11e24c1755fadb"
+        },
+        "date": 1770918990672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.395133304554204, max cpu: 42.857143, count: 57864"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 236.1071346983876, max mem: 237.73046875, count: 57864"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.322019498110382, max cpu: 33.3996, count: 57864"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.43184537503888, max mem: 176.32421875, count: 57864"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33836,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33269.37232130513, max block_count: 35997.0, count: 57864"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.85258537259782, max segment_count: 128.0, count: 57864"
           }
         ]
       }

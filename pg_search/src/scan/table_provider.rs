@@ -36,7 +36,7 @@ use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::execution_plan::{MultiSegmentPlan, ScanState};
+use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::{Scanner, VisibilityChecker};
@@ -183,8 +183,8 @@ impl PgSearchTableProvider {
             ));
         }
 
-        // Return MultiSegmentPlan directly (without SortPreservingMergeExec).
-        Ok(Arc::new(MultiSegmentPlan::new(
+        // Return PgSearchScanPlan directly (without SortPreservingMergeExec).
+        Ok(Arc::new(PgSearchScanPlan::new(
             segments,
             self.get_schema(),
             query_for_display,
@@ -231,7 +231,7 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        Ok(Arc::new(MultiSegmentPlan::new(
+        Ok(Arc::new(PgSearchScanPlan::new(
             segments,
             self.get_schema(),
             query_for_display,

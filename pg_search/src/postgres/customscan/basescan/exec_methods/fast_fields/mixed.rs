@@ -33,7 +33,7 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{create_sorted_scan, SegmentPlan};
+use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -431,13 +431,13 @@ impl MixedFastFieldExecState {
             .expect("MixedFastFieldsExecState: visibility_checker should be initialized")
             .clone();
 
-        // Create SegmentPlan and execute via DataFusion
-        let plan = SegmentPlan::new(
-            scanner,
-            Arc::clone(ffhelper),
-            Box::new(visibility),
+        // Create PgSearchScanPlan and execute via DataFusion
+        let plan = PgSearchScanPlan::new(
+            vec![(scanner, Arc::clone(ffhelper), Box::new(visibility))],
+            build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

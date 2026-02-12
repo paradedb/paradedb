@@ -18,13 +18,13 @@
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+    use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
     use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
-    use crate::scan::execution_plan::SegmentPlan;
+    use crate::scan::execution_plan::PgSearchScanPlan;
     use crate::scan::Scanner;
     use crate::schema::SearchFieldType;
     use datafusion::execution::TaskContext;
@@ -92,13 +92,13 @@ mod tests {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(search_results, None, fields, heap_oid.into());
+        let scanner = Scanner::new(search_results, None, fields.clone(), heap_oid.into());
 
-        let plan = SegmentPlan::new(
-            scanner,
-            ffhelper.into(),
-            Box::new(visibility),
+        let plan = PgSearchScanPlan::new(
+            vec![(scanner, ffhelper.into(), Box::new(visibility))],
+            build_arrow_schema(&fields),
             SearchQueryInput::All,
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

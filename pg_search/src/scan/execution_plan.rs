@@ -80,7 +80,6 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::batch_scanner::DYNAMIC_FILTER_BATCH_SIZE;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::{Scanner, VisibilityChecker};
 
@@ -426,15 +425,11 @@ impl ExecutionPlan for SegmentPlan {
         let mut state = self.state.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock SegmentPlan state: {e}"))
         })?;
-        let UnsafeSendSync((mut scanner, ffhelper, visibility)) =
-            state.take().ok_or_else(|| {
-                DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
-            })?;
+        let UnsafeSendSync((scanner, ffhelper, visibility)) = state.take().ok_or_else(|| {
+            DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
+        })?;
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
-        if has_dynamic_filters {
-            scanner.set_batch_size(DYNAMIC_FILTER_BATCH_SIZE);
-        }
         let rows_scanned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
         let rows_pruned = has_dynamic_filters

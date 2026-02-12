@@ -47,7 +47,6 @@
 //!         as a distinct sorted stream.
 
 use std::any::Any;
-use std::ops::Bound;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -55,12 +54,9 @@ use std::task::{Context, Poll};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use arrow_schema::SortOptions;
-use datafusion::common::{DataFusionError, Result, ScalarValue};
+use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::logical_expr::Operator;
-use datafusion::physical_expr::expressions::{
-    BinaryExpr, Column, DynamicFilterPhysicalExpr, Literal,
-};
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
 use datafusion::physical_expr::{
     EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
 };
@@ -84,7 +80,8 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
-use crate::scan::{PreFilter, PreFilterValue, Scanner, VisibilityChecker};
+use crate::scan::pre_filter::{collect_filters, PreFilter};
+use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -390,7 +387,7 @@ impl DisplayAs for SegmentPlan {
             self.query_for_display.explain_format()
         )?;
         if !self.dynamic_filters.is_empty() {
-            write!(f, ", dynamic_filter=true")?;
+            write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
         Ok(())
     }
@@ -532,106 +529,25 @@ struct ScanStream {
 
 impl ScanStream {
     /// Evaluate the current dynamic filter expressions and convert them into
-    /// `PreFilter`s that the `Scanner` can apply before column materialization.
+    /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
     ///
     /// This is called on every `poll_next` so that tightening thresholds (e.g.
     /// from TopK) are picked up immediately.
-    fn build_pre_filters(&self) -> Vec<PreFilter> {
-        let mut pre_filters = Vec::new();
+    ///
+    /// Only filter predicates that can be lowered to fast-field or term-ordinal
+    /// comparisons are retained. Anything else (unsupported types, non-comparison
+    /// operators) is silently dropped — the parent operator is still responsible
+    /// for enforcing the full predicate, so correctness is not affected.
+    fn build_filters(&self) -> Vec<PreFilter> {
+        let mut filters = Vec::new();
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    collect_pre_filters(&*current_expr, &mut pre_filters);
+                    collect_filters(&*current_expr, &mut filters);
                 }
             }
         }
-        pre_filters
-    }
-}
-
-/// Recursively decompose a `PhysicalExpr` into `PreFilter`s.
-///
-/// Handles:
-/// - `BinaryExpr(Column, Lt/LtEq/Gt/GtEq, Literal)` and the reversed form
-/// - `BinaryExpr(left, And, right)` — recurses into both children
-/// - Anything else (including `Literal(true)`) is silently skipped.
-fn collect_pre_filters(expr: &dyn PhysicalExpr, out: &mut Vec<PreFilter>) {
-    if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
-        let op = binary.op();
-
-        // Handle AND: recurse into both children.
-        if matches!(op, Operator::And) {
-            collect_pre_filters(binary.left().as_ref(), out);
-            collect_pre_filters(binary.right().as_ref(), out);
-            return;
-        }
-
-        // Try Column op Literal
-        if let Some(pf) = try_column_op_literal(binary.left(), op, binary.right()) {
-            out.push(pf);
-            return;
-        }
-
-        // Try Literal op Column (reversed)
-        if let Some(reversed_op) = flip_operator(op) {
-            if let Some(pf) = try_column_op_literal(binary.right(), &reversed_op, binary.left()) {
-                out.push(pf);
-            }
-        }
-    }
-}
-
-/// Try to build a `PreFilter` from `Column op Literal`.
-fn try_column_op_literal(
-    left: &Arc<dyn PhysicalExpr>,
-    op: &Operator,
-    right: &Arc<dyn PhysicalExpr>,
-) -> Option<PreFilter> {
-    let col = left.as_any().downcast_ref::<Column>()?;
-    let lit = right.as_any().downcast_ref::<Literal>()?;
-    let value = scalar_to_pre_filter_value(lit.value())?;
-    let ff_index = col.index();
-
-    let (lower, upper) = match op {
-        Operator::Lt => (Bound::Unbounded, Bound::Excluded(value)),
-        Operator::LtEq => (Bound::Unbounded, Bound::Included(value)),
-        Operator::Gt => (Bound::Excluded(value), Bound::Unbounded),
-        Operator::GtEq => (Bound::Included(value), Bound::Unbounded),
-        _ => return None,
-    };
-
-    Some(PreFilter {
-        ff_index,
-        lower,
-        upper,
-    })
-}
-
-/// Flip a comparison operator so that `Literal op Column` becomes `Column flipped_op Literal`.
-fn flip_operator(op: &Operator) -> Option<Operator> {
-    match op {
-        Operator::Lt => Some(Operator::Gt),
-        Operator::LtEq => Some(Operator::GtEq),
-        Operator::Gt => Some(Operator::Lt),
-        Operator::GtEq => Some(Operator::LtEq),
-        _ => None,
-    }
-}
-
-/// Convert a DataFusion `ScalarValue` to a `PreFilterValue`.
-fn scalar_to_pre_filter_value(scalar: &ScalarValue) -> Option<PreFilterValue> {
-    match scalar {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::Utf8View(Some(s))
-        | ScalarValue::LargeUtf8(Some(s)) => Some(PreFilterValue::Bytes(s.as_bytes().to_vec())),
-        ScalarValue::Int64(Some(v)) => Some(PreFilterValue::I64(*v)),
-        ScalarValue::Int32(Some(v)) => Some(PreFilterValue::I64(*v as i64)),
-        ScalarValue::Int16(Some(v)) => Some(PreFilterValue::I64(*v as i64)),
-        ScalarValue::Float64(Some(v)) => Some(PreFilterValue::F64(*v)),
-        ScalarValue::Float32(Some(v)) => Some(PreFilterValue::F64(*v as f64)),
-        ScalarValue::UInt64(Some(v)) => Some(PreFilterValue::U64(*v)),
-        ScalarValue::UInt32(Some(v)) => Some(PreFilterValue::U64(*v as u64)),
-        _ => None,
+        filters
     }
 }
 
@@ -640,7 +556,7 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        let pre_filters = this.build_pre_filters();
+        let pre_filters = this.build_filters();
         match this
             .scanner
             .next(&this.ffhelper, &mut *this.visibility, &pre_filters)

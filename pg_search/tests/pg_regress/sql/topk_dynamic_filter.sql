@@ -61,7 +61,7 @@ WITH (key_field = 'id');
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
--- TEST 1: EXPLAIN shows dynamic_filter=true on PgSearchScan with ORDER BY + LIMIT
+-- TEST 1: EXPLAIN shows dynamic_filters on PgSearchScan with ORDER BY + LIMIT
 -- =============================================================================
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

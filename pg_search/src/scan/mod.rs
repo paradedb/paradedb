@@ -20,12 +20,13 @@ pub mod codec;
 pub mod execution_plan;
 pub mod filter_pushdown;
 pub mod info;
+pub mod pre_filter;
 pub mod search_predicate_udf;
 pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 
-pub use batch_scanner::{PreFilter, PreFilterValue, Scanner};
+pub use batch_scanner::Scanner;
 pub use codec::PgSearchExtensionCodec;
 pub use info::ScanInfo;
 pub use search_predicate_udf::SearchPredicateUDF;

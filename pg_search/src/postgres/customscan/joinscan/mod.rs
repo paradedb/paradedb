@@ -873,11 +873,17 @@ impl CustomScan for JoinScan {
         }
 
         if explainer.is_analyze() {
-            // For EXPLAIN ANALYZE, render the plan with deterministic metrics inline.
+            // For EXPLAIN ANALYZE, render the plan with metrics inline.
+            // VERBOSE includes timing; without VERBOSE, timing is stripped for stable output.
             if let Some(ref physical_plan) = state.custom_state().physical_plan {
                 explainer.add_text("DataFusion Physical Plan", "");
                 let mut lines = Vec::new();
-                render_plan_with_metrics(physical_plan.as_ref(), 0, &mut lines);
+                render_plan_with_metrics(
+                    physical_plan.as_ref(),
+                    0,
+                    explainer.is_verbose(),
+                    &mut lines,
+                );
                 for line in &lines {
                     explainer.add_text("  ", line);
                 }
@@ -1172,18 +1178,24 @@ impl JoinScan {
     }
 }
 
-/// Render a DataFusion physical plan tree with deterministic metrics.
+/// Render a DataFusion physical plan tree with metrics.
 ///
-/// Each node is rendered via its `DisplayAs` implementation, followed by any
-/// non-timing metrics (e.g. `output_rows`, `rows_scanned`, `rows_pruned`).
-/// Timing metrics (`elapsed_compute`, named `Time` values) are stripped so that
-/// regression test output remains stable.
+/// Each node is rendered via its `DisplayAs` implementation, followed by
+/// collected metrics.  When `include_timing` is false, timing metrics
+/// (`elapsed_compute`, named `Time` values) are stripped so that regression
+/// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
+/// to include everything.
 ///
 /// TODO: In parallel mode each worker runs its own `exec_custom_scan` with its
 /// own plan instances, so the metrics stored on the leader's plan only reflect
 /// the leader's share of the work.  Once JoinScan parallelism is refactored
 /// (#4152), aggregate these across workers.
-fn render_plan_with_metrics(plan: &dyn ExecutionPlan, indent: usize, lines: &mut Vec<String>) {
+fn render_plan_with_metrics(
+    plan: &dyn ExecutionPlan,
+    indent: usize,
+    include_timing: bool,
+    lines: &mut Vec<String>,
+) {
     use std::fmt::Write;
 
     let mut line = format!("{:indent$}", "", indent = indent * 2);
@@ -1197,16 +1209,18 @@ fn render_plan_with_metrics(plan: &dyn ExecutionPlan, indent: usize, lines: &mut
     write!(line, "{}", Fmt(plan)).unwrap();
 
     if let Some(metrics) = plan.metrics() {
-        let parts: Vec<String> = metrics
+        let aggregated = metrics
             .aggregate_by_name()
             .sorted_for_display()
-            .timestamps_removed()
+            .timestamps_removed();
+        let parts: Vec<String> = aggregated
             .iter()
             .filter(|m| {
-                !matches!(
-                    m.value(),
-                    MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
-                )
+                include_timing
+                    || !matches!(
+                        m.value(),
+                        MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
+                    )
             })
             .map(|m| m.to_string())
             .collect();
@@ -1217,6 +1231,6 @@ fn render_plan_with_metrics(plan: &dyn ExecutionPlan, indent: usize, lines: &mut
 
     lines.push(line);
     for child in plan.children() {
-        render_plan_with_metrics(child.as_ref(), indent + 1, lines);
+        render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
 }

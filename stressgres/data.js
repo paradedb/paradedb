@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770938699864,
+  "lastUpdate": 1770938923169,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -926,6 +926,78 @@ window.BENCHMARK_DATA = {
             "value": 55.09741975785236,
             "unit": "median tps",
             "extra": "avg tps: 98.66840427846833, max tps: 227.2937433343742, count: 55002"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770938919320,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.14942756551274,
+            "unit": "median tps",
+            "extra": "avg tps: 125.85625076241112, max tps: 135.90092933759743, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2979.9328540666083,
+            "unit": "median tps",
+            "extra": "avg tps: 2968.7107826271854, max tps: 3038.8539873842774, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 452.1658673090475,
+            "unit": "median tps",
+            "extra": "avg tps: 457.47747372962175, max tps: 631.7582337050599, count: 55147"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3009.56688546176,
+            "unit": "median tps",
+            "extra": "avg tps: 3002.932545044477, max tps: 3031.4188673642357, count: 110294"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 515.3907160660846,
+            "unit": "median tps",
+            "extra": "avg tps: 517.8926483020041, max tps: 670.1722549952312, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 509.25393148572107,
+            "unit": "median tps",
+            "extra": "avg tps: 513.7250017188857, max tps: 645.4572463508334, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1928.1074549508814,
+            "unit": "median tps",
+            "extra": "avg tps: 1923.6140607215286, max tps: 1939.9349199361036, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.65998250411346,
+            "unit": "median tps",
+            "extra": "avg tps: 83.39627466120139, max tps: 343.905563532254, count: 55147"
           }
         ]
       }

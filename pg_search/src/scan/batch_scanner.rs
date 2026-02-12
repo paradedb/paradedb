@@ -43,6 +43,10 @@ use super::VisibilityChecker;
 /// be held in memory at a time.
 const MAX_BATCH_SIZE: usize = 128_000;
 
+/// Batch size when dynamic filters are active. Smaller batches let TopK/HashJoin
+/// thresholds tighten between batches, improving pre-materialization pruning.
+pub const DYNAMIC_FILTER_BATCH_SIZE: usize = 4_096;
+
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// A macro to fetch values for the given ids into an Arrow array.
@@ -152,6 +156,11 @@ impl Scanner {
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {
         build_arrow_schema(&self.which_fast_fields)
+    }
+
+    /// Override the batch size (clamped to `MAX_BATCH_SIZE`).
+    pub fn set_batch_size(&mut self, size: usize) {
+        self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {

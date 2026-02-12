@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770932261328,
+  "lastUpdate": 1770933152388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5960,6 +5960,60 @@ window.BENCHMARK_DATA = {
             "value": 15.120556484612647,
             "unit": "median tps",
             "extra": "avg tps: 15.147494115222631, max tps: 19.659269376720214, count: 55521"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "655ee8b04cab31c056cb41a89d677b896630ed16",
+          "message": "feat: join-scan: surface dynamic filter metrics in EXPLAIN ANALYZE (#4162)\n\n# Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nUsed DataFusion metrics, and made dynamic filter pruning stats visible\nthrough `EXPLAIN ANALYZE`.\n\n## Why\n\n`EXPLAIN ANALYZE` is the natural place for execution-time stats.\n\n## How\n\n- Added `ExecutionPlanMetricsSet` to `SegmentPlan` with two custom\ncounters (`rows_scanned`, `rows_pruned`), only registered when dynamic\nfilters are present.\n\n## Tests\n\n- Updated `topk_dynamic_filter` regression test to use `EXPLAIN\n(ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)` — verifying\n`Dynamic Filter` lines appear with correct pruning stats (e.g., `30\nscanned, 24 pruned (80.0%)`).\n- Updated `join_custom_scan` and `filter_pushdown_datafusion` expected\noutput.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-02-12T12:45:44-08:00",
+          "tree_id": "8c73104c0b40b30047e010ebfba45fb9add3f7e8",
+          "url": "https://github.com/paradedb/paradedb/commit/655ee8b04cab31c056cb41a89d677b896630ed16"
+        },
+        "date": 1770933148612,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.032229574095123,
+            "unit": "median tps",
+            "extra": "avg tps: 30.908424209519435, max tps: 32.69058869329126, count: 55521"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.81551263761267,
+            "unit": "median tps",
+            "extra": "avg tps: 264.3553776298923, max tps: 2587.181178429406, count: 55521"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1916.882176645583,
+            "unit": "median tps",
+            "extra": "avg tps: 1905.6549610182462, max tps: 2256.0405632577367, count: 55521"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.53842325340537,
+            "unit": "median tps",
+            "extra": "avg tps: 199.9805781864525, max tps: 1630.7987103222947, count: 111042"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.887416055233148,
+            "unit": "median tps",
+            "extra": "avg tps: 14.998501013299439, max tps: 19.614406656156746, count: 55521"
           }
         ]
       }

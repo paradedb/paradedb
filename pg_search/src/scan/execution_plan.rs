@@ -52,7 +52,6 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use arrow_schema::SortOptions;
@@ -548,41 +547,6 @@ impl ScanStream {
         }
         pre_filters
     }
-
-    /// Apply all dynamic filters to a RecordBatch, returning only rows that pass.
-    fn apply_dynamic_filters(&mut self, batch: RecordBatch) -> Result<Option<RecordBatch>> {
-        if self.dynamic_filters.is_empty() {
-            return Ok(Some(batch));
-        }
-
-        let before = batch.num_rows();
-        let mut current = batch;
-
-        for filter in &self.dynamic_filters {
-            if current.num_rows() == 0 {
-                break;
-            }
-            let result = filter.evaluate(&current)?;
-            let mask = result.into_array(current.num_rows())?;
-            let mask = mask.as_boolean();
-            current = arrow_select::filter::filter_record_batch(&current, mask)
-                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
-        }
-
-        let after = current.num_rows();
-        if let Some(ref counter) = self.rows_scanned {
-            counter.add(before);
-        }
-        if let Some(ref counter) = self.rows_pruned {
-            counter.add(before - after);
-        }
-
-        if after == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(current))
-        }
-    }
 }
 
 /// Recursively decompose a `PhysicalExpr` into `PreFilter`s.
@@ -677,29 +641,20 @@ impl Stream for ScanStream {
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let pre_filters = this.build_pre_filters();
-        loop {
-            match this
-                .scanner
-                .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
-            {
-                Some(batch) => {
-                    let record_batch = batch.to_record_batch(&this.schema);
-                    match this.apply_dynamic_filters(record_batch) {
-                        Ok(Some(filtered)) => return Poll::Ready(Some(Ok(filtered))),
-                        Ok(None) => continue, // Entire batch was pruned, get next
-                        Err(e) => return Poll::Ready(Some(Err(e))),
-                    }
+        match this
+            .scanner
+            .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
+        {
+            Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
+            None => {
+                // Flush pre-materialization filter stats from Scanner.
+                if let Some(ref counter) = this.rows_scanned {
+                    counter.add(this.scanner.pre_filter_rows_scanned);
                 }
-                None => {
-                    // Flush pre-materialization filter stats from Scanner.
-                    if let Some(ref counter) = this.rows_scanned {
-                        counter.add(this.scanner.pre_filter_rows_scanned);
-                    }
-                    if let Some(ref counter) = this.rows_pruned {
-                        counter.add(this.scanner.pre_filter_rows_pruned);
-                    }
-                    return Poll::Ready(None);
+                if let Some(ref counter) = this.rows_pruned {
+                    counter.add(this.scanner.pre_filter_rows_pruned);
                 }
+                Poll::Ready(None)
             }
         }
     }

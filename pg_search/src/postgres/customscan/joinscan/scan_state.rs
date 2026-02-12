@@ -113,6 +113,9 @@ pub struct JoinScanState {
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
+    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
+    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+
     /// Shared state for parallel execution.
     /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in

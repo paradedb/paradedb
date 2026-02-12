@@ -207,8 +207,8 @@ impl MultiSegmentSearchResults {
 
     /// Returns the total estimated number of documents across all segments in these results.
     ///
-    /// The result is returned as `u64` to avoid overflow when summing up estimates from
-    /// multiple segments.
+    /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
+    /// for this iterator.
     pub fn estimated_doc_count(&self) -> u64 {
         self.iterators
             .iter()

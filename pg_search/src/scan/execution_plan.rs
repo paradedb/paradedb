@@ -85,8 +85,13 @@ pub struct PgSearchScanPlan {
     /// We use a Mutex to allow taking ownership of the scanners during `execute()`.
     /// We wrap the state in `UnsafeSendSync` to satisfy `ExecutionPlan`'s `Send` + `Sync`
     /// requirements. This is safe because we are running in a single-threaded
-    /// environment (Postgres).
+    /// environment (Postgres), which also means that the duration for which we
+    /// hold this Mutex does not impact performance.
     states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
+    /// Estimated row counts for each partition, computed once at construction.
+    /// Stored separately so `partition_statistics` is deterministic, even after
+    /// the states have been consumed.
+    partition_row_counts: Vec<u64>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
@@ -134,6 +139,15 @@ impl PgSearchScanPlan {
             Boundedness::Bounded,
         );
 
+        let partition_row_counts: Vec<u64> = if states.is_empty() {
+            vec![0]
+        } else {
+            states
+                .iter()
+                .map(|(scanner, _, _)| scanner.estimated_rows())
+                .collect()
+        };
+
         let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
             .into_iter()
             .map(|s| Some(UnsafeSendSync(s)))
@@ -141,6 +155,7 @@ impl PgSearchScanPlan {
 
         Self {
             states: Mutex::new(wrapped_states),
+            partition_row_counts,
             properties,
             query_for_display,
             dynamic_filters: Vec::new(),
@@ -217,36 +232,17 @@ impl ExecutionPlan for PgSearchScanPlan {
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
-        let state_guard = self.states.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
-        })?;
-
         let num_rows = match partition {
             Some(i) => {
-                if i >= state_guard.len() {
+                if i >= self.partition_row_counts.len() {
                     Precision::Absent
-                } else if let Some(UnsafeSendSync((scanner, _, _))) = state_guard[i].as_ref() {
-                    Precision::Inexact(scanner.estimated_rows())
                 } else {
-                    Precision::Absent
+                    Precision::Inexact(self.partition_row_counts[i] as usize)
                 }
             }
             None => {
-                let mut total = 0;
-                let mut valid = true;
-                for item in state_guard.iter() {
-                    if let Some(UnsafeSendSync((scanner, _, _))) = item.as_ref() {
-                        total += scanner.estimated_rows();
-                    } else {
-                        valid = false;
-                        break;
-                    }
-                }
-                if valid {
-                    Precision::Inexact(total)
-                } else {
-                    Precision::Absent
-                }
+                let sum: u64 = self.partition_row_counts.iter().sum();
+                Precision::Inexact(sum as usize)
             }
         };
 
@@ -381,6 +377,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
+                partition_row_counts: self.partition_row_counts.clone(),
                 properties: self.properties.clone(),
                 query_for_display: self.query_for_display.clone(),
                 dynamic_filters,

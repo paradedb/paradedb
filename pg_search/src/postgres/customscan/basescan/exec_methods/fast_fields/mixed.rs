@@ -374,7 +374,7 @@ impl MixedFastFieldExecState {
     /// Creates a DataFusion stream for the unsorted path.
     ///
     /// Uses PostgreSQL's lazy segment checkout - one segment at a time.
-    /// Each segment is processed through DataFusion's SegmentPlan.
+    /// Each segment is processed through a single-partition [`PgSearchScanPlan`].
     fn create_unsorted_stream(
         &mut self,
         state: &mut BaseScanState,

@@ -27,7 +27,7 @@ use std::process::Command;
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(long, value_parser = ["pg_search", "tuned_postgres"], default_value = "pg_search")]
+    #[arg(long, value_parser = ["pg_search"], default_value = "pg_search")]
     r#type: String,
 
     /// Postgres URL.

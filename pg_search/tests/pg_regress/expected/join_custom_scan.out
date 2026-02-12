@@ -96,8 +96,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -114,10 +114,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -144,8 +144,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard'
 ORDER BY p.id
 LIMIT 5;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -159,14 +159,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(20 rows)
+           :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -188,8 +189,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY s.id
 LIMIT 5;
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, s.id
    ->  Sort
@@ -209,10 +210,10 @@ LIMIT 5;
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id]
                  :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=1
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (23 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -313,8 +314,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 5;
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    ->  Result
@@ -333,10 +334,10 @@ LIMIT 5;
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: "all"
+                 :           PgSearchScan: segments=1, query="all"
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
@@ -367,8 +368,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    ->  Result
@@ -387,10 +388,10 @@ LIMIT 5;
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
                  :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=1
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id) AS score
@@ -424,8 +425,8 @@ WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(s.id))
    ->  Custom Scan (ParadeDB Join Scan)
@@ -442,10 +443,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@1)], projection=[score@0, ctid_2@1, ctid_1@3, id@5]
            :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(s.id) AS supplier_score
@@ -479,8 +480,8 @@ WHERE p.description @@@ 'wireless'
   AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id)), (paradedb.score(s.id))
    ->  Result
@@ -499,10 +500,10 @@ LIMIT 10;
                  :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, score@3, ctid_1@4, id@6]
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :       ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (22 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name,
@@ -531,8 +532,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 ORDER BY p.id
 LIMIT 10;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -549,10 +550,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -608,10 +609,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -687,10 +688,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -743,8 +744,8 @@ WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
 WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, c.name
    ->  Sort
@@ -768,10 +769,10 @@ WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p,
                        :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
                        :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                        :         CooperativeExec
-                       :           PgSearchScan: "all", dynamic_filters=1
+                       :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
                        :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
                        :         CooperativeExec
-                       :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+                       :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                ->  Hash
                      Output: c.name, c.id
                      ->  Seq Scan on public.categories c
@@ -867,10 +868,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -923,8 +924,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.id
 LIMIT 3;
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -938,14 +939,15 @@ LIMIT 3;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=3), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(20 rows)
+           :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -967,8 +969,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'mouse'
 ORDER BY p.price DESC
 LIMIT 3;
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, p.price
    ->  Result
@@ -984,14 +986,15 @@ LIMIT 3;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=3), expr=[price@2 DESC], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, price@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, price@1 as price]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, price@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(23 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1044,8 +1047,8 @@ JOIN customers c ON o.customer_code = c.customer_code
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: o.id, o.description, c.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1062,10 +1065,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_code@1, customer_code@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, customer_code@1 as customer_code]
            :         CooperativeExec
-           :           PgSearchScan: "all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, customer_code@1 as customer_code, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT o.id, o.description, c.name AS customer_name
@@ -1127,8 +1130,8 @@ JOIN warehouses w ON i.region_id = w.region_id AND i.warehouse_code = w.warehous
 WHERE i.product_name @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                           QUERY PLAN                                                                                           
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.product_name, w.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1142,14 +1145,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_2@0, ctid_1@3, id@6]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, region_id@1 as region_id, warehouse_code@2 as warehouse_code]
-           :         CooperativeExec
-           :           PgSearchScan: "all"
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, region_id@1 as region_id, warehouse_code@2 as warehouse_code, id@3 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(20 rows)
+           :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(region_id@1, region_id@1), (warehouse_code@2, warehouse_code@2)], projection=[ctid_1@0, id@3, ctid_2@4]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, region_id@1 as region_id, warehouse_code@2 as warehouse_code, id@3 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_2, region_id@1 as region_id, warehouse_code@2 as warehouse_code]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
 
 SELECT i.id, i.product_name, w.name AS warehouse_name
 FROM inventory i
@@ -1203,8 +1207,8 @@ JOIN item_types t ON i.type_id = t.type_id
 WHERE i.details @@@ 'wireless'
 ORDER BY i.id
 LIMIT 10;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.id, i.name, t.type_name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1221,10 +1225,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(type_id@1, type_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, type_id@1 as type_id]
            :         CooperativeExec
-           :           PgSearchScan: "all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, type_id@1 as type_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"details","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT i.id, i.name, t.type_name
@@ -1295,8 +1299,8 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: lo.id, lo.description, ls.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1313,10 +1317,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT lo.id, lo.description, ls.name AS supplier_name
@@ -1364,10 +1368,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -1392,8 +1396,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (p.description @@@ 'cable' OR p.description @@@ 'stand')
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1410,10 +1414,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"stand","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -1448,8 +1452,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.contact_info @@@ 'shipping' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1464,14 +1468,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}, dynamic_filters=2
-(21 rows)
+           :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0) AND pdb_search_predicate(ctid_1@1), projection=[ctid_1@0, id@2, ctid_2@3]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}},{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(22 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -1514,10 +1519,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_2@0), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -1542,8 +1547,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE NOT (NOT (NOT p.description @@@ 'cable'))
 ORDER BY p.id
 LIMIT 10;
-                                                                                                              QUERY PLAN                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -1560,10 +1565,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}}]}}
 (20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
@@ -1620,8 +1625,8 @@ JOIN authors a ON d.author_code = a.author_code
 WHERE d.content @@@ 'search'
 ORDER BY d.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: d.title, a.name, d.id
    ->  Result
@@ -1637,14 +1642,15 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, author_code@1 as author_code]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, author_code@1 as author_code, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(author_code@1, author_code@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, author_code@1 as author_code, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"search","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, author_code@1 as author_code]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(23 rows)
 
 SELECT d.title, a.name
 FROM docs d
@@ -1697,8 +1703,8 @@ JOIN categories_with_nulls c ON i.category_id = c.id
 WHERE i.content @@@ 'item OR laptop OR novel'
 ORDER BY i.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: i.name, c.name, i.id
    ->  Result
@@ -1714,14 +1720,15 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=1
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"item OR laptop OR novel","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(23 rows)
 
 -- Should return only rows with non-NULL category_id that match the search
 -- The 2 items with NULL category_id are excluded by the JOIN
@@ -1843,8 +1850,8 @@ JOIN order_items oi ON od.order_id = oi.order_id AND od.line_num = oi.line_num
 WHERE od.description @@@ 'wireless'
 ORDER BY od.order_id, od.line_num
 LIMIT 10;
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: od.product_name, oi.quantity, oi.notes, od.order_id, od.line_num
    ->  Sort
@@ -1862,15 +1869,16 @@ LIMIT 10;
                      Order By: od.order_id asc, oi.order_id asc, od.line_num asc, oi.line_num asc
                      DataFusion Physical Plan: 
                        : ProjectionExec: expr=[NULL as col_1, order_id@4 as col_2, line_num@5 as col_3, NULL as col_4, NULL as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
-                       :   SortExec: TopK(fetch=10), expr=[order_id@1 ASC NULLS LAST, line_num@2 ASC NULLS LAST], preserve_partitioning=[false]
-                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)]
-                       :       ProjectionExec: expr=[ctid@0 as ctid_2, order_id@1 as order_id, line_num@2 as line_num]
-                       :         CooperativeExec
-                       :           PgSearchScan: "all", dynamic_filters=1
-                       :       ProjectionExec: expr=[ctid@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
-                       :         CooperativeExec
-                       :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(25 rows)
+                       :   SortExec: TopK(fetch=10), expr=[order_id@4 ASC NULLS LAST, line_num@5 ASC NULLS LAST], preserve_partitioning=[false]
+                       :     ProjectionExec: expr=[ctid_2@3 as ctid_2, order_id@4 as order_id, line_num@5 as line_num, ctid_1@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
+                       :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(order_id@1, order_id@1), (line_num@2, line_num@2)]
+                       :         ProjectionExec: expr=[ctid@0 as ctid_1, order_id@1 as order_id, line_num@2 as line_num]
+                       :           CooperativeExec
+                       :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                       :         ProjectionExec: expr=[ctid@0 as ctid_2, order_id@1 as order_id, line_num@2 as line_num]
+                       :           CooperativeExec
+                       :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(26 rows)
 
 SELECT od.product_name, oi.quantity, oi.notes
 FROM order_details od
@@ -1984,8 +1992,8 @@ JOIN uuid_customers c ON o.customer_id = c.id
 WHERE o.description @@@ 'wireless'
 ORDER BY o.id
 LIMIT 10;
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: o.description, c.name, o.id
    ->  Result
@@ -2001,14 +2009,15 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, customer_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=1
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, customer_id@1 as customer_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(customer_id@1, id@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, customer_id@1 as customer_id, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(23 rows)
 
 SELECT o.description, c.name
 FROM uuid_orders o
@@ -2062,8 +2071,8 @@ JOIN numeric_accounts a ON t.account_num = a.account_num
 WHERE t.description @@@ 'wire'
 ORDER BY t.id
 LIMIT 10;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: t.description, a.holder_name, t.amount, t.id
    ->  Result
@@ -2079,14 +2088,15 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, id@2 as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, account_num@1 as account_num]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, account_num@1 as account_num, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(account_num@1, account_num@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, account_num@1 as account_num, id@2 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wire","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, account_num@1 as account_num]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(23 rows)
 
 -- =============================================================================
 -- TEST 28: Large result set (functional, not performance)
@@ -2327,8 +2337,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE qgen_users.name @@@ 'bob' 
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: qgen_users.id, qgen_users.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2342,14 +2352,15 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :       ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
-           :         CooperativeExec
-           :           PgSearchScan: "all"
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
-           :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(20 rows)
+           :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_1@0, id@2, ctid_2@3]
+           :         ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(21 rows)
 
 SELECT qgen_users.id, qgen_users.name 
 FROM qgen_users 
@@ -2375,8 +2386,8 @@ JOIN qgen_products ON qgen_users.age = qgen_products.age
 WHERE NOT (qgen_users.name @@@ 'bob') 
 ORDER BY qgen_users.id 
 LIMIT 5;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: qgen_users.id, qgen_users.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2393,10 +2404,10 @@ LIMIT 5;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
            :         CooperativeExec
-           :           PgSearchScan: "all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
 (20 rows)
 
 SELECT qgen_users.id, qgen_users.name 
@@ -2441,10 +2452,10 @@ LIMIT 5;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], filter=pdb_search_predicate(ctid_2@0) OR pdb_search_predicate(ctid_1@1), projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, age@1 as age]
            :         CooperativeExec
-           :           PgSearchScan: "all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, age@1 as age, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (21 rows)
 
 SELECT qgen_users.id, qgen_users.name 
@@ -2497,8 +2508,8 @@ JOIN tiny_refs tr ON tp.ref_id = tr.id
 WHERE tp.description @@@ 'wireless'
 ORDER BY tp.id
 LIMIT 10;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: tp.id, tp.description, tr.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2515,10 +2526,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, ref_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, ref_id@1 as ref_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT tp.id, tp.description, tr.name
@@ -2570,8 +2581,8 @@ JOIN hint_test_categories hc ON hp.category_id = hc.id
 WHERE hp.description @@@ 'wireless'
 ORDER BY hp.id
 LIMIT 20;
-                                                                                          QUERY PLAN                                                                                           
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                    
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: hp.id, hp.description, hc.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2588,10 +2599,10 @@ LIMIT 20;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (20 rows)
 
 SELECT hp.id, hp.description, hc.name AS category_name
@@ -2688,10 +2699,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=min_order_value@0 <= price@1, projection=[ctid_2@0, min_order_value@2, ctid_1@3, price@5, id@6]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price, id@3 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 -- Test case: Search predicate OR multi-table predicate (unified expression tree)
@@ -2722,10 +2733,10 @@ LIMIT 10;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], filter=pdb_search_predicate(ctid_1@1) OR min_order_value@0 <= price@2
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, min_order_value@2 as min_order_value]
            :         CooperativeExec
-           :           PgSearchScan: "all"
+           :           PgSearchScan: segments=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (20 rows)
 
 -- Verify correct results
@@ -2801,8 +2812,8 @@ JOIN suppliers s ON m."JoinKey" = s.id
 WHERE m."Content" @@@ 'wireless'
 ORDER BY m."ID"
 LIMIT 5;
-                                                                                           QUERY PLAN                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: m."Content", s.name, m."ID"
    ->  Result
@@ -2818,14 +2829,15 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, ID@2 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@1 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[ID@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, JoinKey@1)], projection=[ctid_2@0, ctid_1@2, ID@4]
-                 :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: "all"
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, JoinKey@1 as JoinKey, ID@2 as ID]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(22 rows)
+                 :     ProjectionExec: expr=[ctid_2@2 as ctid_2, ctid_1@0 as ctid_1, ID@1 as ID]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(JoinKey@1, id@1)], projection=[ctid_1@0, ID@2, ctid_2@3]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, JoinKey@1 as JoinKey, ID@2 as ID]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"Content","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(23 rows)
 
 SELECT m."Content", s.name
 FROM "MixedCaseTable" m
@@ -2901,8 +2913,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name, p.id
    ->  Result
@@ -2919,18 +2931,18 @@ LIMIT 10;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@3 as col_2, NULL as col_3, NULL as col_4, ctid_2@0 as ctid_2, ctid_4@1 as ctid_4, ctid_1@2 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, ctid_1@1 as ctid_1, id@2 as id]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@2, id@1)], projection=[ctid_2@0, ctid_1@1, id@3, ctid_4@4]
+                 :     ProjectionExec: expr=[ctid_2@1 as ctid_2, ctid_4@0 as ctid_4, ctid_1@2 as ctid_1, id@3 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@2)], projection=[ctid_4@0, ctid_2@2, ctid_1@3, id@5]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
                  :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: "all", dynamic_filters=1
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :           ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id, id@3 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-                 :         ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
-                 :           CooperativeExec
-                 :             PgSearchScan: "all", dynamic_filters=2
+                 :               PgSearchScan: segments=1, dynamic_filters=3, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (28 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
@@ -2956,8 +2968,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name, p.id
    ->  Result
@@ -2978,13 +2990,13 @@ LIMIT 10;
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, ctid_1@2, category_id@3, id@5]
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id, id@3 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: "all", dynamic_filters=2
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
                  :       ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=2
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (27 rows)
 
 SELECT p.name AS product, s.name AS supplier, c.name AS category
@@ -3011,8 +3023,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC
 LIMIT 5;
-                                                                                            QUERY PLAN                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, (paradedb.score(p.id))
    ->  Custom Scan (ParadeDB Join Scan)
@@ -3027,18 +3039,18 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, score@2 as col_2, ctid_2@0 as ctid_2, ctid_4@1 as ctid_4, ctid_1@3 as ctid_1]
            :   SortExec: TopK(fetch=5), expr=[score@2 DESC], preserve_partitioning=[false]
-           :     ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_4@3 as ctid_4, score@1 as score, ctid_1@2 as ctid_1]
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category_id@3, id@1)], projection=[ctid_2@0, score@1, ctid_1@2, ctid_4@4]
+           :     ProjectionExec: expr=[ctid_2@1 as ctid_2, ctid_4@0 as ctid_4, score@2 as score, ctid_1@3 as ctid_1]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_4@0, ctid_2@2, score@3, ctid_1@4]
+           :         ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@3)], projection=[ctid_2@0, score@2, ctid_1@3, category_id@4]
            :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :             CooperativeExec
-           :               PgSearchScan: "all"
+           :               PgSearchScan: segments=1, query="all"
            :           ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, category_id@2 as category_id, supplier_id@3 as supplier_id]
            :             CooperativeExec
-           :               PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
-           :         ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
-           :           CooperativeExec
-           :             PgSearchScan: "all", dynamic_filters=1
+           :               PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 
 SELECT p.name, paradedb.score(p.id)
@@ -3063,8 +3075,8 @@ JOIN categories c ON p.category_id = c.id
 WHERE s.contact_info @@@ 'wireless'
 ORDER BY paradedb.score(s.id) DESC
 LIMIT 5;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                           QUERY PLAN                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: s.name, (paradedb.score(s.id))
    ->  Custom Scan (ParadeDB Join Scan)
@@ -3083,13 +3095,13 @@ LIMIT 5;
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, supplier_id@2)], projection=[score@0, ctid_2@1, ctid_1@3, category_id@4]
            :         ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_2, id@2 as id]
            :           CooperativeExec
-           :             PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"contact_info","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :         ProjectionExec: expr=[ctid@0 as ctid_1, category_id@1 as category_id, supplier_id@2 as supplier_id]
            :           CooperativeExec
-           :             PgSearchScan: "all", dynamic_filters=1
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :       ProjectionExec: expr=[ctid@0 as ctid_4, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filters=1
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (25 rows)
 
 SELECT s.name, paradedb.score(s.id)
@@ -3139,8 +3151,8 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l4.description @@@ 'deepest'
 ORDER BY l1.id
 LIMIT 5;
-                                                                                                QUERY PLAN                                                                                                
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: l1.name, l2.name, l3.name, l4.name, l1.id
    ->  Result
@@ -3164,16 +3176,16 @@ LIMIT 5;
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
                  :             ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
                  :               CooperativeExec
-                 :                 PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
                  :             ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
                  :               CooperativeExec
-                 :                 PgSearchScan: "all", dynamic_filters=2
+                 :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"
                  :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
                  :             CooperativeExec
-                 :               PgSearchScan: "all", dynamic_filters=2
+                 :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
                  :         ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: "all", dynamic_filters=2
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (33 rows)
 
 SELECT l1.name, l2.name, l3.name, l4.name
@@ -3202,8 +3214,8 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l1.name @@@ 'L1-A' AND l4.description @@@ 'deepest'
 ORDER BY l1.id
 LIMIT 5;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: l1.name, l4.name, l1.id
    ->  Result
@@ -3221,22 +3233,23 @@ LIMIT 5;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[NULL as col_1, id@4 as col_2, NULL as col_3, ctid_6@0 as ctid_6, ctid_4@1 as ctid_4, ctid_2@2 as ctid_2, ctid_1@3 as ctid_1]
                  :   SortExec: TopK(fetch=5), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_6@0, ctid_4@1, ctid_2@2, ctid_1@4, id@6]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
-                 :           ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
-                 :           ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
-                 :             CooperativeExec
-                 :               PgSearchScan: "all", dynamic_filters=2
-                 :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
+                 :     ProjectionExec: expr=[ctid_6@2 as ctid_6, ctid_4@3 as ctid_4, ctid_2@4 as ctid_2, ctid_1@0 as ctid_1, id@1 as id]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@3)], projection=[ctid_1@0, id@2, ctid_6@3, ctid_4@4, ctid_2@5]
+                 :         ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
                  :           CooperativeExec
-                 :             PgSearchScan: "all", dynamic_filters=2
-                 :       ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
-                 :         CooperativeExec
-                 :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
-(32 rows)
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l3_id@2)], projection=[ctid_6@0, ctid_4@1, ctid_2@3, id@4]
+                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@1)], projection=[ctid_6@0, ctid_4@2, id@4]
+                 :             ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"deepest","lenient":null,"conjunction_mode":null}}}}
+                 :             ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
+                 :               CooperativeExec
+                 :                 PgSearchScan: segments=1, dynamic_filters=3, query="all"
+                 :           ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
+                 :             CooperativeExec
+                 :               PgSearchScan: segments=1, dynamic_filters=3, query="all"
+(33 rows)
 
 SELECT l1.name, l4.name
 FROM level1 l1
@@ -3261,8 +3274,8 @@ JOIN level4 l4 ON l3.l4_id = l4.id
 WHERE l2.name @@@ 'L2-B' AND l3.name @@@ 'L3-B'
 ORDER BY l1.id
 LIMIT 5;
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: l1.name, l4.name, l1.id
    ->  Result
@@ -3285,16 +3298,16 @@ LIMIT 5;
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l4_id@1, id@1)], projection=[ctid_4@0, id@2, ctid_6@3]
                  :           ProjectionExec: expr=[ctid@0 as ctid_4, l4_id@1 as l4_id, id@2 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L3-B","lenient":null,"conjunction_mode":null}}}}
                  :           ProjectionExec: expr=[ctid@0 as ctid_6, id@1 as id]
                  :             CooperativeExec
-                 :               PgSearchScan: "all", dynamic_filters=2
+                 :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
                  :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id, l3_id@2 as l3_id]
                  :           CooperativeExec
-                 :             PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=2
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L2-B","lenient":null,"conjunction_mode":null}}}}
                  :       ProjectionExec: expr=[ctid@0 as ctid_1, l2_id@1 as l2_id, id@2 as id]
                  :         CooperativeExec
-                 :           PgSearchScan: "all", dynamic_filters=2
+                 :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
 (32 rows)
 
 SELECT l1.name, l4.name

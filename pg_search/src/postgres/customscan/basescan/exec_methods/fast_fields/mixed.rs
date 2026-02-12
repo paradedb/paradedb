@@ -33,7 +33,7 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{create_sorted_scan, SegmentPlan};
+use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -191,10 +191,6 @@ pub struct MixedFastFieldExecState {
     /// Column index for ctid in the RecordBatch
     ctid_column_idx: Option<usize>,
 
-    /// Column index for score in the RecordBatch (reserved for future sorted merge support)
-    #[allow(dead_code)]
-    score_column_idx: Option<usize>,
-
     /// Statistics tracking the number of visible rows
     num_visible: usize,
 
@@ -347,11 +343,6 @@ impl MixedFastFieldExecState {
             Some(scanner_fast_fields.len() - 1)
         };
 
-        // Find score column index
-        let score_column_idx = scanner_fast_fields
-            .iter()
-            .position(|f| matches!(f, WhichFastField::Score));
-
         // Build strategy with schema if sorted
         let strategy = match sort_order {
             Some(sort_order) => {
@@ -375,7 +366,6 @@ impl MixedFastFieldExecState {
             current_record_batch: None,
             current_batch_row_idx: 0,
             ctid_column_idx,
-            score_column_idx,
             num_visible: 0,
             const_values: HashMap::default(),
         }
@@ -384,7 +374,7 @@ impl MixedFastFieldExecState {
     /// Creates a DataFusion stream for the unsorted path.
     ///
     /// Uses PostgreSQL's lazy segment checkout - one segment at a time.
-    /// Each segment is processed through DataFusion's SegmentPlan.
+    /// Each segment is processed through a single-partition [`PgSearchScanPlan`].
     fn create_unsorted_stream(
         &mut self,
         state: &mut BaseScanState,
@@ -441,12 +431,13 @@ impl MixedFastFieldExecState {
             .expect("MixedFastFieldsExecState: visibility_checker should be initialized")
             .clone();
 
-        // Create SegmentPlan and execute via DataFusion
-        let plan = SegmentPlan::new_with_shared_ffhelper(
-            scanner,
-            Arc::clone(ffhelper),
-            Box::new(visibility),
+        // Create PgSearchScanPlan and execute via DataFusion
+        let plan = PgSearchScanPlan::new(
+            vec![(scanner, Arc::clone(ffhelper), Box::new(visibility))],
+            build_arrow_schema(&self.scanner_fast_fields),
+            // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());
@@ -570,19 +561,23 @@ impl MixedFastFieldExecState {
 
         // Create sorted scan plan with SortPreservingMergeExec
         // Returns Error if the sort field is not in the schema
-        let plan = match create_sorted_scan(pre_opened, schema, sort_order) {
-            Ok(plan) => plan,
-            Err(e) => {
-                // Sort field not in schema - this is a fatal error.
-                // If we claimed the sorted path at planning time, the sort field MUST be
-                // in the schema. If it's not, this indicates a bug in the planning logic.
-                panic!(
-                    "Sorted path was claimed at planning time but sort field '{}' \
+        let plan = create_sorted_scan(
+            pre_opened,
+            schema,
+            // TODO: Switch to an Arc in the scan state.
+            state.search_query_input().clone(),
+            sort_order,
+        )
+        .unwrap_or_else(|e| {
+            // Sort field not in schema - this is a fatal error.
+            // If we claimed the sorted path at planning time, the sort field MUST be
+            // in the schema. If it's not, this indicates a bug in the planning logic.
+            panic!(
+                "Sorted path was claimed at planning time but sort field '{}' \
                     is not in scan schema. This indicates a planner/executor mismatch. Error: {e}",
-                    sort_order.field_name.as_ref()
-                );
-            }
-        };
+                sort_order.field_name.as_ref()
+            );
+        });
 
         // Execute the plan (partition 0 for merged output)
         let task_ctx = Arc::new(TaskContext::default());

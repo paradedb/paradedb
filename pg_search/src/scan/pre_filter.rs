@@ -18,7 +18,7 @@
 //! Pre-materialization dynamic filter support.
 //!
 //! Dynamic filters (from TopK thresholds, HashJoin key bounds, etc.) are pushed down
-//! into `SegmentPlan` as `PhysicalExpr`s. At scan time they are decomposed into
+//! into [`PgSearchScanPlan`] as `PhysicalExpr`s. At scan time they are decomposed into
 //! [`PreFilter`]s and applied inside [`Scanner::next()`](super::batch_scanner::Scanner::next)
 //! *before* column materialization — at the term-ordinal level for strings and direct
 //! fast-field comparisons for numerics.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770938694988,
+  "lastUpdate": 1770938699864,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5716,6 +5716,108 @@ window.BENCHMARK_DATA = {
             "value": 162.48046875,
             "unit": "median mem",
             "extra": "avg mem: 181.49421168230504, max mem: 222.8359375, count: 56485"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1da48a637b80cc0ce2312ab8c4e448762e152223",
+          "message": "perf: Add statistics to joinscan (#4132)\n\n## Ticket(s) Closed\n\n- Closes #4062.\n\n## What\n\n* Exposes sorting from the joinscan's `TableProvider`, but does not yet\nforce `SortMergeJoin`.\n* Adds statistics on `TableProvider` and our `ExecutionPlan`s using\nTantivy's query estimates.\n* Removes the `ParallelSegmentPlan` that was added in #4101, as it makes\nmore sense to let DataFusion coalesce for us if needed.\n\n## Why\n\nTo allow the DataFusion optimizer to re-order joins based on table\nsizes, and use sortedness in plans (although it does not yet by\ndefault).\n\n## Tests\n\nExisting tests show the impact of join reordering due to statistics.",
+          "timestamp": "2026-02-12T14:34:01-08:00",
+          "tree_id": "fbc185b154055782f4973f483feb5ad00a4ca2bb",
+          "url": "https://github.com/paradedb/paradedb/commit/1da48a637b80cc0ce2312ab8c4e448762e152223"
+        },
+        "date": 1770938695981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.081295734427985, max background_merging: 2.0, count: 56030"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.680869042038446, max cpu: 9.542743, count: 56030"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.47026502264412, max mem: 25.484375, count: 56030"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9639932963579545, max cpu: 9.846154, count: 56030"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.2358802622479, max mem: 168.8046875, count: 56030"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53199,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53060.58393717651, max block_count: 53199.0, count: 56030"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.991147599500266, max segment_count: 58.0, count: 56030"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613101323746462, max cpu: 9.561753, count: 56030"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 118.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.36239354196412, max mem: 136.609375, count: 56030"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.723484329247225, max cpu: 9.514371, count: 56030"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.0456023140505, max mem: 168.49609375, count: 56030"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.793309239872364, max cpu: 33.267326, count: 56030"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.39990121084688, max mem: 223.1875, count: 56030"
           }
         ]
       }

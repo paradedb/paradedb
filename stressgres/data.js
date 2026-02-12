@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770933152388,
+  "lastUpdate": 1770933157359,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7200,6 +7200,114 @@ window.BENCHMARK_DATA = {
             "value": 170.26953125,
             "unit": "median mem",
             "extra": "avg mem: 167.44190085451902, max mem: 171.46484375, count: 55521"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "655ee8b04cab31c056cb41a89d677b896630ed16",
+          "message": "feat: join-scan: surface dynamic filter metrics in EXPLAIN ANALYZE (#4162)\n\n# Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nUsed DataFusion metrics, and made dynamic filter pruning stats visible\nthrough `EXPLAIN ANALYZE`.\n\n## Why\n\n`EXPLAIN ANALYZE` is the natural place for execution-time stats.\n\n## How\n\n- Added `ExecutionPlanMetricsSet` to `SegmentPlan` with two custom\ncounters (`rows_scanned`, `rows_pruned`), only registered when dynamic\nfilters are present.\n\n## Tests\n\n- Updated `topk_dynamic_filter` regression test to use `EXPLAIN\n(ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)` — verifying\n`Dynamic Filter` lines appear with correct pruning stats (e.g., `30\nscanned, 24 pruned (80.0%)`).\n- Updated `join_custom_scan` and `filter_pushdown_datafusion` expected\noutput.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-02-12T12:45:44-08:00",
+          "tree_id": "8c73104c0b40b30047e010ebfba45fb9add3f7e8",
+          "url": "https://github.com/paradedb/paradedb/commit/655ee8b04cab31c056cb41a89d677b896630ed16"
+        },
+        "date": 1770933153479,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.754563744546058, max cpu: 47.105007, count: 55521"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 173.99745296261776, max mem: 176.7421875, count: 55521"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.671683553869707, max cpu: 32.55814, count: 55521"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.13385187305254, max mem: 119.4921875, count: 55521"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.807300762575229, max cpu: 14.0214205, count: 55521"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 119.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 114.47276023655463, max mem: 158.41796875, count: 55521"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13583,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13561.015633724177, max block_count: 23498.0, count: 55521"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.655513551019012, max cpu: 4.669261, count: 55521"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 93.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.43003892952666, max mem: 133.97265625, count: 55521"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.717007978962915, max segment_count: 39.0, count: 55521"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.634308593222343, max cpu: 37.2093, count: 111042"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 159.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.25133508042003, max mem: 164.2578125, count: 111042"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.9587559300628, max cpu: 27.826086, count: 55521"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.1376537847166, max mem: 171.07421875, count: 55521"
           }
         ]
       }

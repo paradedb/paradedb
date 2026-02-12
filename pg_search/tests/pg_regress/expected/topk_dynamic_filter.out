@@ -157,8 +157,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.region @@@ 'wireless'
 ORDER BY p.id
 LIMIT 3;
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Join Type: Inner
@@ -173,13 +173,12 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filter=true
-         Dynamic Filter: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}} — 1 scanned, 0 pruned (0.0%)
-         Dynamic Filter: "all" — 36 scanned, 24 pruned (66.7%)
-(20 rows)
+           :           PgSearchScan: "all", dynamic_filters=2
+         Dynamic Filter: "all" — 30 scanned, 24 pruned (80.0%)
+(19 rows)
 
 -- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
@@ -341,8 +340,8 @@ WHERE p.supplier_id IN (
 )
 ORDER BY p.id ASC
 LIMIT 3;
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price
    ->  Custom Scan (ParadeDB Join Scan)
@@ -359,10 +358,10 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_3@0, ctid_1@2, id@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
            :         CooperativeExec
-           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filter=true
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, dynamic_filters=1
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
-           :           PgSearchScan: "all", dynamic_filter=true
+           :           PgSearchScan: "all", dynamic_filters=2
 (20 rows)
 
 SELECT p.id, p.name, p.price

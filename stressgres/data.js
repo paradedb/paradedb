@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770930327313,
+  "lastUpdate": 1770931285415,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2818,6 +2818,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3562272021893484,
             "unit": "median tps",
             "extra": "avg tps: 4.794832583454915, max tps: 5.9922809285700875, count: 57760"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "655ee8b04cab31c056cb41a89d677b896630ed16",
+          "message": "feat: join-scan: surface dynamic filter metrics in EXPLAIN ANALYZE (#4162)\n\n# Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nUsed DataFusion metrics, and made dynamic filter pruning stats visible\nthrough `EXPLAIN ANALYZE`.\n\n## Why\n\n`EXPLAIN ANALYZE` is the natural place for execution-time stats.\n\n## How\n\n- Added `ExecutionPlanMetricsSet` to `SegmentPlan` with two custom\ncounters (`rows_scanned`, `rows_pruned`), only registered when dynamic\nfilters are present.\n\n## Tests\n\n- Updated `topk_dynamic_filter` regression test to use `EXPLAIN\n(ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)` — verifying\n`Dynamic Filter` lines appear with correct pruning stats (e.g., `30\nscanned, 24 pruned (80.0%)`).\n- Updated `join_custom_scan` and `filter_pushdown_datafusion` expected\noutput.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-02-12T12:45:44-08:00",
+          "tree_id": "8c73104c0b40b30047e010ebfba45fb9add3f7e8",
+          "url": "https://github.com/paradedb/paradedb/commit/655ee8b04cab31c056cb41a89d677b896630ed16"
+        },
+        "date": 1770931281583,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.526545290363941,
+            "unit": "median tps",
+            "extra": "avg tps: 6.4544481428952105, max tps: 9.740084899846057, count: 57893"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.411635750413463,
+            "unit": "median tps",
+            "extra": "avg tps: 4.833142833483922, max tps: 6.06312556698496, count: 57893"
           }
         ]
       }

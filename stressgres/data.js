@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770921882579,
+  "lastUpdate": 1770921888147,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2088,6 +2088,138 @@ window.BENCHMARK_DATA = {
             "value": 54.78125,
             "unit": "median mem",
             "extra": "avg mem: 54.04537073464813, max mem: 66.5078125, count: 55205"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba868f34636e9fc6068c68b3b0d8a098eb4971d8",
+          "message": "feat: join-scan: pre-materialization dynamic filter pushdown from TopK and HashJoin (#4161)\n\n## Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nDynamic filters from DataFusion's `SortExec(TopK)` and `HashJoinExec`\nare now pushed down into `PgSearchScan` and applied *before* column\nmaterialization — at the term-ordinal level for strings and the\nfast-field level for numerics. This avoids expensive term dictionary I/O\nfor documents that will be discarded anyway.\n\n## Why\n\nPreviously, `PgSearchScan` had no awareness of dynamic filters. Every\ndocument that passed the Tantivy query and visibility checks was fully\nmaterialized (all fast-field columns loaded, string dictionaries walked)\nbefore any join-key or TopK pruning could happen upstream. For selective\njoins or tight LIMIT queries, this meant loading data for rows that were\nimmediately thrown away by HashJoin or TopK.\n\n## How\n\n- Enabled DataFusion's TopK dynamic filter pushdown in the JoinScan\nsession config.\n- `SegmentPlan` now accepts dynamic filters from parent operators (TopK\nthresholds, HashJoin key bounds) and passes them to the Scanner on each\nbatch.\n- Before column materialization, the Scanner converts these filters to\nterm-ordinal comparisons (for strings) or direct fast-field comparisons\n(for numerics) and prunes non-matching documents in-place — skipping\ndictionary I/O entirely for pruned rows.\n\n## Tests\n\n- New `topk_dynamic_filter` regression test covering. You can take a\nlook at EXPLAIN ANALYZE diff in the follow-up PR (#4162):\nhttps://github.com/paradedb/paradedb/blob/3b074a9b5516a7a0a75a948201ef32e07b0127e4/pg_search/tests/pg_regress/expected/topk_dynamic_filter.out#L170-L181\n- All existing regression tests pass.",
+          "timestamp": "2026-02-12T10:25:25-08:00",
+          "tree_id": "748bfdacf0d0b82f9ceb26840b3100a7ca8e2252",
+          "url": "https://github.com/paradedb/paradedb/commit/ba868f34636e9fc6068c68b3b0d8a098eb4971d8"
+        },
+        "date": 1770921884286,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.28428214715497, max cpu: 23.529411, count: 55154"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.79307165788066, max mem: 73.59375, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.590266037605356, max cpu: 9.4395275, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.341882997493386, max mem: 37.41015625, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639638730586811, max cpu: 9.275363, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.467619217327844, max mem: 71.66796875, count: 55154"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.609014125709052, max cpu: 9.375, count: 110308"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 48.7748228964581, max mem: 59.4375, count: 110308"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.446595887328231, max cpu: 19.335348, count: 55154"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.83980245936378, max mem: 72.6875, count: 55154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1755,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1753.565797584944, max block_count: 3066.0, count: 55154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.145284113572904, max segment_count: 30.0, count: 55154"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.397498082791857, max cpu: 18.58664, count: 55154"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.7911186745295, max mem: 72.6328125, count: 55154"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.680951477590147, max cpu: 9.266409, count: 55154"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.43702172269917, max mem: 61.98828125, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5326106947115195, max cpu: 4.729064, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.94206449214926, max mem: 65.515625, count: 55154"
           }
         ]
       }

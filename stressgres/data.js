@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770918062897,
+  "lastUpdate": 1770918989623,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2338,6 +2338,42 @@ window.BENCHMARK_DATA = {
             "value": 5.456162929051679,
             "unit": "median tps",
             "extra": "avg tps: 4.870981517635184, max tps: 6.1230570200639605, count: 57596"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aec8447addadd4def1cf10f4d11e24c1755fadb",
+          "message": "chore: Remove tuned_postgres from /benchmarks (#4167)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nWe are moving user-facing benchmarks to a much more complete project,\nwhich will be in a separate repository. This is no longer relevant to\nkeep here, so removing.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-02-12T12:21:38-05:00",
+          "tree_id": "3502c5fdf7ad1b45110e95b70c181dd5ca1eae37",
+          "url": "https://github.com/paradedb/paradedb/commit/2aec8447addadd4def1cf10f4d11e24c1755fadb"
+        },
+        "date": 1770918985701,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.468412823730576,
+            "unit": "median tps",
+            "extra": "avg tps: 6.388320116432732, max tps: 9.672816501733603, count: 57864"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.436835802304092,
+            "unit": "median tps",
+            "extra": "avg tps: 4.853615018333301, max tps: 6.084172654140523, count: 57864"
           }
         ]
       }

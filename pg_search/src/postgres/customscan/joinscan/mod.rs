@@ -178,12 +178,12 @@ use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
-use crate::scan::execution_plan::SegmentPlan;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::metrics::MetricValue;
+use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
@@ -191,31 +191,6 @@ use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 use std::sync::Arc;
-
-/// Recursively walk a DataFusion physical plan tree and collect dynamic filter
-/// metrics from every `SegmentPlan` node that has them.
-///
-/// Each entry is `(scan_display_name, rows_scanned, rows_pruned)`.
-fn collect_scan_metrics(plan: &dyn ExecutionPlan, out: &mut Vec<(String, usize, usize)>) {
-    if let Some(segment) = plan.as_any().downcast_ref::<SegmentPlan>() {
-        if let Some(metrics) = segment.metrics() {
-            let scanned = metrics
-                .sum_by_name("rows_scanned")
-                .map(|m| m.as_usize())
-                .unwrap_or(0);
-            let pruned = metrics
-                .sum_by_name("rows_pruned")
-                .map(|m| m.as_usize())
-                .unwrap_or(0);
-            if scanned > 0 || pruned > 0 {
-                out.push((segment.query_label(), scanned, pruned));
-            }
-        }
-    }
-    for child in plan.children() {
-        collect_scan_metrics(child.as_ref(), out);
-    }
-}
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -898,27 +873,13 @@ impl CustomScan for JoinScan {
         }
 
         if explainer.is_analyze() {
-            // For EXPLAIN ANALYZE, use the retained executed plan to show runtime metrics.
+            // For EXPLAIN ANALYZE, render the plan with deterministic metrics inline.
             if let Some(ref physical_plan) = state.custom_state().physical_plan {
-                let displayable = displayable(physical_plan.as_ref());
                 explainer.add_text("DataFusion Physical Plan", "");
-                for line in displayable.indent(false).to_string().lines() {
+                let mut lines = Vec::new();
+                render_plan_with_metrics(physical_plan.as_ref(), 0, &mut lines);
+                for line in &lines {
                     explainer.add_text("  ", line);
-                }
-                // Extract dynamic filter metrics from SegmentPlan nodes.
-                let mut metrics = Vec::new();
-                collect_scan_metrics(physical_plan.as_ref(), &mut metrics);
-                for (scan_name, scanned, pruned) in &metrics {
-                    if *scanned > 0 {
-                        let pct = (*pruned as f64 / *scanned as f64) * 100.0;
-                        explainer.add_text(
-                            "Dynamic Filter",
-                            format!(
-                                "{} — {} scanned, {} pruned ({:.1}%)",
-                                scan_name, scanned, pruned, pct
-                            ),
-                        );
-                    }
                 }
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
@@ -1208,5 +1169,54 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
+    }
+}
+
+/// Render a DataFusion physical plan tree with deterministic metrics.
+///
+/// Each node is rendered via its `DisplayAs` implementation, followed by any
+/// non-timing metrics (e.g. `output_rows`, `rows_scanned`, `rows_pruned`).
+/// Timing metrics (`elapsed_compute`, named `Time` values) are stripped so that
+/// regression test output remains stable.
+///
+/// TODO: In parallel mode each worker runs its own `exec_custom_scan` with its
+/// own plan instances, so the metrics stored on the leader's plan only reflect
+/// the leader's share of the work.  Once JoinScan parallelism is refactored
+/// (#4152), aggregate these across workers.
+fn render_plan_with_metrics(plan: &dyn ExecutionPlan, indent: usize, lines: &mut Vec<String>) {
+    use std::fmt::Write;
+
+    let mut line = format!("{:indent$}", "", indent = indent * 2);
+
+    struct Fmt<'a>(&'a dyn ExecutionPlan);
+    impl std::fmt::Display for Fmt<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.0.fmt_as(DisplayFormatType::Default, f)
+        }
+    }
+    write!(line, "{}", Fmt(plan)).unwrap();
+
+    if let Some(metrics) = plan.metrics() {
+        let parts: Vec<String> = metrics
+            .aggregate_by_name()
+            .sorted_for_display()
+            .timestamps_removed()
+            .iter()
+            .filter(|m| {
+                !matches!(
+                    m.value(),
+                    MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
+                )
+            })
+            .map(|m| m.to_string())
+            .collect();
+        if !parts.is_empty() {
+            write!(line, ", metrics=[{}]", parts.join(", ")).unwrap();
+        }
+    }
+
+    lines.push(line);
+    for child in plan.children() {
+        render_plan_with_metrics(child.as_ref(), indent + 1, lines);
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770921804843,
+  "lastUpdate": 1770921882579,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -710,6 +710,78 @@ window.BENCHMARK_DATA = {
             "value": 58.339612822675925,
             "unit": "median tps",
             "extra": "avg tps: 85.86302310157052, max tps: 231.07441608303816, count: 55205"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba868f34636e9fc6068c68b3b0d8a098eb4971d8",
+          "message": "feat: join-scan: pre-materialization dynamic filter pushdown from TopK and HashJoin (#4161)\n\n## Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nDynamic filters from DataFusion's `SortExec(TopK)` and `HashJoinExec`\nare now pushed down into `PgSearchScan` and applied *before* column\nmaterialization — at the term-ordinal level for strings and the\nfast-field level for numerics. This avoids expensive term dictionary I/O\nfor documents that will be discarded anyway.\n\n## Why\n\nPreviously, `PgSearchScan` had no awareness of dynamic filters. Every\ndocument that passed the Tantivy query and visibility checks was fully\nmaterialized (all fast-field columns loaded, string dictionaries walked)\nbefore any join-key or TopK pruning could happen upstream. For selective\njoins or tight LIMIT queries, this meant loading data for rows that were\nimmediately thrown away by HashJoin or TopK.\n\n## How\n\n- Enabled DataFusion's TopK dynamic filter pushdown in the JoinScan\nsession config.\n- `SegmentPlan` now accepts dynamic filters from parent operators (TopK\nthresholds, HashJoin key bounds) and passes them to the Scanner on each\nbatch.\n- Before column materialization, the Scanner converts these filters to\nterm-ordinal comparisons (for strings) or direct fast-field comparisons\n(for numerics) and prunes non-matching documents in-place — skipping\ndictionary I/O entirely for pruned rows.\n\n## Tests\n\n- New `topk_dynamic_filter` regression test covering. You can take a\nlook at EXPLAIN ANALYZE diff in the follow-up PR (#4162):\nhttps://github.com/paradedb/paradedb/blob/3b074a9b5516a7a0a75a948201ef32e07b0127e4/pg_search/tests/pg_regress/expected/topk_dynamic_filter.out#L170-L181\n- All existing regression tests pass.",
+          "timestamp": "2026-02-12T10:25:25-08:00",
+          "tree_id": "748bfdacf0d0b82f9ceb26840b3100a7ca8e2252",
+          "url": "https://github.com/paradedb/paradedb/commit/ba868f34636e9fc6068c68b3b0d8a098eb4971d8"
+        },
+        "date": 1770921878686,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 121.1599199120167,
+            "unit": "median tps",
+            "extra": "avg tps: 121.22819828697033, max tps: 130.719549613635, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3083.3901266908283,
+            "unit": "median tps",
+            "extra": "avg tps: 3063.255471226749, max tps: 3093.4965493654486, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 428.87000742958406,
+            "unit": "median tps",
+            "extra": "avg tps: 428.7736613734014, max tps: 518.7941615423854, count: 55154"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2986.9912449001354,
+            "unit": "median tps",
+            "extra": "avg tps: 2970.3030568487443, max tps: 3018.7796685552516, count: 110308"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 505.0338470048913,
+            "unit": "median tps",
+            "extra": "avg tps: 505.65472206502676, max tps: 631.1722482083288, count: 55154"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 508.32042908647327,
+            "unit": "median tps",
+            "extra": "avg tps: 507.89457400399425, max tps: 655.332479810563, count: 55154"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1950.601435257427,
+            "unit": "median tps",
+            "extra": "avg tps: 1935.4472973148333, max tps: 1956.3426939632577, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 49.75852474812861,
+            "unit": "median tps",
+            "extra": "avg tps: 56.06089231239807, max tps: 256.2363770328673, count: 55154"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770923770370,
+  "lastUpdate": 1770923775514,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4816,6 +4816,108 @@ window.BENCHMARK_DATA = {
             "value": 162.69140625,
             "unit": "median mem",
             "extra": "avg mem: 180.63344060661504, max mem: 223.12109375, count: 56432"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ba868f34636e9fc6068c68b3b0d8a098eb4971d8",
+          "message": "feat: join-scan: pre-materialization dynamic filter pushdown from TopK and HashJoin (#4161)\n\n## Ticket(s) Closed\n\n- Closes #4151\n\n## What\n\nDynamic filters from DataFusion's `SortExec(TopK)` and `HashJoinExec`\nare now pushed down into `PgSearchScan` and applied *before* column\nmaterialization — at the term-ordinal level for strings and the\nfast-field level for numerics. This avoids expensive term dictionary I/O\nfor documents that will be discarded anyway.\n\n## Why\n\nPreviously, `PgSearchScan` had no awareness of dynamic filters. Every\ndocument that passed the Tantivy query and visibility checks was fully\nmaterialized (all fast-field columns loaded, string dictionaries walked)\nbefore any join-key or TopK pruning could happen upstream. For selective\njoins or tight LIMIT queries, this meant loading data for rows that were\nimmediately thrown away by HashJoin or TopK.\n\n## How\n\n- Enabled DataFusion's TopK dynamic filter pushdown in the JoinScan\nsession config.\n- `SegmentPlan` now accepts dynamic filters from parent operators (TopK\nthresholds, HashJoin key bounds) and passes them to the Scanner on each\nbatch.\n- Before column materialization, the Scanner converts these filters to\nterm-ordinal comparisons (for strings) or direct fast-field comparisons\n(for numerics) and prunes non-matching documents in-place — skipping\ndictionary I/O entirely for pruned rows.\n\n## Tests\n\n- New `topk_dynamic_filter` regression test covering. You can take a\nlook at EXPLAIN ANALYZE diff in the follow-up PR (#4162):\nhttps://github.com/paradedb/paradedb/blob/3b074a9b5516a7a0a75a948201ef32e07b0127e4/pg_search/tests/pg_regress/expected/topk_dynamic_filter.out#L170-L181\n- All existing regression tests pass.",
+          "timestamp": "2026-02-12T10:25:25-08:00",
+          "tree_id": "748bfdacf0d0b82f9ceb26840b3100a7ca8e2252",
+          "url": "https://github.com/paradedb/paradedb/commit/ba868f34636e9fc6068c68b3b0d8a098eb4971d8"
+        },
+        "date": 1770923771642,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07919122346091031, max background_merging: 2.0, count: 56332"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608495488649105, max cpu: 9.648242, count: 56332"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.82079499107967, max mem: 25.8359375, count: 56332"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.93950513744535, max cpu: 14.007783, count: 56332"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 167.24393405113878, max mem: 168.84375, count: 56332"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51857,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51719.378115458356, max block_count: 51857.0, count: 56332"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.233810267698644, max segment_count: 62.0, count: 56332"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.560079663541668, max cpu: 9.338522, count: 56332"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.35047512681513, max mem: 138.08203125, count: 56332"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.715386375110886, max cpu: 9.628887, count: 56332"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.93654992666248, max mem: 168.5078125, count: 56332"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.87712884262067, max cpu: 33.768845, count: 56332"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.23221634128913, max mem: 223.4296875, count: 56332"
           }
         ]
       }

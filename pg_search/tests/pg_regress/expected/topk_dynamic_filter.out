@@ -321,7 +321,172 @@ WARNING:  JoinScan not used: query must have a LIMIT clause
 (18 rows)
 
 -- =============================================================================
--- CLEANUP
+-- CLEANUP (products/suppliers)
 -- =============================================================================
 DROP TABLE products CASCADE;
 DROP TABLE suppliers CASCADE;
+-- =============================================================================
+-- TEST 8: Benchmark-style semi-join with TEXT join keys (UUID-like)
+--
+-- This mimics the semi_join_filter benchmark: a "files" table with TEXT
+-- documentId (keyword-tokenized, fast), joined against a "documents" table
+-- via IN (SELECT ...) with a BM25 predicate, sorted by title LIMIT N.
+--
+-- Two variants show the contrast:
+--   a) Wide-range build side — matching document IDs span the full ID range,
+--      so the HashJoin dynamic filter's min/max bounds are useless.
+--   b) Narrow-range build side — matching document IDs cluster in a small range,
+--      so the HashJoin dynamic filter prunes effectively.
+-- =============================================================================
+DROP TABLE IF EXISTS bench_files CASCADE;
+DROP TABLE IF EXISTS bench_documents CASCADE;
+CREATE TABLE bench_documents (
+    id TEXT PRIMARY KEY,
+    category TEXT,
+    title TEXT
+);
+-- 20 documents: IDs are 'doc-01' .. 'doc-20'.
+-- "category" assigns roughly half to 'PROJECT_ALPHA' and the rest to other groups.
+-- The ALPHA documents are scattered: doc-01, doc-04, doc-07, doc-10, doc-13, doc-16, doc-19.
+INSERT INTO bench_documents (id, category, title) VALUES
+('doc-01', 'PROJECT_ALPHA review notes',        'Document Title 1 - intro'),
+('doc-02', 'BETA_GROUP project overview',        'Document Title 2 - overview'),
+('doc-03', 'GAMMA_DIVISION quarterly report',    'Document Title 3 - quarterly'),
+('doc-04', 'PROJECT_ALPHA design spec',          'Document Title 4 - design'),
+('doc-05', 'BETA_GROUP budget analysis',         'Document Title 5 - budget'),
+('doc-06', 'GAMMA_DIVISION team roster',         'Document Title 6 - roster'),
+('doc-07', 'PROJECT_ALPHA roadmap planning',     'Document Title 7 - roadmap'),
+('doc-08', 'BETA_GROUP status update',           'Document Title 8 - status'),
+('doc-09', 'GAMMA_DIVISION risk assessment',     'Document Title 9 - risk'),
+('doc-10', 'PROJECT_ALPHA launch checklist',     'Document Title 10 - launch'),
+('doc-11', 'BETA_GROUP marketing strategy',      'Document Title 11 - marketing'),
+('doc-12', 'GAMMA_DIVISION vendor evaluation',   'Document Title 12 - vendor'),
+('doc-13', 'PROJECT_ALPHA feedback summary',     'Document Title 13 - feedback'),
+('doc-14', 'BETA_GROUP compliance report',       'Document Title 14 - compliance'),
+('doc-15', 'GAMMA_DIVISION hiring plan',         'Document Title 15 - hiring'),
+('doc-16', 'PROJECT_ALPHA milestone tracker',    'Document Title 16 - milestone'),
+('doc-17', 'BETA_GROUP onboarding guide',        'Document Title 17 - onboarding'),
+('doc-18', 'GAMMA_DIVISION security audit',      'Document Title 18 - security'),
+('doc-19', 'PROJECT_ALPHA resource allocation',  'Document Title 19 - resource'),
+('doc-20', 'BETA_GROUP incident response',       'Document Title 20 - incident');
+CREATE TABLE bench_files (
+    id SERIAL PRIMARY KEY,
+    document_id TEXT,
+    title TEXT,
+    content TEXT
+);
+-- 200 files, each randomly referencing a document.
+-- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.
+-- Titles are 'File Title NNN' so they sort nicely and TopK can tighten thresholds.
+INSERT INTO bench_files (document_id, title, content)
+SELECT
+    'doc-' || LPAD(((i - 1) % 20 + 1)::TEXT, 2, '0'),
+    'File Title ' || LPAD(i::TEXT, 3, '0'),
+    'file content for item ' || i
+FROM generate_series(1, 200) AS i;
+CREATE INDEX bench_documents_bm25_idx ON bench_documents USING bm25 (id, category, title)
+WITH (key_field = 'id');
+CREATE INDEX bench_files_bm25_idx ON bench_files USING bm25 (id, document_id, title, content)
+WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+-- ----- TEST 8a: Wide-range build side -----
+-- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.
+-- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-19' which
+-- covers nearly all documents. TopK on title LIMIT 3 is the only useful filter.
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
+         Join Type: Inner
+         Relation 0: bench_documents (d)
+         Relation 1: bench_files (f)
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
+           :         CooperativeExec
+           :           PgSearchScan: "all", dynamic_filters=2
+(18 rows)
+
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+ id |     title      
+----+----------------
+  1 | File Title 001
+  4 | File Title 004
+  7 | File Title 007
+(3 rows)
+
+-- ----- TEST 8b: Narrow-range build side -----
+-- The subquery matches only 'doc-01' (the only document with 'intro' in its title).
+-- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-01', which
+-- is perfectly selective: only files referencing doc-01 survive. Combined with TopK,
+-- this should show significant pruning.
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
+         Join Type: Inner
+         Relation 0: bench_documents (d)
+         Relation 1: bench_files (f)
+         Join Cond: f.document_id = d.id
+         Limit: 3
+         Order By: f.title asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
+           :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
+           :         CooperativeExec
+           :           PgSearchScan: "all", dynamic_filters=2
+(18 rows)
+
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+ id |     title      
+----+----------------
+  1 | File Title 001
+ 21 | File Title 021
+ 41 | File Title 041
+(3 rows)
+
+-- =============================================================================
+-- CLEANUP (bench tables)
+-- =============================================================================
+DROP TABLE bench_files CASCADE;
+DROP TABLE bench_documents CASCADE;

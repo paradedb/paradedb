@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770912612134,
+  "lastUpdate": 1770918057976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -638,6 +638,78 @@ window.BENCHMARK_DATA = {
             "value": 37.43009397907358,
             "unit": "median tps",
             "extra": "avg tps: 37.15407877220718, max tps: 196.63645478629846, count: 55136"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aec8447addadd4def1cf10f4d11e24c1755fadb",
+          "message": "chore: Remove tuned_postgres from /benchmarks (#4167)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nWe are moving user-facing benchmarks to a much more complete project,\nwhich will be in a separate repository. This is no longer relevant to\nkeep here, so removing.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-02-12T12:21:38-05:00",
+          "tree_id": "3502c5fdf7ad1b45110e95b70c181dd5ca1eae37",
+          "url": "https://github.com/paradedb/paradedb/commit/2aec8447addadd4def1cf10f4d11e24c1755fadb"
+        },
+        "date": 1770918054114,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 119.10836833000177,
+            "unit": "median tps",
+            "extra": "avg tps: 119.95932887729525, max tps: 138.84620073735528, count: 55205"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3118.4052924634066,
+            "unit": "median tps",
+            "extra": "avg tps: 3105.2085314225833, max tps: 3130.8197388971103, count: 55205"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 453.5268576945254,
+            "unit": "median tps",
+            "extra": "avg tps: 459.5392362909417, max tps: 582.1849795256459, count: 55205"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3095.5321423679775,
+            "unit": "median tps",
+            "extra": "avg tps: 3085.1613199233852, max tps: 3125.4474074020804, count: 110410"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 516.363616689627,
+            "unit": "median tps",
+            "extra": "avg tps: 520.041514432194, max tps: 644.3915347532587, count: 55205"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 495.8318007343751,
+            "unit": "median tps",
+            "extra": "avg tps: 502.17854339646857, max tps: 647.3441852779786, count: 55205"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1990.3128354068788,
+            "unit": "median tps",
+            "extra": "avg tps: 1978.5284117615913, max tps: 1996.6304219651201, count: 55205"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 58.339612822675925,
+            "unit": "median tps",
+            "extra": "avg tps: 85.86302310157052, max tps: 231.07441608303816, count: 55205"
           }
         ]
       }

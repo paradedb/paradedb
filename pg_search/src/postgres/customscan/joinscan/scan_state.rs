@@ -140,7 +140,11 @@ impl CustomScanState for JoinScanState {
 /// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
 /// across machines with different CPU counts.
 pub fn create_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
     SessionContext::new_with_config(config)
 }
 

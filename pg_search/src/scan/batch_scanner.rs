@@ -27,6 +27,7 @@ use arrow_array::{ArrayRef, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
 use arrow_schema::SchemaRef;
 use tantivy::columnar::{BytesColumn, StrColumn};
+use tantivy::fastfield::Column;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, SegmentOrdinal};
 
@@ -411,40 +412,93 @@ fn compact_parallel(
     scores.truncate(write_idx);
 }
 
-fn bound_as_bytes(bound: &Bound<PreFilterValue>) -> Option<Bound<&[u8]>> {
+/// Map the inner value of a `Bound`, returning `None` if the mapping fails.
+fn try_map_bound<'a, T, U>(
+    bound: &'a Bound<T>,
+    f: impl FnOnce(&'a T) -> Option<U>,
+) -> Option<Bound<U>> {
     match bound {
-        Bound::Included(PreFilterValue::Bytes(b)) => Some(Bound::Included(b.as_slice())),
-        Bound::Excluded(PreFilterValue::Bytes(b)) => Some(Bound::Excluded(b.as_slice())),
+        Bound::Included(v) => f(v).map(Bound::Included),
+        Bound::Excluded(v) => f(v).map(Bound::Excluded),
         Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
     }
 }
 
-fn bound_as_i64(bound: &Bound<PreFilterValue>) -> Option<Bound<i64>> {
-    match bound {
-        Bound::Included(PreFilterValue::I64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::I64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
+impl PreFilterValue {
+    fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::Bytes(b) => Some(b),
+            _ => None,
+        }
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::I64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::F64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    fn as_u64(&self) -> Option<u64> {
+        match self {
+            Self::U64(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
-fn bound_as_f64(bound: &Bound<PreFilterValue>) -> Option<Bound<f64>> {
-    match bound {
-        Bound::Included(PreFilterValue::F64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::F64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
+/// Filter by dictionary-encoded column: convert bounds to term ordinals, load ordinals,
+/// then compact. Works for both `StrColumn` (which derefs to `BytesColumn`) and
+/// `BytesColumn` directly.
+fn filter_by_ordinals(
+    col: &BytesColumn,
+    filter: &PreFilter,
+    ids: &mut Vec<u32>,
+    ctids: &mut Vec<u64>,
+    scores: &mut Vec<f32>,
+) {
+    let Some(lower) = try_map_bound(&filter.lower, PreFilterValue::as_bytes) else {
+        return;
+    };
+    let Some(upper) = try_map_bound(&filter.upper, PreFilterValue::as_bytes) else {
+        return;
+    };
+    let Ok((lo_ord, hi_ord)) = col.dictionary().term_bounds_to_ord(lower, upper) else {
+        return;
+    };
+
+    let mut ords = vec![None; ids.len()];
+    col.ords().first_vals(ids, &mut ords);
+
+    compact_parallel(ids, ctids, scores, |i| match ords[i] {
+        Some(ord) => in_bound(ord, &lo_ord, &hi_ord),
+        None => false,
+    });
 }
 
-fn bound_as_u64(bound: &Bound<PreFilterValue>) -> Option<Bound<u64>> {
-    match bound {
-        Bound::Included(PreFilterValue::U64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::U64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
+/// Filter by numeric fast-field column: extract typed bounds, load values, then compact.
+fn filter_by_values<T: PartialOrd + Copy + std::fmt::Debug + Send + Sync + 'static>(
+    col: &Column<T>,
+    lower: Bound<T>,
+    upper: Bound<T>,
+    ids: &mut Vec<u32>,
+    ctids: &mut Vec<u64>,
+    scores: &mut Vec<f32>,
+) {
+    let mut vals = vec![None; ids.len()];
+    col.first_vals(ids, &mut vals);
+
+    compact_parallel(ids, ctids, scores, |i| match vals[i] {
+        Some(v) => in_bound(v, &lower, &upper),
+        None => false,
+    });
 }
 
 /// Apply a single pre-materialization filter, pruning `ids`/`ctids`/`scores` in-place.
@@ -462,96 +516,36 @@ fn apply_pre_filter(
 ) {
     let col = ffhelper.column(segment_ord, filter.ff_index);
     match col {
-        FFType::Text(str_col) => {
-            let Some(lower) = bound_as_bytes(&filter.lower) else {
+        FFType::Text(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
+        FFType::Bytes(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
+        FFType::I64(col) => {
+            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_i64) else {
                 return;
             };
-            let Some(upper) = bound_as_bytes(&filter.upper) else {
+            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_i64) else {
                 return;
             };
-            let Ok((lower_ord, upper_ord)) = str_col.dictionary().term_bounds_to_ord(lower, upper)
-            else {
-                return;
-            };
-
-            let mut ords = vec![None; ids.len()];
-            str_col.ords().first_vals(ids, &mut ords);
-
-            compact_parallel(ids, ctids, scores, |i| match ords[i] {
-                Some(ord) => in_bound(ord, &lower_ord, &upper_ord),
-                None => false,
-            });
+            filter_by_values(col, lo, hi, ids, ctids, scores);
         }
-        FFType::Bytes(bytes_col) => {
-            let Some(lower) = bound_as_bytes(&filter.lower) else {
+        FFType::F64(col) => {
+            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_f64) else {
                 return;
             };
-            let Some(upper) = bound_as_bytes(&filter.upper) else {
+            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_f64) else {
                 return;
             };
-            let Ok((lower_ord, upper_ord)) =
-                bytes_col.dictionary().term_bounds_to_ord(lower, upper)
-            else {
-                return;
-            };
-
-            let mut ords = vec![None; ids.len()];
-            bytes_col.ords().first_vals(ids, &mut ords);
-
-            compact_parallel(ids, ctids, scores, |i| match ords[i] {
-                Some(ord) => in_bound(ord, &lower_ord, &upper_ord),
-                None => false,
-            });
+            filter_by_values(col, lo, hi, ids, ctids, scores);
         }
-        FFType::I64(num_col) => {
-            let Some(lower) = bound_as_i64(&filter.lower) else {
+        FFType::U64(col) => {
+            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_u64) else {
                 return;
             };
-            let Some(upper) = bound_as_i64(&filter.upper) else {
+            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_u64) else {
                 return;
             };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
+            filter_by_values(col, lo, hi, ids, ctids, scores);
         }
-        FFType::F64(num_col) => {
-            let Some(lower) = bound_as_f64(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_f64(&filter.upper) else {
-                return;
-            };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
-        }
-        FFType::U64(num_col) => {
-            let Some(lower) = bound_as_u64(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_u64(&filter.upper) else {
-                return;
-            };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
-        }
-        _ => {} // Bool, Date, Junk — let Arrow-level filter handle
+        _ => {}
     }
 }
 

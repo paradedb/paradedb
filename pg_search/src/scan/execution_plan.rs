@@ -52,12 +52,21 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
-use arrow_schema::{SchemaRef, SortOptions};
+use arrow_schema::SchemaRef;
+use arrow_schema::SortOptions;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::expressions::Column;
-use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalSortExpr};
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::physical_expr::{
+    EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
+};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
+};
+use datafusion::physical_plan::metrics::{
+    Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
+};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -71,6 +80,7 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -106,6 +116,13 @@ pub struct SegmentPlan {
     state: Mutex<Option<UnsafeSendSync<ScanState>>>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
+    /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
+    /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
+    /// by the scanner is filtered against all of these expressions so that rows
+    /// which cannot contribute to the final result are pruned early.
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Metrics for EXPLAIN ANALYZE.
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl std::fmt::Debug for SegmentPlan {
@@ -138,6 +155,8 @@ impl SegmentPlan {
             )))),
             properties,
             query_for_display,
+            dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 
@@ -162,6 +181,8 @@ impl SegmentPlan {
             state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
             properties,
             query_for_display,
+            dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
     }
 }
@@ -284,7 +305,7 @@ impl Stream for ParallelScanStream {
 
         loop {
             if let Some(scanner) = &mut this.current_scanner {
-                match scanner.next(&this.ffhelper, &mut *this.visibility) {
+                match scanner.next(&this.ffhelper, &mut *this.visibility, &[]) {
                     Some(batch) => {
                         return Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema))))
                     }
@@ -364,7 +385,11 @@ impl DisplayAs for SegmentPlan {
             f,
             "PgSearchScan: {}",
             self.query_for_display.explain_format()
-        )
+        )?;
+        if !self.dynamic_filters.is_empty() {
+            write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        }
+        Ok(())
     }
 }
 
@@ -394,7 +419,7 @@ impl ExecutionPlan for SegmentPlan {
 
     fn execute(
         &self,
-        _partition: usize,
+        partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut state = self.state.lock().map_err(|e| {
@@ -404,6 +429,12 @@ impl ExecutionPlan for SegmentPlan {
             DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
         })?;
 
+        let has_dynamic_filters = !self.dynamic_filters.is_empty();
+        let rows_scanned = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
+        let rows_pruned = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
+
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
         let stream = unsafe {
@@ -412,9 +443,76 @@ impl ExecutionPlan for SegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
+                dynamic_filters: self.dynamic_filters.clone(),
+                rows_scanned,
+                rows_pruned,
             })
         };
         Ok(Box::pin(stream))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        // Only handle dynamic filters in the Post phase (TopK pushdown happens here).
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
+        }
+
+        // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
+        // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
+        // join-key bounds from HashJoinExec). We accept and apply all of them.
+        let mut dynamic_filters = Vec::new();
+        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if filter_result
+                .filter
+                .as_any()
+                .downcast_ref::<DynamicFilterPhysicalExpr>()
+                .is_some()
+            {
+                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                filters.push(PushedDown::Yes);
+            } else {
+                filters.push(filter_result.any());
+            }
+        }
+
+        if !dynamic_filters.is_empty() {
+            // Transfer state from the old plan to the new one.
+            let state = self
+                .state
+                .lock()
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to lock SegmentPlan state during filter pushdown: {e}"
+                    ))
+                })?
+                .take();
+
+            let new_plan = Arc::new(SegmentPlan {
+                state: Mutex::new(state),
+                properties: self.properties.clone(),
+                query_for_display: self.query_for_display.clone(),
+                dynamic_filters,
+                metrics: self.metrics.clone(),
+            });
+
+            Ok(
+                FilterPushdownPropagation::with_parent_pushdown_result(filters)
+                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
+            )
+        } else {
+            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        }
     }
 }
 
@@ -423,6 +521,34 @@ struct ScanStream {
     ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
+    rows_scanned: Option<Count>,
+    rows_pruned: Option<Count>,
+}
+
+impl ScanStream {
+    /// Evaluate the current dynamic filter expressions and convert them into
+    /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
+    ///
+    /// This is called on every `poll_next` so that tightening thresholds (e.g.
+    /// from TopK) are picked up immediately.
+    ///
+    /// Only filter predicates that can be lowered to fast-field or term-ordinal
+    /// comparisons are retained. Anything else (unsupported types, non-comparison
+    /// operators) is silently dropped — the parent operator is still responsible
+    /// for enforcing the full predicate, so correctness is not affected.
+    fn build_filters(&self) -> Vec<PreFilter> {
+        let mut filters = Vec::new();
+        for df in &self.dynamic_filters {
+            if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+                if let Ok(current_expr) = dynamic.current() {
+                    collect_filters(&*current_expr, &mut filters);
+                }
+            }
+        }
+        filters
+    }
 }
 
 impl Stream for ScanStream {
@@ -430,9 +556,22 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
+        let pre_filters = this.build_filters();
+        match this
+            .scanner
+            .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
+        {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
-            None => Poll::Ready(None),
+            None => {
+                // Flush pre-materialization filter stats from Scanner.
+                if let Some(ref counter) = this.rows_scanned {
+                    counter.add(this.scanner.pre_filter_rows_scanned);
+                }
+                if let Some(ref counter) = this.rows_pruned {
+                    counter.add(this.scanner.pre_filter_rows_pruned);
+                }
+                Poll::Ready(None)
+            }
         }
     }
 }
@@ -601,6 +740,9 @@ impl ExecutionPlan for MultiSegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
+                dynamic_filters: Vec::new(),
+                rows_scanned: None,
+                rows_pruned: None,
             })
         };
         Ok(Box::pin(stream))

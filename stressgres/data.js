@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770937722284,
+  "lastUpdate": 1770937727285,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3812,6 +3812,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.92233948836648, max segment_count: 127.0, count: 57893"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1da48a637b80cc0ce2312ab8c4e448762e152223",
+          "message": "perf: Add statistics to joinscan (#4132)\n\n## Ticket(s) Closed\n\n- Closes #4062.\n\n## What\n\n* Exposes sorting from the joinscan's `TableProvider`, but does not yet\nforce `SortMergeJoin`.\n* Adds statistics on `TableProvider` and our `ExecutionPlan`s using\nTantivy's query estimates.\n* Removes the `ParallelSegmentPlan` that was added in #4101, as it makes\nmore sense to let DataFusion coalesce for us if needed.\n\n## Why\n\nTo allow the DataFusion optimizer to re-order joins based on table\nsizes, and use sortedness in plans (although it does not yet by\ndefault).\n\n## Tests\n\nExisting tests show the impact of join reordering due to statistics.",
+          "timestamp": "2026-02-12T14:34:01-08:00",
+          "tree_id": "fbc185b154055782f4973f483feb5ad00a4ca2bb",
+          "url": "https://github.com/paradedb/paradedb/commit/1da48a637b80cc0ce2312ab8c4e448762e152223"
+        },
+        "date": 1770937723421,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.008528798724385, max cpu: 42.899704, count: 57829"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.94593786205883, max mem: 237.57421875, count: 57829"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.453882596444164, max cpu: 33.300297, count: 57829"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 175.12362539232046, max mem: 176.16796875, count: 57829"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34055,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33487.82475920386, max block_count: 35975.0, count: 57829"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.2388939805288, max segment_count: 125.0, count: 57829"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770934064224,
+  "lastUpdate": 1770936800127,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -854,6 +854,78 @@ window.BENCHMARK_DATA = {
             "value": 45.53941274012749,
             "unit": "median tps",
             "extra": "avg tps: 47.28254017129468, max tps: 568.955079858535, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1da48a637b80cc0ce2312ab8c4e448762e152223",
+          "message": "perf: Add statistics to joinscan (#4132)\n\n## Ticket(s) Closed\n\n- Closes #4062.\n\n## What\n\n* Exposes sorting from the joinscan's `TableProvider`, but does not yet\nforce `SortMergeJoin`.\n* Adds statistics on `TableProvider` and our `ExecutionPlan`s using\nTantivy's query estimates.\n* Removes the `ParallelSegmentPlan` that was added in #4101, as it makes\nmore sense to let DataFusion coalesce for us if needed.\n\n## Why\n\nTo allow the DataFusion optimizer to re-order joins based on table\nsizes, and use sortedness in plans (although it does not yet by\ndefault).\n\n## Tests\n\nExisting tests show the impact of join reordering due to statistics.",
+          "timestamp": "2026-02-12T14:34:01-08:00",
+          "tree_id": "fbc185b154055782f4973f483feb5ad00a4ca2bb",
+          "url": "https://github.com/paradedb/paradedb/commit/1da48a637b80cc0ce2312ab8c4e448762e152223"
+        },
+        "date": 1770936796218,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.91451061026538,
+            "unit": "median tps",
+            "extra": "avg tps: 125.56931345310355, max tps: 145.30187545308075, count: 55002"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3130.929996622497,
+            "unit": "median tps",
+            "extra": "avg tps: 3122.7827855974338, max tps: 3146.7893308457383, count: 55002"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 460.9737542522349,
+            "unit": "median tps",
+            "extra": "avg tps: 463.4702341731758, max tps: 567.9766258685901, count: 55002"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3077.1470642849836,
+            "unit": "median tps",
+            "extra": "avg tps: 3058.6390718197304, max tps: 3126.0869199536414, count: 110004"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 501.2495105980829,
+            "unit": "median tps",
+            "extra": "avg tps: 506.13861308668135, max tps: 664.7033637299874, count: 55002"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 549.5659231108259,
+            "unit": "median tps",
+            "extra": "avg tps: 552.6118713490107, max tps: 632.8632325968939, count: 55002"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1982.235439864849,
+            "unit": "median tps",
+            "extra": "avg tps: 1965.7833440557808, max tps: 1988.930300170519, count: 55002"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 55.09741975785236,
+            "unit": "median tps",
+            "extra": "avg tps: 98.66840427846833, max tps: 227.2937433343742, count: 55002"
           }
         ]
       }

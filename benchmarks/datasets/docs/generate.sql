@@ -400,6 +400,7 @@ FROM generate_series(1, :rows) s(id);
 -- Materialized views for join patterns used in benchmark queries.
 -- These allow comparing query performance against pre-joined data.
 -- Each view has a synthetic row_id for use as bm25 key_field.
+DROP MATERIALIZED VIEW IF EXISTS files_inner_join_pages CASCADE;
 CREATE MATERIALIZED VIEW files_inner_join_pages AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,
@@ -420,6 +421,7 @@ SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId";
 
+DROP MATERIALIZED VIEW IF EXISTS files_left_join_documents CASCADE;
 CREATE MATERIALIZED VIEW files_left_join_documents AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,
@@ -438,6 +440,7 @@ SELECT
 FROM files f
 LEFT JOIN documents d ON f."documentId" = d.id;
 
+DROP MATERIALIZED VIEW IF EXISTS documents_inner_join_files_inner_join_pages CASCADE;
 CREATE MATERIALIZED VIEW documents_inner_join_files_inner_join_pages AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,
@@ -464,6 +467,7 @@ FROM documents d
 JOIN files f ON d.id = f."documentId"
 JOIN pages p ON f.id = p."fileId";
 
+DROP MATERIALIZED VIEW IF EXISTS files_inner_join_documents CASCADE;
 CREATE MATERIALIZED VIEW files_inner_join_documents AS
 SELECT
     ROW_NUMBER() OVER () AS row_id,

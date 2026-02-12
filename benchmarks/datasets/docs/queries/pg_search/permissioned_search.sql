@@ -10,7 +10,7 @@ FROM files f
 JOIN documents d ON f."documentId" = d.id
 WHERE
     f.title @@@ 'File'              -- Driving the Sort (Single Feature)
-    AND d.parents LIKE 'PARENT_GROUP_10%' -- Hard Constraint (Permission)
+    AND d.parents @@@ 'parent group'
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -23,7 +23,7 @@ FROM files f
 JOIN documents d ON f."documentId" = d.id
 WHERE
     f.title @@@ 'File'              -- Driving the Sort (Single Feature)
-    AND d.parents LIKE 'PARENT_GROUP_10%' -- Hard Constraint (Permission)
+    AND d.parents @@@ 'parent group'
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -36,7 +36,7 @@ SELECT
 FROM files_inner_join_documents fid
 WHERE
     fid.file_title @@@ 'File'
-    AND fid.doc_parents LIKE 'PARENT_GROUP_10%'
+    AND fid.doc_parents @@@ 'parent group'
 ORDER BY
     relevance DESC
 LIMIT 10;

@@ -504,7 +504,7 @@ LIMIT 3;
          Order By: f.title asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 007]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
            :         CooperativeExec
@@ -512,7 +512,8 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :         CooperativeExec
            :           PgSearchScan: "all", dynamic_filters=2
-(18 rows)
+         Dynamic Filter: "all" — 200 scanned, 10 pruned (5.0%)
+(19 rows)
 
 SELECT f.id, f.title
 FROM bench_files f
@@ -553,7 +554,7 @@ LIMIT 3;
          Order By: f.title asc
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, title@2 as col_2, ctid_3@0 as ctid_3, ctid_1@1 as ctid_1]
-           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :   SortExec: TopK(fetch=3), expr=[title@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[title@2 < File Title 041]
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4]
            :       ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id]
            :         CooperativeExec
@@ -561,7 +562,8 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title]
            :         CooperativeExec
            :           PgSearchScan: "all", dynamic_filters=2
-(18 rows)
+         Dynamic Filter: "all" — 200 scanned, 190 pruned (95.0%)
+(19 rows)
 
 SELECT f.id, f.title
 FROM bench_files f

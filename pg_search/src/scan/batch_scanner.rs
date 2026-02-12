@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::identity;
-use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -34,6 +33,7 @@ use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, Whi
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
+use super::pre_filter::{apply_pre_filter, PreFilter};
 use super::VisibilityChecker;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
@@ -44,30 +44,6 @@ use super::VisibilityChecker;
 const MAX_BATCH_SIZE: usize = 128_000;
 
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
-
-/// A pre-materialization filter applied inside [`Scanner::next()`] between
-/// visibility checks and column materialization. By filtering at the term-ordinal
-/// or fast-field level, we skip expensive term dictionary I/O for pruned documents.
-pub struct PreFilter {
-    /// Index into `which_fast_fields` (== schema field index == ff_index).
-    pub ff_index: usize,
-    /// Lower bound of the accepted range.
-    pub lower: Bound<PreFilterValue>,
-    /// Upper bound of the accepted range.
-    pub upper: Bound<PreFilterValue>,
-}
-
-/// A typed threshold value for pre-materialization filtering.
-pub enum PreFilterValue {
-    /// Raw bytes for Text/Bytes columns — converted to a term ordinal per-segment.
-    Bytes(Vec<u8>),
-    /// 64-bit signed integer.
-    I64(i64),
-    /// 64-bit float.
-    F64(f64),
-    /// 64-bit unsigned integer.
-    U64(u64),
-}
 
 /// A macro to fetch values for the given ids into an Arrow array.
 macro_rules! fetch_ff_column {
@@ -365,193 +341,6 @@ impl Scanner {
                 self.prefetched = Some(batch);
             }
         }
-    }
-}
-
-// ============================================================================
-// Pre-materialization filter helpers
-// ============================================================================
-
-/// Check whether `val` falls within the given bounds.
-fn in_bound<T: PartialOrd>(val: T, lower: &Bound<T>, upper: &Bound<T>) -> bool {
-    let lower_ok = match lower {
-        Bound::Included(l) => val >= *l,
-        Bound::Excluded(l) => val > *l,
-        Bound::Unbounded => true,
-    };
-    let upper_ok = match upper {
-        Bound::Included(u) => val <= *u,
-        Bound::Excluded(u) => val < *u,
-        Bound::Unbounded => true,
-    };
-    lower_ok && upper_ok
-}
-
-/// Compact `ids`, `ctids`, and `scores` in-place, keeping only elements
-/// where `keep(index)` returns true.
-fn compact_parallel(
-    ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
-    scores: &mut Vec<f32>,
-    keep: impl Fn(usize) -> bool,
-) {
-    let mut write_idx = 0;
-    for read_idx in 0..ids.len() {
-        if keep(read_idx) {
-            if read_idx != write_idx {
-                ids[write_idx] = ids[read_idx];
-                ctids[write_idx] = ctids[read_idx];
-                scores[write_idx] = scores[read_idx];
-            }
-            write_idx += 1;
-        }
-    }
-    ids.truncate(write_idx);
-    ctids.truncate(write_idx);
-    scores.truncate(write_idx);
-}
-
-fn bound_as_bytes(bound: &Bound<PreFilterValue>) -> Option<Bound<&[u8]>> {
-    match bound {
-        Bound::Included(PreFilterValue::Bytes(b)) => Some(Bound::Included(b.as_slice())),
-        Bound::Excluded(PreFilterValue::Bytes(b)) => Some(Bound::Excluded(b.as_slice())),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
-}
-
-fn bound_as_i64(bound: &Bound<PreFilterValue>) -> Option<Bound<i64>> {
-    match bound {
-        Bound::Included(PreFilterValue::I64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::I64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
-}
-
-fn bound_as_f64(bound: &Bound<PreFilterValue>) -> Option<Bound<f64>> {
-    match bound {
-        Bound::Included(PreFilterValue::F64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::F64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
-}
-
-fn bound_as_u64(bound: &Bound<PreFilterValue>) -> Option<Bound<u64>> {
-    match bound {
-        Bound::Included(PreFilterValue::U64(v)) => Some(Bound::Included(*v)),
-        Bound::Excluded(PreFilterValue::U64(v)) => Some(Bound::Excluded(*v)),
-        Bound::Unbounded => Some(Bound::Unbounded),
-        _ => None,
-    }
-}
-
-/// Apply a single pre-materialization filter, pruning `ids`/`ctids`/`scores` in-place.
-///
-/// For string columns this converts the threshold to a term ordinal and compares ordinals
-/// (skipping the expensive dictionary walk for pruned docs). For numeric columns the fast
-/// field values are compared directly.
-fn apply_pre_filter(
-    ffhelper: &FFHelper,
-    segment_ord: SegmentOrdinal,
-    filter: &PreFilter,
-    ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
-    scores: &mut Vec<f32>,
-) {
-    let col = ffhelper.column(segment_ord, filter.ff_index);
-    match col {
-        FFType::Text(str_col) => {
-            let Some(lower) = bound_as_bytes(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_bytes(&filter.upper) else {
-                return;
-            };
-            let Ok((lower_ord, upper_ord)) = str_col.dictionary().term_bounds_to_ord(lower, upper)
-            else {
-                return;
-            };
-
-            let mut ords = vec![None; ids.len()];
-            str_col.ords().first_vals(ids, &mut ords);
-
-            compact_parallel(ids, ctids, scores, |i| match ords[i] {
-                Some(ord) => in_bound(ord, &lower_ord, &upper_ord),
-                None => false,
-            });
-        }
-        FFType::Bytes(bytes_col) => {
-            let Some(lower) = bound_as_bytes(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_bytes(&filter.upper) else {
-                return;
-            };
-            let Ok((lower_ord, upper_ord)) =
-                bytes_col.dictionary().term_bounds_to_ord(lower, upper)
-            else {
-                return;
-            };
-
-            let mut ords = vec![None; ids.len()];
-            bytes_col.ords().first_vals(ids, &mut ords);
-
-            compact_parallel(ids, ctids, scores, |i| match ords[i] {
-                Some(ord) => in_bound(ord, &lower_ord, &upper_ord),
-                None => false,
-            });
-        }
-        FFType::I64(num_col) => {
-            let Some(lower) = bound_as_i64(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_i64(&filter.upper) else {
-                return;
-            };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
-        }
-        FFType::F64(num_col) => {
-            let Some(lower) = bound_as_f64(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_f64(&filter.upper) else {
-                return;
-            };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
-        }
-        FFType::U64(num_col) => {
-            let Some(lower) = bound_as_u64(&filter.lower) else {
-                return;
-            };
-            let Some(upper) = bound_as_u64(&filter.upper) else {
-                return;
-            };
-
-            let mut vals = vec![None; ids.len()];
-            num_col.first_vals(ids, &mut vals);
-
-            compact_parallel(ids, ctids, scores, |i| match vals[i] {
-                Some(v) => in_bound(v, &lower, &upper),
-                None => false,
-            });
-        }
-        _ => {} // Bool, Date, Junk — let Arrow-level filter handle
     }
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770920870248,
+  "lastUpdate": 1770921799956,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6514,6 +6514,54 @@ window.BENCHMARK_DATA = {
             "value": 550.8440191985388,
             "unit": "median tps",
             "extra": "avg tps: 497.89019841346254, max tps: 708.218008644088, count: 107758"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aec8447addadd4def1cf10f4d11e24c1755fadb",
+          "message": "chore: Remove tuned_postgres from /benchmarks (#4167)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nWe are moving user-facing benchmarks to a much more complete project,\nwhich will be in a separate repository. This is no longer relevant to\nkeep here, so removing.\n\n## Why\n^\n\n## How\n^\n\n## Tests\n^",
+          "timestamp": "2026-02-12T12:21:38-05:00",
+          "tree_id": "3502c5fdf7ad1b45110e95b70c181dd5ca1eae37",
+          "url": "https://github.com/paradedb/paradedb/commit/2aec8447addadd4def1cf10f4d11e24c1755fadb"
+        },
+        "date": 1770921796157,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 570.9453542239963,
+            "unit": "median tps",
+            "extra": "avg tps: 575.509830091533, max tps: 695.0363354570633, count: 53861"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 652.2509146452974,
+            "unit": "median tps",
+            "extra": "avg tps: 659.7466993655285, max tps: 802.9763902916759, count: 53861"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 83.66044499978611,
+            "unit": "median tps",
+            "extra": "avg tps: 83.84180603189853, max tps: 91.39933845408098, count: 53861"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 561.35488535509,
+            "unit": "median tps",
+            "extra": "avg tps: 503.15518807616843, max tps: 750.610949058973, count: 107722"
           }
         ]
       }

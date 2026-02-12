@@ -70,14 +70,14 @@ pub const NUMERIC_TYPE_PAIRS: &[[&str; 2]] = &[
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OperatorAccepts {
+enum OperatorAccepts {
     // text, uuid
     Text,
     // text, uuid, int, bool, etc.
     All,
 }
 
-pub unsafe fn initialize_equality_operator_lookup(
+unsafe fn initialize_equality_operator_lookup(
     accepts: OperatorAccepts,
 ) -> HashMap<PostgresOperatorOid, TantivyOperator> {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
@@ -104,6 +104,20 @@ pub unsafe fn initialize_equality_operator_lookup(
     }
 
     lookup
+}
+
+/// Look up a Tantivy operator for a PostgreSQL operator OID.
+///
+/// This initializes a cached map with PostgreSQL catalog lookups on first use, so callers
+/// must only invoke it from an active PostgreSQL backend context.
+pub(crate) fn lookup_operator(opno: PostgresOperatorOid) -> Option<TantivyOperator> {
+    static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> =
+        OnceLock::new();
+
+    OPERATOR_LOOKUP
+        .get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) })
+        .get(&opno)
+        .copied()
 }
 
 #[derive(Debug)]

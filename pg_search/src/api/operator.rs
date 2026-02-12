@@ -221,6 +221,13 @@ pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
 ) -> Option<f64> {
+    // For queries where scorer construction is expensive (fuzzy, regex, range),
+    // return a heuristic selectivity without opening the index.
+    if crate::gucs::enable_heuristic_selectivity() && search_query_input.is_expensive_to_estimate()
+    {
+        return Some(search_query_input.selectivity_heuristic());
+    }
+
     let heap_rel = indexrel
         .heap_relation()
         .expect("indexrel should be an index");

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770941741712,
+  "lastUpdate": 1770942689771,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9154,6 +9154,54 @@ window.BENCHMARK_DATA = {
             "value": 547.1190327698434,
             "unit": "median tps",
             "extra": "avg tps: 500.4641738627781, max tps: 673.9678072182484, count: 107710"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770942685933,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 597.1835886425567,
+            "unit": "median tps",
+            "extra": "avg tps: 597.6786941247456, max tps: 660.5571006475441, count: 53853"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 624.4375966092803,
+            "unit": "median tps",
+            "extra": "avg tps: 628.8205166190185, max tps: 853.7423100495395, count: 53853"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.66691556782402,
+            "unit": "median tps",
+            "extra": "avg tps: 84.7041889699459, max tps: 96.45746224709185, count: 53853"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 525.481661448436,
+            "unit": "median tps",
+            "extra": "avg tps: 496.1203723492174, max tps: 753.6318570771886, count: 107706"
           }
         ]
       }

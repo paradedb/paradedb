@@ -333,16 +333,13 @@ fn exists_query(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
 
-    // Non fast field should fail
-    match r#"
+    // With text fields defaulting to fast=true, exists() on description now succeeds
+    let columns: SimpleProductsTableVec = r#"
     SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
         paradedb.exists('description')
     "#
-    .execute_result(&mut conn)
-    {
-        Err(err) => assert!(err.to_string().contains("not a fast field")),
-        _ => panic!("exists() over non-fast field should fail"),
-    }
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 41);
 
     // Exists with boolean query
     "INSERT INTO paradedb.bm25_search (id, description, rating) VALUES (42, 'shoes', NULL)"

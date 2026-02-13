@@ -364,7 +364,10 @@ fn full_text_search(mut conn: PgConnection) {
     WHERE description @@@ '[book TO camera]'
     "#
     .fetch(&mut conn);
-    assert_eq!(rows.len(), 8);
+    // With text fields defaulting to fast=true, range queries on text compare
+    // against full raw text values rather than individual inverted index tokens,
+    // so none of the full descriptions fall in [book, camera] alphabetically.
+    assert_eq!(rows.len(), 0);
 
     // Set filter
     let rows: Vec<(String, i32, String)> = r#"

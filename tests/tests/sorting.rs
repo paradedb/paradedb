@@ -183,11 +183,11 @@ async fn compound_sort_expression(mut conn: PgConnection) {
 
     eprintln!("plan: {plan:#?}");
 
-    // Since the ORDER BY contains an expression, we should not attempt TopN, even if other
-    // fields could be pushed down.
+    // With text fields defaulting to fast=true, description can now be pushed down
+    // along with pdb.score(), enabling TopN scan.
     assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/Plans/0/Exec Method"),
-        Some(&Value::String(String::from("NormalScanExecState")))
+        plan.pointer("/0/Plan/Plans/0/Exec Method"),
+        Some(&Value::String(String::from("TopNScanExecState")))
     );
 }
 

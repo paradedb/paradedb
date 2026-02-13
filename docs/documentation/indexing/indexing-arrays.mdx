@@ -52,12 +52,6 @@ match if **any** of its entries is a match.
 SELECT * FROM array_demo WHERE categories === 'food';
 ```
 
-```python Django
-from paradedb.search import ParadeDB, Term
-
-ArrayDemo.objects.filter(categories=ParadeDB(Term('food')))
-```
-
 </CodeGroup>
 
 ```ini Expected Response

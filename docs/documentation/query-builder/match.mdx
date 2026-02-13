@@ -74,13 +74,6 @@ FROM mock_items
 WHERE description @@@ pdb.match('ruining shoez', distance => 2);
 ```
 
-```python Django
-# Equivalent behavior via fuzzy terms in match-disjunction form.
-MockItem.objects.filter(
-    description=ParadeDB(Fuzzy('ruining', distance=2), Fuzzy('shoez', distance=2))
-).values('description', 'rating', 'category')
-```
-
 </CodeGroup>
 
 ## Conjunction Mode

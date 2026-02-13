@@ -20,6 +20,16 @@ use pgrx::datum::datetime_support::DateTimeConversionError;
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
+#[inline]
+pub fn micros_to_tantivy_datetime(
+    micros: i64,
+) -> Result<tantivy::DateTime, DateTimeConversionError> {
+    let nanos = micros
+        .checked_mul(1_000)
+        .ok_or(DateTimeConversionError::OutOfRange)?;
+    Ok(tantivy::DateTime::from_timestamp_nanos(nanos))
+}
+
 pub fn datetime_components_to_tantivy_date(
     ymd: Option<(i32, u8, u8)>,
     hms_micro: (u8, u8, u8, u32),
@@ -39,6 +49,6 @@ pub fn datetime_components_to_tantivy_date(
     .and_utc();
 
     Ok(tantivy::schema::OwnedValue::Date(
-        tantivy::DateTime::from_timestamp_micros(naive_dt.timestamp_micros()),
+        micros_to_tantivy_datetime(naive_dt.timestamp_micros())?,
     ))
 }

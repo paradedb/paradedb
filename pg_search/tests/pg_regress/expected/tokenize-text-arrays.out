@@ -14,7 +14,7 @@ CREATE INDEX idxindex_text_array ON index_text_array USING bm25 (id, arr) WITH (
 SELECT * FROM paradedb.schema('idxindex_text_array') ORDER BY name;
  name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
 ------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- arr  | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ arr  | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
  ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
  id   | I64        | f      | t       | t    | f          |             |                                  |          | 
 (3 rows)

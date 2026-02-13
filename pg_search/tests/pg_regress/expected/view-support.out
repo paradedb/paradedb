@@ -74,16 +74,18 @@ SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tab
          ->  Custom Scan (ParadeDB Scan) on products_2023
                Table: products_2023
                Index: idx_products_2023_bm25
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id, product_name
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on products_2024
                Table: products_2024
                Index: idx_products_2024_bm25
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id, product_name
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"product_name","query_string":"laptop OR tablet","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(17 rows)
 
 SELECT id, product_name FROM products_view WHERE product_name @@@ 'laptop OR tablet' ORDER BY id;
  id | product_name 

@@ -32,7 +32,7 @@ SELECT * FROM paradedb.schema('idx_test_table_uuid');
 ------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
  ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
  id   | I64        | f      | t       | t    | f          |             |                                  |          | 
- uuid | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ uuid | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
 (3 rows)
 
 DROP INDEX idx_test_table_uuid;
@@ -43,7 +43,7 @@ SELECT * FROM paradedb.schema('idx_test_table_uuid');
 ------------+------------+--------+---------+------+------------+-------------+---------------------------------+----------+------------
  ctid       | U64        | f      | t       | t    | f          |             |                                 |          | 
  id         | I64        | f      | t       | t    | f          |             |                                 |          | 
- uuid_words | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:true | position | 
+ uuid_words | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:true | position | raw
 (3 rows)
 
 DROP INDEX idx_test_table_uuid;

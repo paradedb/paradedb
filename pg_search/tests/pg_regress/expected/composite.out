@@ -1215,8 +1215,8 @@ SELECT * FROM paradedb.schema('idx_tokenized') ORDER BY name;
 --------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
  ctid         | U64        | f      | t       | t    | f          |             |                                  |          | 
  id           | I64        | f      | t       | t    | f          |             |                                  |          | 
- title        | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
- title_simple | Str        | f      | t       | f    | t          |             | default                          | position | 
+ title        | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
+ title_simple | Str        | f      | t       | t    | t          |             | default                          | position | raw
 (4 rows)
 
 INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
@@ -1279,8 +1279,8 @@ CREATE INDEX idx_ngram ON ngram_test USING bm25 (
 SELECT * FROM paradedb.schema('idx_ngram') ORDER BY name;
      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- content       | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
- content_ngram | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:4_prefixonly:false | position | 
+ content       | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false           | position | raw
+ content_ngram | Str        | f      | t       | t    | t          |             | ngram_mingram:2_maxgram:4_prefixonly:false | position | raw
  ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
 (4 rows)
@@ -1345,8 +1345,8 @@ CREATE INDEX idx_stemmer ON stemmer_test USING bm25 (
 SELECT * FROM paradedb.schema('idx_stemmer') ORDER BY name;
       name       | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
 -----------------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
- content         | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
- content_stemmed | Str        | f      | t       | f    | t          |             | default[stemmer=English]         | position | 
+ content         | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
+ content_stemmed | Str        | f      | t       | t    | t          |             | default[stemmer=English]         | position | raw
  ctid            | U64        | f      | t       | t    | f          |             |                                  |          | 
  id              | I64        | f      | t       | t    | f          |             |                                  |          | 
 (4 rows)
@@ -1447,10 +1447,11 @@ ORDER BY score DESC, id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -1474,10 +1475,11 @@ ORDER BY score DESC, id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:keyboard","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test
@@ -1931,10 +1933,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:runnin~1","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('name:runnin~1')
@@ -1955,10 +1958,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:keyboar~2","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('name:keyboar~2')
@@ -1984,10 +1988,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:\"running shoes\"","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('description:"running shoes"')
@@ -2009,10 +2014,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:\"lightweight shoes\"~2","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE id @@@ pdb.parse('description:"lightweight shoes"~2')
@@ -2129,10 +2135,11 @@ WHERE id @@@ pdb.parse('name:Shoes');
  Custom Scan (ParadeDB Scan) on smoke_test
    Table: smoke_test
    Index: smoke_idx
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: id, name
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Shoes","lenient":null,"conjunction_mode":null}}}}
-(6 rows)
+(7 rows)
 
 -- TopNScanExecState - search with ORDER BY score DESC and LIMIT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -2227,10 +2234,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"category"}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE category @@@ pdb.exists()
@@ -2262,10 +2270,11 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
  id |     name      
@@ -2283,10 +2292,11 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER B
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.match('shoes') ORDER BY id;
  id |     name      
@@ -2304,10 +2314,11 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORD
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":".*shoes.*"}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.regex('.*shoes.*') ORDER BY id;
  id |     name      
@@ -2325,10 +2336,11 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"name","value":"runnin","distance":1,"transposition_cost_one":null,"prefix":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.fuzzy_term('runnin', distance => 1) ORDER BY id;
  id |     name      
@@ -2346,10 +2358,11 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes'
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase('running shoes') ORDER BY id;
  id |     name      
@@ -2367,10 +2380,11 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"phrase_prefix":{"field":"description","phrases":["lightweight","run"],"max_expansions":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['lightweight', 'run']) ORDER BY id;
  id |     name      
@@ -2417,10 +2431,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test
 WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
@@ -2440,10 +2455,11 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
    ->  Custom Scan (ParadeDB Scan) on smoke_test
          Table: smoke_test
          Index: smoke_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear","is_datetime":false}}}}
-(8 rows)
+(9 rows)
 
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
  id |     name      
@@ -2585,7 +2601,7 @@ SELECT * FROM paradedb.schema('idx_json_composite') ORDER BY name;
  ctid     | U64        | f      | t       | t    | f          |             |                                  |          | 
  id       | I64        | f      | t       | t    | f          |             |                                  |          | 
  metadata | JsonObject | f      | t       | f    | f          | t           | unicode_words_removeemojis:false | position | 
- tags     | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ tags     | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
 (4 rows)
 
 INSERT INTO json_test (metadata, tags) VALUES
@@ -2728,8 +2744,8 @@ SELECT * FROM paradedb.schema('idx_multi_tokenizer') ORDER BY name;
      name      | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 ---------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
  ctid          | U64        | f      | t       | t    | f          |             |                                            |          | 
- desc_ngram    | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:3_prefixonly:false | position | 
- desc_standard | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
+ desc_ngram    | Str        | f      | t       | t    | t          |             | ngram_mingram:3_maxgram:3_prefixonly:false | position | raw
+ desc_standard | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false           | position | raw
  id            | I64        | f      | t       | t    | f          |             |                                            |          | 
 (4 rows)
 
@@ -2745,10 +2761,11 @@ SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse
  Custom Scan (ParadeDB Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: desc_standard, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"powerful","lenient":null,"conjunction_mode":null}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, description FROM multi_tokenizer_test WHERE description @@@ pdb.parse('powerful');
  id |            description            
@@ -2764,10 +2781,11 @@ SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ng
  Custom Scan (ParadeDB Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: desc_standard, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"desc_ngram:owe","lenient":null,"conjunction_mode":null}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, description FROM multi_tokenizer_test WHERE id @@@ pdb.parse('desc_ngram:owe');
  id |            description            
@@ -2783,10 +2801,11 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
  Custom Scan (ParadeDB Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: desc_standard, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"owe","lenient":null,"conjunction_mode":null}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ pdb.parse('owe');
  id |            description            
@@ -2802,10 +2821,11 @@ SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,
  Custom Scan (ParadeDB Scan) on multi_tokenizer_test
    Table: multi_tokenizer_test
    Index: idx_multi_tokenizer
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: desc_standard, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"desc_ngram","query_string":"owe","lenient":null,"conjunction_mode":null}}}}
-(6 rows)
+(7 rows)
 
 SELECT id, description FROM multi_tokenizer_test WHERE description::pdb.ngram(3,3) @@@ 'owe';
  id |            description            

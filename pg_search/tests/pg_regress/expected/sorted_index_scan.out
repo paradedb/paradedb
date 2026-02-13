@@ -341,16 +341,16 @@ Test 3.1: SELECT content only, ORDER BY priority
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT content FROM sorted_scan_test
 WHERE content @@@ 'searchable'
 ORDER BY priority DESC NULLS LAST;
-                                                                         QUERY PLAN                                                                          
--------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: priority DESC NULLS LAST
-   ->  Custom Scan (ParadeDB Scan) on sorted_scan_test
-         Table: sorted_scan_test
-         Index: sorted_scan_test_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on sorted_scan_test
+   Table: sorted_scan_test
+   Index: sorted_scan_test_idx
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, priority
+   Order By: priority DESC
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"searchable","lenient":null,"conjunction_mode":null}}}}
 (8 rows)
 
 \echo 'Test 3.2: Verify results are correctly ordered even when priority not selected'

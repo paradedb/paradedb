@@ -1670,11 +1670,12 @@ ORDER BY category;
                Output: category, amount
                Table: numeric_unbounded_agg_test
                Index: numeric_unbounded_agg_idx
-               Exec Method: NormalScanExecState
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: amount, category
                Scores: false
                Full Index Scan: true
                Tantivy Query: {"with_index":{"query":"all"}}
-(14 rows)
+(15 rows)
 
 SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
@@ -1683,7 +1684,7 @@ GROUP BY category
 ORDER BY category;
  category |               total                
 ----------+------------------------------------
- A        | 301.111111110111111111011111111100
+ A        |  301.11111111011111111101111111110
  B        | 150.666666666666666666666666666666
 (2 rows)
 

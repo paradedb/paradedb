@@ -17,7 +17,7 @@ SELECT * FROM paradedb.schema('search_idx') ORDER BY name;
 ----------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
  ctid     | U64        | f      | t       | t    | f          |             |                                            |          | 
  id       | I64        | f      | t       | t    | f          |             |                                            |          | 
- metadata | Str        | f      | t       | f    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | 
+ metadata | Str        | f      | t       | t    | t          |             | ngram_mingram:2_maxgram:3_prefixonly:false | position | raw
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

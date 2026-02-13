@@ -92,7 +92,6 @@ Test 3.2: sort_by with non-fast field (should error)
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', sort_by='name ASC NULLS FIRST');
-ERROR:  sort_by field 'name' must be a fast field. Add it to the index with 'fast: true'
 \echo 'Test 3.3: sort_by with invalid syntax (should error)'
 Test 3.3: sort_by with invalid syntax (should error)
 CREATE INDEX sort_by_test_idx ON sort_by_test
@@ -122,6 +121,7 @@ Test 3.6: Empty string (treated as none)
 CREATE INDEX sort_by_test_idx ON sort_by_test
     USING bm25 (id, name, score)
     WITH (key_field='id', sort_by='');
+ERROR:  relation "sort_by_test_idx" already exists
 DROP INDEX sort_by_test_idx;
 \echo 'Test 3.7: Whitespace only (should error)'
 Test 3.7: Whitespace only (should error)

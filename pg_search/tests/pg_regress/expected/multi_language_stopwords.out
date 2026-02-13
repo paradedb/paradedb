@@ -80,10 +80,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"the","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'the';
  id | content 
@@ -99,10 +100,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"le","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'le';
  id | content 
@@ -118,10 +120,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"quick","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'quick';
  id |                    content                    
@@ -140,10 +143,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"renard","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'renard';
  id |                    content                    
@@ -162,10 +166,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"and","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'and';
  id | content 
@@ -181,10 +186,11 @@ SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
    Output: id, content
    Table: test_multi_stopwords
    Index: idx_multi_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"et","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_multi_stopwords WHERE content @@@ 'et';
  id | content 
@@ -219,10 +225,11 @@ SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
    Output: id, content
    Table: test_single_stopwords
    Index: idx_single_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"the","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_single_stopwords WHERE content @@@ 'the';
  id | content 
@@ -238,10 +245,11 @@ SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
    Output: id, content
    Table: test_single_stopwords
    Index: idx_single_stopwords_bm25
-   Exec Method: NormalScanExecState
+   Exec Method: MixedFastFieldExecState
+   Fast Fields: content, id
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"quick","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+(8 rows)
 
 SELECT id, content FROM test_single_stopwords WHERE content @@@ 'quick';
  id |               content                

@@ -471,10 +471,11 @@ WHERE category @@@ 'Electronics';
          Output: description
          Table: products
          Index: products_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: description
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(10 rows)
 
 SELECT AVG(LENGTH(description))
 FROM products

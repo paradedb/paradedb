@@ -28,21 +28,21 @@ CREATE INDEX idxtok_in_ci ON tok_in_ci USING bm25
 SELECT * FROM paradedb.schema('idxtok_in_ci') ORDER BY name;
         name        | field_type | stored | indexed | fast | fieldnorms | expand_dots |                 tokenizer                  |  record  | normalizer 
 --------------------+------------+--------+---------+------+------------+-------------+--------------------------------------------+----------+------------
- chinese_compatible | Str        | f      | t       | f    | t          |             | chinese_compatible                         | position | 
+ chinese_compatible | Str        | f      | t       | t    | t          |             | chinese_compatible                         | position | raw
  ctid               | U64        | f      | t       | t    | f          |             |                                            |          | 
  id                 | I64        | f      | t       | t    | f          |             |                                            |          | 
- jieba              | Str        | f      | t       | f    | t          |             | jieba                                      | position | 
- lindera_chinese    | Str        | f      | t       | f    | t          |             | chinese_lindera                            | position | 
- lindera_japanese   | Str        | f      | t       | f    | t          |             | japanese_lindera                           | position | 
- lindera_korean     | Str        | f      | t       | f    | t          |             | korean_lindera                             | position | 
+ jieba              | Str        | f      | t       | t    | t          |             | jieba                                      | position | raw
+ lindera_chinese    | Str        | f      | t       | t    | t          |             | chinese_lindera                            | position | raw
+ lindera_japanese   | Str        | f      | t       | t    | t          |             | japanese_lindera                           | position | raw
+ lindera_korean     | Str        | f      | t       | t    | t          |             | korean_lindera                             | position | raw
  literal            | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                   | basic    | raw
- ngram              | Str        | f      | t       | f    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | 
- regex              | Str        | f      | t       | f    | t          |             | regex                                      | position | 
- simple             | Str        | f      | t       | f    | t          |             | default                                    | position | 
- source_code        | Str        | f      | t       | f    | t          |             | source_code                                | position | 
- stemmed            | Str        | f      | t       | f    | t          |             | default[stemmer=English]                   | position | 
- t                  | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false           | position | 
- whitespace         | Str        | f      | t       | f    | t          |             | whitespace                                 | position | 
+ ngram              | Str        | f      | t       | t    | t          |             | ngram_mingram:3_maxgram:5_prefixonly:false | position | raw
+ regex              | Str        | f      | t       | t    | t          |             | regex                                      | position | raw
+ simple             | Str        | f      | t       | t    | t          |             | default                                    | position | raw
+ source_code        | Str        | f      | t       | t    | t          |             | source_code                                | position | raw
+ stemmed            | Str        | f      | t       | t    | t          |             | default[stemmer=English]                   | position | raw
+ t                  | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false           | position | raw
+ whitespace         | Str        | f      | t       | t    | t          |             | whitespace                                 | position | raw
 (15 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t @@@ 'test';

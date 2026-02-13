@@ -11,7 +11,7 @@ SELECT * FROM paradedb.schema('idx_key_field_raw') ORDER BY name;
  name | field_type | stored | indexed | fast | fieldnorms | expand_dots |            tokenizer             |  record  | normalizer 
 ------+------------+--------+---------+------+------------+-------------+----------------------------------+----------+------------
  ctid | U64        | f      | t       | t    | f          |             |                                  |          | 
- data | Str        | f      | t       | f    | t          |             | unicode_words_removeemojis:false | position | 
+ data | Str        | f      | t       | t    | t          |             | unicode_words_removeemojis:false | position | raw
  id   | Str        | f      | t       | t    | t          |             | keyword[lowercase=false]         | position | raw
 (3 rows)
 

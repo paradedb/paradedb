@@ -436,9 +436,7 @@ impl SearchTokenizer {
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
-            "normalized" | "literal_normalized" => {
-                Ok(SearchTokenizer::LiteralNormalized(filters))
-            }
+            "normalized" | "literal_normalized" => Ok(SearchTokenizer::LiteralNormalized(filters)),
             "whitespace" => Ok(SearchTokenizer::WhiteSpace(filters)),
             "regex" => {
                 let pattern: String =

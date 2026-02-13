@@ -12,11 +12,11 @@ USING bm25 (
 	(lower(description)::pdb.normalized('ascii_folding=true'))
 ) WITH (key_field = id);
 SELECT * FROM paradedb.schema('test_bm25');
-    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |               tokenizer                | record | normalizer 
--------------+------------+--------+---------+------+------------+-------------+----------------------------------------+--------+------------
- ctid        | U64        | f      | t       | t    | f          |             |                                        |        | 
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |           tokenizer            | record | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+--------------------------------+--------+------------
+ ctid        | U64        | f      | t       | t    | f          |             |                                |        | 
  description | Str        | f      | t       | t    | f          |             | normalized[ascii_folding=true] | basic  | lowercase
- id          | I64        | f      | t       | t    | f          |             |                                        |        | 
+ id          | I64        | f      | t       | t    | f          |             |                                |        | 
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

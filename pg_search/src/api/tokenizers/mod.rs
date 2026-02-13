@@ -128,9 +128,7 @@ pub fn search_field_config_from_type(
     };
 
     if type_name == "literal_normalized" {
-        pgrx::warning!(
-            "`pdb.literal_normalized` is deprecated; use `pdb.normalized` instead"
-        );
+        pgrx::warning!("`pdb.literal_normalized` is deprecated; use `pdb.normalized` instead");
     }
 
     apply_typmod(&mut tokenizer, typmod);
@@ -146,23 +144,22 @@ pub fn search_field_config_from_type(
     // otherwise the user needs to explicitly set it to true
     let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
 
-    let (fast, fieldnorms, record) = if type_name == "literal"
-        || type_name == "normalized"
-        || type_name == "literal_normalized"
-    {
-        // literal and normalized default to fast=true (columnar=true)
-        let fast = columnar_explicit.unwrap_or(true);
+    let (fast, fieldnorms, record) =
+        if type_name == "literal" || type_name == "normalized" || type_name == "literal_normalized"
+        {
+            // literal and normalized default to fast=true (columnar=true)
+            let fast = columnar_explicit.unwrap_or(true);
 
-        // literal and normalized default to fieldnorms=false
-        let fieldnorms = parsed_fieldnorms.unwrap_or(false);
-        (fast, fieldnorms, IndexRecordOption::Basic)
-    } else {
-        // all others default to fast=false (columnar=false)
-        let fast = columnar_explicit.unwrap_or(false);
-        // all others default to fieldnorms=true
-        let fieldnorms = parsed_fieldnorms.unwrap_or(true);
-        (fast, fieldnorms, IndexRecordOption::WithFreqsAndPositions)
-    };
+            // literal and normalized default to fieldnorms=false
+            let fieldnorms = parsed_fieldnorms.unwrap_or(false);
+            (fast, fieldnorms, IndexRecordOption::Basic)
+        } else {
+            // all others default to fast=false (columnar=false)
+            let fast = columnar_explicit.unwrap_or(false);
+            // all others default to fieldnorms=true
+            let fieldnorms = parsed_fieldnorms.unwrap_or(true);
+            (fast, fieldnorms, IndexRecordOption::WithFreqsAndPositions)
+        };
 
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770941736867,
+  "lastUpdate": 1770941741712,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8424,6 +8424,114 @@ window.BENCHMARK_DATA = {
             "value": 170.5859375,
             "unit": "median mem",
             "extra": "avg mem: 167.58823885167712, max mem: 171.92578125, count: 55482"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770941737885,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.327284806438364, max cpu: 57.947685, count: 55802"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 152.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.0427183529488, max mem: 176.453125, count: 55802"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.684805726877609, max cpu: 30.000002, count: 55802"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.51264641612308, max mem: 119.85546875, count: 55802"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.808986345785981, max cpu: 13.913043, count: 55802"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 125.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.89513606703164, max mem: 159.71484375, count: 55802"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13913,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14200.647342389162, max block_count: 25510.0, count: 55802"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.111115220699108, max cpu: 4.6647234, count: 55802"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.9753024645174, max mem: 136.05078125, count: 55802"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.530536539908965, max segment_count: 40.0, count: 55802"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.031969162088, max cpu: 30.164963, count: 111604"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 157.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.51842906896258, max mem: 164.19140625, count: 111604"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.029023679676964, max cpu: 27.745665, count: 55802"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 168.31961346031505, max mem: 173.46875, count: 55802"
           }
         ]
       }

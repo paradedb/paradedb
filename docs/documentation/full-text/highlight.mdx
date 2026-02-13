@@ -125,8 +125,7 @@ LIMIT 5;
 
 ## Byte Offsets
 
-`pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns an array of
-tuples, where the first element of the tuple is the byte index of the first byte of the highlighted region, and the second element is the byte index after the last byte of the region.
+`pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns a two-dimensional integer array where each nested pair is `[start, end)`: the first value is the byte index of the first highlighted byte, and the second value is the byte index immediately after the last highlighted byte.
 
 ```sql
 SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
@@ -138,8 +137,8 @@ LIMIT 5;
 ```ini Expected Response
  id |          snippet           | snippet_positions
 ----+----------------------------+-------------------
-  3 | Sleek running <b>shoes</b> | {"{14,19}"}
-  4 | White jogging <b>shoes</b> | {"{14,19}"}
-  5 | Generic <b>shoes</b>       | {"{8,13}"}
+  4 | White jogging <b>shoes</b> | {{14,19}}
+  3 | Sleek running <b>shoes</b> | {{14,19}}
+  5 | Generic <b>shoes</b>       | {{8,13}}
 (3 rows)
 ```

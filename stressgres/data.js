@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770940836145,
+  "lastUpdate": 1770940841071,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6166,6 +6166,108 @@ window.BENCHMARK_DATA = {
             "value": 162.7421875,
             "unit": "median mem",
             "extra": "avg mem: 182.39990121084688, max mem: 223.1875, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770940837217,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08053978794045197, max background_merging: 2.0, count: 56022"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697946961181322, max cpu: 9.846154, count: 56022"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.547996420491057, max mem: 25.6328125, count: 56022"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.90729532569514, max cpu: 9.856263, count: 56022"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.0574307721743, max mem: 168.57421875, count: 56022"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51567,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51424.24406483167, max block_count: 51567.0, count: 56022"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.89425582806754, max segment_count: 63.0, count: 56022"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.672629077263889, max cpu: 9.486166, count: 56022"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 120.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 111.78551562332655, max mem: 138.89453125, count: 56022"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.762279977516496, max cpu: 9.523809, count: 56022"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.68977233553335, max mem: 168.3359375, count: 56022"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.858119091911448, max cpu: 33.667336, count: 56022"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.84910545745421, max mem: 223.15625, count: 56022"
           }
         ]
       }

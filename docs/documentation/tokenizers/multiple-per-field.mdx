@@ -10,6 +10,7 @@ tokenizer for search, and the [literal](/documentation/tokenizers/available-toke
 To tokenize a field in more than one way, append an `alias=<alias_name>` argument to the additional tokenizer configurations.
 The alias name can be any string you like. For instance, the following statement tokenizes `description` using both the simple and literal tokenizers.
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
@@ -19,11 +20,39 @@ USING bm25 (
 ) WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {
+                        'tokenizers': [
+                            {'tokenizer': 'literal'},
+                            {'tokenizer': 'simple', 'alias': 'description_simple'},
+                        ],
+                    },
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 Under the hood, two distinct fields are created in the index: a field called `description`, which uses the literal tokenizer,
 and an aliased field called `description_simple`, which uses the simple tokenizer.
 
 To query against the aliased field, cast it to `pdb.alias('alias_name')`:
 
+<CodeGroup dropdown>
 ```sql
 -- Query against `description_simple`
 SELECT description, rating, category
@@ -34,7 +63,22 @@ WHERE description::pdb.alias('description_simple') ||| 'Sleek running shoes';
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'Sleek running shoes';
-```
+
+````
+
+```python Django
+from django.db.models.expressions import RawSQL
+
+# Query against `description_simple`
+MockItem.objects.filter(
+    RawSQL("(description::pdb.alias('description_simple')) ||| %s", ['Sleek running shoes'])
+)
+
+# Query against `description`
+MockItem.objects.filter(RawSQL("description ||| %s", ['Sleek running shoes']))
+````
+
+</CodeGroup>
 
 <Note>
 If a text field uses multiple tokenizers and one of them is [literal](/documentation/tokenizers/available-tokenizers/literal), we recommend aliasing

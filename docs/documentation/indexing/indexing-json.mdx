@@ -65,7 +65,7 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'metadata': {'tokenizer': 'ngram(2,3)'},
+                    'metadata': {'tokenizer': 'ngram', 'args': [2, 3]},
                 },
                 key_field='id',
                 name='search_idx',
@@ -99,7 +99,7 @@ class MockItem(models.Model):
                     'id': {},
                     'metadata': {
                         'json_keys': {
-                            'color': {'tokenizer': 'ngram(2,3)'},
+                            'color': {'tokenizer': 'ngram', 'args': [2, 3]},
                         },
                     },
                 },

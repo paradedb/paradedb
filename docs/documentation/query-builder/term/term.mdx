@@ -19,7 +19,7 @@ By default we recommend using the [term operator](/documentation/full-text/term)
 
 Matches documents containing a specified term.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.term('shoes');
@@ -36,7 +36,7 @@ MockItem.objects.filter(
 Numeric, boolean, or datetime fields can also be passed into the `term` query. Doing so is equivalent to using the
 `=` equality operator.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE rating @@@ pdb.term(4);
@@ -49,7 +49,7 @@ if the query term is explicitly cast to the enum type.
 
 In this example, `color` is a custom enum:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE color @@@ pdb.term('red'::color);

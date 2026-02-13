@@ -16,7 +16,7 @@ These functions are useful for:
 
 The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_index('search_idx');
 ```
 
@@ -51,7 +51,7 @@ This returns a table with three columns:
 
 To verify that all indexed entries still exist in the heap table, use the `heapallindexed` option:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
 ```
 
@@ -80,7 +80,7 @@ This is particularly useful for detecting index entries that reference deleted o
 
 For large indexes, you can check a random sample of documents instead of all documents:
 
-```sql SQL
+```sql
 -- Check 10% of documents
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -108,7 +108,7 @@ with connection.cursor() as cursor:
 
 For long-running verifications, enable progress reporting to see status updates:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true
@@ -137,7 +137,7 @@ Progress messages are emitted via PostgreSQL's `WARNING` channel.
 
 For detailed logging including segment-by-segment progress and resume hints, enable verbose mode:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true,
@@ -166,7 +166,7 @@ with connection.cursor() as cursor:
 
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 ```
 
@@ -191,7 +191,7 @@ This allows you to utilize multiple CPU cores by running verification in paralle
 
 First, list all segments in the index:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.index_segments('search_idx');
 ```
 
@@ -216,7 +216,7 @@ with connection.cursor() as cursor:
 
 Then verify specific segments using the `segment_ids` parameter:
 
-```sql SQL
+```sql
 -- Worker 1: Verify even segments
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -263,7 +263,7 @@ with connection.cursor() as cursor:
 
 Distribute verification across N workers:
 
-```sql SQL
+```sql
 -- Get segments for worker 0 (of 4 workers)
 SELECT array_agg(segment_idx) AS segments
 FROM pdb.index_segments('search_idx')
@@ -313,7 +313,7 @@ with connection.cursor() as cursor:
 
 To verify all BM25 indexes in the database at once:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.verify_all_indexes();
 ```
 
@@ -329,7 +329,7 @@ with connection.cursor() as cursor:
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
-```sql SQL
+```sql
 -- Verify indexes in the 'public' schema only
 SELECT * FROM pdb.verify_all_indexes(schema_pattern := 'public');
 
@@ -374,7 +374,7 @@ with connection.cursor() as cursor:
 
 To see all BM25 indexes in the database with summary statistics:
 
-```sql SQL
+```sql
 SELECT * FROM pdb.indexes();
 ```
 

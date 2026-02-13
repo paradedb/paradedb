@@ -16,7 +16,7 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
-```sql SQL
+```sql
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
@@ -44,7 +44,7 @@ From another session, you can use `pg_stat_progress_create_index` to [track the 
 
 Once the new index is done building, confirm that it is valid:
 
-```sql SQL
+```sql
 SELECT ix.indisvalid, ix.indisready, ix.indislive
 FROM pg_class i
 JOIN pg_index ix ON ix.indexrelid = i.oid
@@ -75,7 +75,7 @@ with connection.cursor() as cursor:
 
 If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
 
-```sql SQL
+```sql
 DROP INDEX search_idx;
 ```
 
@@ -91,7 +91,7 @@ with connection.cursor() as cursor:
 `REINDEX` is used to rebuild an index without changing the schema.
 The basic syntax for `REINDEX` is:
 
-```sql SQL
+```sql
 REINDEX INDEX search_idx;
 ```
 
@@ -106,7 +106,7 @@ This operation takes an exclusive lock on the table, which blocks incoming write
 
 To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
-```sql SQL
+```sql
 REINDEX INDEX CONCURRENTLY search_idx;
 ```
 

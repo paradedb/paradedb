@@ -62,7 +62,7 @@ WITH (key_field='id');
 
 We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -84,7 +84,7 @@ LIMIT 5;
 
 If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes' AND rating > 2
@@ -112,7 +112,7 @@ MockItem.objects.filter(
 
 Next, let's add [BM25 scoring](/documentation/sorting/score) to the results, which sorts matches by relevance. To do this, we'll use `pdb.score`.
 
-```sql SQL
+```sql
 SELECT description, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -134,7 +134,7 @@ LIMIT 5;
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `pdb.snippet`.
 
-```sql SQL
+```sql
 SELECT description, pdb.snippet(description), pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -155,7 +155,7 @@ LIMIT 5;
 
 ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
@@ -179,7 +179,7 @@ which is more CPU-efficient than issuing two separate queries.
 
 For example, the following query returns the top 3 results as well as the total number of results matched.
 
-```sql SQL
+```sql
 SELECT
      description, rating, category,
      pdb.agg('{"value_count": {"field": "id"}}') OVER ()

@@ -10,7 +10,7 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
-```sql SQL
+```sql
 SELECT pdb.regex('key.*');
 ```
 
@@ -31,7 +31,7 @@ Regex('key.*')
 
 Next, paste this JSON string into the right-hand side of the `@@@` operator and cast it to `pdb.query`:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@

@@ -13,7 +13,7 @@ Match disjunction uses the `|||` operator and means "find all documents that con
 
 To understand what this looks like in practice, let's consider the following query:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes';
@@ -61,7 +61,7 @@ These examples assume that the index uses the default tokenizer and token filter
 Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes';
@@ -109,7 +109,7 @@ These examples assume that the index uses the default tokenizer and token filter
 <Note>
 If the query string only contains one token, then `|||` and `&&&` are effectively the same:
 
-```sql SQL
+```sql
 -- These two queries produce the same results
 SELECT description, rating, category
 FROM mock_items
@@ -127,7 +127,7 @@ WHERE description &&& 'shoes';
 By default, the match query automatically tokenizes the query string with the same tokenizer used by the field it's being searched against.
 This behavior can be overridden by explicitly casting the query to a different tokenizer.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'::pdb.whitespace;
@@ -138,7 +138,7 @@ WHERE description ||| 'running shoes'::pdb.whitespace;
 The match operators also accept text arrays. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& ARRAY['running', 'shoes'];

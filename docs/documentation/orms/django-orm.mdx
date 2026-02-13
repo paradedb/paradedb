@@ -1,0 +1,315 @@
+---
+title: Django ORM
+description: Use ParadeDB with Django ORM via django-paradedb
+canonical: https://docs.paradedb.com/documentation/orms/django-orm
+---
+
+## Install
+
+Install from [PyPI](https://pypi.org/project/django-paradedb/):
+
+```bash
+pip install django-paradedb
+```
+
+## Define a BM25 Index
+
+Add `ParadeDBManager` to your model and define a `BM25Index` in `Meta.indexes`:
+
+```python
+from django.db import models
+from paradedb.indexes import BM25Index
+from paradedb.queryset import ParadeDBManager
+
+class Product(models.Model):
+    description = models.TextField()
+    category = models.CharField(max_length=100)
+    rating = models.IntegerField(default=0)
+
+    objects = ParadeDBManager()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    "id": {},
+                    "description": {"tokenizer": "default"},
+                    "category": {"tokenizer": "keyword"},
+                    "rating": {},
+                },
+                key_field="id",
+                name="product_search_idx",
+            ),
+        ]
+```
+
+Then run migrations as usual:
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+## Query with Django ORM
+
+Use `ParadeDB` expressions in normal queryset filters:
+
+```python
+from paradedb.search import ParadeDB
+
+Product.objects.filter(description=ParadeDB("shoes"))
+```
+
+This composes naturally with standard Django filters:
+
+```python
+from paradedb.functions import Score
+
+results = (
+    Product.objects.filter(
+        description=ParadeDB("shoes"),
+        rating__gte=4,
+    )
+    .annotate(score=Score())
+    .order_by("-score")[:10]
+)
+```
+
+## Highlight Matches
+
+Annotate highlighted snippets for matched fields:
+
+```python
+from paradedb.functions import Snippet
+
+Product.objects.filter(
+    description=ParadeDB("running")
+).annotate(
+    snippet=Snippet("description", start_sel="<b>", stop_sel="</b>")
+)
+```
+
+## Faceted Search
+
+Use `.facets()` to return rows and aggregation buckets together:
+
+```python
+rows, facets = (
+    Product.objects.filter(description=ParadeDB("shoes"))
+    .order_by("id")[:10]
+    .facets("category", "rating")
+)
+```
+
+When `include_rows=True` (default), `.facets()` requires:
+
+1. A ParadeDB search filter.
+2. `order_by()` on the queryset.
+3. A slice (`LIMIT`).
+
+## Examples
+
+`django-paradedb` includes runnable examples for common patterns: [examples](https://github.com/paradedb/django-paradedb/tree/main/examples)
+
+- [Quickstart](https://github.com/paradedb/django-paradedb/tree/main/examples)
+- [Faceted Search](https://github.com/paradedb/django-paradedb/tree/main/examples)
+- [Autocomplete](https://github.com/paradedb/django-paradedb/tree/main/examples)
+- [More Like This](https://github.com/paradedb/django-paradedb/tree/main/examples)
+- [Hybrid Search (RRF)](https://github.com/paradedb/django-paradedb/tree/main/examples)
+
+## API Reference
+
+<table>
+  <thead>
+    <tr>
+      <th>API / Feature</th>
+      <th>Type</th>
+      <th>One-line description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code>BM25Index(...)</code>
+      </td>
+      <td>Index</td>
+      <td>
+        Defines a ParadeDB BM25 index in <code>Meta.indexes</code> for Django
+        migrations.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>BM25Index.fields</code>
+      </td>
+      <td>Index config</td>
+      <td>
+        Declares indexed columns and per-field tokenizer/filter configuration.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>json_keys</code> in <code>BM25Index.fields</code>
+      </td>
+      <td>Index config</td>
+      <td>
+        Indexes specific keys inside a <code>JSONField</code> with optional
+        tokenizer settings.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>key_field</code> in <code>BM25Index(...)</code>
+      </td>
+      <td>Index config</td>
+      <td>
+        Sets the required unique key column used by ParadeDB index lookups.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>ParadeDBManager()</code>
+      </td>
+      <td>Manager</td>
+      <td>Enables ParadeDB queryset helpers on your model manager.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>ParadeDBQuerySet.facets(...)</code>
+      </td>
+      <td>QuerySet helper</td>
+      <td>
+        Returns facet aggregations, optionally with Top-N rows in the same query
+        flow.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>ParadeDB("a", "b")</code>
+      </td>
+      <td>Search expression</td>
+      <td>
+        Multi-term AND search (<code>&amp;&amp;&amp;</code>) over a field.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>ParadeDB(PQ("a") OR PQ("b"))</code>
+      </td>
+      <td>Search expression</td>
+      <td>
+        OR search (<code>|||</code>) via boolean composition.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>ParadeDB(PQ("a") AND PQ("b"))</code>
+      </td>
+      <td>Search expression</td>
+      <td>
+        Explicit AND composition with <code>PQ</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Phrase("text", slop=...)</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Phrase query (<code>###</code>) with optional token distance (
+        <code>slop</code>).
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Fuzzy("text", distance=...)</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Typo-tolerant fuzzy matching (distance <code>0..2</code>).
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Parse("query", lenient=...)</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Query-string parsing via <code>pdb.parse(...)</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Term("token")</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Exact term query via <code>pdb.term(...)</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Regex("pattern")</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Regex term query via <code>pdb.regex(...)</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>All()</code>
+      </td>
+      <td>Query object</td>
+      <td>
+        Match-all query via <code>pdb.all()</code>.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>MoreLikeThis(...)</code>
+      </td>
+      <td>Expression filter</td>
+      <td>
+        Similarity search using existing row id(s) or a custom document payload.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Score()</code>
+      </td>
+      <td>Annotation</td>
+      <td>
+        Adds BM25 relevance score (<code>pdb.score</code>) for ranking results.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Snippet("field", ...)</code>
+      </td>
+      <td>Annotation</td>
+      <td>
+        Adds highlighted snippets (<code>pdb.snippet</code>) for matched text.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>Agg("...json...")</code>
+      </td>
+      <td>Annotation</td>
+      <td>
+        Calls <code>pdb.agg</code> directly for custom aggregation payloads
+        (usually internal to <code>.facets()</code>).
+      </td>
+    </tr>
+    <tr>
+      <td>Django ORM composition</td>
+      <td>Integration</td>
+      <td>
+        Works with <code>filter</code>, <code>exclude</code>, <code>Q</code>,
+        <code>annotate</code>, <code>order_by</code>,<code>select_related</code>
+        , <code>prefetch_related</code>, slicing, and migrations.
+      </td>
+    </tr>
+  </tbody>
+</table>

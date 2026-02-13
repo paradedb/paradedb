@@ -27,8 +27,8 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'description': {'tokenizer': 'default'},
-                    'category': {'tokenizer': 'default'},
+                    'description': {},
+                    'category': {},
                 },
                 key_field='id',
                 name='search_idx',
@@ -72,7 +72,7 @@ class MockItem(models.Model):
                 fields={
                     'id': {},
                     'description': {'tokenizer': 'icu'},
-                    'category': {'tokenizer': 'default'},
+                    'category': {},
                 },
                 key_field='id',
                 name='search_idx',
@@ -111,8 +111,8 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'description': {'tokenizer': 'default'},
-                    'category': {'tokenizer': 'default'},
+                    'description': {},
+                    'category': {},
                     'rating': {},
                     'in_stock': {},
                     'created_at': {},
@@ -193,8 +193,56 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'description': {'tokenizer': 'simple', 'stemmer': 'English'},
-                    'category': {'tokenizer': 'default'},
+                    'description': {'tokenizer': 'simple', 'stemmer': 'english'},
+                    'category': {},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
+## Multiple Tokenizers Per Field
+
+A single field can be indexed with multiple tokenizers by using a `tokenizers` list.
+Each tokenizer entry supports `tokenizer`, `args`, `named_args`, and `alias`.
+
+<CodeGroup dropdown>
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (
+  id,
+  (description::pdb.literal),
+  (description::pdb.ngram(3,8,'alias=description_ngram,prefix_only=true'))
+)
+WITH (key_field='id');
+```
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {
+                        'tokenizers': [
+                            {'tokenizer': 'literal'},
+                            {
+                                'tokenizer': 'ngram',
+                                'args': [3, 8],
+                                'named_args': {'prefix_only': True},
+                                'alias': 'description_ngram',
+                            },
+                        ],
+                    },
                 },
                 key_field='id',
                 name='search_idx',

@@ -29,7 +29,7 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'description': {'tokenizer': 'default'},
+                    'description': {},
                     'rating': {},
                 },
                 key_field='id',
@@ -62,7 +62,10 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     'id': {},
-                    'description': {'tokenizer': "unicode_words('columnar=true')"},
+                    'description': {
+                        'tokenizer': 'unicode_words',
+                        'named_args': {'columnar': True},
+                    },
                     'rating': {},
                 },
                 key_field='id',

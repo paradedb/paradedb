@@ -1,0 +1,260 @@
+-- Tests that queries with expensive scorer construction (fuzzy, regex)
+-- use heuristic selectivity and still produce correct results.
+-- Range queries use accurate scorer-based estimation (cheap on fast fields).
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+        schema_name => 'public',
+        table_name => 'mock_items'
+);
+CREATE INDEX idx_mock_items
+ON mock_items
+    USING bm25 (id, description, rating, category, in_stock, created_at, weight_range)
+WITH (key_field='id');
+ANALYZE mock_items;
+-- ============================================================================
+-- Fuzzy term query
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 1::integer
+);
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":1,"transposition_cost_one":null,"prefix":null}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 1::integer
+) ORDER BY id;
+ id |     description     | rating | category 
+----+---------------------+--------+----------
+  3 | Sleek running shoes |      5 | Footwear
+  4 | White jogging shoes |      3 | Footwear
+  5 | Generic shoes       |      4 | Footwear
+(3 rows)
+
+-- Fuzzy term with higher distance
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 2::integer
+);
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"fuzzy_term":{"field":"description","value":"sheos","distance":2,"transposition_cost_one":null,"prefix":null}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.fuzzy_term(
+    field => 'description',
+    value => 'sheos',
+    distance => 2::integer
+) ORDER BY id;
+ id |     description     | rating | category 
+----+---------------------+--------+----------
+  3 | Sleek running shoes |      5 | Footwear
+  4 | White jogging shoes |      3 | Footwear
+  5 | Generic shoes       |      4 | Footwear
+(3 rows)
+
+-- ============================================================================
+-- Regex query
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.regex(
+    field => 'description',
+    pattern => 'sh.*es'
+);
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"regex":{"field":"description","pattern":"sh.*es"}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.regex(
+    field => 'description',
+    pattern => 'sh.*es'
+) ORDER BY id;
+ id |     description     | rating | category 
+----+---------------------+--------+----------
+  3 | Sleek running shoes |      5 | Footwear
+  4 | White jogging shoes |      3 | Footwear
+  5 | Generic shoes       |      4 | Footwear
+(3 rows)
+
+-- ============================================================================
+-- Range query on numeric field
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(3, 5)
+);
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":3},"upper_bound":{"excluded":5},"is_datetime":false}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
+    field => 'rating',
+    range => int4range(3, 5)
+) ORDER BY id;
+ id |        description        | rating |  category   
+----+---------------------------+--------+-------------
+  1 | Ergonomic metal keyboard  |      4 | Electronics
+  2 | Plastic Keyboard          |      4 | Electronics
+  4 | White jogging shoes       |      3 | Footwear
+  5 | Generic shoes             |      4 | Footwear
+  8 | Organic green tea         |      3 | Groceries
+  9 | Modern wall clock         |      4 | Home Decor
+ 13 | Sturdy hiking boots       |      4 | Footwear
+ 14 | Elegant glass table       |      3 | Furniture
+ 16 | High-resolution DSLR      |      4 | Photography
+ 17 | Paperback romantic novel  |      3 | Books
+ 19 | Artistic ceramic vase     |      4 | Home Decor
+ 20 | Interactive board game    |      3 | Toys
+ 22 | Fast charging power bank  |      4 | Electronics
+ 23 | Comfortable slippers      |      3 | Footwear
+ 25 | Anti-aging serum          |      4 | Beauty
+ 26 | Portable tripod stand     |      4 | Photography
+ 30 | Robot building kit        |      4 | Toys
+ 31 | Sporty tank top           |      4 | Apparel
+ 32 | Bluetooth-enabled speaker |      3 | Electronics
+ 34 | Rustic bookshelf          |      4 | Furniture
+ 35 | Moisturizing lip balm     |      4 | Beauty
+ 37 | Historical fiction book   |      3 | Books
+ 38 | Pure honey jar            |      4 | Groceries
+ 40 | Plush teddy bear          |      4 | Toys
+ 41 | Warm woolen sweater       |      3 | Apparel
+(25 rows)
+
+-- ============================================================================
+-- Range query on date field
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE id @@@ paradedb.range(
+    field => 'created_at',
+    range => tsrange('2023-04-01', '2023-06-01')
+);
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":"2023-04-01T00:00:00Z"},"upper_bound":{"excluded":"2023-06-01T00:00:00Z"},"is_datetime":true}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE id @@@ paradedb.range(
+    field => 'created_at',
+    range => tsrange('2023-04-01', '2023-06-01')
+) ORDER BY id;
+ id |         description         | rating |  category   
+----+-----------------------------+--------+-------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics
+  2 | Plastic Keyboard            |      4 | Electronics
+  3 | Sleek running shoes         |      5 | Footwear
+  4 | White jogging shoes         |      3 | Footwear
+  5 | Generic shoes               |      4 | Footwear
+  6 | Compact digital camera      |      5 | Photography
+  7 | Hardcover book on history   |      2 | Books
+  8 | Organic green tea           |      3 | Groceries
+  9 | Modern wall clock           |      4 | Home Decor
+ 10 | Colorful kids toy           |      1 | Toys
+ 11 | Soft cotton shirt           |      5 | Apparel
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 13 | Sturdy hiking boots         |      4 | Footwear
+ 14 | Elegant glass table         |      3 | Furniture
+ 15 | Refreshing face wash        |      2 | Beauty
+ 16 | High-resolution DSLR        |      4 | Photography
+ 17 | Paperback romantic novel    |      3 | Books
+ 18 | Freshly ground coffee beans |      5 | Groceries
+ 19 | Artistic ceramic vase       |      4 | Home Decor
+ 20 | Interactive board game      |      3 | Toys
+ 21 | Slim-fit denim jeans        |      5 | Apparel
+ 22 | Fast charging power bank    |      4 | Electronics
+ 23 | Comfortable slippers        |      3 | Footwear
+ 24 | Classic leather sofa        |      5 | Furniture
+ 25 | Anti-aging serum            |      4 | Beauty
+ 26 | Portable tripod stand       |      4 | Photography
+ 27 | Mystery detective novel     |      2 | Books
+ 28 | Organic breakfast cereal    |      5 | Groceries
+ 29 | Designer wall paintings     |      5 | Home Decor
+ 30 | Robot building kit          |      4 | Toys
+ 31 | Sporty tank top             |      4 | Apparel
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
+ 33 | Winter woolen socks         |      5 | Footwear
+ 34 | Rustic bookshelf            |      4 | Furniture
+ 35 | Moisturizing lip balm       |      4 | Beauty
+ 36 | Lightweight camera bag      |      5 | Photography
+ 37 | Historical fiction book     |      3 | Books
+ 38 | Pure honey jar              |      4 | Groceries
+ 39 | Handcrafted wooden frame    |      5 | Home Decor
+ 40 | Plush teddy bear            |      4 | Toys
+ 41 | Warm woolen sweater         |      3 | Apparel
+(41 rows)
+
+-- ============================================================================
+-- Boolean query mixing cheap and expensive sub-queries
+-- ============================================================================
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('description', 'shoes'),
+        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
+    ]
+);
+                                                                                                                       QUERY PLAN                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on public.mock_items
+   Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
+   Table: mock_items
+   Index: idx_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"description","value":"shoes","is_datetime":false}},{"fuzzy_term":{"field":"description","value":"runing","distance":1,"transposition_cost_one":null,"prefix":null}}]}}}}
+(7 rows)
+
+SELECT id, description, rating, category FROM mock_items WHERE description @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('description', 'shoes'),
+        paradedb.fuzzy_term(field => 'description', value => 'runing', distance => 1::integer)
+    ]
+) ORDER BY id;
+ id |     description     | rating | category 
+----+---------------------+--------+----------
+  3 | Sleek running shoes |      5 | Footwear
+(1 row)
+
+-- ============================================================================
+-- Cleanup
+-- ============================================================================
+DROP TABLE mock_items CASCADE;

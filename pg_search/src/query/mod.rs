@@ -326,6 +326,91 @@ impl SearchQueryInput {
         }
     }
 
+    /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
+    /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
+    pub fn is_expensive_to_estimate(&self) -> bool {
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::is_expensive_to_estimate),
+            SearchQueryInput::Boost { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::is_expensive_to_estimate)
+            }
+            SearchQueryInput::WithIndex { query, .. } => Self::is_expensive_to_estimate(query),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                Self::is_expensive_to_estimate(indexed_query)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => Self::is_expensive_to_estimate(query),
+
+            SearchQueryInput::MoreLikeThis { .. } => true,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.is_expensive_to_estimate(),
+
+            _ => false,
+        }
+    }
+
+    /// Returns a heuristic selectivity for this query, avoiding expensive scorer construction.
+    pub fn selectivity_heuristic(&self) -> f64 {
+        use crate::MORE_LIKE_THIS_SELECTIVITY;
+
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not: _,
+            } => {
+                // AND: product of children selectivities; OR: max of children selectivities.
+                let must_sel = must
+                    .iter()
+                    .map(Self::selectivity_heuristic)
+                    .product::<f64>();
+                let should_sel = should
+                    .iter()
+                    .map(Self::selectivity_heuristic)
+                    .reduce(f64::max)
+                    .unwrap_or(1.0);
+
+                if !must.is_empty() {
+                    must_sel * should_sel
+                } else {
+                    should_sel
+                }
+            }
+
+            SearchQueryInput::Boost { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => disjuncts
+                .iter()
+                .map(Self::selectivity_heuristic)
+                .reduce(f64::max)
+                .unwrap_or(crate::UNKNOWN_SELECTIVITY),
+            SearchQueryInput::WithIndex { query, .. } => Self::selectivity_heuristic(query),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                Self::selectivity_heuristic(indexed_query)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => Self::selectivity_heuristic(query),
+
+            SearchQueryInput::MoreLikeThis { .. } => MORE_LIKE_THIS_SELECTIVITY,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.selectivity_heuristic(),
+
+            _ => crate::UNKNOWN_SELECTIVITY,
+        }
+    }
+
     pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
         match self {
             SearchQueryInput::Boolean {

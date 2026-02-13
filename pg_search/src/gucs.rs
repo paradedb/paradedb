@@ -105,6 +105,10 @@ static EXPLAIN_RECURSIVE_ESTIMATES: GucSetting<bool> = GucSetting::<bool>::new(f
 /// Validate TopN scan eligibility for LIMIT queries
 static CHECK_TOPN_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// When true, queries with expensive scorer construction (fuzzy, regex, range)
+/// use a cheap heuristic for selectivity estimation instead of building a full Tantivy scorer.
+static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Minimum number of rows per parallel worker.
 /// Controls how many workers are spawned based on estimated row count.
 /// Based on benchmarks, the crossover point where parallel becomes beneficial
@@ -327,6 +331,15 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_heuristic_selectivity",
+        c"Use heuristic selectivity for expensive query types",
+        c"When enabled, fuzzy, regex, and range queries use a cheap heuristic for planner selectivity estimation instead of constructing a full Tantivy scorer. Default is true.",
+        &ENABLE_HEURISTIC_SELECTIVITY,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.min_rows_per_worker",
         c"Minimum rows per parallel worker",
@@ -489,6 +502,10 @@ pub fn explain_recursive_estimates() -> bool {
 
 pub fn check_topn_scan() -> bool {
     CHECK_TOPN_SCAN.get()
+}
+
+pub fn enable_heuristic_selectivity() -> bool {
+    ENABLE_HEURISTIC_SELECTIVITY.get()
 }
 
 pub fn min_rows_per_worker() -> i32 {

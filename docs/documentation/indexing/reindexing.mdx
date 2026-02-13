@@ -60,30 +60,12 @@ From another session, you can use `pg_stat_progress_create_index` to [track the 
 
 Once the new index is done building, confirm that it is valid:
 
-<CodeGroup dropdown>
 ```sql
 SELECT ix.indisvalid, ix.indisready, ix.indislive
 FROM pg_class i
 JOIN pg_index ix ON ix.indexrelid = i.oid
 WHERE i.relname = 'search_idx_v2';
 ```
-
-```python Django
-from django.db import connection
-
-with connection.cursor() as cursor:
-    cursor.execute(
-        """
-        SELECT ix.indisvalid, ix.indisready, ix.indislive
-        FROM pg_class i
-        JOIN pg_index ix ON ix.indexrelid = i.oid
-        WHERE i.relname = 'search_idx_v2'
-        """
-    )
-    rows = cursor.fetchall()
-```
-
-</CodeGroup>
 
 ```csv Expected Response
  indisvalid | indisready | indislive

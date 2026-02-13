@@ -20,6 +20,7 @@ CALL paradedb.create_bm25_test_table(
 
 Then inspect the first 3 rows:
 
+<CodeGroup dropdown>
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -29,6 +30,7 @@ LIMIT 3;
 ```python Django
 MockItem.objects.values('description', 'rating', 'category')[:3]
 ```
+</CodeGroup>
 
 ```ini Expected Response
        description        | rating |  category
@@ -84,6 +86,7 @@ LIMIT 5;
 
 If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -100,6 +103,7 @@ MockItem.objects.filter(
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category

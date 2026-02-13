@@ -10,6 +10,7 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.regex('key.*');
 ```
@@ -19,6 +20,8 @@ from paradedb.search import Regex
 
 Regex('key.*')
 ```
+
+</CodeGroup>
 
 <Accordion title="Expected Response">
 ```csv

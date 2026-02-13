@@ -9,6 +9,7 @@ The intended use case is for accepting raw query strings provided by the end use
 
 To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.parse('<query>')` to the right-hand side.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3');
@@ -22,6 +23,8 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+</CodeGroup>
+
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
 the query string language.
 
@@ -30,6 +33,7 @@ the query string language.
 By default, strict syntax parsing is used. This means that if any part of the query does not conform to Tantivy’s query string syntax, the query fails. For instance, a valid field name must be provided before every query (i.e. `category:footwear`).
 By setting `lenient` to `true`, the query is executed on a best-effort basis. For example, if no field names are provided, the query is executed over all fields in the index.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3', lenient => true);
@@ -42,6 +46,8 @@ MockItem.objects.filter(
     id=ParadeDB(Parse('description:(sleek shoes) AND rating:>3', lenient=True))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>
 
 ## Conjunction Mode
 

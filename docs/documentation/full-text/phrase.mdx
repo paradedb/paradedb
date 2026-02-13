@@ -19,6 +19,7 @@ INSERT INTO mock_items (description, rating, category) VALUES
 ('shoes running', 5, 'Footwear');
 ```
 
+<CodeGroup dropdown>
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -32,6 +33,8 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>
 
 This query returns:
 
@@ -78,6 +81,7 @@ Slop allows the token ordering requirement of phrase queries to be relaxed. It s
 
 To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -91,6 +95,8 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>
 
 ## Using a Custom Tokenizer
 
@@ -109,6 +115,7 @@ which means that no further processing is done.
 
 The following query matches documents containing the token `shoes` immediately followed by `running`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -123,8 +130,11 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+</CodeGroup>
+
 Adding slop is supported:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -138,3 +148,5 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>

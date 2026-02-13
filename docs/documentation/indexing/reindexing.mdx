@@ -16,6 +16,7 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
@@ -35,6 +36,8 @@ with connection.cursor() as cursor:
     )
 ```
 
+</CodeGroup>
+
 <Note>
   The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing
   index to continue serving queries while the new index is being built.
@@ -44,6 +47,7 @@ From another session, you can use `pg_stat_progress_create_index` to [track the 
 
 Once the new index is done building, confirm that it is valid:
 
+<CodeGroup dropdown>
 ```sql
 SELECT ix.indisvalid, ix.indisready, ix.indislive
 FROM pg_class i
@@ -66,6 +70,8 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 ```csv Expected Response
  indisvalid | indisready | indislive
 ------------+------------+-----------
@@ -75,6 +81,7 @@ with connection.cursor() as cursor:
 
 If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
 
+<CodeGroup dropdown>
 ```sql
 DROP INDEX search_idx;
 ```
@@ -86,11 +93,14 @@ with connection.cursor() as cursor:
     cursor.execute("DROP INDEX search_idx")
 ```
 
+</CodeGroup>
+
 ## Rebuilding the Index
 
 `REINDEX` is used to rebuild an index without changing the schema.
 The basic syntax for `REINDEX` is:
 
+<CodeGroup dropdown>
 ```sql
 REINDEX INDEX search_idx;
 ```
@@ -102,10 +112,13 @@ with connection.cursor() as cursor:
     cursor.execute("REINDEX INDEX search_idx")
 ```
 
+</CodeGroup>
+
 This operation takes an exclusive lock on the table, which blocks incoming writes (but not reads) while the new index is being built.
 
 To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
+<CodeGroup dropdown>
 ```sql
 REINDEX INDEX CONCURRENTLY search_idx;
 ```
@@ -116,6 +129,8 @@ from django.db import connection
 with connection.cursor() as cursor:
     cursor.execute("REINDEX INDEX CONCURRENTLY search_idx")
 ```
+
+</CodeGroup>
 
 The tradeoff is that `REINDEX CONCURRENTLY` is slower than a plain `REINDEX`. Generally speaking, `REINDEX CONCURRENTLY` is recommended for
 production systems that cannot tolerate temporarily blocked writes.

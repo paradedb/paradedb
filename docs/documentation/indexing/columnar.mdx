@@ -29,11 +29,11 @@ WITH (key_field = 'id');
 </Note>
 
 Columnar defaults to `false` for all tokenizers besides [literal](/documentation/tokenizers/available-tokenizers/literal) and
-[literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized), which default to
+[normalized](/documentation/tokenizers/available-tokenizers/normalized), which default to
 `true` and do not require an explicit setting.
 
 The reason is that tokenized fields can represent large documents and would be expensive to store column-wise,
-whereas literal and literal normalized fields are typically single-value and much more compact.
+whereas literal and normalized fields are typically single-value and much more compact.
 
 <Note>
 The columnar field stores the raw text value regardless of the tokenizer. For example, if `Hello world` is

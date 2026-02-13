@@ -1,41 +1,17 @@
 ---
-title: Literal Normalized
-description: Like the literal tokenizer, but allows for token filters
+title: Literal Normalized (Deprecated Alias)
+description: Deprecated alias for the normalized tokenizer
 canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/literal-normalized
 ---
 
-<Note>
-  For all patch versions greater than `0.20.8` in the `20` minor version, and
-  all patch versions greater than `0.21.4` in the `21` minor version, fields
-  using the [literal
-  normalized](/documentation/tokenizers/available-tokenizers/literal-normalized)
-  tokenizer are also columnar indexed. This means that they can be used in
-  [aggregates](/documentation/aggregates/overview) and [Top N
-  queries](/documentation/sorting/topn). Indexes created prior to these versions
-  must be reindexed to use this feature.
-</Note>
+`pdb.literal_normalized` is a compatibility alias for `pdb.normalized`.
 
-The literal normalized tokenizer is similar to the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer in that it does not split the source text.
-All text is treated as a single token, regardless of how many words are contained.
-
-However, unlike the literal tokenizer, this tokenizer allows [token filters](/documentation/token-filters/overview) to be applied. By default, the literal normalized tokenizer
-also [lowercases](/documentation/token-filters/lowercase) the text.
+For new indexes and examples, use [normalized](/documentation/tokenizers/available-tokenizers/normalized).
 
 ```sql
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.literal_normalized))
-WITH (key_field='id');
-```
+-- preferred
+SELECT 'Tokenize me!'::pdb.normalized::text[];
 
-To get a feel for this tokenizer, run the following command and replace the text with your own:
-
-```sql
+-- compatibility alias
 SELECT 'Tokenize me!'::pdb.literal_normalized::text[];
-```
-
-```ini Expected Response
-       text
-------------------
- {"tokenize me!"}
-(1 row)
 ```

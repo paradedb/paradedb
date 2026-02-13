@@ -94,7 +94,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             ("keyword".into(),),
             ("keyword_deprecated".into(),),
             ("raw".into(),),
-            ("literal_normalized".into(),),
+            ("normalized".into(),),
             ("white_space".into(),),
             ("regex_tokenizer".into(),),
             ("chinese_compatible".into(),),

@@ -7,7 +7,7 @@ INSERT INTO test (description) VALUES ('Cloud Engagement Manager'),('cloud engin
 CREATE INDEX test_bm25 ON test
 USING bm25 (
 	id,
-	(lower(description)::pdb.literal_normalized('ascii_folding=true'))
+	(lower(description)::pdb.normalized('ascii_folding=true'))
 ) WITH (key_field = id);
 
 SELECT * FROM paradedb.schema('test_bm25');

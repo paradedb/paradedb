@@ -55,7 +55,7 @@ pub struct Column {
     pub is_indexed: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
-    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: expression to use in index column list, e.g. "(column::pdb.normalized)"
     /// When set, this is used instead of bm25_options JSON config.
     pub index_expression: Option<&'static str>,
 }
@@ -122,7 +122,7 @@ impl Column {
         self
     }
 
-    /// V2 syntax: set index expression, e.g. "(column::pdb.literal_normalized)"
+    /// V2 syntax: set index expression, e.g. "(column::pdb.normalized)"
     /// When set, this is used instead of bm25_options JSON config.
     pub const fn bm25_v2_expression(mut self, expression: &'static str) -> Self {
         self.index_expression = Some(expression);

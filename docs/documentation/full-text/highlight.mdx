@@ -80,6 +80,17 @@ WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb.functions import Snippets
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('artistic vase')
+).annotate(
+    snippets=Snippets('description', max_num_chars=15)
+).values('id', 'snippets')[:5]
+```
+
 ```ini Expected Response
  id |                snippets
 ----+-----------------------------------------
@@ -123,6 +134,17 @@ WHERE description ||| 'running'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb.functions import Snippets
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('running')
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, limit=1)
+).values('id', 'snippets')[:5]
+```
+
 To get the second snippet (by skipping the first one):
 
 ```sql SQL
@@ -130,6 +152,17 @@ SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset"
 FROM mock_items
 WHERE description ||| 'running'
 LIMIT 5;
+```
+
+```python Django
+from paradedb.functions import Snippets
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('running')
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, limit=1, offset=1)
+).values('id', 'snippets')[:5]
 ```
 
 ### Sorting Snippets
@@ -145,6 +178,17 @@ WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
 
+```python Django
+from paradedb.functions import Snippets
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('artistic vase')
+).annotate(
+    snippets=Snippets('description', max_num_chars=15, sort_by='position')
+).values('id', 'snippets')[:5]
+```
+
 ## Byte Offsets
 
 `pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns a two-dimensional integer array where each nested pair is `[start, end)`: the first value is the byte index of the first highlighted byte, and the second value is the byte index immediately after the last highlighted byte.
@@ -154,6 +198,18 @@ SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
+```
+
+```python Django
+from paradedb.functions import Snippet, SnippetPositions
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('shoes')
+).annotate(
+    snippet=Snippet('description'),
+    snippet_positions=SnippetPositions('description')
+).values('id', 'snippet', 'snippet_positions')[:5]
 ```
 
 ```ini Expected Response

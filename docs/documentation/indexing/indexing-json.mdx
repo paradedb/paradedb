@@ -7,6 +7,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-json
 When indexing JSON, ParadeDB automatically indexes all sub-fields of the JSON object. The type of each sub-field is also inferred automatically.
 For example, consider the following statement where `metadata` is `JSONB`:
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, metadata)
@@ -33,6 +34,8 @@ class MockItem(models.Model):
         ]
 ```
 
+</CodeGroup>
+
 A single `metadata` JSON may look like:
 
 ```json
@@ -43,6 +46,7 @@ ParadeDB will automatically index both `metadata.color` and `metadata.location` 
 
 By default, all text sub-fields of a JSON object use the same tokenizer. The tokenizer can be configured the same way as text fields:
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (metadata::pdb.ngram(2,3)))
@@ -69,9 +73,12 @@ class MockItem(models.Model):
         ]
 ```
 
+</CodeGroup>
+
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
 within a larger JSON:
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((metadata->>'color')::pdb.ngram(2,3)))
@@ -101,3 +108,5 @@ class MockItem(models.Model):
             ),
         ]
 ```
+
+</CodeGroup>

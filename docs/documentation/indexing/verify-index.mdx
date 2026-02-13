@@ -16,6 +16,7 @@ These functions are useful for:
 
 The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_index('search_idx');
 ```
@@ -27,6 +28,8 @@ with connection.cursor() as cursor:
     cursor.execute("SELECT * FROM pdb.verify_index('search_idx')")
     rows = cursor.fetchall()
 ```
+
+</CodeGroup>
 
 This returns a table with three columns:
 
@@ -51,6 +54,7 @@ This returns a table with three columns:
 
 To verify that all indexed entries still exist in the heap table, use the `heapallindexed` option:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
 ```
@@ -64,6 +68,8 @@ with connection.cursor() as cursor:
     )
     rows = cursor.fetchall()
 ```
+
+</CodeGroup>
 
 This adds an additional check that validates every indexed `ctid` (tuple identifier) references a valid row in the table.
 This is particularly useful for detecting index entries that reference deleted or non-existent rows.
@@ -80,6 +86,7 @@ This is particularly useful for detecting index entries that reference deleted o
 
 For large indexes, you can check a random sample of documents instead of all documents:
 
+<CodeGroup dropdown>
 ```sql
 -- Check 10% of documents
 SELECT * FROM pdb.verify_index('search_idx',
@@ -104,10 +111,13 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 ### Progress Reporting
 
 For long-running verifications, enable progress reporting to see status updates:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -131,12 +141,15 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 Progress messages are emitted via PostgreSQL's `WARNING` channel.
 
 ### Verbose Mode
 
 For detailed logging including segment-by-segment progress and resume hints, enable verbose mode:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
@@ -162,10 +175,13 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 ### Stop on First Error
 
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 ```
@@ -180,6 +196,8 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 ## Parallel Verification
 
 A single `verify_index` call processes segments sequentially within one PostgreSQL backend.
@@ -191,6 +209,7 @@ This allows you to utilize multiple CPU cores by running verification in paralle
 
 First, list all segments in the index:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.index_segments('search_idx');
 ```
@@ -202,6 +221,8 @@ with connection.cursor() as cursor:
     cursor.execute("SELECT * FROM pdb.index_segments('search_idx')")
     rows = cursor.fetchall()
 ```
+
+</CodeGroup>
 
 ```
  partition_name | segment_idx | segment_id | num_docs | num_deleted | max_doc
@@ -216,6 +237,7 @@ with connection.cursor() as cursor:
 
 Then verify specific segments using the `segment_ids` parameter:
 
+<CodeGroup dropdown>
 ```sql
 -- Worker 1: Verify even segments
 SELECT * FROM pdb.verify_index('search_idx',
@@ -224,11 +246,12 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 
 -- Worker 2: Verify odd segments
-SELECT * FROM pdb.verify_index('search_idx',
-    heapallindexed := true,
-    segment_ids := ARRAY[1, 3]
+SELECT \* FROM pdb.verify_index('search_idx',
+heapallindexed := true,
+segment_ids := ARRAY[1, 3]
 );
-```
+
+````
 
 ```python Django
 from django.db import connection
@@ -257,12 +280,15 @@ with connection.cursor() as cursor:
         """
     )
     worker2_rows = cursor.fetchall()
-```
+````
+
+</CodeGroup>
 
 ### Automation Example
 
 Distribute verification across N workers:
 
+<CodeGroup dropdown>
 ```sql
 -- Get segments for worker 0 (of 4 workers)
 SELECT array_agg(segment_idx) AS segments
@@ -270,15 +296,16 @@ FROM pdb.index_segments('search_idx')
 WHERE segment_idx % 4 = 0;
 
 -- Run verification with those segments
-SELECT * FROM pdb.verify_index('search_idx',
-    heapallindexed := true,
-    segment_ids := (
-        SELECT array_agg(segment_idx)
-        FROM pdb.index_segments('search_idx')
-        WHERE segment_idx % 4 = 0
-    )
+SELECT \* FROM pdb.verify_index('search_idx',
+heapallindexed := true,
+segment_ids := (
+SELECT array_agg(segment_idx)
+FROM pdb.index_segments('search_idx')
+WHERE segment_idx % 4 = 0
+)
 );
-```
+
+````
 
 ```python Django
 from django.db import connection
@@ -307,12 +334,15 @@ with connection.cursor() as cursor:
         """
     )
     rows = cursor.fetchall()
-```
+````
+
+</CodeGroup>
 
 ## Verifying All BM25 Indexes
 
 To verify all BM25 indexes in the database at once:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.verify_all_indexes();
 ```
@@ -325,24 +355,28 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
+</CodeGroup>
+
 ### Filtering by Pattern
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
 
+<CodeGroup dropdown>
 ```sql
 -- Verify indexes in the 'public' schema only
 SELECT * FROM pdb.verify_all_indexes(schema_pattern := 'public');
 
 -- Verify indexes matching a name pattern
-SELECT * FROM pdb.verify_all_indexes(index_pattern := 'search_%');
+SELECT \* FROM pdb.verify*all_indexes(index_pattern := 'search*%');
 
 -- Combine filters
-SELECT * FROM pdb.verify_all_indexes(
-    schema_pattern := 'app_%',
-    index_pattern := '%_idx',
-    heapallindexed := true
+SELECT \* FROM pdb.verify*all_indexes(
+schema_pattern := 'app*%',
+index_pattern := '%\_idx',
+heapallindexed := true
 );
-```
+
+````
 
 ```python Django
 from django.db import connection
@@ -368,12 +402,15 @@ with connection.cursor() as cursor:
         """
     )
     combined_rows = cursor.fetchall()
-```
+````
+
+</CodeGroup>
 
 ## Listing All BM25 Indexes
 
 To see all BM25 indexes in the database with summary statistics:
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM pdb.indexes();
 ```
@@ -385,6 +422,8 @@ with connection.cursor() as cursor:
     cursor.execute("SELECT * FROM pdb.indexes()")
     rows = cursor.fetchall()
 ```
+
+</CodeGroup>
 
 ```
  schemaname |  tablename  |   indexname   | indexrelid | num_segments | total_docs

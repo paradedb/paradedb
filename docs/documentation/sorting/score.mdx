@@ -10,6 +10,7 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 
 The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, pdb.score(id)
 FROM mock_items
@@ -29,9 +30,12 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('score')[:5]
 ```
 
+</CodeGroup>
+
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
 consider this query:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, pdb.score(id)
 FROM mock_items
@@ -51,6 +55,8 @@ MockItem.objects.filter(
     score=Score()
 ).values('id', 'score').order_by('score')[:5]
 ```
+
+</CodeGroup>
 
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.

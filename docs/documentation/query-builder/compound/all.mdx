@@ -12,6 +12,7 @@ without changing the query's meaning.
 
 To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-key-field) to the left-hand side of `@@@` and `pdb.all()` to the right-hand side.
 
+<CodeGroup dropdown>
 ```sql
 -- Top N executed by standard Postgres
 SELECT * FROM mock_items
@@ -20,11 +21,12 @@ ORDER BY rating
 LIMIT 5;
 
 -- Top N executed by ParadeDB
-SELECT * FROM mock_items
+SELECT \* FROM mock_items
 WHERE rating IS NOT NULL AND id @@@ pdb.all()
 ORDER BY rating
 LIMIT 5;
-```
+
+````
 
 ```python Django
 from paradedb.search import All, ParadeDB
@@ -39,7 +41,9 @@ MockItem.objects.filter(
     rating__isnull=False,
     id=ParadeDB(All())
 ).order_by('rating')[:5]
-```
+````
+
+</CodeGroup>
 
 This is useful for cases where queries that don't contain a ParadeDB operator can be more efficiently executed by ParadeDB vs. standard Postgres,
 like [Top N](/documentation/sorting/topn) or [aggregate](/documentation/aggregates/overview) queries.

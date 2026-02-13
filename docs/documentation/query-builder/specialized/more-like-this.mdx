@@ -10,6 +10,7 @@ to `pdb.more_like_this`.
 
 For instance, the following query finds documents that are "like" a document with an `id` of `3`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -24,6 +25,8 @@ MockItem.objects.filter(
     MoreLikeThis(product_id=3)
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |     description      | rating | category
@@ -47,6 +50,7 @@ This is because, by default, all fields present in the index are considered for 
 
 To find only documents that match on specific fields, provide an array of field names as the second argument:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -61,6 +65,8 @@ MockItem.objects.filter(
     MoreLikeThis(product_id=3, fields=['description'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |     description     | rating | category
@@ -91,6 +97,7 @@ Let's look at how the MLT query works under the hood:
 In addition to providing a key field value, a custom document can also be provided as JSON.
 The JSON keys are field names and must correspond to field names in the index.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -106,6 +113,8 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+</CodeGroup>
+
 ## Configuration Options
 
 ### Term Frequency
@@ -116,6 +125,7 @@ based on term frequency.
 
 For instance, the following query returns no results because no term appears twice in the input document.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -131,12 +141,15 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+</CodeGroup>
+
 ### Document Frequency
 
 `min_doc_frequency` excludes terms that appear in fewer than a certain number of documents across the entire index,
 while `max_doc_frequency` excludes terms that appear in more than that many documents. By default, no terms are excluded
 based on document frequency.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -152,6 +165,8 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+</CodeGroup>
+
 ### Max Query Terms
 
 By default, only the top 25 terms across all fields are considered for matching. Terms are scored using a combination of inverse document
@@ -160,6 +175,7 @@ score the highest.
 
 This can be configured with `max_query_terms`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -175,11 +191,14 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+</CodeGroup>
+
 ### Term Length
 
 `min_word_length` and `max_word_length` can be used to exclude terms that are too short or too long, respectively. By default, no terms
 are excluded based on length.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -195,10 +214,13 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+</CodeGroup>
+
 ### Custom Stopwords
 
 To exclude terms from being considered, provide a text array to `stopwords`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -213,3 +235,5 @@ MockItem.objects.filter(
     MoreLikeThis(product_id=3, stopwords=['the', 'a'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
+
+</CodeGroup>

@@ -11,6 +11,7 @@ By default we recommend using the [phrase operator](/documentation/full-text/ter
 
 Searches for documents containing a phrase.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -24,6 +25,8 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>
 
 <div className="mt-8" />
 
@@ -42,6 +45,7 @@ MockItem.objects.filter(
 Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase as well
 as term transpositions.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -55,3 +59,5 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', slop=1))
 ).values('description', 'rating', 'category')
 ```
+
+</CodeGroup>

@@ -6,6 +6,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-arrays
 
 The BM25 index accepts arrays of type `text[]` or `varchar[]`.
 
+<CodeGroup dropdown>
 ```sql
 CREATE TABLE array_demo (id SERIAL PRIMARY KEY, categories TEXT[]);
 INSERT INTO array_demo (categories) VALUES
@@ -15,7 +16,8 @@ INSERT INTO array_demo (categories) VALUES
 
 CREATE INDEX ON array_demo USING bm25 (id, categories)
 WITH (key_field = 'id');
-```
+
+````
 
 ```python Django
 from django.contrib.postgres.fields import ArrayField
@@ -37,7 +39,9 @@ class ArrayDemo(models.Model):
                 name='array_demo_search_idx',
             ),
         ]
-```
+````
+
+</CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
 match if **any** of its entries is a match.
@@ -55,6 +59,7 @@ SELECT * FROM array_demo WHERE categories === 'food';
 
 Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered](/documentation/token-filters/overview) in the same way as text fields:
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
@@ -81,3 +86,5 @@ class ArrayDemo(models.Model):
             ),
         ]
 ```
+
+</CodeGroup>

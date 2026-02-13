@@ -19,8 +19,6 @@ INSERT INTO mock_items (description, rating, category) VALUES
 ('shoes running', 5, 'Footwear');
 ```
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -34,8 +32,6 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>
 
 This query returns:
 
@@ -82,8 +78,6 @@ Slop allows the token ordering requirement of phrase queries to be relaxed. It s
 
 To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -98,13 +92,9 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-</CodeGroup>
-
 ## Using a Custom Tokenizer
 
 The phrase query supports custom query tokenization.
-
-<CodeGroup>
 
 ```sql SQL
 SELECT description, rating, category
@@ -112,20 +102,12 @@ FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
 ```
 
-```python Django
-# django-paradedb does not currently expose a custom query tokenizer override.
-```
-
-</CodeGroup>
-
 ## Using Pretokenized Text
 
 The phrase operator also accepts a text array as the right-hand side argument. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.
 
 The following query matches documents containing the token `shoes` immediately followed by `running`:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT description, rating, category
@@ -141,11 +123,7 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-</CodeGroup>
-
 Adding slop is supported:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT description, rating, category
@@ -160,5 +138,3 @@ MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>

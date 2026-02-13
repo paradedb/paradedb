@@ -17,8 +17,6 @@ canonical: https://docs.paradedb.com/documentation/query-builder/match
 Under the hood, the [match](/documentation/full-text/match) conjunction and disjunction operators get rewritten to this query builder function.
 This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -31,8 +29,6 @@ MockItem.objects.filter(
     description=ParadeDB(PQ('running') | PQ('shoes'))
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>
 
 <div className="mt-8" />
 
@@ -66,23 +62,17 @@ MockItem.objects.filter(
 
 When `distance` is set to a positive integer, fuzzy matching is applied. This allows `match` to tolerate typos in the query string.
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('ruining shoez', distance => 2);
 ```
 
-</CodeGroup>
-
 ## Conjunction Mode
 
 By default, `match` constructs an `OR` boolean query from the query string's tokens. For instance, the query `running shoes` is executed as `running OR shoes`.
 
 When set to `true`, `conjunction_mode` constructs an `AND` boolean query instead.
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -95,5 +85,3 @@ MockItem.objects.filter(
     description=ParadeDB('running', 'shoes')
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>

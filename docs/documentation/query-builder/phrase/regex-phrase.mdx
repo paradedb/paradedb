@@ -9,15 +9,11 @@ queries, with positions and ordering of tokens enforced.
 
 For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
 ```
-
-</CodeGroup>
 
 <div className="mt-8" />
 

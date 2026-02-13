@@ -10,8 +10,6 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT pdb.regex('key.*');
 ```
@@ -21,8 +19,6 @@ from paradedb.search import Regex
 
 Regex('key.*')
 ```
-
-</CodeGroup>
 
 <Accordion title="Expected Response">
 ```csv
@@ -35,8 +31,6 @@ Regex('key.*')
 
 Next, paste this JSON string into the right-hand side of the `@@@` operator and cast it to `pdb.query`:
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -47,8 +41,6 @@ WHERE description @@@
     }
 }'::pdb.query;
 ```
-
-</CodeGroup>
 
 <Note>
   The JSON query object must be explicitly cast to `pdb.query` using

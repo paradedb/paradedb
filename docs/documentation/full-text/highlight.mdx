@@ -20,8 +20,6 @@ search query.
 `pdb.snippet(<column>)` can be added to any query where an `@@@` operator is present. `pdb.snippet` returns the single best snippet, sorted by relevance score.
 The following query generates highlighted snippets against the `description` field.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT id, pdb.snippet(description)
 FROM mock_items
@@ -40,8 +38,6 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
-</CodeGroup>
-
 <ParamField body="start_tag" default="<b>">
   The leading indicator around the highlighted region.
 </ParamField>
@@ -54,8 +50,6 @@ MockItem.objects.filter(
 </ParamField>
 
 By default, `<b></b>` encloses the snippet. This can be configured with `start_tag` and `end_tag`:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
@@ -75,13 +69,9 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
-</CodeGroup>
-
 ## Multiple Snippets
 
 `pdb.snippets(<column>)` returns an array of snippets, allowing you to retrieve multiple highlighted matches from a document. This is particularly useful when a document has several relevant matches spread throughout its content.
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15)
@@ -89,12 +79,6 @@ FROM mock_items
 WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
-
-```python Django
-# django-paradedb currently supports Snippet(...) but not pdb.snippets(...).
-```
-
-</CodeGroup>
 
 ```ini Expected Response
  id |                snippets
@@ -132,8 +116,6 @@ You can control the number and order of snippets returned using the `limit`, `of
 
 For example, to get only the first snippet:
 
-<CodeGroup>
-
 ```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
 FROM mock_items
@@ -141,15 +123,7 @@ WHERE description ||| 'running'
 LIMIT 5;
 ```
 
-```python Django
-# django-paradedb currently supports Snippet(...) but not pdb.snippets(...).
-```
-
-</CodeGroup>
-
 To get the second snippet (by skipping the first one):
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset" => 1)
@@ -158,19 +132,11 @@ WHERE description ||| 'running'
 LIMIT 5;
 ```
 
-```python Django
-# django-paradedb currently supports Snippet(...) but not pdb.snippets(...).
-```
-
-</CodeGroup>
-
 ### Sorting Snippets
 
 Snippets can be sorted either by their relevance score (`'score'`) or their position within the document (`'position'`).
 
 To sort snippets by their appearance in the document:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
@@ -179,17 +145,9 @@ WHERE description ||| 'artistic vase'
 LIMIT 5;
 ```
 
-```python Django
-# django-paradedb currently supports Snippet(...) but not pdb.snippets(...).
-```
-
-</CodeGroup>
-
 ## Byte Offsets
 
 `pdb.snippet_positions(<column>)` returns the byte offsets in the original text where the snippets would appear. It returns a two-dimensional integer array where each nested pair is `[start, end)`: the first value is the byte index of the first highlighted byte, and the second value is the byte index immediately after the last highlighted byte.
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
@@ -197,12 +155,6 @@ FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
 ```
-
-```python Django
-# django-paradedb currently supports Snippet(...) but not pdb.snippet_positions(...).
-```
-
-</CodeGroup>
 
 ```ini Expected Response
  id |          snippet           | snippet_positions

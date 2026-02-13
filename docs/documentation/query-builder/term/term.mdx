@@ -19,8 +19,6 @@ By default we recommend using the [term operator](/documentation/full-text/term)
 
 Matches documents containing a specified term.
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -35,20 +33,14 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
-</CodeGroup>
-
 Numeric, boolean, or datetime fields can also be passed into the `term` query. Doing so is equivalent to using the
 `=` equality operator.
-
-<CodeGroup>
 
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE rating @@@ pdb.term(4);
 ```
-
-</CodeGroup>
 
 ## Enumerated Types
 
@@ -57,12 +49,8 @@ if the query term is explicitly cast to the enum type.
 
 In this example, `color` is a custom enum:
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE color @@@ pdb.term('red'::color);
 ```
-
-</CodeGroup>

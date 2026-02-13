@@ -12,8 +12,6 @@ string as a **finalized token**. This means that the query string is taken as-is
 
 Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
-<CodeGroup>
-
 ```sql SQL
 -- Term query 1
 SELECT description, rating, category
@@ -39,8 +37,6 @@ MockItem.objects.filter(
     description=ParadeDB(Term('RUNNING'))
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>
 
 The first query returns:
 
@@ -90,8 +86,6 @@ These examples assume that index uses the default tokenizer and token filters, a
 
 Passing a text array to the right-hand side of `===` means "find all documents containing any one of these tokens."
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -107,5 +101,3 @@ MockItem.objects.filter(
     Q(description=ParadeDB(Term('running')))
 ).values('description', 'rating', 'category')
 ```
-
-</CodeGroup>

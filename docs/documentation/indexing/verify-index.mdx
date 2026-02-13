@@ -16,8 +16,6 @@ These functions are useful for:
 
 The `pdb.verify_index` function performs structural integrity checks on a BM25 index:
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx');
 ```
@@ -29,8 +27,6 @@ with connection.cursor() as cursor:
     cursor.execute("SELECT * FROM pdb.verify_index('search_idx')")
     rows = cursor.fetchall()
 ```
-
-</CodeGroup>
 
 This returns a table with three columns:
 
@@ -55,8 +51,6 @@ This returns a table with three columns:
 
 To verify that all indexed entries still exist in the heap table, use the `heapallindexed` option:
 
-<CodeGroup dropdown>
-
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
 ```
@@ -70,8 +64,6 @@ with connection.cursor() as cursor:
     )
     rows = cursor.fetchall()
 ```
-
-</CodeGroup>
 
 This adds an additional check that validates every indexed `ctid` (tuple identifier) references a valid row in the table.
 This is particularly useful for detecting index entries that reference deleted or non-existent rows.
@@ -87,8 +79,6 @@ This is particularly useful for detecting index entries that reference deleted o
 ### Sampling for Large Indexes
 
 For large indexes, you can check a random sample of documents instead of all documents:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 -- Check 10% of documents
@@ -114,13 +104,9 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ### Progress Reporting
 
 For long-running verifications, enable progress reporting to see status updates:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx',
@@ -145,15 +131,11 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 Progress messages are emitted via PostgreSQL's `WARNING` channel.
 
 ### Verbose Mode
 
 For detailed logging including segment-by-segment progress and resume hints, enable verbose mode:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx',
@@ -180,13 +162,9 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ### Stop on First Error
 
 To stop verification immediately when the first error is found (similar to `pg_amcheck --on-error-stop`):
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
@@ -202,8 +180,6 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ## Parallel Verification
 
 A single `verify_index` call processes segments sequentially within one PostgreSQL backend.
@@ -214,8 +190,6 @@ This allows you to utilize multiple CPU cores by running verification in paralle
 ### Listing Segments
 
 First, list all segments in the index:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.index_segments('search_idx');
@@ -229,8 +203,6 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ```
  partition_name | segment_idx | segment_id | num_docs | num_deleted | max_doc
 ----------------+-------------+------------+----------+-------------+---------
@@ -243,8 +215,6 @@ with connection.cursor() as cursor:
 ### Verifying Specific Segments
 
 Then verify specific segments using the `segment_ids` parameter:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 -- Worker 1: Verify even segments
@@ -289,13 +259,9 @@ with connection.cursor() as cursor:
     worker2_rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ### Automation Example
 
 Distribute verification across N workers:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 -- Get segments for worker 0 (of 4 workers)
@@ -343,13 +309,9 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ## Verifying All BM25 Indexes
 
 To verify all BM25 indexes in the database at once:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.verify_all_indexes();
@@ -363,13 +325,9 @@ with connection.cursor() as cursor:
     rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ### Filtering by Pattern
 
 Filter indexes by schema or name pattern (using SQL `LIKE` syntax):
-
-<CodeGroup dropdown>
 
 ```sql SQL
 -- Verify indexes in the 'public' schema only
@@ -412,13 +370,9 @@ with connection.cursor() as cursor:
     combined_rows = cursor.fetchall()
 ```
 
-</CodeGroup>
-
 ## Listing All BM25 Indexes
 
 To see all BM25 indexes in the database with summary statistics:
-
-<CodeGroup dropdown>
 
 ```sql SQL
 SELECT * FROM pdb.indexes();
@@ -431,8 +385,6 @@ with connection.cursor() as cursor:
     cursor.execute("SELECT * FROM pdb.indexes()")
     rows = cursor.fetchall()
 ```
-
-</CodeGroup>
 
 ```
  schemaname |  tablename  |   indexname   | indexrelid | num_segments | total_docs

@@ -18,8 +18,6 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/exists
 Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.
 This query produces the same results as Postgres' `IS NOT NULL`.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -32,5 +30,3 @@ MockItem.objects.filter(
     rating__isnull=False
 ).values('description', 'rating', 'category')[:5]
 ```
-
-</CodeGroup>

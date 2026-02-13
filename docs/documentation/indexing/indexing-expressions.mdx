@@ -10,15 +10,11 @@ In addition to indexing columns, Postgres expressions can also be indexed.
 
 The following statement indexes an expression which concatenates `description` and `category`, which are both text fields:
 
-<CodeGroup>
-
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((description || ' ' || category)::pdb.simple('alias=description_concat')))
 WITH (key_field='id');
 ```
-
-</CodeGroup>
 
 To index a text/JSON expression:
 
@@ -30,15 +26,11 @@ To index a text/JSON expression:
 
 Querying against the expression is the same as querying a regular field:
 
-<CodeGroup>
-
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE (description || ' ' || category) &&& 'running shoes';
 ```
-
-</CodeGroup>
 
 <Note>
   The expression on the left-hand side of the operator must exactly match the
@@ -50,19 +42,13 @@ WHERE (description || ' ' || category) &&& 'running shoes';
 To index a non-text expression, cast the expression to `pdb.alias`. For example, the following statement indexes
 the expression `rating + 1`, which returns an integer:
 
-<CodeGroup>
-
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, ((rating + 1)::pdb.alias('rating')))
 WITH (key_field='id');
 ```
 
-</CodeGroup>
-
 With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT description, rating, category
@@ -70,5 +56,3 @@ FROM mock_items
 WHERE description &&& 'running shoes'
 AND rating + 1 > 3;
 ```
-
-</CodeGroup>

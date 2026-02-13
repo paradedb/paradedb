@@ -10,8 +10,6 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 
 The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT id, pdb.score(id)
 FROM mock_items
@@ -31,12 +29,8 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('score')[:5]
 ```
 
-</CodeGroup>
-
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
 consider this query:
-
-<CodeGroup>
 
 ```sql SQL
 SELECT id, pdb.score(id)
@@ -57,8 +51,6 @@ MockItem.objects.filter(
     score=Score()
 ).values('id', 'score').order_by('score')[:5]
 ```
-
-</CodeGroup>
 
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.
@@ -86,8 +78,6 @@ WITH (key_field = 'order_id');
 
 Next, let's compute a "combined BM25 score" over a join across both tables.
 
-<CodeGroup>
-
 ```sql SQL
 SELECT o.order_id, o.customer_name, m.description, pdb.score(o.order_id) + pdb.score(m.id) as score
 FROM orders o
@@ -96,12 +86,6 @@ WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'
 ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
-
-```python Django
-# Combined BM25 scoring across joined models is not currently documented by django-paradedb.
-```
-
-</CodeGroup>
 
 ## Score Refresh
 

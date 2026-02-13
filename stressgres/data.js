@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770940505336,
+  "lastUpdate": 1770940836145,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4794,6 +4794,54 @@ window.BENCHMARK_DATA = {
             "value": 5.3911393620579515,
             "unit": "median tps",
             "extra": "avg tps: 5.394584724177951, max tps: 7.260330140207466, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b04eae77b43a69abf89d75cd16038e7fcdd72770",
+          "message": "refactor: unify static OPERATOR_LOOKUP into shared function (#4060) (#4173)\n\n## Summary\n\n- Deduplicate the `OnceLock<HashMap<PostgresOperatorOid,\nTantivyOperator>>` pattern that was copy-pasted across `pushdown.rs`,\n`planning.rs`, and `translator.rs`\n- Centralize into a single `pub(crate) fn lookup_operator(opno)` in\n`opexpr.rs`\n- Privatize `OperatorAccepts` and `initialize_equality_operator_lookup`\nsince they are no longer needed outside `opexpr.rs`\n\nCloses #4060\n\n## Test plan\n\nNo new tests added. This is a pure refactoring with no behavioral\nchange. Existing integration and regression tests provide full coverage\nof all modified call sites.",
+          "timestamp": "2026-02-12T15:09:31-08:00",
+          "tree_id": "4395a9fad346a49f0bcb0a75092401e526f3830c",
+          "url": "https://github.com/paradedb/paradedb/commit/b04eae77b43a69abf89d75cd16038e7fcdd72770"
+        },
+        "date": 1770940832296,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1119.8007254220536,
+            "unit": "median tps",
+            "extra": "avg tps: 1119.3950841880653, max tps: 1156.7636636182997, count: 56022"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1228.80499496036,
+            "unit": "median tps",
+            "extra": "avg tps: 1227.1433978218495, max tps: 1256.009827323542, count: 56022"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1846.1687295422544,
+            "unit": "median tps",
+            "extra": "avg tps: 1827.6825288323132, max tps: 1992.262056237559, count: 56022"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.197822330278597,
+            "unit": "median tps",
+            "extra": "avg tps: 5.267973520115695, max tps: 7.408657110664622, count: 56022"
           }
         ]
       }

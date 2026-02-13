@@ -1669,10 +1669,11 @@ LIMIT 3;
                                  Output: category, price
                                  Table: products
                                  Index: products_idx
-                                 Exec Method: NormalScanExecState
+                                 Exec Method: MixedFastFieldExecState
+                                 Fast Fields: category, price
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(22 rows)
+(23 rows)
 
 SELECT 
     category,
@@ -1931,10 +1932,11 @@ LIMIT 2;
                                        Output: p.category, p.price
                                        Table: products
                                        Index: products_idx
-                                       Exec Method: NormalScanExecState
+                                       Exec Method: MixedFastFieldExecState
+                                       Fast Fields: category, price
                                        Scores: false
                                        Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+(28 rows)
 
 SELECT 
     p.category,

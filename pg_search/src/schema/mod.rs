@@ -785,6 +785,14 @@ mod tests {
 
     #[rstest]
     fn test_search_text_options() {
+        // default_text() should now have fast:true
+        let default_options: TextOptions = SearchFieldConfig::default_text().into();
+        assert!(
+            default_options.is_fast(),
+            "default text config should have fast enabled"
+        );
+
+        // explicit fast:false should still disable fast
         let json = r#"{
             "indexed": true,
             "fast": false,
@@ -793,18 +801,50 @@ mod tests {
             "normalizer": "raw"
         }"#;
         let config: serde_json::Value = serde_json::from_str(json).unwrap();
-        let search_text_option: SearchFieldConfig =
+        let explicit_off: SearchFieldConfig =
             serde_json::from_value(serde_json::json!({"Text": config})).unwrap();
-        let expected: TextOptions = search_text_option.into();
-
-        let text_options: TextOptions = SearchFieldConfig::default_text().into();
-        assert_eq!(
-            expected.get_fast_field_tokenizer_name(),
-            text_options.get_fast_field_tokenizer_name()
+        let explicit_off_options: TextOptions = explicit_off.into();
+        assert!(
+            !explicit_off_options.is_fast(),
+            "explicit fast:false should disable fast"
         );
 
-        let text_options = text_options.set_fast(Some("index"));
-        assert_ne!(expected.is_fast(), text_options.is_fast());
+        // fast field tokenizer names should differ when one is fast and the other is not
+        assert_ne!(
+            default_options.get_fast_field_tokenizer_name(),
+            explicit_off_options.get_fast_field_tokenizer_name()
+        );
+    }
+
+    #[rstest]
+    fn test_text_defaults_fast_true() {
+        // Issue #4010: bare Text {} should default to fast:true
+        let config = SearchFieldConfig::default_text();
+        match config {
+            SearchFieldConfig::Text { fast, .. } => {
+                assert!(fast, "Text fields should default to fast:true");
+            }
+            _ => panic!("default_text() should return Text variant"),
+        }
+
+        let text_options: TextOptions = config.into();
+        assert!(
+            text_options.is_fast(),
+            "default text TextOptions should be fast"
+        );
+    }
+
+    #[rstest]
+    fn test_text_explicit_fast_false() {
+        // Users can still opt out with explicit fast:false
+        let config: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Text": {"fast": false}})).unwrap();
+        match config {
+            SearchFieldConfig::Text { fast, .. } => {
+                assert!(!fast, "explicit fast:false should be respected");
+            }
+            _ => panic!("expected Text variant"),
+        }
     }
 
     #[rstest]

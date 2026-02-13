@@ -209,22 +209,16 @@ FROM groupby_conflict_test
 WHERE category @@@ 'electronics'
 GROUP BY title
 ORDER BY title;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: title, avg(rating), count(*)
-   Group Key: groupby_conflict_test.title
-   ->  Sort
-         Output: title, rating
-         Sort Key: groupby_conflict_test.title
-         ->  Custom Scan (ParadeDB Scan) on public.groupby_conflict_test
-               Output: title, rating
-               Table: groupby_conflict_test
-               Index: groupby_conflict_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
+   Output: title, pdb.agg_fn('AVG'::text), pdb.agg_fn('COUNT(*)'::text)
+   Index: groupby_conflict_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: AVG(rating), COUNT(*)
+     Group By: title
+     Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"title","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 -- Execute the query
 SELECT title,
@@ -235,13 +229,13 @@ WHERE category @@@ 'electronics'
 GROUP BY title
 ORDER BY title
 LIMIT 5;
-   title    |       avg_rating       | count 
-------------+------------------------+-------
- Product A1 | 1.00000000000000000000 |     1
- Product A2 | 1.00000000000000000000 |     1
- Product B1 |     2.0000000000000000 |     1
- Product B2 |     2.0000000000000000 |     1
- Product F1 |     3.0000000000000000 |     1
+   title    | avg_rating | count 
+------------+------------+-------
+ Product A1 |          1 |     1
+ Product A2 |          1 |     1
+ Product B1 |          2 |     1
+ Product B2 |          2 |     1
+ Product F1 |          3 |     1
 (5 rows)
 
 -- Clean up

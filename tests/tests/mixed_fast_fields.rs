@@ -302,7 +302,7 @@ fn fast_fields_setup() -> &'static str {
     r#"SELECT rating::text FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
     false
 )]
-#[case::default_tokenizer(r#"SELECT content FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, false)]
+#[case::default_tokenizer(r#"SELECT content FROM mixed_ff_v2 WHERE title @@@ 'Title'"#, true)]
 #[case::expression_mismatch(
     r#"SELECT lower(title) FROM mixed_ff_v2 WHERE title @@@ 'Title'"#,
     false

@@ -135,10 +135,11 @@ pub fn search_field_config_from_type(
 
     let parsed_fieldnorms = parsed_typmod.get("fieldnorms").and_then(|p| p.as_bool());
     // columnar=true/false is our renaming of Tantivy's `fast` option
-    // fast is default to true for any field that's not text or JSON
-    // if it is text or JSON, it also default to true for literal and literal_normalized
-    // otherwise the user needs to explicitly set it to true
+    // fast defaults to true for text fields and literal/literal_normalized
+    // JSON fields still default to fast=false unless explicitly set
+    // users can explicitly set columnar=false to opt out
     let columnar_explicit = parsed_typmod.get("columnar").and_then(|p| p.as_bool());
+    let is_json = inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID;
 
     let (fast, fieldnorms, record) = if type_name == "literal" || type_name == "literal_normalized"
     {
@@ -149,14 +150,14 @@ pub fn search_field_config_from_type(
         let fieldnorms = parsed_fieldnorms.unwrap_or(false);
         (fast, fieldnorms, IndexRecordOption::Basic)
     } else {
-        // all others default to fast=false (columnar=false)
-        let fast = columnar_explicit.unwrap_or(false);
+        // text fields default to fast=true, JSON fields default to fast=false
+        let fast = columnar_explicit.unwrap_or(!is_json);
         // all others default to fieldnorms=true
         let fieldnorms = parsed_fieldnorms.unwrap_or(true);
         (fast, fieldnorms, IndexRecordOption::WithFreqsAndPositions)
     };
 
-    if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
+    if is_json {
         Some(SearchFieldConfig::Json {
             indexed: true,
             fast,

@@ -126,22 +126,16 @@ FROM issue_3827_t
 WHERE id @@@ pdb.all()
 GROUP BY txt, n
 ORDER BY txt, n;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
- GroupAggregate
-   Output: txt, n, count(*)
-   Group Key: issue_3827_t.txt, issue_3827_t.n
-   ->  Sort
-         Output: txt, n
-         Sort Key: issue_3827_t.txt, issue_3827_t.n
-         ->  Custom Scan (ParadeDB Scan) on public.issue_3827_t
-               Output: txt, n
-               Table: issue_3827_t
-               Index: issue_3827_t_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(13 rows)
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.issue_3827_t
+   Output: txt, n, pdb.agg_fn('COUNT(*)'::text)
+   Index: issue_3827_t_idx
+   Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+     Applies to Aggregates: COUNT(*)
+     Group By: txt, n
+     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"n","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"txt","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
 
 SELECT txt, n, COUNT(*)
 FROM issue_3827_t

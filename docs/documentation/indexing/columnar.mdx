@@ -4,10 +4,10 @@ description: Column-oriented indexing for fast filtering, sorting, and aggregate
 canonical: https://docs.paradedb.com/documentation/indexing/columnar
 ---
 
-By default, all non-text and non-JSON fields are indexed using ParadeDB's columnar format.
+By default, all non-JSON fields are indexed using ParadeDB's columnar format.
 This enables fast [filtering pushdown](documentation/filtering#filter-pushdown), [Top N ordering](/documentation/sorting/topn), and
-[aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
-because they are integers, whereas `description` is not because it is text.
+[aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `id`, `description`, and `rating` are all columnar indexed
+by default.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -15,11 +15,22 @@ USING bm25 (id, description, rating)
 WITH (key_field = 'id');
 ```
 
-To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
+To disable columnar indexing for a text field, set `fast` to `false` in the field configuration.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
-USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
+USING bm25 (id, description, rating)
+WITH (
+    key_field = 'id',
+    text_fields = '{"description": {"fast": false}}'
+);
+```
+
+When using [tokenizer casts](/documentation/tokenizers/overview), columnar can be explicitly controlled with the `columnar` option.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.unicode_words('columnar=false')), rating)
 WITH (key_field = 'id');
 ```
 
@@ -28,19 +39,18 @@ WITH (key_field = 'id');
   above.
 </Note>
 
-Columnar defaults to `false` for all tokenizers besides [literal](/documentation/tokenizers/available-tokenizers/literal) and
-[literal normalized](/documentation/tokenizers/available-tokenizers/literal-normalized), which default to
-`true` and do not require an explicit setting.
-
-The reason is that tokenized fields can represent large documents and would be expensive to store column-wise,
-whereas literal and literal normalized fields are typically single-value and much more compact.
-
 <Note>
-The columnar field stores the raw text value regardless of the tokenizer. For example, if `Hello world` is
+Columnar storage stores the raw text value regardless of the tokenizer. For example, if `Hello world` is
 split into tokens `hello` and `world`, the columnar value remains `Hello world`.
 
 This is important because operations like filtering and sorting require the original field value, not the tokens.
 
+</Note>
+
+<Note>
+  JSON fields default to columnar `false` because their fast fields do not
+  contain the full content of the JSON in a way that can be directly rendered —
+  the individual fields are exploded into dynamic columns.
 </Note>
 
 <Note>

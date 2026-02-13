@@ -1793,7 +1793,8 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                      Output: c.name, c.id
                      Table: colors
                      Index: colors_bm25_idx
-                     Exec Method: NormalScanExecState
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: id, name
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"color","lenient":null,"conjunction_mode":null}}}}
                ->  Materialize
@@ -1802,10 +1803,11 @@ WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is r
                            Output: s.name, s.id
                            Table: sizes
                            Index: sizes_bm25_idx
-                           Exec Method: NormalScanExecState
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: id, name
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"size","lenient":null,"conjunction_mode":null}}}}
-(23 rows)
+(25 rows)
 
 -- =============================================================================
 -- TEST 24: Multi-column composite join keys

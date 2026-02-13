@@ -352,10 +352,11 @@ ORDER BY id;
    ->  Custom Scan (ParadeDB Scan) on pages
          Table: pages
          Index: pages_search
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: content, id
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 -- Query with non-fast field
 SELECT content

@@ -58,10 +58,11 @@ ORDER BY score DESC;
    ->  Custom Scan (ParadeDB Scan) on products
          Table: products
          Index: products_bm25_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: true
          Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}
-(8 rows)
+(9 rows)
 
 SELECT 
     id,
@@ -1077,10 +1078,11 @@ ORDER BY score DESC;
    ->  Custom Scan (ParadeDB Scan) on products
          Table: products
          Index: products_bm25_idx
-         Exec Method: NormalScanExecState
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id, name
          Scores: true
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+(9 rows)
 
 SELECT 
     id,

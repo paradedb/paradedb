@@ -32,7 +32,7 @@ pub enum SearchFieldConfig {
     Text {
         #[serde(default = "default_as_true")]
         indexed: bool,
-        #[serde(default)]
+        #[serde(default = "default_as_true")]
         fast: bool,
         #[serde(default = "default_as_true")]
         fieldnorms: bool,
@@ -109,21 +109,12 @@ impl SearchFieldConfig {
     }
 
     pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
-        let mut config: Self = serde_json::from_value(json!({
+        let config: Self = serde_json::from_value(json!({
             "Text": value
         }))?;
 
         match config {
-            SearchFieldConfig::Text {
-                ref tokenizer,
-                ref mut fast,
-                ..
-            } => {
-                if matches!(tokenizer, SearchTokenizer::Keyword) {
-                    *fast = true;
-                }
-                Ok(config)
-            }
+            SearchFieldConfig::Text { .. } => Ok(config),
             _ => Err(anyhow::anyhow!("Expected Text configuration")),
         }
     }

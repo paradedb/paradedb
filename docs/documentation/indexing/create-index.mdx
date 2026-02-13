@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id');
@@ -48,7 +48,7 @@ to find the most suitable one before running `CREATE INDEX`.
 
 For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
 
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
@@ -79,7 +79,7 @@ class MockItem(models.Model):
 Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
 including columns used for sorting, grouping, filtering, and aggregations.
 
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
@@ -124,7 +124,7 @@ Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, a
 
 To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 
-```sql SQL
+```sql
 SELECT pid, phase, blocks_done, blocks_total
 FROM pg_stat_progress_create_index;
 ```
@@ -161,7 +161,7 @@ The `key_field` must:
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');

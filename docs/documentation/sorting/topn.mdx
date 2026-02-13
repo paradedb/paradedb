@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/sorting/topn
 
 ParadeDB is highly optimized for quickly returning the Top N results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
@@ -55,7 +55,7 @@ If any of the above conditions are not met, the query cannot be fully optimized 
 
 To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
@@ -84,7 +84,7 @@ WITH (key_field='id');
 
 This allows sorting by lowercase to be optimized.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'sleek running shoes'
@@ -97,7 +97,7 @@ LIMIT 5;
 Ordering by JSON subfield is on the roadmap but not yet supported. For example, this query will not receive an optimized
 Top N scan:
 
-```sql SQL
+```sql
 SELECT id, description, metadata
 FROM mock_items
 WHERE description ||| 'sleek running shoes'

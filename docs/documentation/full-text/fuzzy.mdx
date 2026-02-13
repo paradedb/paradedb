@@ -21,7 +21,7 @@ a comment with your use case.
 To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).
 Fuzziness is supported for [match](/documentation/full-text/match) and [term](/documentation/full-text/term) queries.
 
-```sql SQL
+```sql
 -- Fuzzy match disjunction
 SELECT id, description
 FROM mock_items
@@ -63,7 +63,7 @@ beginning within an edit distance of `1`.
 
 To treat the query string as a prefix, set the second argument of `fuzzy` to either `t` or `"true"`:
 
-```sql SQL
+```sql
 SELECT id, description
 FROM mock_items
 WHERE description === 'rann'::pdb.fuzzy(1, t)
@@ -77,7 +77,7 @@ LIMIT 5;
 When used with [match](/documentation/full-text/match) queries, fuzzy prefix treats all tokens in the query string as prefixes.
 For instance, the following query means "find all documents containing the fuzzy prefix `rann` AND the fuzzy prefix `slee`":
 
-```sql SQL
+```sql
 SELECT id, description
 FROM mock_items
 WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
@@ -89,7 +89,7 @@ LIMIT 5;
 By default, the cost of a transposition (i.e. "shose" → "shoes") is `2`. Setting the third argument of `fuzzy` to `t` lowers the
 cost of a transposition to `1`:
 
-```sql SQL
+```sql
 SELECT id, description
 FROM mock_items
 WHERE description === 'shose'::pdb.fuzzy(1, f, t)

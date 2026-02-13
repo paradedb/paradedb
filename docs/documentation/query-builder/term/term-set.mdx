@@ -16,7 +16,7 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/term-set
 
 Matches documents containing any term from a specified set.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.term_set(ARRAY['shoes', 'keyboard']);

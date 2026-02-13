@@ -78,7 +78,7 @@ Slop allows the token ordering requirement of phrase queries to be relaxed. It s
 
 To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'shoes running'::pdb.slop(2);
@@ -96,7 +96,7 @@ MockItem.objects.filter(
 
 The phrase query supports custom query tokenization.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
@@ -109,7 +109,7 @@ which means that no further processing is done.
 
 The following query matches documents containing the token `shoes` immediately followed by `running`:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### ARRAY['running', 'shoes'];
@@ -125,7 +125,7 @@ MockItem.objects.filter(
 
 Adding slop is supported:
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);

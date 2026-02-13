@@ -9,7 +9,7 @@ queries, with positions and ordering of tokens enforced.
 
 For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
 
-```sql SQL
+```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);

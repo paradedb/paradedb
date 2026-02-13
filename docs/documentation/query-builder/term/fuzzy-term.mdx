@@ -21,14 +21,6 @@ WHERE description @@@ pdb.fuzzy_term('shoez')
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import Fuzzy, ParadeDB
-
-MockItem.objects.filter(
-    description=ParadeDB(Fuzzy('shoez'))
-).values('description', 'rating', 'category')[:5]
-```
-
 </CodeGroup>
 
 <div className="mt-8" />

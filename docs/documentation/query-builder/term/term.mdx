@@ -19,7 +19,7 @@ By default we recommend using the [term operator](/documentation/full-text/term)
 
 Matches documents containing a specified term.
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -48,14 +48,6 @@ FROM mock_items
 WHERE rating @@@ pdb.term(4);
 ```
 
-```python Django
-from paradedb.search import ParadeDB, Term
-
-MockItem.objects.filter(
-    rating=ParadeDB(Term('4'))
-).values('description', 'rating', 'category')
-```
-
 </CodeGroup>
 
 ## Enumerated Types
@@ -71,14 +63,6 @@ In this example, `color` is a custom enum:
 SELECT description, rating, category
 FROM mock_items
 WHERE color @@@ pdb.term('red'::color);
-```
-
-```python Django
-from paradedb.search import ParadeDB, Term
-
-MockItem.objects.filter(
-    color=ParadeDB(Term('red'))
-).values('description', 'rating', 'category')
 ```
 
 </CodeGroup>

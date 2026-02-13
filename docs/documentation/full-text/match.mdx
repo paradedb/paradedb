@@ -21,14 +21,6 @@ FROM mock_items
 WHERE description ||| 'running shoes';
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
-).values('description', 'rating', 'category')
-```
-
 </CodeGroup>
 
 This query returns:
@@ -73,7 +65,7 @@ These examples assume that the index uses the default tokenizer and token filter
 Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -85,7 +77,7 @@ WHERE description &&& 'running shoes';
 from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running', 'shoes')
+    description=ParadeDB('running shoes')
 ).values('description', 'rating', 'category')
 ```
 
@@ -125,7 +117,7 @@ These examples assume that the index uses the default tokenizer and token filter
 <Note>
 If the query string only contains one token, then `|||` and `&&&` are effectively the same:
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 -- These two queries produce the same results
@@ -139,11 +131,8 @@ WHERE description &&& 'shoes';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
-
-MockItem.objects.filter(
-    description=ParadeDB('shoes')
-).values('description', 'rating', 'category')
+# This SQL block contains two statements (`|||` and `&&&`), but django-paradedb
+# does not expose an exact `||| 'shoes'` form for a single-token literal.
 ```
 
 </CodeGroup>
@@ -155,7 +144,7 @@ MockItem.objects.filter(
 By default, the match query automatically tokenizes the query string with the same tokenizer used by the field it's being searched against.
 This behavior can be overridden by explicitly casting the query to a different tokenizer.
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -174,7 +163,7 @@ WHERE description ||| 'running shoes'::pdb.whitespace;
 The match operators also accept text arrays. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category

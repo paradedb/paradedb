@@ -18,10 +18,6 @@ FROM mock_items
 WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 ```
 
-```python Django
-# Proximity operators (## / ##>) are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 <Note>
@@ -38,10 +34,6 @@ To ensure that the left-hand term appears before the right-hand term, use `##>`.
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
-```
-
-```python Django
-# Proximity operators (## / ##>) are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>
@@ -61,10 +53,6 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
-```python Django
-# Proximity regex queries are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
@@ -77,10 +65,6 @@ by providing a second argument:
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
-```
-
-```python Django
-# Proximity regex queries are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>
@@ -98,10 +82,6 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 ```
 
-```python Django
-# Proximity array queries are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 `pdb.prox_array` can also take regex:
@@ -112,10 +92,6 @@ WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
-```
-
-```python Django
-# Proximity array/regex queries are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>

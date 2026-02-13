@@ -87,11 +87,23 @@ Filter pushdown is currently supported for the following combinations of types a
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
+
+```python Django
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('shoes'),
+    category='Footwear'
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
 
@@ -103,8 +115,20 @@ WITH (key_field = 'id');
 
 Pushdown of set filters over text fields also requires the literal tokenizer:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
+
+```python Django
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('shoes'),
+    category__in=['Footwear', 'Apparel']
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>

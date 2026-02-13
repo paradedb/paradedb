@@ -16,11 +16,40 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
 ```
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+    category = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {},
+                    'category': {},
+                },
+                key_field='id',
+                name='search_idx_v2',
+            ),
+        ]
+
+# Then run:
+# python manage.py makemigrations
+# python manage.py migrate
+```
+
+</CodeGroup>
 
 <Note>
   The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing
@@ -47,9 +76,18 @@ WHERE i.relname = 'search_idx_v2';
 
 If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
 
+<CodeGroup dropdown>
 ```sql
 DROP INDEX search_idx;
 ```
+
+```python Django
+# Keep only `search_idx_v2` in `Meta.indexes`, then run:
+# python manage.py makemigrations
+# python manage.py migrate
+```
+
+</CodeGroup>
 
 ## Rebuilding the Index
 
@@ -68,12 +106,17 @@ To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 REINDEX INDEX CONCURRENTLY search_idx;
 ```
 
+<Note>
+  Django does not provide a model-level API for `REINDEX`; run `REINDEX` as an
+  operational SQL command (for example via `psql` or `manage.py dbshell`).
+</Note>
+
 The tradeoff is that `REINDEX CONCURRENTLY` is slower than a plain `REINDEX`. Generally speaking, `REINDEX CONCURRENTLY` is recommended for
 production systems that cannot tolerate temporarily blocked writes.
 
 ## Important Caveats
 
-Although `CREATE INDEX CONCURRENTLY` and `REINDEX CONURRENTLY` run in the background, Postgres requires that the
+Although `CREATE INDEX CONCURRENTLY` and `REINDEX CONCURRENTLY` run in the background, Postgres requires that the
 session that is executing the command remain open. If the session is closed,
 Postgres will cancel the operation. This is relevant if you are using a
 connection pooler like `pgbouncer`, which may terminate

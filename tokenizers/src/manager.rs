@@ -364,6 +364,7 @@ pub enum SearchTokenizer {
         note = "use the `SearchTokenizer::Keyword` variant instead"
     )]
     Raw(SearchTokenizerFilters),
+    #[strum(serialize = "normalized")]
     LiteralNormalized(SearchTokenizerFilters),
     WhiteSpace(SearchTokenizerFilters),
     RegexTokenizer {
@@ -435,7 +436,9 @@ impl SearchTokenizer {
             "keyword" => Ok(SearchTokenizer::Keyword),
             #[allow(deprecated)]
             "raw" => Ok(SearchTokenizer::Raw(filters)),
-            "literal_normalized" => Ok(SearchTokenizer::LiteralNormalized(filters)),
+            "normalized" | "literal_normalized" => {
+                Ok(SearchTokenizer::LiteralNormalized(filters))
+            }
             "whitespace" => Ok(SearchTokenizer::WhiteSpace(filters)),
             "regex" => {
                 let pattern: String =
@@ -675,9 +678,7 @@ impl SearchTokenizer {
             SearchTokenizer::KeywordDeprecated => format!("keyword{filters_suffix}"),
             #[allow(deprecated)]
             SearchTokenizer::Raw(_filters) => format!("raw{filters_suffix}"),
-            SearchTokenizer::LiteralNormalized(_filters) => {
-                format!("literal_normalized{filters_suffix}")
-            }
+            SearchTokenizer::LiteralNormalized(_filters) => format!("normalized{filters_suffix}"),
             SearchTokenizer::WhiteSpace(_filters) => format!("whitespace{filters_suffix}"),
             SearchTokenizer::RegexTokenizer { .. } => format!("regex{filters_suffix}"),
             SearchTokenizer::ChineseCompatible(_filters) => {

@@ -1,0 +1,43 @@
+---
+title: Normalized
+description: Like the literal tokenizer, but allows for token filters
+canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenizers/normalized
+---
+
+<Note>
+  For all patch versions greater than `0.20.8` in the `20` minor version, and
+  all patch versions greater than `0.21.4` in the `21` minor version, fields
+  using the [normalized
+  tokenizer](/documentation/tokenizers/available-tokenizers/normalized)
+  are also columnar indexed. This means that they can be used in
+  [aggregates](/documentation/aggregates/overview) and [Top N
+  queries](/documentation/sorting/topn). Indexes created prior to these versions
+  must be reindexed to use this feature.
+</Note>
+
+The normalized tokenizer is similar to the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer in that it does not split the source text.
+All text is treated as a single token, regardless of how many words are contained.
+
+However, unlike the literal tokenizer, this tokenizer allows [token filters](/documentation/token-filters/overview) to be applied. By default, the normalized tokenizer
+also [lowercases](/documentation/token-filters/lowercase) the text.
+
+Because token filters can change token values, equality/comparison operators that rely on exact source values are not pushed down in the same way as `pdb.literal`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.normalized))
+WITH (key_field='id');
+```
+
+To get a feel for this tokenizer, run the following command and replace the text with your own:
+
+```sql
+SELECT 'Tokenize me!'::pdb.normalized::text[];
+```
+
+```ini Expected Response
+       text
+------------------
+ {"tokenize me!"}
+(1 row)
+```

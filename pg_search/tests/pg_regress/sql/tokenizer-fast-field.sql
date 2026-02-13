@@ -17,8 +17,8 @@ INSERT INTO tokenizer_fast (t, t_long, metadata) VALUES
 CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
     id,
     (t::pdb.literal),
-    (t_long::pdb.literal_normalized('stopwords_language=English')),
-    (metadata::pdb.literal_normalized('stopwords_language=English'))
+    (t_long::pdb.normalized('stopwords_language=English')),
+    (metadata::pdb.normalized('stopwords_language=English'))
 ) WITH (key_field = 'id');
 
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
@@ -33,12 +33,12 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
 
--- Top N over literal normalized
+-- Top N over normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
 
--- Aggregate scan pushdown over literal normalized
+-- Aggregate scan pushdown over normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
 SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;

@@ -454,6 +454,21 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        Normalized,
+        SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default()),
+        tokenize_normalized,
+        json_to_normalized,
+        jsonb_to_normalized,
+        uuid_to_normalized,
+        text_array_to_normalized,
+        varchar_array_to_normalized,
+        "normalized",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    // Compatibility alias kept for existing indexes/queries.
+    define_tokenizer_type!(
         LiteralNormalized,
         SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default()),
         tokenize_literal_normalized,

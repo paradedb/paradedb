@@ -333,22 +333,29 @@ SELECT 'Running Shoes.  olé'::pdb.source_code('lowercase=false', 'stemmer=engli
  {Run,Shoe,ole}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized::text[];
+SELECT 'Running Shoes.  olé'::pdb.normalized::text[];
           text           
 -------------------------
  {"running shoes.  olé"}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false')::text[];
+SELECT 'Running Shoes.  olé'::pdb.normalized('lowercase=false')::text[];
           text           
 -------------------------
  {"Running Shoes.  olé"}
 (1 row)
 
-SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
+SELECT 'Running Shoes.  olé'::pdb.normalized('lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
           text           
 -------------------------
  {"Running Shoes.  ole"}
+(1 row)
+
+-- compatibility alias
+SELECT 'Running Shoes.  olé'::pdb.literal_normalized::text[];
+          text           
+-------------------------
+ {"running shoes.  olé"}
 (1 row)
 
 -- Invalid configurations

@@ -18,17 +18,17 @@ INSERT INTO tokenizer_fast (t, t_long, metadata) VALUES
 CREATE INDEX idxtokenizer_fast ON tokenizer_fast USING bm25 (
     id,
     (t::pdb.literal),
-    (t_long::pdb.literal_normalized('stopwords_language=English')),
-    (metadata::pdb.literal_normalized('stopwords_language=English'))
+    (t_long::pdb.normalized('stopwords_language=English')),
+    (metadata::pdb.normalized('stopwords_language=English'))
 ) WITH (key_field = 'id');
 SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots |                   tokenizer                    | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+------------------------------------------------+--------+------------
  ctid     | U64        | f      | t       | t    | f          |             |                                                |        | 
  id       | I64        | f      | t       | t    | f          |             |                                                |        | 
- metadata | JsonObject | f      | t       | t    | f          | t           | literal_normalized[stopwords_language=English] | basic  | raw
+ metadata | JsonObject | f      | t       | t    | f          | t           | normalized[stopwords_language=English] | basic  | raw
  t        | Str        | f      | t       | t    | f          |             | keyword[lowercase=false]                       | basic  | raw
- t_long   | Str        | f      | t       | t    | f          |             | literal_normalized[stopwords_language=English] | basic  | raw
+ t_long   | Str        | f      | t       | t    | f          |             | normalized[stopwords_language=English] | basic  | raw
 (5 rows)
 
 -- Top N over literal
@@ -77,7 +77,7 @@ SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER B
  world |     1
 (2 rows)
 
--- Top N over literal normalized
+-- Top N over normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
                                QUERY PLAN                               
@@ -101,7 +101,7 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
   2 | hello | the big cat     | {"key": "the big cat", "value": 3}
 (3 rows)
 
--- Aggregate scan pushdown over literal normalized
+-- Aggregate scan pushdown over normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
                                                             QUERY PLAN                                                             

@@ -21,10 +21,6 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-```python Django
-# Query-level boost casts (::pdb.boost(...)) are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -41,10 +37,6 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-```python Django
-# Query-level boost casts (::pdb.boost(...)) are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
@@ -57,10 +49,6 @@ FROM mock_items
 WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
 ORDER BY score DESC
 LIMIT 5;
-```
-
-```python Django
-# Query-level boost casts (::pdb.boost(...)) are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>
@@ -80,10 +68,6 @@ FROM mock_items
 WHERE description ||| 'shoes'::pdb.const(1)
 ORDER BY score DESC
 LIMIT 5;
-```
-
-```python Django
-# Constant score casts (::pdb.const(...)) are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>

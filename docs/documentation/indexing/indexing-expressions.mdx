@@ -18,10 +18,6 @@ USING bm25 (id, ((description || ' ' || category)::pdb.simple('alias=description
 WITH (key_field='id');
 ```
 
-```python Django
-# Expression-based BM25 index fields are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 To index a text/JSON expression:
@@ -40,10 +36,6 @@ Querying against the expression is the same as querying a regular field:
 SELECT description, rating, category
 FROM mock_items
 WHERE (description || ' ' || category) &&& 'running shoes';
-```
-
-```python Django
-# Querying ParadeDB operators against ad hoc SQL expressions is not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>
@@ -66,10 +58,6 @@ USING bm25 (id, description, ((rating + 1)::pdb.alias('rating')))
 WITH (key_field='id');
 ```
 
-```python Django
-# Expression-based BM25 index fields are not currently exposed by django-paradedb.
-```
-
 </CodeGroup>
 
 With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
@@ -81,15 +69,6 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes'
 AND rating + 1 > 3;
-```
-
-```python Django
-from paradedb.search import ParadeDB
-
-MockItem.objects.filter(
-    description=ParadeDB('running', 'shoes'),
-    rating__gt=2
-).values('description', 'rating', 'category')
 ```
 
 </CodeGroup>

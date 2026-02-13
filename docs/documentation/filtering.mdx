@@ -15,15 +15,6 @@ FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
-    rating__gt=2
-).values('description', 'rating', 'category')
-```
-
 </CodeGroup>
 
 ## Filter Pushdown
@@ -100,7 +91,7 @@ Filter pushdown is currently supported for the following combinations of types a
 
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -129,7 +120,7 @@ WITH (key_field = 'id');
 
 Pushdown of set filters over text fields also requires the literal tokenizer:
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category

@@ -20,7 +20,7 @@ CALL paradedb.create_bm25_test_table(
 
 Then inspect the first 3 rows:
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -76,14 +76,6 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
-    rating__gt=2
-).values('description', 'rating', 'category').order_by('rating')[:5]
-```
 
 </CodeGroup>
 
@@ -101,7 +93,7 @@ MockItem.objects.filter(
 
 If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT description, rating, category
@@ -115,7 +107,7 @@ LIMIT 5;
 from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running', 'shoes'),
+    description=ParadeDB('running shoes'),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -143,17 +135,6 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.functions import Score
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
-    rating__gt=2
-).annotate(
-    score=Score()
-).values('description', 'score').order_by('-score')[:5]
-```
 
 </CodeGroup>
 
@@ -181,18 +162,6 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.functions import Score, Snippet
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
-    rating__gt=2
-).annotate(
-    snippet=Snippet('description'),
-    score=Score()
-).values('description', 'snippet', 'score').order_by('-score')[:5]
-```
 
 </CodeGroup>
 
@@ -219,13 +188,6 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
-).values('description', 'rating', 'category').order_by('rating')[:5]
-```
 
 </CodeGroup>
 
@@ -257,17 +219,6 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-rows, facets = (
-    MockItem.objects.filter(
-        description=ParadeDB(PQ('running') | PQ('shoes'))
-    )
-    .order_by('rating')[:5]
-    .facets(agg={'value_count': {'field': 'id'}})
-)
-```
 
 </CodeGroup>
 

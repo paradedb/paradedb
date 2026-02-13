@@ -10,7 +10,7 @@ This is useful for programmatic generation or client applications that construct
 To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
 representation:
 
-<CodeGroup>
+<CodeGroup dropdown>
 
 ```sql SQL
 SELECT pdb.regex('key.*');
@@ -46,10 +46,6 @@ WHERE description @@@
         "pattern": "key.*"
     }
 }'::pdb.query;
-```
-
-```python Django
-# JSON query objects cast as ::pdb.query are not currently exposed by django-paradedb.
 ```
 
 </CodeGroup>

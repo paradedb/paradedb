@@ -16,14 +16,6 @@ ORDER BY rating
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
-).values('description', 'rating', 'category').order_by('rating')[:5]
-```
-
 </CodeGroup>
 
 In order for a Top N query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
@@ -77,14 +69,6 @@ ORDER BY rating, id
 LIMIT 5;
 ```
 
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
-).values('description', 'rating', 'category').order_by('rating', 'id')[:5]
-```
-
 </CodeGroup>
 
 <Note>
@@ -118,15 +102,6 @@ ORDER BY lower(description)
 LIMIT 5;
 ```
 
-```python Django
-from django.db.models.functions import Lower
-from paradedb.search import ParadeDB, PQ
-
-MockItem.objects.filter(
-    description=ParadeDB(PQ('sleek') | PQ('running') | PQ('shoes'))
-).values('description', 'rating', 'category').order_by(Lower('description'))[:5]
-```
-
 </CodeGroup>
 
 ## Sorting by JSON
@@ -142,15 +117,6 @@ FROM mock_items
 WHERE description ||| 'sleek running shoes'
 ORDER BY metadata->'weight'
 LIMIT 5;
-```
-
-```python Django
-from paradedb.search import ParadeDB, PQ
-
-# Top-N optimization for JSON sort keys is not currently supported.
-MockItem.objects.filter(
-    description=ParadeDB(PQ('sleek') | PQ('running') | PQ('shoes'))
-).values('id', 'description', 'metadata')[:5]
 ```
 
 </CodeGroup>

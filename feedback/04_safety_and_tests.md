@@ -39,17 +39,6 @@ If a producer task fails, the consumer will hang waiting for data.
 Wrap the `producer_task` body in a `catch_unwind` or ensure that a "Stream Error" control message or EOS is sent in the `Err` path.
 _Alternative:_ The `MultiplexedDsmWriter` could have a `poison()` method that sets a flag in the header, causing readers to error.
 
-### 2. Deadlock Safety
-
-**Observation:**
-I analyzed potential deadlocks (Reader/Writer, Loopback).
-**Conclusion:**
-The system appears safe from deadlocks due to:
-
-1.  Non-blocking I/O (`WouldBlock`).
-2.  Cooperative multitasking (`yield_now`).
-3.  Reverse Control Channel (Reader initiates).
-
 ### 3. Test Coverage
 
 **Observation:**

@@ -19,12 +19,3 @@ The method `check_cancellations` in `MultiplexedDsmWriter` is private and docume
 **Recommendation:**
 As noted in your code comments, you should strictly enforce that **only** the Control Service (via `read_control_messages`) consumes messages. `MultiplexedDsmWriter::write_message` should rely on an external signal (e.g., a shared `AtomicBool` or just the `cancelled_streams` set updated publicly) rather than trying to peek/read the stream itself.
 _Action:_ Remove `check_cancellations` calls from `write_message` and `close_stream`. Let the Control Service handle all message consumption and update the writer's state.
-
-### 4. `StreamRegistry` Cleanup
-
-**Observation:**
-`cancel_triggered_stream` removes entries from `running_tasks` and `abort_handles`, but `sources` remain populated.
-**Impact:**
-Memory usage grows with plan size \* parallelism. For normal queries, this is negligible.
-**Recommendation:**
-Acceptable as is. Explicit cleanup of `sources` isn't necessary since the entire `DsmMesh` is dropped at the end of the query.

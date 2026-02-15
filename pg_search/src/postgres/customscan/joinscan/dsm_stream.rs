@@ -271,6 +271,13 @@ pub const DSM_MAGIC: u64 = 0x5044_425F_4453_4D31; // "PDB_DSM1"
 ///
 /// This structure facilitates a "single-producer, single-consumer" (SPSC) queue
 /// of messages between two participants in an MPP session.
+///
+/// # Safety
+///
+/// This struct contains `AtomicU64` fields, which means it has interior mutability and is NOT `Pod`.
+/// Therefore, we cannot use `bytemuck::from_bytes` to safely cast a byte slice to a reference of this struct.
+/// Users must manually ensure that the backing memory is properly aligned (align 8) and sized
+/// before casting raw pointers.
 #[repr(C)]
 pub struct RingBufferHeader {
     /// Magic number to detect memory corruption.
@@ -312,6 +319,27 @@ impl RingBufferHeader {
                 control_offset,
             },
         );
+    }
+
+    /// Creates pointers to the header and data region from a base pointer and offset.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `base_ptr` + `offset` points to a valid, initialized
+    /// shared memory region that contains a `RingBufferHeader` followed by data.
+    /// The region must be at least `size_of::<RingBufferHeader>()` bytes.
+    ///
+    /// Returns: `(header_ptr, data_ptr, data_len)`
+    pub unsafe fn from_raw_parts(
+        base_ptr: *mut u8,
+        offset: usize,
+        total_region_size: usize,
+    ) -> (*mut RingBufferHeader, *mut u8, usize) {
+        let region_ptr = base_ptr.add(offset);
+        let header = region_ptr as *mut RingBufferHeader;
+        let data = region_ptr.add(std::mem::size_of::<RingBufferHeader>());
+        let data_len = total_region_size - std::mem::size_of::<RingBufferHeader>();
+        (header, data, data_len)
     }
 }
 
@@ -1073,12 +1101,8 @@ mod tests {
     impl TestBuffer {
         fn new(capacity: usize) -> Self {
             let mut storage = vec![0u8; std::mem::size_of::<RingBufferHeader>() + capacity];
-            let header = storage.as_mut_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                storage
-                    .as_mut_ptr()
-                    .add(std::mem::size_of::<RingBufferHeader>())
-            };
+            let (header, data, _) =
+                unsafe { RingBufferHeader::from_raw_parts(storage.as_mut_ptr(), 0, storage.len()) };
 
             unsafe {
                 RingBufferHeader::init(header, 0);
@@ -1441,7 +1465,8 @@ mod tests {
             let session_id = uuid::Uuid::new_v4();
             let mut region = vec![0u8; size_of::<RingBufferHeader>() + buffer_size + 64];
             unsafe {
-                let header = region.as_mut_ptr() as *mut RingBufferHeader;
+                let (header, _, _) =
+                    RingBufferHeader::from_raw_parts(region.as_mut_ptr(), 0, region.len());
                 RingBufferHeader::init(header, 0);
             }
 
@@ -1492,14 +1517,9 @@ mod tests {
 
             // Buffer is at index 2
             let ring_buffer_slice = state_manager.slice::<u8>(2).unwrap().unwrap();
-
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, ring_buffer_slice.len()) };
 
             Self {
                 state,
@@ -1626,13 +1646,9 @@ mod tests {
         let bridge = Arc::new(bridge);
 
         let ring_buffer_slice = launched.state_manager().slice::<u8>(2).unwrap().unwrap();
-        let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-        let data = unsafe {
-            ring_buffer_slice
-                .as_ptr()
-                .add(size_of::<RingBufferHeader>())
-        } as *mut u8;
-        let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+        let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+        let (header, data, data_len) =
+            unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, ring_buffer_slice.len()) };
 
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             header,

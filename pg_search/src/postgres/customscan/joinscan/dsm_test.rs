@@ -182,7 +182,11 @@ mod tests {
                 let mut region = vec![0u8; total_size];
 
                 // Initialize Data Header
-                let header = region.as_mut_ptr() as *mut RingBufferHeader;
+
+                let base_ptr = region.as_mut_ptr();
+
+                let (header, _, _) =
+                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, total_size) };
                 unsafe {
                     RingBufferHeader::init(
                         header,
@@ -190,10 +194,9 @@ mod tests {
                     );
 
                     // Initialize Control Header
-                    let control_header = (region
-                        .as_mut_ptr()
-                        .add(size_of::<RingBufferHeader>() + ring_buffer_size))
-                        as *mut RingBufferHeader;
+                    let header_ptr = header as *mut u8;
+                    let control_ptr = header_ptr.add((*header).control_offset);
+                    let control_header = control_ptr as *mut RingBufferHeader;
                     RingBufferHeader::init(control_header, 0);
                 }
 
@@ -264,13 +267,11 @@ mod tests {
                     .slice::<u8>(writer_region_idx)
                     .unwrap()
                     .unwrap();
-                let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-                let data = unsafe {
-                    ring_buffer_slice
-                        .as_ptr()
-                        .add(size_of::<RingBufferHeader>())
-                } as *mut u8;
-                let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+                let region_size = ring_buffer_slice.len();
+                let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+                let (header, data, data_len) =
+                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
+
                 writer_regions.push(RegionInfo {
                     header,
                     data,
@@ -283,13 +284,11 @@ mod tests {
                     .slice::<u8>(reader_region_idx)
                     .unwrap()
                     .unwrap();
-                let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-                let data = unsafe {
-                    ring_buffer_slice
-                        .as_ptr()
-                        .add(size_of::<RingBufferHeader>())
-                } as *mut u8;
-                let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+                let region_size = ring_buffer_slice.len();
+                let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+                let (header, data, data_len) =
+                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
+
                 reader_regions.push(RegionInfo {
                     header,
                     data,
@@ -506,13 +505,11 @@ mod tests {
                 .slice::<u8>(writer_region_idx)
                 .unwrap()
                 .unwrap();
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let region_size = ring_buffer_slice.len();
+            let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
+
             mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 header,
                 data,
@@ -527,13 +524,11 @@ mod tests {
                 .slice::<u8>(reader_region_idx)
                 .unwrap()
                 .unwrap();
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let region_size = ring_buffer_slice.len();
+            let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
+
             mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,
                 data,

@@ -179,21 +179,15 @@ impl ParallelWorker for JoinWorker<'_> {
         let region_size = config.region_size;
 
         // Base pointer of the shared memory region
-        let base_ptr = ring_buffer_slice.as_ptr();
+        let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
 
         for j in 0..p {
             // Region for writer from us (participant_index) to participant j.
             let writer_idx = participant_index * p + j;
             let offset = writer_idx * region_size;
 
-            // Calculate pointer into the shared slice
-            let region_ptr = unsafe { base_ptr.add(offset) };
-
-            // Header is at the start of the region
-            let header = region_ptr as *mut RingBufferHeader;
-            // Data is after the header
-            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
-            let data_len = region_size - size_of::<RingBufferHeader>();
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
 
             writer_regions.push(RegionInfo {
                 header,
@@ -205,11 +199,8 @@ impl ParallelWorker for JoinWorker<'_> {
             let reader_idx = j * p + participant_index;
             let offset = reader_idx * region_size;
 
-            let region_ptr = unsafe { base_ptr.add(offset) };
-
-            let header = region_ptr as *mut RingBufferHeader;
-            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
-            let data_len = region_size - size_of::<RingBufferHeader>();
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
 
             reader_regions.push(RegionInfo {
                 header,
@@ -430,14 +421,16 @@ pub fn launch_join_workers(
     // Initialize all headers in the single flat buffer
     for i in 0..(total_participants * total_participants) {
         let offset = i * region_size;
-        let region_ptr = unsafe { base_ptr.add(offset) };
-        let header = region_ptr as *mut RingBufferHeader;
+
+        let (header, _, _) =
+            unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
 
         unsafe {
             RingBufferHeader::init(header, size_of::<RingBufferHeader>() + ring_buffer_size);
 
             // Initialize Control Header
-            let control_ptr = region_ptr.add((*header).control_offset);
+            let header_ptr = header as *mut u8;
+            let control_ptr = header_ptr.add((*header).control_offset);
             let control_header = control_ptr as *mut RingBufferHeader;
             RingBufferHeader::init(control_header, 0);
         }
@@ -491,18 +484,16 @@ pub fn launch_join_workers(
             .expect("wrong type for ring_buffer_slice")
             .expect("missing ring_buffer_slice value");
 
-        let base_ptr = ring_buffer_slice.as_ptr();
+        let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
 
         let p = total_participants;
         for j in 0..p {
             // Leader's writers to all participants j.
             let writer_idx = leader_participant_index * p + j;
             let offset = writer_idx * region_size;
-            let region_ptr = unsafe { base_ptr.add(offset) };
 
-            let header = region_ptr as *mut RingBufferHeader;
-            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
-            let data_len = region_size - size_of::<RingBufferHeader>();
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
 
             let mux_writer = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 header,
@@ -516,11 +507,9 @@ pub fn launch_join_workers(
             // Leader's readers from all participants j.
             let reader_idx = j * p + leader_participant_index;
             let offset = reader_idx * region_size;
-            let region_ptr = unsafe { base_ptr.add(offset) };
 
-            let header = region_ptr as *mut RingBufferHeader;
-            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
-            let data_len = region_size - size_of::<RingBufferHeader>();
+            let (header, data, data_len) =
+                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
 
             let mux_reader = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,

@@ -50,6 +50,8 @@ INSERT INTO products (id, name, supplier_id) VALUES (1, 'Wireless Mouse', 1);
 INSERT INTO products (id, name, supplier_id) VALUES (2, 'Wireless Keyboard', 1);
 INSERT INTO products (id, name, supplier_id) VALUES (3, 'USB Cable', 2);
 INSERT INTO products (id, name, supplier_id) VALUES (4, 'Monitor Stand', 2);
+VACUUM FREEZE products;
+VACUUM FREEZE suppliers;
 
 -- =============================================================================
 -- TEST 1: Parallel JoinScan with predicate on driving side

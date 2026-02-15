@@ -78,6 +78,8 @@ tokio = { version = "1", features = ["rt", "net", "macros", "signal"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "=52.0.0", default-features = false }
 datafusion-proto = { version = "=52.0.0", default-features = false }
+prost = "0.14"
+prost-derive = "0.14"
 futures = "0.3"
 async-stream = "0.3.6"
 interprocess = { version = "2.3.1", features = ["tokio"] }

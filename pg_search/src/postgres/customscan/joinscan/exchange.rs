@@ -24,21 +24,20 @@ use std::task::Poll;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use async_stream::try_stream;
-use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::Result;
 use datafusion::config::ConfigOptions;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
+use datafusion::physical_expr::Partitioning;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::execution_plan::EmissionType;
 use datafusion::physical_plan::repartition::{BatchPartitioner, RepartitionExec};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
 };
-use futures::StreamExt;
+use futures::{future::poll_fn, Stream, StreamExt};
 use parking_lot::Mutex;
 use tokio::sync::watch;
 
@@ -46,6 +45,7 @@ use crate::postgres::customscan::joinscan::dsm_transfer::{
     dsm_shared_memory_reader, DsmSharedMemoryWriter, MultiplexedDsmReader, MultiplexedDsmWriter,
     SignalBridge,
 };
+use crate::scan::table_provider::MppParticipantConfig;
 
 use std::collections::HashMap;
 use tokio::task::JoinHandle;
@@ -82,7 +82,6 @@ pub struct StreamRegistry {
 
 /// A registry for process-local DSM communication channels.
 pub struct DsmMesh {
-    pub total_participants: usize,
     pub mux_writers: Vec<Arc<Mutex<MultiplexedDsmWriter>>>,
     pub mux_readers: Vec<Arc<Mutex<MultiplexedDsmReader>>>,
     pub bridge: Arc<SignalBridge>,
@@ -98,13 +97,12 @@ pub fn register_dsm_mesh(mesh: DsmMesh) {
     *guard = Some(mesh);
 }
 
-pub fn register_stream_source(source: StreamSource) {
+pub fn register_stream_source(source: StreamSource, participant_index: usize) {
     let mut guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_mut() {
         // Calculate physical ID: (Logical << 16) | Sender (us)
-        // source.config.participant_index is "us" (the sender).
-        let physical_id =
-            (source.config.stream_id << 16) | ((source.config.participant_index as u32) & 0xFFFF);
+        // participant_index is "us" (the sender).
+        let physical_id = (source.config.stream_id << 16) | ((participant_index as u32) & 0xFFFF);
 
         let mut registry = mesh.registry.lock();
         registry.sources.insert(physical_id, source);
@@ -134,11 +132,18 @@ pub fn trigger_stream(physical_stream_id: u32, context: Arc<TaskContext>) {
         let partitioning = source.partitioning.clone();
         let config = source.config.clone();
 
-        // Prepare completion notifier if it exists
-        let tx = registry.completions.get(&physical_stream_id).cloned();
+        // Prepare completion notifier. Create it if it doesn't exist (DsmReaderExec hasn't run yet).
+        let tx = registry
+            .completions
+            .entry(physical_stream_id)
+            .or_insert_with(|| {
+                let (tx, _rx) = watch::channel(false);
+                tx
+            })
+            .clone();
 
         let task = tokio::task::spawn_local(async move {
-            let _guard = SignalOnDrop(tx);
+            let _guard = SignalOnDrop(Some(tx));
             DsmWriterExec::producer_task(input, partitioning, config, context).await;
         });
 
@@ -147,11 +152,7 @@ pub fn trigger_stream(physical_stream_id: u32, context: Arc<TaskContext>) {
             .insert(physical_stream_id, task.abort_handle());
         registry.running_tasks.insert(physical_stream_id, task);
     } else {
-        pgrx::warning!(
-            "[PID {}] trigger_stream: Request for unknown stream physical_id={}",
-            std::process::id(),
-            physical_stream_id
-        );
+        // No-op
     }
 }
 
@@ -164,17 +165,6 @@ pub fn cancel_triggered_stream(physical_stream_id: u32) {
         }
         registry.running_tasks.remove(&physical_stream_id);
     }
-}
-
-pub fn get_completion_receiver(physical_stream_id: u32) -> Option<watch::Receiver<bool>> {
-    let mut guard = DSM_MESH.lock();
-    if let Some(mesh) = guard.as_mut() {
-        let mut registry = mesh.registry.lock();
-        let (tx, rx) = watch::channel(false);
-        registry.completions.entry(physical_stream_id).or_insert(tx);
-        return Some(rx);
-    }
-    None
 }
 
 use crate::postgres::customscan::joinscan::dsm_stream::ControlMessage;
@@ -252,7 +242,6 @@ pub fn get_dsm_writer(
                 mesh.mux_writers[participant].clone(),
                 stream_id,
                 sender_index,
-                participant,
                 schema,
             ));
         }
@@ -284,7 +273,6 @@ pub fn get_dsm_reader(
 /// A physical optimizer rule that replaces standard `RepartitionExec` with `DsmWriterExec` and `DsmReaderExec`.
 #[derive(Debug)]
 pub struct EnforceDsmShuffle {
-    pub participant_index: usize,
     pub total_participants: usize,
 }
 
@@ -298,13 +286,16 @@ impl EnforceDsmShuffle {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let config = DsmExchangeConfig {
             stream_id,
-            participant_index: self.participant_index,
             total_participants: self.total_participants,
             mode,
         };
 
-        let writer = DsmWriterExec::try_new(input, partitioning.clone(), config.clone())?;
-        let reader = DsmReaderExec::try_new(Arc::new(writer), config, partitioning)?;
+        let writer = Arc::new(DsmWriterExec::try_new(
+            input,
+            partitioning.clone(),
+            config.clone(),
+        )?);
+        let reader = DsmReaderExec::try_new(writer, config, partitioning)?;
 
         Ok(Arc::new(reader))
     }
@@ -326,74 +317,93 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let mut stream_id_counter = 0;
 
-        plan.transform_up(|node| {
+        // Use a recursive function to wrap nodes top-down.
+        fn wrap_node(
+            node: Arc<dyn ExecutionPlan>,
+            rule: &EnforceDsmShuffle,
+            counter: &mut u32,
+        ) -> Result<Arc<dyn ExecutionPlan>> {
+            // First, recursively optimize children.
+            let children: Vec<_> = node
+                .children()
+                .into_iter()
+                .map(|c| wrap_node(c.clone(), rule, counter))
+                .collect::<Result<Vec<_>>>()?;
+
+            let node = if children.is_empty() {
+                node
+            } else {
+                node.with_new_children(children)?
+            };
+
+            // Now, check if this node needs wrapping.
             if let Some(repartition) = node.as_any().downcast_ref::<RepartitionExec>() {
                 let partitioning = repartition.partitioning().clone();
-                let mode = if matches!(partitioning, Partitioning::UnknownPartitioning(1)) {
-                    ExchangeMode::Gather
-                } else {
-                    ExchangeMode::Redistribute
-                };
+                let (mode, reader_partitioning) =
+                    if matches!(partitioning, Partitioning::UnknownPartitioning(1)) {
+                        (
+                            ExchangeMode::Gather,
+                            Partitioning::UnknownPartitioning(rule.total_participants),
+                        )
+                    } else {
+                        (ExchangeMode::Redistribute, partitioning.clone())
+                    };
 
-                let stream_id = stream_id_counter;
-                stream_id_counter += 1;
+                let stream_id = *counter;
+                *counter += 1;
 
                 let input = repartition.children()[0].clone();
-                let reader = self.wrap_in_dsm_exchange(input, partitioning, stream_id, mode)?;
-
-                Ok(Transformed::yes(reader))
+                rule.wrap_in_dsm_exchange(input, reader_partitioning, stream_id, mode)
             } else if let Some(merge) = node.as_any().downcast_ref::<SortPreservingMergeExec>() {
                 let input = merge.children()[0].clone();
                 if input.output_partitioning().partition_count() > 1
                     && !input.as_any().is::<DsmReaderExec>()
                 {
-                    let partitioning = input.output_partitioning().clone();
-                    let stream_id = stream_id_counter;
-                    stream_id_counter += 1;
+                    let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
+                    let stream_id = *counter;
+                    *counter += 1;
 
-                    let reader = self.wrap_in_dsm_exchange(
+                    let reader = rule.wrap_in_dsm_exchange(
                         input,
                         partitioning,
                         stream_id,
                         ExchangeMode::Gather,
                     )?;
 
-                    Ok(Transformed::yes(
-                        Arc::new(merge.clone()).with_new_children(vec![reader])?,
-                    ))
+                    Ok(Arc::new(merge.clone()).with_new_children(vec![reader])?)
                 } else {
-                    Ok(Transformed::no(node))
+                    Ok(node)
                 }
             } else if let Some(coalesce) = node.as_any().downcast_ref::<CoalescePartitionsExec>() {
                 let input = coalesce.children()[0].clone();
                 if input.output_partitioning().partition_count() > 1
                     && !input.as_any().is::<DsmReaderExec>()
                 {
-                    let partitioning = input.output_partitioning().clone();
-                    let stream_id = stream_id_counter;
-                    stream_id_counter += 1;
+                    let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
+                    let stream_id = *counter;
+                    *counter += 1;
 
-                    let reader = self.wrap_in_dsm_exchange(
+                    let reader = rule.wrap_in_dsm_exchange(
                         input,
                         partitioning,
                         stream_id,
                         ExchangeMode::Gather,
                     )?;
 
-                    Ok(Transformed::yes(
-                        Arc::new(CoalescePartitionsExec::new(reader)) as Arc<dyn ExecutionPlan>,
-                    ))
+                    Ok(Arc::new(CoalescePartitionsExec::new(reader)) as Arc<dyn ExecutionPlan>)
                 } else {
-                    Ok(Transformed::no(node))
+                    Ok(node)
                 }
             } else {
-                Ok(Transformed::no(node))
+                Ok(node)
             }
-        })
-        .map(|t| t.data)
+        }
+
+        wrap_node(plan, self, &mut stream_id_counter)
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
 pub fn collect_dsm_writers(plan: Arc<dyn ExecutionPlan>, sources: &mut Vec<StreamSource>) {
     if let Some(writer) = plan.as_any().downcast_ref::<DsmWriterExec>() {
         sources.push(StreamSource {
@@ -414,7 +424,7 @@ pub fn get_dsm_bridge() -> Arc<SignalBridge> {
     mesh.bridge.clone()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExchangeMode {
     /// Every node sends to every node based on partitioning hash.
     Redistribute,
@@ -427,12 +437,20 @@ pub enum ExchangeMode {
 /// This struct holds all metadata required to coordinate the shuffle boundary,
 /// ensuring that both the producer (Writer) and consumer (Reader) sides
 /// are configured identically for a given logical stream.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DsmExchangeConfig {
     pub stream_id: u32,
-    pub participant_index: usize,
     pub total_participants: usize,
     pub mode: ExchangeMode,
+}
+
+pub(crate) fn get_mpp_config(ctx: &TaskContext) -> (usize, usize) {
+    ctx.session_config()
+        .options()
+        .extensions
+        .get::<MppParticipantConfig>()
+        .map(|c| (c.index, c.total_participants))
+        .unwrap_or((0, 1))
 }
 
 /// A physical operator that handles producing shuffled data.
@@ -445,10 +463,10 @@ pub struct DsmExchangeConfig {
 /// spawned only when a `StartStream` request is received.
 #[derive(Debug)]
 pub struct DsmWriterExec {
-    input: Arc<dyn ExecutionPlan>,
-    partitioning: Partitioning,
-    config: DsmExchangeConfig,
-    properties: PlanProperties,
+    pub input: Arc<dyn ExecutionPlan>,
+    pub partitioning: Partitioning,
+    pub config: DsmExchangeConfig,
+    pub properties: PlanProperties,
 }
 
 impl DsmWriterExec {
@@ -458,10 +476,10 @@ impl DsmWriterExec {
         config: DsmExchangeConfig,
     ) -> Result<Self> {
         let properties = PlanProperties::new(
-            EquivalenceProperties::new(input.schema()),
-            Partitioning::UnknownPartitioning(1),
+            input.equivalence_properties().clone(),
+            partitioning.clone(),
             EmissionType::Incremental,
-            Boundedness::Bounded,
+            input.boundedness(),
         );
 
         Ok(Self {
@@ -478,7 +496,7 @@ impl DsmWriterExec {
         config: DsmExchangeConfig,
         context: Arc<TaskContext>,
     ) {
-        // Execute all input partitions and merge them.
+        let (participant_index, total_participants) = get_mpp_config(&context);
         let num_partitions = input.output_partitioning().partition_count();
         let mut streams = Vec::with_capacity(num_partitions);
         for i in 0..num_partitions {
@@ -488,127 +506,152 @@ impl DsmWriterExec {
                     .expect("Failed to execute input"),
             );
         }
-        let mut stream = futures::stream::select_all(streams);
+        let input_stream = futures::stream::select_all(streams).fuse();
+        let mut input_stream = Box::pin(input_stream);
         let schema = input.schema();
-
-        let (total_participants, _bridge) = {
-            let guard = DSM_MESH.lock();
-            let mesh = guard.as_ref().expect("DSM mesh not registered");
-            (mesh.total_participants, mesh.bridge.clone())
-        };
 
         let mut writers = Vec::new();
         for i in 0..total_participants {
             writers.push(
-                get_dsm_writer(
-                    i,
-                    config.stream_id,
-                    config.participant_index,
-                    schema.clone(),
-                )
-                .expect("Failed to get DSM writer"),
+                get_dsm_writer(i, config.stream_id, participant_index, schema.clone())
+                    .expect("Failed to get DSM writer"),
             );
         }
 
-        match config.mode {
-            ExchangeMode::Redistribute => {
-                let mut partitioner = BatchPartitioner::try_new(
+        // Initialize partitioner ONCE if needed
+        let mut partitioner = if let ExchangeMode::Redistribute = config.mode {
+            Some(
+                BatchPartitioner::try_new(
                     partitioning,
                     datafusion::physical_plan::metrics::Time::default(),
                     0,
                     1,
                 )
-                .expect("Failed to create partitioner");
+                .expect("Failed to create partitioner"),
+            )
+        } else {
+            None
+        };
 
-                while let Some(batch) = stream.next().await {
-                    let batch = batch.expect("Input stream failed");
-                    let mut blocked_batch = Some(batch);
-                    let mut finished_partitions = std::collections::HashSet::new();
+        // Each writer has its own queue of pending batches
+        let mut out_queues: Vec<std::collections::VecDeque<RecordBatch>> =
+            vec![std::collections::VecDeque::new(); total_participants];
 
-                    while let Some(batch) = blocked_batch.take() {
-                        let mut blocked = false;
-                        let mut signaled_participants = std::collections::HashSet::new();
+        let mut input_done = false;
+        let bridge = get_dsm_bridge();
 
-                        partitioner
-                            .partition(batch.clone(), |dest_idx, partitioned_batch| {
-                                if blocked || finished_partitions.contains(&dest_idx) {
-                                    return Ok(());
-                                }
+        poll_fn(|cx| {
+            loop {
+                let mut progress = false;
 
-                                if dest_idx < writers.len() {
-                                    match writers[dest_idx].write_batch(&partitioned_batch) {
-                                        Ok(_) => {
-                                            signaled_participants.insert(dest_idx);
-                                            finished_partitions.insert(dest_idx);
-                                        }
-                                        Err(datafusion::error::DataFusionError::IoError(
-                                            ref msg,
-                                        )) if msg.kind() == std::io::ErrorKind::WouldBlock => {
-                                            blocked = true;
-                                        }
-                                        Err(datafusion::error::DataFusionError::IoError(
-                                            ref msg,
-                                        )) if msg.kind() == std::io::ErrorKind::BrokenPipe => {
-                                            return Ok(());
-                                        }
-                                        Err(e) => {
-                                            pgrx::warning!(
-                                                "[PID {}] producer_task ERROR writing to {}: {}",
-                                                std::process::id(),
-                                                dest_idx,
-                                                e
-                                            );
-                                            return Err(e);
-                                        }
-                                    }
-                                }
-                                Ok(())
-                            })
-                            .expect("Partitioning failed");
+                // 1. Try to drain all queues
+                let mut all_queues_empty = true;
+                let mut blocked_on_write = false;
 
-                        if blocked {
-                            blocked_batch = Some(batch);
-                            tokio::task::yield_now().await;
-                        }
-                    }
-                }
-            }
-            ExchangeMode::Gather => {
-                // In Gather mode, everyone sends everything to Node 0.
-                while let Some(batch) = stream.next().await {
-                    let batch = batch.expect("Input stream failed");
-                    let mut blocked_batch = Some(batch);
-
-                    while let Some(batch) = blocked_batch.take() {
-                        match writers[0].write_batch(&batch) {
-                            Ok(_) => {}
+                for i in 0..total_participants {
+                    while let Some(batch) = out_queues[i].front() {
+                        match writers[i].write_batch(batch) {
+                            Ok(_) => {
+                                out_queues[i].pop_front();
+                                progress = true;
+                            }
                             Err(datafusion::error::DataFusionError::IoError(ref msg))
                                 if msg.kind() == ErrorKind::WouldBlock =>
                             {
-                                blocked_batch = Some(batch);
-                                tokio::task::yield_now().await;
+                                // Check-Register-Check pattern
+                                bridge.register_waker(cx.waker().clone());
+
+                                // Retry immediately to avoid race condition where space became available
+                                // after the first check but before we registered the waker.
+                                match writers[i].write_batch(batch) {
+                                    Ok(_) => {
+                                        out_queues[i].pop_front();
+                                        progress = true;
+                                    }
+                                    Err(datafusion::error::DataFusionError::IoError(ref msg))
+                                        if msg.kind() == ErrorKind::WouldBlock =>
+                                    {
+                                        blocked_on_write = true;
+                                        all_queues_empty = false;
+                                        break;
+                                    }
+                                    Err(e) => panic!("Producer failed on retry: {}", e),
+                                }
+                                break;
                             }
                             Err(datafusion::error::DataFusionError::IoError(ref msg))
                                 if msg.kind() == ErrorKind::BrokenPipe =>
                             {
-                                return; // Graceful exit
+                                // Receiver closed
+                                out_queues[i].clear();
+                                break;
                             }
-                            Err(e) => {
-                                pgrx::warning!(
-                                    "[PID {}] producer_task (Gather) ERROR: {}",
-                                    std::process::id(),
-                                    e
-                                );
-                                panic!("Gather failed: {}", e);
+                            Err(e) => panic!("Producer failed: {}", e),
+                        }
+                    }
+                    if !out_queues[i].is_empty() {
+                        all_queues_empty = false;
+                    }
+                }
+
+                // 2. Poll input stream if not done
+                if !input_done {
+                    match input_stream.as_mut().poll_next(cx) {
+                        Poll::Ready(Some(Ok(batch))) => {
+                            match config.mode {
+                                ExchangeMode::Redistribute => {
+                                    partitioner
+                                        .as_mut()
+                                        .unwrap()
+                                        .partition(batch, |dest_idx, partitioned_batch| {
+                                            if dest_idx < out_queues.len() {
+                                                out_queues[dest_idx].push_back(partitioned_batch);
+                                            }
+                                            Ok(())
+                                        })
+                                        .expect("Partitioning failed");
+                                }
+                                ExchangeMode::Gather => {
+                                    out_queues[0].push_back(batch);
+                                }
                             }
+                            progress = true;
+                        }
+                        Poll::Ready(Some(Err(e))) => panic!("Input stream failed: {}", e),
+                        Poll::Ready(None) => {
+                            input_done = true;
+                            progress = true; // State change counts as progress
+                        }
+                        Poll::Pending => {
+                            // Input not ready
                         }
                     }
                 }
+
+                if input_done && all_queues_empty {
+                    return Poll::Ready(());
+                }
+
+                // If we made progress, try again immediately to drain more
+                if progress {
+                    continue;
+                }
+
+                // No progress made.
+                // If blocked on write, register waker with bridge.
+                if blocked_on_write {
+                    bridge.register_waker(cx.waker().clone());
+                }
+
+                // If input is pending, it already registered waker.
+
+                return Poll::Pending;
             }
-        }
+        })
+        .await;
 
         for writer in writers {
-            writer.finish().expect("Failed to finish writer");
+            let _ = writer.finish();
         }
     }
 }
@@ -662,9 +705,9 @@ impl ExecutionPlan for DsmWriterExec {
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         assert_eq!(partition, 0);
-        // In the lazy execution model, execution is triggered via the registry/control channel,
-        // not by DataFusion calling execute() on this node (except when we manually trigger it).
-        // However, if we are manually triggering it via producer_task, we don't call this method.
+        // In the RPC-server model, workers do not eagerly execute the plan tree.
+        // DsmWriterExec is a passive marker in the plan.
+        // Execution is triggered by StartStream requests and handled in producer_task.
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.input.schema(),
             futures::stream::empty(),
@@ -681,9 +724,9 @@ impl ExecutionPlan for DsmWriterExec {
 /// This "Pull" triggers the execution of the upstream plan fragment.
 #[derive(Debug)]
 pub struct DsmReaderExec {
-    input: Arc<dyn ExecutionPlan>,
-    config: DsmExchangeConfig,
-    properties: PlanProperties,
+    pub input: Arc<dyn ExecutionPlan>,
+    pub config: DsmExchangeConfig,
+    pub properties: PlanProperties,
 }
 
 impl DsmReaderExec {
@@ -693,10 +736,10 @@ impl DsmReaderExec {
         partitioning: Partitioning,
     ) -> Result<Self> {
         let properties = PlanProperties::new(
-            EquivalenceProperties::new(input.schema()),
-            partitioning,
+            input.equivalence_properties().clone(),
+            Partitioning::UnknownPartitioning(partitioning.partition_count()),
             EmissionType::Incremental,
-            Boundedness::Bounded,
+            input.boundedness(),
         );
 
         Ok(Self {
@@ -709,140 +752,88 @@ impl DsmReaderExec {
     fn create_consumer_stream(
         &self,
         partition: usize,
+        context: Arc<TaskContext>,
         bridge: Arc<SignalBridge>,
     ) -> Result<SendableRecordBatchStream> {
+        let (participant_index, total_participants) = get_mpp_config(&context);
+        let schema = self.input.schema();
+
         // Return the consumer side stream for THIS partition.
         match self.config.mode {
             ExchangeMode::Redistribute => {
-                // In Redistribute mode, each node k is responsible for partition k.
-                if partition != self.config.participant_index {
-                    // We are a worker/leader waiting for a background task (that we just spawned via registry)
-                    // to finish producing data for a different partition that we are NOT consuming.
-                    // But wait, DsmReaderExec is executed for *output* partitions.
-                    // If we are executing partition `p`, we are the consumer for `p`.
-                    // If `p != participant_index`, then we are being asked to produce a partition
-                    // that belongs to someone else? No, DataFusion only asks us to produce our own partition usually.
-                    // BUT, if the plan is distributed, we might have a different arrangement.
-                    // In the current JoinScan logic, "Partition K is on Node K".
-                    // So if we are Node K, we only ever execute Partition K.
-                    // If DataFusion asks us to execute Partition J (!= K), it's a bug or a misconfiguration.
-
-                    // However, the original code had:
-                    // if partition != self.config.participant_index { return Ok(wait_for_producer_stream(...)); }
-                    // This implies we DO get asked to execute other partitions, or it's a safeguard.
-                    // AND: In Gather mode, Workers execute Partition 0 (which belongs to Leader) to run the side-effects (producer).
-
-                    // In the NEW design:
-                    // The "Listener" Loop spawns the tasks.
-                    // The `DsmReaderExec::execute` is ONLY called if we are the consumer.
-                    // If we are a Worker in Gather mode, we are NOT the consumer.
-                    // BUT, `ParallelJoin` (the DataFusion wrapper) might iterate all partitions?
-                    // No, `ParallelJoin::run` executes `physical_plan.execute(0, ...)`.
-                    // For a Worker, `execute(0)` calls `DsmReaderExec::execute(0)`.
-                    // `DsmReaderExec` for Gather has 1 partition.
-                    // So the Worker calls `execute(0)`.
-                    // In Gather mode, Worker is Node J. Consumer is Node 0.
-                    // So `participant_index != 0`.
-                    // So we enter the `wait_for_producer` block.
-
-                    // We need to fetch the completion receiver for the LOCAL stream that corresponds to this.
-                    // The Worker is producing data for Stream `config.stream_id`.
-                    // The Physical ID is `(stream_id << 16) | participant_index`.
-                    // This matches the task we expect to be running (triggered by the Leader's StartStream request).
-                    let physical_id = (self.config.stream_id << 16)
-                        | ((self.config.participant_index as u32) & 0xFFFF);
-                    if let Some(rx) = get_completion_receiver(physical_id) {
-                        return Ok(wait_for_producer_stream(self.input.schema(), rx));
-                    } else {
-                        // Should not happen if registry is set up correct?
-                        // Or maybe the request hasn't arrived yet?
-                        // If the request hasn't arrived, `get_completion_receiver` creates the channel.
-                        // So we wait.
-                        // BUT: `trigger_stream` might not have been called yet.
-                        // The task isn't running. We wait on the channel.
-                        // When `trigger_stream` is eventually called (by Leader sending request),
-                        // the task will start, then finish, then send `true` to channel.
-                        // So this logic holds.
-                        let mut guard = DSM_MESH.lock();
-                        let mesh = guard.as_mut().expect("DSM mesh not registered");
-                        let mut registry = mesh.registry.lock();
-                        let (tx, rx) = watch::channel(false);
-                        registry.completions.insert(physical_id, tx);
-                        return Ok(wait_for_producer_stream(self.input.schema(), rx));
-                    }
-                }
-
-                let schema = self.input.schema();
-                let mut readers = Vec::new();
-                for i in 0..self.config.total_participants {
-                    if let Some(reader) =
-                        get_dsm_reader(i, self.config.stream_id, i, schema.clone())
-                    {
-                        readers.push(reader);
-                    }
-                }
-
-                let streams: Vec<SendableRecordBatchStream> = readers
-                    .into_iter()
-                    .map(|r| shared_memory_stream(r, bridge.clone()))
-                    .collect();
-
-                Ok(Box::pin(RecordBatchStreamAdapter::new(
-                    schema.clone(),
-                    futures::stream::select_all(streams),
-                )))
-            }
-            ExchangeMode::Gather => {
-                // In Gather mode, only the Leader (node 0) consumes.
-                // It consumes partition i from Node i.
-                if self.config.participant_index != 0 {
-                    // Worker waiting for its local producer (triggered by leader) to finish.
-                    let physical_id = (self.config.stream_id << 16)
-                        | ((self.config.participant_index as u32) & 0xFFFF);
-
-                    // Helper to get-or-create rx
-                    let rx = {
-                        let mut guard = DSM_MESH.lock();
-                        let mesh = guard.as_mut().expect("DSM mesh not registered");
-                        let mut registry = mesh.registry.lock();
-                        if let Some(tx) = registry.completions.get(&physical_id) {
-                            tx.subscribe()
-                        } else {
-                            let (tx, rx) = watch::channel(false);
-                            registry.completions.insert(physical_id, tx);
-                            rx
-                        }
-                    };
-                    return Ok(wait_for_producer_stream(self.input.schema(), rx));
-                }
-
-                if partition != 0 {
-                    // Gather only has 1 partition (partition 0)
+                // In Redistribute mode, every node k consumes Partition k.
+                if partition != participant_index {
+                    // pgrx::warning!(
+                    //     "[Worker {}] DsmReaderExec: Redistribute execute({}) requested, but I am participant {}. Returning empty stream.",
+                    //     unsafe { pgrx::pg_sys::ParallelWorkerNumber },
+                    //     partition,
+                    //     participant_index
+                    // );
                     return Ok(Box::pin(RecordBatchStreamAdapter::new(
-                        self.input.schema(),
+                        schema,
                         futures::stream::empty(),
                     )));
                 }
 
-                let schema = self.input.schema();
                 let mut readers = Vec::new();
-                for i in 0..self.config.total_participants {
+                for i in 0..total_participants {
+                    // Read from Participant i, Logical Stream S, Sender Index i.
                     if let Some(reader) =
                         get_dsm_reader(i, self.config.stream_id, i, schema.clone())
                     {
-                        readers.push(reader);
+                        readers.push(shared_memory_stream(reader, bridge.clone()));
                     }
                 }
 
-                let streams: Vec<SendableRecordBatchStream> = readers
-                    .into_iter()
-                    .map(|r| shared_memory_stream(r, bridge.clone()))
-                    .collect();
-
                 Ok(Box::pin(RecordBatchStreamAdapter::new(
                     schema.clone(),
-                    futures::stream::select_all(streams),
+                    futures::stream::select_all(readers),
                 )))
+            }
+            ExchangeMode::Gather => {
+                // In Gather mode, only the Leader (node 0) consumes.
+                if participant_index != 0 {
+                    // Worker side: we are not the consumer.
+                    // But DataFusion might call execute(p) for ALL p if it's merging.
+                    // Workers should only 'wait' once per logical stream.
+                    // We choose to wait when partition == participant_index.
+                    if partition == participant_index {
+                        let physical_id =
+                            (self.config.stream_id << 16) | (participant_index as u32);
+
+                        let rx = {
+                            let mut guard = DSM_MESH.lock();
+                            let mesh = guard.as_mut().expect("DSM mesh not registered");
+                            let mut registry = mesh.registry.lock();
+                            if let Some(tx) = registry.completions.get(&physical_id) {
+                                tx.subscribe()
+                            } else {
+                                let (tx, rx) = watch::channel(false);
+                                registry.completions.insert(physical_id, tx);
+                                rx
+                            }
+                        };
+                        return Ok(wait_for_producer_stream(schema, rx));
+                    } else {
+                        return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                            schema,
+                            futures::stream::empty(),
+                        )));
+                    }
+                }
+
+                // Leader: Pull Partition `partition` from Worker `partition`.
+
+                if let Some(reader) =
+                    get_dsm_reader(partition, self.config.stream_id, partition, schema.clone())
+                {
+                    Ok(shared_memory_stream(reader, bridge))
+                } else {
+                    Ok(Box::pin(RecordBatchStreamAdapter::new(
+                        schema,
+                        futures::stream::empty(),
+                    )))
+                }
             }
         }
     }
@@ -889,13 +880,15 @@ impl ExecutionPlan for DsmReaderExec {
 
     fn execute(
         &self,
+
         partition: usize,
+
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let _ = self.input.execute(0, context.clone())?;
         let bridge = get_dsm_bridge();
 
-        self.create_consumer_stream(partition, bridge)
+        self.create_consumer_stream(partition, context, bridge)
     }
 }
 
@@ -956,6 +949,8 @@ fn shared_memory_stream(
 mod tests {
     use super::*;
     use arrow_schema::{DataType, Field, Schema};
+    use datafusion::physical_expr::EquivalenceProperties;
+    use datafusion::physical_plan::execution_plan::Boundedness;
     use datafusion::physical_plan::repartition::RepartitionExec;
     use std::sync::Arc;
 
@@ -1015,7 +1010,6 @@ mod tests {
             Arc::new(RepartitionExec::try_new(leaf, Partitioning::RoundRobinBatch(2)).unwrap());
 
         let rule = EnforceDsmShuffle {
-            participant_index: 0,
             total_participants: 2,
         };
         let optimized = rule

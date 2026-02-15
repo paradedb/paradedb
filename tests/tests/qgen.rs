@@ -682,6 +682,7 @@ async fn generated_joinscan(database: Db) {
             &setup_sql,
             |query, conn| {
                 "SET work_mem TO '16MB';".execute(conn);
+                "SET debug_parallel_query TO on;".execute(conn);
                 // Use dynamic fetch since column count varies with HeapCondition
                 let rows = query.fetch_dynamic(conn);
                 // Convert to sorted string representation for comparison

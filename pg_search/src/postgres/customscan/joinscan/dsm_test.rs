@@ -22,7 +22,7 @@ mod tests {
     use crate::parallel_worker::mqueue::MessageQueueSender;
     use crate::parallel_worker::{
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-        WorkerStyle,
+        ParallelWorkerNumber, WorkerStyle,
     };
     use crate::postgres::customscan::joinscan::dsm_transfer::{
         MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
@@ -42,7 +42,6 @@ mod tests {
     use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
     use futures::{Stream, StreamExt};
     use parking_lot::Mutex;
-    use pgrx::pg_sys;
     use std::any::Any;
     use std::fmt::Formatter;
     use std::pin::Pin;
@@ -240,15 +239,17 @@ mod tests {
     }
 
     impl ParallelWorker for DsmTestWorker<'_> {
-        fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+        fn new_parallel_worker(
+            state_manager: ParallelStateManager,
+            worker_number: ParallelWorkerNumber,
+        ) -> Self {
             let state = state_manager
                 .object::<DsmTestSharedState>(0)
                 .unwrap()
                 .unwrap();
             let config = state_manager.object::<DsmTestConfig>(1).unwrap().unwrap();
 
-            let worker_number = unsafe { pg_sys::ParallelWorkerNumber } as usize;
-            let participant_index = worker_number + 1; // Leader is 0
+            let participant_index = worker_number.to_participant_index(true); // Leader is 0
             let total_participants = config.total_participants;
 
             let mut writer_regions = Vec::new();
@@ -303,8 +304,12 @@ mod tests {
             }
         }
 
-        fn run(self, _mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-            let participant_index = (worker_number + 1) as usize;
+        fn run(
+            self,
+            _mq_sender: &MessageQueueSender,
+            worker_number: ParallelWorkerNumber,
+        ) -> anyhow::Result<()> {
+            let participant_index = worker_number.to_participant_index(true);
             let total_participants = self.config.total_participants;
 
             // Signal readiness
@@ -354,7 +359,6 @@ mod tests {
             }
 
             let mesh = DsmMesh {
-                total_participants,
                 mux_writers,
                 mux_readers,
                 bridge,
@@ -378,25 +382,32 @@ mod tests {
             let input = Arc::new(MockExec::new(batch, schema.clone()));
 
             // Exchange: Gather to node 0.
-            let partitioning = Partitioning::UnknownPartitioning(1); // Triggers Gather mode logic in EnforceDsmShuffle/Exchange
+            let partitioning = Partitioning::UnknownPartitioning(total_participants);
             let config = DsmExchangeConfig {
                 stream_id: 0,
-                participant_index,
                 total_participants,
                 mode: ExchangeMode::Gather,
             };
             let writer =
                 DsmWriterExec::try_new(input, partitioning.clone(), config.clone()).unwrap();
-            let reader = DsmReaderExec::try_new(Arc::new(writer), config, partitioning).unwrap();
-            let plan = Arc::new(reader);
+            let reader =
+                DsmReaderExec::try_new(Arc::new(writer), config.clone(), partitioning).unwrap();
+            // Wrap in CoalescePartitionsExec so that execute(0) pulls from ALL workers
+            let plan: Arc<dyn ExecutionPlan> = Arc::new(
+                datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec::new(
+                    Arc::new(reader),
+                ),
+            );
 
-            let session_config = SessionConfig::new().with_target_partitions(1);
-            let mut session_state = SessionContext::new_with_config(session_config).state();
-            let mpp_config = Arc::new(MppParticipantConfig {
-                index: participant_index,
-                total_participants,
-            });
-            session_state.config_mut().set_extension(mpp_config);
+            let mut session_config = SessionConfig::new().with_target_partitions(1);
+            session_config
+                .options_mut()
+                .extensions
+                .insert(MppParticipantConfig {
+                    index: participant_index,
+                    total_participants,
+                });
+            let session_state = SessionContext::new_with_config(session_config).state();
             let task_ctx = Arc::new(TaskContext::from(&session_state));
 
             runtime.block_on(async {
@@ -409,7 +420,10 @@ mod tests {
                     &mut sources,
                 );
                 for source in sources {
-                    crate::postgres::customscan::joinscan::exchange::register_stream_source(source);
+                    crate::postgres::customscan::joinscan::exchange::register_stream_source(
+                        source,
+                        participant_index,
+                    );
                 }
 
                 // Start Control Service
@@ -529,7 +543,6 @@ mod tests {
         }
 
         let mesh = DsmMesh {
-            total_participants,
             mux_writers,
             mux_readers,
             bridge,
@@ -546,24 +559,30 @@ mod tests {
 
         let input = Arc::new(MockExec::new(batch, schema.clone()));
 
-        let partitioning = Partitioning::UnknownPartitioning(1);
+        let partitioning = Partitioning::UnknownPartitioning(total_participants);
         let config = DsmExchangeConfig {
             stream_id: 0,
-            participant_index,
             total_participants,
             mode: ExchangeMode::Gather,
         };
         let writer = DsmWriterExec::try_new(input, partitioning.clone(), config.clone()).unwrap();
         let reader = DsmReaderExec::try_new(Arc::new(writer), config, partitioning).unwrap();
-        let plan = Arc::new(reader);
+        // Wrap in CoalescePartitionsExec so that execute(0) pulls from ALL workers
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(
+            datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec::new(Arc::new(
+                reader,
+            )),
+        );
 
-        let session_config = SessionConfig::new().with_target_partitions(1);
-        let mut session_state = SessionContext::new_with_config(session_config).state();
-        let mpp_config = Arc::new(MppParticipantConfig {
-            index: participant_index,
-            total_participants,
-        });
-        session_state.config_mut().set_extension(mpp_config);
+        let mut session_config = SessionConfig::new().with_target_partitions(1);
+        session_config
+            .options_mut()
+            .extensions
+            .insert(MppParticipantConfig {
+                index: participant_index,
+                total_participants,
+            });
+        let session_state = SessionContext::new_with_config(session_config).state();
         let task_ctx = Arc::new(TaskContext::from(&session_state));
 
         runtime.block_on(async {
@@ -576,7 +595,10 @@ mod tests {
                 &mut sources,
             );
             for source in sources {
-                crate::postgres::customscan::joinscan::exchange::register_stream_source(source);
+                crate::postgres::customscan::joinscan::exchange::register_stream_source(
+                    source,
+                    participant_index,
+                );
             }
 
             // Start Leader Control Service

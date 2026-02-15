@@ -185,6 +185,7 @@ use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
+    physical_plan_from_bytes_with_extension_codec, physical_plan_to_bytes_with_extension_codec,
 };
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
@@ -918,42 +919,34 @@ impl CustomScan for JoinScan {
                     create_session_context(0, total_participants, state.custom_state().max_memory);
 
                 if nworkers > 0 {
-                    let leader_plan = logical_plan_from_bytes_with_extension_codec(
+                    let leader_logical_plan = logical_plan_from_bytes_with_extension_codec(
                         &plan_bytes,
                         &ctx.task_ctx(),
                         &PgSearchExtensionCodec::default(),
                     )
-                    .expect("Failed to deserialize leader plan");
+                    .expect("Failed to deserialize leader logical plan");
 
-                    let ordering_rti = join_clause
-                        .ordering_side_index()
-                        .and_then(|idx| join_clause.sources[idx].ordering_rti())
-                        .expect("JoinScan requires an ordering side");
+                    // Convert logical plan to physical plan ONCE on the leader
+                    let plan = runtime
+                        .block_on(build_joinscan_physical_plan(&ctx, leader_logical_plan))
+                        .expect("Failed to create execution plan");
 
                     if let Some((
                         process,
-                        _readers,
-                        Some(leader_plan),
+                        Some(plan),
                         mux_writers,
                         mux_readers,
                         _session_id,
                         bridge,
                     )) = parallel::launch_join_workers(
                         &runtime,
-                        leader_plan,
-                        ordering_rti,
+                        plan,
                         nworkers,
                         state.custom_state().max_memory,
                         pg_sys::parallel_leader_participation,
                     ) {
                         // Register the DSM mesh for the leader process.
                         let mesh = exchange::DsmMesh {
-                            total_participants: nworkers
-                                + if pg_sys::parallel_leader_participation {
-                                    1
-                                } else {
-                                    0
-                                },
                             mux_writers,
                             mux_readers,
                             bridge,
@@ -961,24 +954,25 @@ impl CustomScan for JoinScan {
                         };
                         exchange::register_dsm_mesh(mesh);
 
+                        // SERIALIZATION ROUNDTRIP: Serialize and deserialize the plan on the leader
+                        // NOW that the mesh is registered. This ensures that the leader's stream
+                        // sources are registered in the registry exactly like the workers' sources.
+                        let codec = PgSearchExtensionCodec::default();
+                        let plan_bytes = physical_plan_to_bytes_with_extension_codec(plan, &codec)
+                            .expect("Failed to serialize physical plan on leader");
+                        let plan = physical_plan_from_bytes_with_extension_codec(
+                            &plan_bytes,
+                            &ctx.task_ctx(),
+                            &codec,
+                        )
+                        .expect("Failed to deserialize physical plan on leader");
+
                         let custom_state = state.custom_state_mut();
                         custom_state.parallel_process = Some(process);
 
-                        let plan = runtime
-                            .block_on(build_joinscan_physical_plan(&ctx, leader_plan))
-                            .expect("Failed to create execution plan");
-
                         // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
                         custom_state.physical_plan = Some(plan.clone());
-
                         let task_ctx = ctx.task_ctx();
-
-                        // Register all writers in the plan
-                        let mut sources = Vec::new();
-                        exchange::collect_dsm_writers(plan.clone(), &mut sources);
-                        for source in sources {
-                            exchange::register_stream_source(source);
-                        }
 
                         // Start the control service to listen for stream requests
                         exchange::spawn_control_service(&local_set, task_ctx.clone());

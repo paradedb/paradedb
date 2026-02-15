@@ -160,12 +160,13 @@ pub fn create_session_context(
         .enable_topk_dynamic_filter_pushdown = true;
 
     // Set MPP config.
-    config.set_extension(Arc::new(
-        crate::scan::table_provider::MppParticipantConfig {
+    config
+        .options_mut()
+        .extensions
+        .insert(crate::scan::table_provider::MppParticipantConfig {
             index: participant_index,
             total_participants,
-        },
-    ));
+        });
 
     let memory_pool = Arc::new(super::memory::PanicOnOOMMemoryPool::new(max_memory));
     let runtime = datafusion::execution::runtime_env::RuntimeEnvBuilder::new()
@@ -185,7 +186,6 @@ pub fn create_session_context(
     if total_participants > 1 {
         let rule = Arc::new(
             crate::postgres::customscan::joinscan::exchange::EnforceDsmShuffle {
-                participant_index,
                 total_participants,
             },
         );
@@ -203,7 +203,14 @@ pub async fn build_joinscan_logical_plan(
     private_data: &PrivateData,
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
-    let ctx = create_session_context(0, 1, 1024 * 1024 * 1024); // 1GB default for planning
+    let nworkers = join_clause.planned_workers;
+    let total_participants = nworkers
+        + if unsafe { pg_sys::parallel_leader_participation } {
+            1
+        } else {
+            0
+        };
+    let ctx = create_session_context(0, total_participants, 1024 * 1024 * 1024); // 1GB default for planning
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()
 }

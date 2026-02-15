@@ -162,6 +162,8 @@ impl PgSearchTableProvider {
         sort_order: Option<&crate::postgres::options::SortByField>,
         participant_index: usize,
         total_participants: usize,
+        scan_info: crate::scan::info::ScanInfo,
+        fields: Vec<crate::index::fast_fields_helper::WhichFastField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let segment_readers = reader.segment_readers();
@@ -204,29 +206,10 @@ impl PgSearchTableProvider {
         });
 
         let partitioning = if total_participants > 1 {
-            let schema = self.get_schema();
-            // Find CTID column for partitioning.
-            // We use CTID because it's guaranteed to be unique and present.
-            let ctid_col = self
-                .fields
-                .iter()
-                .enumerate()
-                .find(|(_, ff)| matches!(ff, WhichFastField::Ctid));
-
-            match ctid_col {
-                Some((idx, _)) => {
-                    let field = &schema.fields()[idx];
-                    let expr = Arc::new(datafusion::physical_expr::expressions::Column::new(
-                        field.name(),
-                        idx,
-                    ))
-                        as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
-                    datafusion::physical_plan::Partitioning::Hash(vec![expr], total_participants)
-                }
-                None => {
-                    datafusion::physical_plan::Partitioning::UnknownPartitioning(total_participants)
-                }
-            }
+            // In MPP mode, each participant produces a single stream containing its slice
+            // of segments. DataFusion will then redistribute this data via shuffles
+            // (EnforceDsmShuffle) if required by downstream operators (like HashJoin).
+            datafusion::physical_plan::Partitioning::UnknownPartitioning(1)
         } else {
             datafusion::physical_plan::Partitioning::UnknownPartitioning(segments.len().max(1))
         };
@@ -237,6 +220,8 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             Some(partitioning),
+            scan_info,
+            fields,
         )))
     }
 }
@@ -383,11 +368,15 @@ impl TableProvider for PgSearchTableProvider {
         let sort_order = self.scan_info.sort_order.as_ref();
 
         let mpp_config = _state
-            .config_options()
+            .config()
+            .options()
             .extensions
             .get::<MppParticipantConfig>();
-        let participant_index = mpp_config.map(|c| c.index).unwrap_or(0);
-        let total_participants = mpp_config.map(|c| c.total_participants).unwrap_or(1);
+        let participant_index = mpp_config.as_ref().map(|c| c.index).unwrap_or(0);
+        let total_participants = mpp_config
+            .as_ref()
+            .map(|c| c.total_participants)
+            .unwrap_or(1);
 
         if let Some(sort_order) = sort_order {
             // Serial sorted scan (or replicated source with sorting)
@@ -400,6 +389,8 @@ impl TableProvider for PgSearchTableProvider {
                 Some(sort_order),
                 participant_index,
                 total_participants,
+                self.scan_info.clone(),
+                self.fields.clone(),
             )
         } else {
             // For serial/replicated scans without sorting, we use MultiSegmentPlan
@@ -417,6 +408,8 @@ impl TableProvider for PgSearchTableProvider {
                 None,
                 participant_index,
                 total_participants,
+                self.scan_info.clone(),
+                self.fields.clone(),
             )
         }
     }

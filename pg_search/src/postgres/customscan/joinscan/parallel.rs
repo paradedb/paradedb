@@ -33,25 +33,17 @@ use crate::parallel_worker::builder::ParallelProcessMessageQueue;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-    WorkerStyle,
+    ParallelWorkerNumber, WorkerStyle,
 };
 use crate::postgres::customscan::joinscan::dsm_transfer::{
-    dsm_shared_memory_reader, MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
+    MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
-use arrow_schema::SchemaRef;
-use datafusion::execution::SendableRecordBatchStream;
-use datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec;
-use futures::StreamExt;
 use parking_lot::Mutex;
-use pgrx::pg_sys;
 use std::sync::Arc;
 
-use super::scan_state::{build_joinscan_physical_plan, create_session_context};
-
-use datafusion::logical_expr::LogicalPlan;
-use datafusion_proto::bytes::logical_plan_to_bytes_with_extension_codec;
+use super::scan_state::create_session_context;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -93,6 +85,7 @@ pub struct JoinConfig {
     pub total_participants: usize,
     pub leader_participation: bool,
     pub session_id: uuid::Bytes,
+    pub region_size: usize,
 }
 
 impl ParallelStateType for JoinConfig {}
@@ -102,17 +95,13 @@ pub struct ParallelJoin {
     pub config: JoinConfig,
     /// One serialized logical plan slice per worker.
     pub plan_slices: Vec<Vec<u8>>,
-    /// $P \times P$ ring buffer regions, where $P$ is total participants.
-    /// Ordered as [producer_0_to_consumer_0, producer_0_to_consumer_1, ..., producer_P_to_consumer_P]
-    pub ring_buffer_regions: Vec<Vec<u8>>,
+    /// A single flat buffer containing all ring buffer regions.
+    /// Layout: [Region 0][Region 1]...[Region P*P-1]
+    pub ring_buffer: Vec<u8>,
 }
 
 impl ParallelJoin {
-    pub fn new(
-        config: JoinConfig,
-        plan_slices: Vec<Vec<u8>>,
-        ring_buffer_regions: Vec<Vec<u8>>,
-    ) -> Self {
+    pub fn new(config: JoinConfig, plan_slices: Vec<Vec<u8>>, ring_buffer: Vec<u8>) -> Self {
         Self {
             state: JoinSharedState {
                 mutex: Spinlock::default(),
@@ -121,7 +110,7 @@ impl ParallelJoin {
             },
             config,
             plan_slices,
-            ring_buffer_regions,
+            ring_buffer,
         }
     }
 }
@@ -132,9 +121,8 @@ impl ParallelProcess for ParallelJoin {
         for slice in &self.plan_slices {
             values.push(slice);
         }
-        for region in &self.ring_buffer_regions {
-            values.push(region);
-        }
+        // Push the single flat buffer
+        values.push(&self.ring_buffer);
         values
     }
 }
@@ -156,7 +144,10 @@ pub struct JoinWorker<'a> {
 }
 
 impl ParallelWorker for JoinWorker<'_> {
-    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+    fn new_parallel_worker(
+        state_manager: ParallelStateManager,
+        worker_number: ParallelWorkerNumber,
+    ) -> Self {
         let state = state_manager
             .object::<JoinSharedState>(0)
             .expect("wrong type for state")
@@ -166,41 +157,44 @@ impl ParallelWorker for JoinWorker<'_> {
             .expect("wrong type for config")
             .expect("missing config value");
 
-        let worker_number = unsafe { pg_sys::ParallelWorkerNumber } as usize;
-        let participant_index = if config.leader_participation {
-            worker_number + 1
-        } else {
-            worker_number
-        };
+        let participant_index = worker_number.to_participant_index(config.leader_participation);
         let total_participants = config.total_participants;
 
         // Plan slices start at index 2.
         let plan_slice = state_manager
-            .slice::<u8>(2 + worker_number)
+            .slice::<u8>(2 + worker_number.0 as usize)
             .expect("wrong type for plan_slice")
             .expect("missing plan_slice value");
+
+        // The ring buffer is at index 2 + nworkers
+        let ring_buffer_slice = state_manager
+            .slice::<u8>(2 + config.nworkers)
+            .expect("missing ring_buffer value")
+            .expect("missing ring_buffer value");
 
         let mut writer_regions = Vec::new();
         let mut reader_regions = Vec::new();
 
-        let nworkers = config.nworkers;
         let p = total_participants;
+        let region_size = config.region_size;
+
+        // Base pointer of the shared memory region
+        let base_ptr = ring_buffer_slice.as_ptr();
 
         for j in 0..p {
             // Region for writer from us (participant_index) to participant j.
-            let writer_region_idx = 2 + nworkers + (participant_index * p + j);
-            let ring_buffer_slice = state_manager
-                .slice::<u8>(writer_region_idx)
-                .expect("missing ring_buffer_slice for writer")
-                .expect("missing ring_buffer_slice value");
+            let writer_idx = participant_index * p + j;
+            let offset = writer_idx * region_size;
 
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            // Calculate pointer into the shared slice
+            let region_ptr = unsafe { base_ptr.add(offset) };
+
+            // Header is at the start of the region
+            let header = region_ptr as *mut RingBufferHeader;
+            // Data is after the header
+            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
+            let data_len = region_size - size_of::<RingBufferHeader>();
+
             writer_regions.push(RegionInfo {
                 header,
                 data,
@@ -208,19 +202,15 @@ impl ParallelWorker for JoinWorker<'_> {
             });
 
             // Region for reader from participant j to us (participant_index).
-            let reader_region_idx = 2 + nworkers + (j * p + participant_index);
-            let ring_buffer_slice = state_manager
-                .slice::<u8>(reader_region_idx)
-                .expect("missing ring_buffer_slice for reader")
-                .expect("missing ring_buffer_slice value");
+            let reader_idx = j * p + participant_index;
+            let offset = reader_idx * region_size;
 
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let region_ptr = unsafe { base_ptr.add(offset) };
+
+            let header = region_ptr as *mut RingBufferHeader;
+            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
+            let data_len = region_size - size_of::<RingBufferHeader>();
+
             reader_regions.push(RegionInfo {
                 header,
                 data,
@@ -237,7 +227,11 @@ impl ParallelWorker for JoinWorker<'_> {
         }
     }
 
-    fn run(self, _mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+    fn run(
+        self,
+        _mq_sender: &MessageQueueSender,
+        worker_number: ParallelWorkerNumber,
+    ) -> anyhow::Result<()> {
         // Wait for all workers to launch to ensure deterministic behavior.
         while self.state.launched_workers() == 0 {
             pgrx::check_for_interrupts!();
@@ -245,11 +239,8 @@ impl ParallelWorker for JoinWorker<'_> {
         }
         let total_participants = self.state.launched_workers();
 
-        let participant_index = if self.config.leader_participation {
-            (worker_number + 1) as usize
-        } else {
-            worker_number as usize
-        };
+        let participant_index =
+            worker_number.to_participant_index(self.config.leader_participation);
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -300,7 +291,6 @@ impl ParallelWorker for JoinWorker<'_> {
 
         // Register the DSM mesh for this worker process.
         let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
-            total_participants,
             mux_writers: mux_writers.clone(),
             mux_readers: mux_readers.clone(),
             bridge,
@@ -317,33 +307,21 @@ impl ParallelWorker for JoinWorker<'_> {
         );
 
         let codec = PgSearchExtensionCodec::default();
-        let logical_plan =
-            logical_plan_from_bytes_with_extension_codec(&self.plan_slice, &ctx.task_ctx(), &codec)
-                .expect("Failed to deserialize logical plan");
-
-        let physical_plan = runtime
-            .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-            .expect("Failed to create execution plan");
+        let _ = physical_plan_from_bytes_with_extension_codec(
+            &self.plan_slice,
+            &ctx.task_ctx(),
+            &codec,
+        )
+        .expect("Failed to parse physical plan");
 
         let task_ctx = ctx.task_ctx();
 
         // The Worker Loop:
-        // 1. Register potential work ("Procedures") in the Registry.
-        // 2. Start the "Listener" (Control Service) to accept RPC calls.
-        // 3. Execute the main plan (which may just wait for completion if it's a Gather worker).
-        // 4. Listen for SIGTERM to exit gracefully.
+        // 1. Deserializing the plan populated the local StreamRegistry via the physical codec.
+        // 2. Start the "Listener" (Control Service) to accept incoming RPC calls (StartStream).
+        // 3. Park the main thread and wait for session termination.
         runtime.block_on(async {
             let local = tokio::task::LocalSet::new();
-
-            // Register all writers in the plan
-            let mut sources = Vec::new();
-            crate::postgres::customscan::joinscan::exchange::collect_dsm_writers(
-                physical_plan.clone(),
-                &mut sources,
-            );
-            for source in sources {
-                crate::postgres::customscan::joinscan::exchange::register_stream_source(source);
-            }
 
             // Start the control service to listen for stream requests
             crate::postgres::customscan::joinscan::exchange::spawn_control_service(
@@ -358,27 +336,12 @@ impl ParallelWorker for JoinWorker<'_> {
             local
                 .run_until(async move {
                     tokio::select! {
-                        _ = async {
-                            let mut stream = physical_plan
-                                .execute(0, task_ctx)
-                                .expect("Failed to execute DataFusion plan");
-
-                            while let Some(batch) = stream.next().await {
-                                batch.expect("DataFusion execution failed in parallel");
-                                // The DsmShuffleWriterExec handled writing.
-                            }
-
-                            for mux_writer in mux_writers {
-                                mux_writer
-                                    .lock()
-                                    .finish()
-                                    .expect("Failed to finish multiplexed DSM transfer");
-                            }
-                        } => {
-                            // Normal completion
+                        _ = futures::future::pending::<()>() => {
+                            // Should not be reachable
                         }
                         _ = sigterm.recv() => {
                             // Normal exit on SIGTERM
+                            pgrx::warning!("JoinWorker: SIGTERM received, shutting down");
                         }
                     }
                 })
@@ -389,11 +352,17 @@ impl ParallelWorker for JoinWorker<'_> {
     }
 }
 
+impl JoinWorker<'_> {}
+
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_proto::bytes::{
+    physical_plan_from_bytes_with_extension_codec, physical_plan_to_bytes_with_extension_codec,
+};
+
 /// The result of launching parallel join workers.
 pub type LaunchedJoinWorkers = (
     ParallelProcessMessageQueue,
-    Vec<SendableRecordBatchStream>,
-    Option<LogicalPlan>,
+    Option<Arc<dyn ExecutionPlan>>,
     Vec<Arc<Mutex<MultiplexedDsmWriter>>>,
     Vec<Arc<Mutex<MultiplexedDsmReader>>>,
     uuid::Uuid,
@@ -403,8 +372,7 @@ pub type LaunchedJoinWorkers = (
 /// Launches parallel workers for a JoinScan.
 pub fn launch_join_workers(
     runtime: &tokio::runtime::Runtime,
-    leader_plan: LogicalPlan,
-    _ordering_rti: pg_sys::Index,
+    leader_plan: Arc<dyn ExecutionPlan>,
     nworkers: usize,
     max_memory: usize,
     leader_participation: bool,
@@ -420,8 +388,9 @@ pub fn launch_join_workers(
     };
 
     let codec = PgSearchExtensionCodec::default();
-    let leader_plan_bytes = logical_plan_to_bytes_with_extension_codec(&leader_plan, &codec)
-        .expect("Failed to serialize leader plan");
+    let leader_plan_bytes =
+        physical_plan_to_bytes_with_extension_codec(leader_plan.clone(), &codec)
+            .expect("Failed to serialize physical plan to bytes");
 
     let mut plan_slices = Vec::with_capacity(nworkers);
     for _ in 0..nworkers {
@@ -429,14 +398,6 @@ pub fn launch_join_workers(
     }
 
     let session_id = uuid::Uuid::new_v4();
-
-    let config = JoinConfig {
-        max_memory,
-        nworkers,
-        total_participants,
-        leader_participation,
-        session_id: *session_id.as_bytes(),
-    };
 
     // Allocate 128MB ring buffers per worker.
     // TODO: This is temporary! Should implement support for reconstructing a larger buffer without
@@ -446,28 +407,40 @@ pub fn launch_join_workers(
     // CancelStream messages during high-concurrency teardown, which could lead to deadlocks.
     let control_size = 65536;
     // Data Header + Data + Control Header + Control Data + padding
-    let total_size = size_of::<RingBufferHeader>()
+    let region_size = size_of::<RingBufferHeader>()
         + ring_buffer_size
         + size_of::<RingBufferHeader>()
         + control_size
         + 64;
 
-    let mut ring_buffer_regions = Vec::with_capacity(total_participants * total_participants);
-    for _ in 0..(total_participants * total_participants) {
-        let mut region = vec![0u8; total_size];
+    let config = JoinConfig {
+        max_memory,
+        nworkers,
+        total_participants,
+        leader_participation,
+        session_id: *session_id.as_bytes(),
+        region_size,
+    };
 
-        // Initialize Data Header to point to Control Header
-        let header = region.as_mut_ptr() as *mut RingBufferHeader;
+    let total_size = region_size * total_participants * total_participants;
+    let mut ring_buffer = vec![0u8; total_size];
+
+    let base_ptr = ring_buffer.as_mut_ptr();
+
+    // Initialize all headers in the single flat buffer
+    for i in 0..(total_participants * total_participants) {
+        let offset = i * region_size;
+        let region_ptr = unsafe { base_ptr.add(offset) };
+        let header = region_ptr as *mut RingBufferHeader;
+
         unsafe {
             RingBufferHeader::init(header, size_of::<RingBufferHeader>() + ring_buffer_size);
 
             // Initialize Control Header
-            let control_ptr = region.as_mut_ptr().add((*header).control_offset);
+            let control_ptr = region_ptr.add((*header).control_offset);
             let control_header = control_ptr as *mut RingBufferHeader;
             RingBufferHeader::init(control_header, 0);
         }
-
-        ring_buffer_regions.push(region);
     }
 
     // Initialize leader's bridge
@@ -481,7 +454,7 @@ pub fn launch_join_workers(
         .expect("Failed to initialize SignalBridge");
     let bridge = Arc::new(bridge);
 
-    let process = ParallelJoin::new(config, plan_slices, ring_buffer_regions);
+    let process = ParallelJoin::new(config, plan_slices, ring_buffer);
 
     if let Some(mut launched) = launch_parallel_process!(
         ParallelJoin<JoinWorker>,
@@ -506,31 +479,30 @@ pub fn launch_join_workers(
             }
         }
 
-        let schema_ref: SchemaRef = Arc::new(leader_plan.schema().as_arrow().clone());
-
-        let mut dsm_readers = Vec::with_capacity(total_participants);
         let mut leader_mux_writers = Vec::with_capacity(total_participants);
         let mut leader_mux_readers = Vec::with_capacity(total_participants);
 
         let leader_participant_index = 0;
 
+        // Retrieve the ring buffer slice from DSM
+        let ring_buffer_slice = launched
+            .state_manager()
+            .slice::<u8>(2 + nworkers)
+            .expect("wrong type for ring_buffer_slice")
+            .expect("missing ring_buffer_slice value");
+
+        let base_ptr = ring_buffer_slice.as_ptr();
+
         let p = total_participants;
         for j in 0..p {
             // Leader's writers to all participants j.
-            let writer_region_idx = 2 + nworkers + (leader_participant_index * p + j);
-            let ring_buffer_slice = launched
-                .state_manager()
-                .slice::<u8>(writer_region_idx)
-                .expect("wrong type for ring_buffer_slice")
-                .expect("missing ring_buffer_slice value");
+            let writer_idx = leader_participant_index * p + j;
+            let offset = writer_idx * region_size;
+            let region_ptr = unsafe { base_ptr.add(offset) };
 
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let header = region_ptr as *mut RingBufferHeader;
+            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
+            let data_len = region_size - size_of::<RingBufferHeader>();
 
             let mux_writer = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 header,
@@ -542,20 +514,13 @@ pub fn launch_join_workers(
             leader_mux_writers.push(mux_writer);
 
             // Leader's readers from all participants j.
-            let reader_region_idx = 2 + nworkers + (j * p + leader_participant_index);
-            let ring_buffer_slice = launched
-                .state_manager()
-                .slice::<u8>(reader_region_idx)
-                .expect("wrong type for ring_buffer_slice")
-                .expect("missing ring_buffer_slice value");
+            let reader_idx = j * p + leader_participant_index;
+            let offset = reader_idx * region_size;
+            let region_ptr = unsafe { base_ptr.add(offset) };
 
-            let header = ring_buffer_slice.as_ptr() as *mut RingBufferHeader;
-            let data = unsafe {
-                ring_buffer_slice
-                    .as_ptr()
-                    .add(size_of::<RingBufferHeader>())
-            } as *mut u8;
-            let data_len = ring_buffer_slice.len() - size_of::<RingBufferHeader>();
+            let header = region_ptr as *mut RingBufferHeader;
+            let data = unsafe { region_ptr.add(size_of::<RingBufferHeader>()) } as *mut u8;
+            let data_len = region_size - size_of::<RingBufferHeader>();
 
             let mux_reader = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,
@@ -565,19 +530,10 @@ pub fn launch_join_workers(
                 j,
             )));
             leader_mux_readers.push(mux_reader.clone());
-
-            if leader_participation && j == leader_participant_index {
-                continue;
-            }
-
-            // For now, only stream 0.
-            let reader = dsm_shared_memory_reader(mux_reader, 0, j, schema_ref.clone());
-            dsm_readers.push(reader);
         }
 
         Some((
             launched.into_iter(),
-            dsm_readers,
             Some(leader_plan),
             leader_mux_writers,
             leader_mux_readers,

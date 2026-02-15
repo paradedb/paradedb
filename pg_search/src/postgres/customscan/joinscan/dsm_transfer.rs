@@ -43,8 +43,27 @@ pub use crate::postgres::customscan::joinscan::dsm_stream::{
 };
 
 /// A writer for a single logical stream within a multiplexed DSM region.
+///
+/// This writer handles the serialization of Arrow `RecordBatch`es into the Shared Memory Ring Buffer.
+/// It uses a "double-buffering" strategy via `DsmStreamWriterAdapter` to safely handle non-blocking writes
+/// (retries on `WouldBlock`) required by the synchronous `arrow-ipc` API.
+///
+/// # Challenges with Zero-Copy IPC
+///
+/// TODO(perf): Ideally, we would write directly to the ring buffer slots to avoid the memory copy
+/// in `DsmStreamWriterAdapter`. However, this is difficult because:
+/// 1. The `arrow-ipc` `StreamWriter` API is synchronous and blocking (`std::io::Write`).
+/// 2. The Ring Buffer wraps around, requiring split writes (two `memcpy`s) for contiguous data.
+/// 3. We cannot safely yield/await from within `std::io::Write` if the ring buffer is full.
+///
+/// The current approach serializes the entire batch to a `Vec<u8>` first. If the ring buffer
+/// is full, we keep the `Vec<u8>` and retry later, ensuring atomicity and preventing partial
+/// writes that could corrupt the stream if interrupted.
 pub struct DsmSharedMemoryWriter {
     writer: StreamWriter<DsmStreamWriterAdapter>,
+    /// Tracks whether the *current* batch has been serialized into the adapter's buffer but not yet flushed.
+    /// This prevents duplicating the batch in the buffer if `write_batch` is retried after a `WouldBlock`.
+    current_batch_buffered: bool,
 }
 
 unsafe impl Send for DsmSharedMemoryWriter {}
@@ -54,7 +73,6 @@ impl DsmSharedMemoryWriter {
         multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
         logical_stream_id: u32,
         sender_index: usize,
-        _dest_index: usize,
         schema: SchemaRef,
     ) -> Self {
         // Construct a unique Physical Stream ID for this writer/channel pair.
@@ -64,12 +82,16 @@ impl DsmSharedMemoryWriter {
 
         let adapter = DsmStreamWriterAdapter::new(multiplexer, physical_stream_id);
         // This will immediately write the Arrow schema to the ring buffer via the multiplexer.
-        let mut writer = StreamWriter::try_new(adapter, &schema)
+        let writer = StreamWriter::try_new(adapter, &schema)
             .expect("Failed to create Arrow IPC StreamWriter");
-        // Flush to ensure schema is sent immediately.
-        writer.get_mut().flush().unwrap();
+        // Do NOT flush here. The ring buffer might be full (e.g. shared with other streams).
+        // The schema is buffered in the adapter and will be flushed on the first write_batch or finish.
+        // writer.get_mut().flush().unwrap();
 
-        Self { writer }
+        Self {
+            writer,
+            current_batch_buffered: false,
+        }
     }
 
     /// Writes a `RecordBatch` to the multiplexed stream.
@@ -77,8 +99,15 @@ impl DsmSharedMemoryWriter {
     /// This method serializes the batch into the logical stream's internal buffer,
     /// which is then flushed as a framed message into the physical DSM ring buffer.
     /// If the physical buffer is full, it returns `ErrorKind::WouldBlock`.
+    ///
+    /// # Retry Logic
+    ///
+    /// If this method returns `WouldBlock`, the internal buffer retains the serialized batch (and potentially
+    /// the Schema, if this is the first write). The caller **must retry** calling this method with the
+    /// **same batch**. The `current_batch_buffered` flag ensures that the batch is not re-serialized
+    /// (duplicated) during the retry.
     pub fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        if self.writer.get_mut().is_empty() {
+        if !self.current_batch_buffered {
             self.writer.write(batch).map_err(|e| match e {
                 arrow_schema::ArrowError::IoError(_, io_err) => {
                     datafusion::common::DataFusionError::IoError(io_err)
@@ -87,6 +116,7 @@ impl DsmSharedMemoryWriter {
                     "Failed to write batch to IPC: {e}"
                 )),
             })?;
+            self.current_batch_buffered = true;
         }
 
         // Flush after each batch to ensure it's available for reading.
@@ -94,6 +124,10 @@ impl DsmSharedMemoryWriter {
             .get_mut()
             .flush()
             .map_err(datafusion::common::DataFusionError::IoError)?;
+
+        // Flush successful, reset flag for next batch
+        self.current_batch_buffered = false;
+
         Ok(())
     }
 
@@ -109,12 +143,6 @@ impl DsmSharedMemoryWriter {
 
         // Send EOS signal (len=0 frame)
         let inner = self.writer.get_mut();
-        // We need to lock the multiplexer to close the stream.
-        // Note: inner.multiplexer is private in dsm_stream.rs but the struct DsmStreamWriterAdapter is in dsm_stream.rs
-        // We are in dsm_transfer.rs.
-        // We need to expose the multiplexer or add a close method to DsmStreamWriterAdapter.
-        // Let's modify DsmStreamWriterAdapter in dsm_stream.rs to have a close() method first.
-        // For now, assuming I will add it, let's write the code here to call it.
         inner.close_stream().map_err(|e| {
             datafusion::common::DataFusionError::Internal(format!("Failed to close stream: {e}"))
         })?;
@@ -133,12 +161,15 @@ struct DsmStream {
 
 impl DsmStream {
     async fn new(multiplexer: Arc<Mutex<MultiplexedDsmReader>>, stream_id: u32) -> Result<Self> {
-        // Send StartStream signal to the writer
-        multiplexer.lock().start_stream(stream_id).map_err(|e| {
-            datafusion::common::DataFusionError::Internal(format!(
-                "Failed to send StartStream signal: {e}"
-            ))
-        })?;
+        {
+            let mut mux = multiplexer.lock();
+            // Send StartStream signal to the writer
+            mux.start_stream(stream_id).map_err(|e| {
+                datafusion::common::DataFusionError::Internal(format!(
+                    "Failed to send StartStream signal: {e}"
+                ))
+            })?;
+        }
 
         Ok(Self {
             multiplexer,
@@ -149,6 +180,20 @@ impl DsmStream {
         })
     }
 
+    /// Reads and decodes the next `RecordBatch` from the stream.
+    ///
+    /// This method handles:
+    /// 1. Reading chunks from the DSM Ring Buffer.
+    /// 2. Reassembling chunks in `self.accumulated`.
+    /// 3. Decoding IPC messages (Schema, RecordBatch) from the accumulator.
+    ///
+    /// # Partial Decodes
+    ///
+    /// If the `StreamDecoder` consumes bytes but returns `None` (NeedMoreData), it means it successfully
+    /// decoded a message (e.g., Schema) but needs more data for the *next* message (e.g., RecordBatch).
+    /// In this case, we **must loop again** to try decoding the next message from the *remaining*
+    /// bytes in the accumulator before polling the network, as multiple messages might have been
+    /// delivered in a single chunk.
     async fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
         loop {
             // 1. Try to decode from accumulated buffer
@@ -161,12 +206,13 @@ impl DsmStream {
                         return Ok(Some(batch));
                     }
                     Ok(None) => {
-                        // Need more data, buffer remains in accumulated (or drained if fully consumed?)
-                        // decode() advances buffer. If it returns None, it means "need more data".
-                        // BUT if we consumed *some* bytes but not enough for a full batch?
-                        // decode() updates `buffer`. We must update `accumulated`.
+                        // Need more data
                         let consumed = self.accumulated.len() - buffer.len();
-                        self.accumulated.drain(0..consumed);
+                        if consumed > 0 {
+                            self.accumulated.drain(0..consumed);
+                            // We made progress (e.g. decoded Schema). There might be more data in accumulated.
+                            continue;
+                        }
                     }
                     Err(e) => {
                         return Err(datafusion::common::DataFusionError::Internal(format!(
@@ -191,11 +237,20 @@ impl DsmStream {
                 }
                 Ok(None) => {
                     // EOS
-                    self.decoder.finish().map_err(|e| {
-                        datafusion::common::DataFusionError::Internal(format!(
-                            "StreamDecoder finish error: {e}"
-                        ))
-                    })?;
+                    if let Err(e) = self.decoder.finish() {
+                        if self.accumulated.is_empty() {
+                            pgrx::warning!(
+                                "StreamDecoder finish error for S{} (ignored as buffer empty): {}",
+                                self.stream_id,
+                                e
+                            );
+                        } else {
+                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                "StreamDecoder finish error for S{}: {}",
+                                self.stream_id, e
+                            )));
+                        }
+                    }
                     self.finished = true;
                     return Ok(None);
                 }
@@ -299,7 +354,6 @@ mod tests {
                 0,
             )));
             let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
-                total_participants: 1,
                 mux_writers: vec![writer_mux.clone()],
                 mux_readers: vec![reader_mux.clone()],
                 bridge,
@@ -309,10 +363,8 @@ mod tests {
             };
             crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
 
-            let mut writer1 =
-                DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, 0, schema.clone());
-            let mut writer2 =
-                DsmSharedMemoryWriter::new(writer_mux.clone(), 2, 0, 0, schema.clone());
+            let mut writer1 = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
+            let mut writer2 = DsmSharedMemoryWriter::new(writer_mux.clone(), 2, 0, schema.clone());
 
             let reader1 = dsm_shared_memory_reader(reader_mux.clone(), 1, 0, schema.clone());
             let reader2 = dsm_shared_memory_reader(reader_mux.clone(), 2, 0, schema.clone());
@@ -375,7 +427,6 @@ mod tests {
                 0,
             )));
             let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
-                total_participants: 1,
                 mux_writers: vec![writer_mux.clone()],
                 mux_readers: vec![reader_mux.clone()],
                 bridge,
@@ -392,7 +443,6 @@ mod tests {
                 writers.push(DsmSharedMemoryWriter::new(
                     writer_mux.clone(),
                     i as u32,
-                    0,
                     0,
                     schema.clone(),
                 ));
@@ -442,6 +492,62 @@ mod tests {
     }
 
     #[pgrx::pg_test]
+    fn test_dsm_empty_stream() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
+            let buffer_size = 1024 * 1024;
+            let mut storage = vec![0u8; size_of::<RingBufferHeader>() + buffer_size];
+            let header = storage.as_mut_ptr() as *mut RingBufferHeader;
+            let data = unsafe { storage.as_mut_ptr().add(size_of::<RingBufferHeader>()) };
+
+            unsafe {
+                RingBufferHeader::init(header, 0);
+            }
+
+            let bridge = SignalBridge::new_dummy();
+
+            let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
+                header,
+                data,
+                buffer_size,
+                bridge.clone(),
+                0,
+            )));
+            let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
+                header,
+                data,
+                buffer_size,
+                bridge.clone(),
+                0,
+            )));
+            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+                mux_writers: vec![writer_mux.clone()],
+                mux_readers: vec![reader_mux.clone()],
+                bridge,
+                registry: Mutex::new(
+                    crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
+                ),
+            };
+            crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
+
+            let writer = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
+            let reader = dsm_shared_memory_reader(reader_mux.clone(), 1, 0, schema.clone());
+
+            // Write NOTHING, just finish
+            writer.finish().unwrap();
+            writer_mux.lock().finish().unwrap();
+
+            let batches = reader.collect::<Vec<_>>().await;
+            assert_eq!(batches.len(), 0);
+        });
+    }
+
+    #[pgrx::pg_test]
     fn test_dsm_batch_too_large() {
         let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         let batch = RecordBatch::try_new(
@@ -467,7 +573,7 @@ mod tests {
             bridge,
             0,
         )));
-        let mut writer = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, 0, schema.clone());
+        let mut writer = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
 
         let result = writer.write_batch(&batch);
         assert!(result.is_err());

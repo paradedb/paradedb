@@ -5107,6 +5107,8 @@ dependencies = [
  "pgrx-tests",
  "postcard",
  "proptest",
+ "prost",
+ "prost-derive",
  "rand 0.9.2",
  "regex",
  "rstest",

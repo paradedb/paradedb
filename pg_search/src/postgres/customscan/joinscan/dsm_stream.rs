@@ -441,6 +441,15 @@ pub struct MultiplexedDsmWriter {
 unsafe impl Send for MultiplexedDsmWriter {}
 unsafe impl Sync for MultiplexedDsmWriter {}
 
+impl std::fmt::Debug for MultiplexedDsmWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiplexedDsmWriter")
+            .field("remote_index", &self.remote_index)
+            .field("cancelled_streams", &self.cancelled_streams)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Control messages sent from Reader to Writer.
 ///
 /// This forms the "RPC Protocol" of the distributed execution.
@@ -536,7 +545,7 @@ impl MultiplexedDsmWriter {
                                         self.cancelled_streams.insert(stream_id);
                                     }
                                     _ => {
-                                        pgrx::warning!("Unknown control message type: {}", msg_type)
+                                        panic!("Unknown control message type: {}", msg_type);
                                     }
                                 }
                             }
@@ -596,7 +605,9 @@ impl MultiplexedDsmWriter {
         self.adapter.write_all(payload)?;
 
         // Signal the remote reader
-        let _ = self.bridge.signal(self.remote_index);
+        if let Err(e) = self.bridge.signal(self.remote_index) {
+            pgrx::warning!("Signal error to remote {}: {}", self.remote_index, e);
+        }
         Ok(())
     }
 
@@ -619,9 +630,12 @@ impl MultiplexedDsmWriter {
         self.adapter.write_all(&stream_id.to_le_bytes())?;
         self.adapter.write_all(&len.to_le_bytes())?;
         // No payload
+
+        let _ = self.bridge.signal(self.remote_index);
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn finish(&mut self) -> std::io::Result<()> {
         unsafe {
             if (*self.adapter.header).magic != DSM_MAGIC {
@@ -650,10 +664,6 @@ impl DsmStreamWriterAdapter {
             stream_id,
             buffer: Vec::new(),
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
     }
 
     pub fn close_stream(&self) -> std::io::Result<()> {
@@ -797,6 +807,15 @@ pub struct MultiplexedDsmReader {
 
 unsafe impl Send for MultiplexedDsmReader {}
 unsafe impl Sync for MultiplexedDsmReader {}
+
+impl std::fmt::Debug for MultiplexedDsmReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MultiplexedDsmReader")
+            .field("remote_index", &self.remote_index)
+            .field("active_streams", &self.streams.len())
+            .finish_non_exhaustive()
+    }
+}
 
 impl MultiplexedDsmReader {
     /// Creates a new multiplexed reader.
@@ -979,12 +998,7 @@ mod tests {
     use std::sync::Arc;
 
     fn create_dummy_bridge() -> Arc<SignalBridge> {
-        Arc::new(SignalBridge {
-            participant_index: 0,
-            session_id: uuid::Uuid::new_v4(),
-            outgoing: Mutex::new(HashMap::new()),
-            wakers: Arc::new(Mutex::new(Vec::new())),
-        })
+        SignalBridge::new_dummy()
     }
 
     // Helper to create a dummy header and data buffer
@@ -1273,7 +1287,7 @@ mod tests {
     use crate::parallel_worker::mqueue::MessageQueueSender;
     use crate::parallel_worker::{
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-        WorkerStyle,
+        ParallelWorkerNumber, WorkerStyle,
     };
     use crate::postgres::locks::Spinlock;
     use std::task::Poll;
@@ -1363,7 +1377,10 @@ mod tests {
     }
 
     impl ParallelWorker for DsmStreamTestWorker<'_> {
-        fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+        fn new_parallel_worker(
+            state_manager: ParallelStateManager,
+            _worker_number: ParallelWorkerNumber,
+        ) -> Self {
             let state = state_manager
                 .object::<DsmStreamTestState>(0)
                 .unwrap()
@@ -1393,8 +1410,12 @@ mod tests {
             }
         }
 
-        fn run(self, _mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
-            let participant_index = (worker_number + 1) as usize; // Leader is 0
+        fn run(
+            self,
+            _mq_sender: &MessageQueueSender,
+            worker_number: ParallelWorkerNumber,
+        ) -> anyhow::Result<()> {
+            let participant_index = worker_number.to_participant_index(true); // Leader is 0
 
             // Signal readiness
             let current = self.state.launched_workers();

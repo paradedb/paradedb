@@ -527,32 +527,60 @@ impl RecordBatchStream for EmptyStream {
 /// When the index is sorted (with `sort_by`), each partition produces sorted output,
 /// which can then be merged using `SortPreservingMergeExec`.
 pub struct MultiSegmentPlan {
+    /// Information about the scan (table, index, query, etc.)
+    pub scan_info: crate::scan::info::ScanInfo,
+    /// Fast fields to extract
+    pub fields: Vec<crate::index::fast_fields_helper::WhichFastField>,
+    /// The partitioning DataFusion expects from this leaf scan.
+    pub target_partitioning: Partitioning,
     /// Segments to scan, indexed by partition.
     /// Wrapped in Mutex for interior mutability during execute (to take ownership).
     /// Wrapped in UnsafeSendSync because ScanState is !Send/!Sync.
-    states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
-    properties: PlanProperties,
-    query_for_display: SearchQueryInput,
+    pub states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
+    pub properties: PlanProperties,
+    pub query_for_display: SearchQueryInput,
     /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
     /// from SortExec, join-key bounds from HashJoinExec).
-    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    pub dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
 }
 
 impl std::fmt::Debug for MultiSegmentPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiSegmentPlan")
+            .field("scan_info", &self.scan_info)
+            .field("target_partitioning", &self.target_partitioning)
             .field("properties", &self.properties)
             .finish()
     }
 }
 
 impl MultiSegmentPlan {
+    pub fn new_with_info(
+        states: Vec<ScanState>,
+        schema: SchemaRef,
+        query_for_display: SearchQueryInput,
+        sort_order: Option<&SortByField>,
+        scan_info: crate::scan::info::ScanInfo,
+        fields: Vec<crate::index::fast_fields_helper::WhichFastField>,
+    ) -> Self {
+        Self::new_with_partitioning(
+            states,
+            schema,
+            query_for_display,
+            sort_order,
+            None,
+            scan_info,
+            fields,
+        )
+    }
     pub fn new_with_partitioning(
         states: Vec<ScanState>,
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
         partitioning: Option<Partitioning>,
+        scan_info: crate::scan::info::ScanInfo,
+        fields: Vec<crate::index::fast_fields_helper::WhichFastField>,
     ) -> Self {
         let actual_partitioning =
             partitioning.unwrap_or_else(|| Partitioning::UnknownPartitioning(states.len().max(1)));
@@ -561,7 +589,7 @@ impl MultiSegmentPlan {
 
         let properties = PlanProperties::new(
             eq_properties,
-            actual_partitioning,
+            actual_partitioning.clone(),
             EmissionType::Incremental,
             Boundedness::Bounded,
         );
@@ -572,6 +600,9 @@ impl MultiSegmentPlan {
             .collect();
 
         Self {
+            scan_info,
+            fields,
+            target_partitioning: actual_partitioning,
             states: Mutex::new(wrapped_states),
             properties,
             query_for_display,
@@ -812,6 +843,9 @@ impl ExecutionPlan for MultiSegmentPlan {
 
             // Wait, we need to reconstruct MultiSegmentPlan with existing properties but new filters.
             let new_plan = Arc::new(MultiSegmentPlan {
+                scan_info: self.scan_info.clone(),
+                fields: self.fields.clone(),
+                target_partitioning: self.target_partitioning.clone(),
                 states: Mutex::new(states),
                 properties: self.properties.clone(),
                 query_for_display: self.query_for_display.clone(),
@@ -846,8 +880,24 @@ impl RecordBatchStream for SelectAllStream {
         self.schema.clone()
     }
 }
-// Builder for creating sorted scans with SortPreservingMergeExec
-// ============================================================================
+
+/// Internal version of create_sorted_scan that doesn't require scan_info.
+/// This is used for internal single-table scans where physical serialization is not required.
+pub fn create_sorted_scan_internal(
+    states: Vec<ScanState>,
+    schema: SchemaRef,
+    query_for_display: SearchQueryInput,
+    sort_order: &SortByField,
+) -> Result<Arc<dyn ExecutionPlan>> {
+    create_sorted_scan(
+        states,
+        schema,
+        query_for_display,
+        sort_order,
+        crate::scan::info::ScanInfo::default(),
+        Vec::new(),
+    )
+}
 
 /// Creates a sorted scan plan with `SortPreservingMergeExec` to merge sorted segments.
 ///
@@ -862,6 +912,8 @@ pub fn create_sorted_scan(
     schema: SchemaRef,
     query_for_display: SearchQueryInput,
     sort_order: &SortByField,
+    scan_info: crate::scan::info::ScanInfo,
+    fields: Vec<crate::index::fast_fields_helper::WhichFastField>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     // Validate that the sort field exists in the schema
     let field_name = sort_order.field_name.as_ref();
@@ -877,11 +929,13 @@ pub fn create_sorted_scan(
     };
 
     let segment_count = states.len();
-    let segment_scan = Arc::new(PgSearchScanPlan::new(
+    let segment_scan = Arc::new(MultiSegmentPlan::new_with_info(
         states,
         schema.clone(),
         query_for_display,
         Some(sort_order),
+        scan_info,
+        fields,
     ));
 
     // For a single segment, no merging is needed

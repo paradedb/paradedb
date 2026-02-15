@@ -17,7 +17,15 @@
 
 use std::sync::Arc;
 
-use crate::postgres::customscan::joinscan::exchange::{DsmReaderExec, DsmWriterExec};
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::joinscan::exchange::{
+    get_mpp_config, register_stream_source, DsmExchangeConfig, DsmReaderExec, DsmWriterExec,
+    StreamSource,
+};
+use crate::query::SearchQueryInput;
+use crate::scan::execution_plan::MultiSegmentPlan;
+use crate::scan::info::ScanInfo;
+use crate::scan::table_provider::MppParticipantConfig;
 use arrow_schema::SchemaRef;
 use datafusion::catalog::TableProvider;
 use datafusion::common::TableReference;
@@ -30,11 +38,27 @@ use serde::{Deserialize, Serialize};
 
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
+use datafusion_proto::physical_plan::from_proto::parse_protobuf_partitioning;
+use datafusion_proto::physical_plan::to_proto::serialize_partitioning;
+use datafusion_proto::protobuf;
+use prost::Message;
 
 #[derive(Serialize, Deserialize)]
 enum PhysicalNode {
-    DsmReader,
-    DsmWriter,
+    DsmReader {
+        config: DsmExchangeConfig,
+        partitioning_bytes: Vec<u8>,
+    },
+    DsmWriter {
+        config: DsmExchangeConfig,
+        partitioning_bytes: Vec<u8>,
+    },
+    MultiSegment {
+        scan_info: Box<ScanInfo>,
+        fields: Vec<WhichFastField>,
+        query_for_display: Box<SearchQueryInput>,
+        target_partitioning_bytes: Vec<u8>,
+    },
 }
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
@@ -45,48 +69,6 @@ pub struct PgSearchExtensionCodec {}
 
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
-
-impl PhysicalExtensionCodec for PgSearchExtensionCodec {
-    fn try_decode(
-        &self,
-        buf: &[u8],
-        _inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
-        _ctx: &TaskContext,
-    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
-        let node: PhysicalNode = serde_json::from_slice(buf).map_err(|e| {
-            DataFusionError::Internal(format!("Failed to deserialize PhysicalNode: {e}"))
-        })?;
-
-        match node {
-            PhysicalNode::DsmReader => Err(DataFusionError::NotImplemented(
-                "DsmReader decoding".to_string(),
-            )),
-            PhysicalNode::DsmWriter => Err(DataFusionError::NotImplemented(
-                "DsmWriter decoding".to_string(),
-            )),
-        }
-    }
-
-    fn try_encode(
-        &self,
-        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-        _buf: &mut Vec<u8>,
-    ) -> Result<()> {
-        if node.as_any().is::<DsmReaderExec>() {
-            Err(DataFusionError::NotImplemented(
-                "DsmReader encoding".to_string(),
-            ))
-        } else if node.as_any().is::<DsmWriterExec>() {
-            Err(DataFusionError::NotImplemented(
-                "DsmWriter encoding".to_string(),
-            ))
-        } else {
-            Err(DataFusionError::Internal(
-                "Unknown physical node".to_string(),
-            ))
-        }
-    }
-}
 
 /// Generated code for `try_decode_udf` for a list of UDF types.
 macro_rules! decode_udfs {
@@ -148,6 +130,236 @@ macro_rules! encode_udfs {
             }
         }
     };
+}
+
+impl PhysicalExtensionCodec for PgSearchExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        ctx: &TaskContext,
+    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        let node: PhysicalNode = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize PhysicalNode: {e}"))
+        })?;
+
+        match node {
+            PhysicalNode::DsmReader {
+                config,
+                partitioning_bytes,
+            } => {
+                let proto =
+                    protobuf::Partitioning::decode(&partitioning_bytes[..]).map_err(|e| {
+                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
+                    })?;
+                let schema = inputs[0].schema();
+                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
+                    .ok_or_else(|| {
+                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                })?;
+                Ok(Arc::new(DsmReaderExec::try_new(
+                    inputs[0].clone(),
+                    config,
+                    partitioning,
+                )?))
+            }
+            PhysicalNode::DsmWriter {
+                config,
+                partitioning_bytes,
+            } => {
+                let proto =
+                    protobuf::Partitioning::decode(&partitioning_bytes[..]).map_err(|e| {
+                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
+                    })?;
+                let schema = inputs[0].schema();
+                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
+                    .ok_or_else(|| {
+                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                })?;
+
+                let writer = Arc::new(DsmWriterExec::try_new(
+                    inputs[0].clone(),
+                    partitioning.clone(),
+                    config.clone(),
+                )?);
+
+                // Register this writer as a procedure available on this node
+                let (participant_index, _) = get_mpp_config(ctx);
+                register_stream_source(
+                    StreamSource {
+                        input: inputs[0].clone(),
+                        partitioning,
+                        config,
+                    },
+                    participant_index,
+                );
+
+                Ok(writer)
+            }
+            PhysicalNode::MultiSegment {
+                scan_info,
+                fields,
+                query_for_display,
+                target_partitioning_bytes,
+            } => {
+                let schema = Arc::new(arrow_schema::Schema::new(
+                    fields
+                        .iter()
+                        .map(|f| arrow_schema::Field::new(f.name(), f.arrow_data_type(), true))
+                        .collect::<Vec<_>>(),
+                ));
+
+                let proto = protobuf::Partitioning::decode(&target_partitioning_bytes[..])
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
+                    })?;
+                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
+                    .ok_or_else(|| {
+                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                })?;
+
+                // Reconstruct MultiSegmentPlan by opening segments on this worker
+                let mpp_config = ctx
+                    .session_config()
+                    .options()
+                    .extensions
+                    .get::<MppParticipantConfig>();
+                let participant_index = mpp_config.as_ref().map(|c| c.index).unwrap_or(0);
+                let total_participants = mpp_config
+                    .as_ref()
+                    .map(|c| c.total_participants)
+                    .unwrap_or(1);
+
+                let heaprelid = scan_info
+                    .heaprelid
+                    .ok_or_else(|| DataFusionError::Internal("Missing heaprelid".into()))?;
+                let index_relid = scan_info
+                    .indexrelid
+                    .ok_or_else(|| DataFusionError::Internal("Missing indexrelid".into()))?;
+
+                let heap_rel = crate::postgres::rel::PgSearchRelation::open(heaprelid);
+                let index_rel = crate::postgres::rel::PgSearchRelation::open(index_relid);
+
+                let reader = crate::index::reader::index::SearchIndexReader::open_with_context(
+                    &index_rel,
+                    scan_info.query.clone().unwrap_or(SearchQueryInput::All),
+                    scan_info.score_needed,
+                    crate::index::mvcc::MvccSatisfies::Snapshot,
+                    None,
+                    None,
+                )
+                .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
+
+                let ffhelper =
+                    crate::index::fast_fields_helper::FFHelper::with_fields(&reader, &fields);
+                let snapshot = unsafe { pgrx::pg_sys::GetActiveSnapshot() };
+                let visibility = crate::postgres::heap::VisibilityChecker::with_rel_and_snap(
+                    &heap_rel, snapshot,
+                );
+                let sort_order = scan_info.sort_order.clone();
+
+                let ffhelper = Arc::new(ffhelper);
+                let segment_readers = reader.segment_readers();
+                let segments: Vec<crate::scan::execution_plan::ScanState> = segment_readers
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| {
+                        if total_participants > 1 {
+                            let (start, length) = crate::parallel_worker::chunk_range(
+                                segment_readers.len(),
+                                total_participants,
+                                participant_index,
+                            );
+                            *i >= start && *i < start + length
+                        } else {
+                            true
+                        }
+                    })
+                    .map(|(_, r)| {
+                        let search_results =
+                            reader.search_segments(std::iter::once(r.segment_id()));
+                        let scanner = crate::scan::Scanner::new(
+                            search_results,
+                            None,
+                            fields.clone(),
+                            heaprelid.into(),
+                        );
+                        (
+                            scanner,
+                            Arc::clone(&ffhelper),
+                            Box::new(visibility.clone()) as Box<dyn crate::scan::VisibilityChecker>,
+                        )
+                    })
+                    .collect();
+
+                Ok(Arc::new(MultiSegmentPlan::new_with_partitioning(
+                    segments,
+                    schema,
+                    *query_for_display,
+                    sort_order.as_ref(),
+                    Some(partitioning),
+                    *scan_info,
+                    fields,
+                )))
+            }
+        }
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        if let Some(reader) = node.as_any().downcast_ref::<DsmReaderExec>() {
+            let partitioning = reader.properties.output_partitioning();
+            let proto = serialize_partitioning(partitioning, self)?;
+            let physical_node = PhysicalNode::DsmReader {
+                config: reader.config.clone(),
+                partitioning_bytes: proto.encode_to_vec(),
+            };
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmReaderExec: {e}"))
+            })?;
+            Ok(())
+        } else if let Some(writer) = node.as_any().downcast_ref::<DsmWriterExec>() {
+            let partitioning = writer.partitioning.clone();
+            let proto = serialize_partitioning(&partitioning, self)?;
+            let physical_node = PhysicalNode::DsmWriter {
+                config: writer.config.clone(),
+                partitioning_bytes: proto.encode_to_vec(),
+            };
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmWriterExec: {e}"))
+            })?;
+            Ok(())
+        } else if let Some(ms) = node.as_any().downcast_ref::<MultiSegmentPlan>() {
+            let partitioning = &ms.target_partitioning;
+            let proto = serialize_partitioning(partitioning, self)?;
+            let physical_node = PhysicalNode::MultiSegment {
+                scan_info: Box::new(ms.scan_info.clone()),
+                fields: ms.fields.clone(),
+                query_for_display: Box::new(ms.query_for_display.clone()),
+                target_partitioning_bytes: proto.encode_to_vec(),
+            };
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize MultiSegmentPlan: {e}"))
+            })?;
+            Ok(())
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "Unknown physical node: {}",
+                node.name()
+            )))
+        }
+    }
+
+    decode_udfs! {
+        "pdb_search_predicate" => SearchPredicateUDF,
+    }
+
+    encode_udfs! {
+        "pdb_search_predicate" => SearchPredicateUDF,
+    }
 }
 
 impl LogicalExtensionCodec for PgSearchExtensionCodec {

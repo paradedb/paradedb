@@ -26,7 +26,9 @@ use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
-use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::parallel_worker::{
+    ParallelProcess, ParallelState, ParallelStateType, ParallelWorker, ParallelWorkerNumber,
+};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::Spinlock;
@@ -197,12 +199,12 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
     }
 
-    fn checkout_segments(&mut self, worker_number: i32) -> HashSet<SegmentId> {
+    fn checkout_segments(&mut self, participant_index: usize) -> HashSet<SegmentId> {
         let nworkers = self.state.launched_workers();
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = HashSet::default();
-        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
+        let (_, many_segments) = chunk_range(nsegments, nworkers, participant_index);
         while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
 
@@ -232,7 +234,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         expr_context: Option<*mut pg_sys::ExprContext>,
         planstate: Option<*mut pg_sys::PlanState>,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
-        let segment_ids = self.checkout_segments(worker_style.worker_number());
+        let segment_ids = self.checkout_segments(worker_style.participant_index());
         if segment_ids.is_empty() {
             return Ok(None);
         }
@@ -309,7 +311,10 @@ impl<'a> ParallelAggregationWorker<'a> {
 }
 
 impl ParallelWorker for ParallelAggregationWorker<'_> {
-    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+    fn new_parallel_worker(
+        state_manager: ParallelStateManager,
+        _worker_number: ParallelWorkerNumber,
+    ) -> Self {
         let state = state_manager
             .object::<State>(0)
             .expect("wrong type for state")
@@ -349,7 +354,11 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
         }
     }
 
-    fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+    fn run(
+        mut self,
+        mq_sender: &MessageQueueSender,
+        worker_number: ParallelWorkerNumber,
+    ) -> anyhow::Result<()> {
         // wait for all workers to launch
         while self.state.launched_workers() == 0 {
             check_for_interrupts!();
@@ -450,8 +459,10 @@ pub fn execute_aggregate(
             // leader participation
             let mut agg_results = Vec::with_capacity(nlaunched);
             if pg_sys::parallel_leader_participation {
-                let mut worker =
-                    ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
+                let mut worker = ParallelAggregationWorker::new_parallel_worker(
+                    *process.state_manager(),
+                    ParallelWorkerNumber(-1),
+                );
                 if let Some(result) = worker.execute_aggregate(
                     QueryWorkerStyle::ParallelLeader,
                     Some(expr_context),

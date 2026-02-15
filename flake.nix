@@ -95,8 +95,16 @@
               ]);
           };
 
-          # Replace with the correct hash after the first build attempt
-          cargoHash = lib.fakeHash;
+          # Use Cargo.lock directly — no vendored hash to maintain.
+          # Only the git dependency outputHashes need updating when their revs change.
+          # To get correct hashes, run: nix-prefetch-git <url> --rev <rev> | jq -r .hash
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "tantivy-0.26.0" = lib.fakeHash;
+              "tantivy-fst-0.5.0" = lib.fakeHash;
+            };
+          };
 
           inherit postgresql;
 

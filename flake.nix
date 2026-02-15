@@ -149,6 +149,7 @@
             pg15 = pkgs.postgresql_15;
             pg16 = pkgs.postgresql_16;
             pg17 = pkgs.postgresql_17;
+            pg18 = pkgs.postgresql_18;
           };
           mkForPg =
             pg:
@@ -161,7 +162,8 @@
           "pg_search-pg15" = mkForPg pgVersions.pg15;
           "pg_search-pg16" = mkForPg pgVersions.pg16;
           "pg_search-pg17" = mkForPg pgVersions.pg17;
-          default = mkForPg pgVersions.pg17;
+          "pg_search-pg18" = mkForPg pgVersions.pg18;
+          default = mkForPg pgVersions.pg18;
         }
       );
     };

@@ -244,3 +244,12 @@ COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 # on the PostgreSQL data directory. To maintain compatibility with the upstream image and
 # ensure that the `postgres` user has the correct permissions on the data directory, we let
 # the upstream `entrypoint.sh` script run as the entrypoint and don't specify a custom user.
+
+COPY ./docker/tune-postgresql.sh /usr/local/bin/tune-postgresql.sh
+COPY ./docker/entrypoint-wrapper.sh /usr/local/bin/entrypoint-wrapper.sh
+
+RUN chmod +x /usr/local/bin/tune-postgresql.sh /usr/local/bin/entrypoint-wrapper.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-wrapper.sh"]
+
+CMD ["postgres"]

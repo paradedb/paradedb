@@ -24,6 +24,7 @@ mod tests {
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
         ParallelWorkerNumber, WorkerStyle,
     };
+    use crate::postgres::customscan::joinscan::dsm_stream::LogicalStreamId;
     use crate::postgres::customscan::joinscan::dsm_transfer::{
         MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
     };
@@ -384,7 +385,7 @@ mod tests {
             // Exchange: Gather to node 0.
             let partitioning = Partitioning::UnknownPartitioning(total_participants);
             let config = DsmExchangeConfig {
-                stream_id: 0,
+                stream_id: LogicalStreamId(0),
                 total_participants,
                 mode: ExchangeMode::Gather,
             };
@@ -561,7 +562,7 @@ mod tests {
 
         let partitioning = Partitioning::UnknownPartitioning(total_participants);
         let config = DsmExchangeConfig {
-            stream_id: 0,
+            stream_id: LogicalStreamId(0),
             total_participants,
             mode: ExchangeMode::Gather,
         };

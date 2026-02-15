@@ -29,36 +29,6 @@ This is a **busy loop** (spin wait). While `yield_now()` prevents the task from 
 _Short-term:_ This is acceptable for a first iteration given the complexity of adding waker support to the shared memory ring buffer (which requires cross-process waker signalling).
 _Long-term:_ Implement a "Space Available" signal. The Reader could signal the Writer (via `SocketBridge`) when it advances `read_pos`. The Writer could wait on `SocketBridge` notifications instead of spinning.
 
-### 2. DsmStream Drop & Cancellation
-
-**Observation:**
-`DsmStream::drop` attempts to send a `CancelStream` message.
-
-```rust
-impl Drop for DsmStream {
-    fn drop(&mut self) {
-        // ...
-        let _ = self.multiplexer.lock().cancel_stream(self.stream_id);
-    }
-}
-```
-
-**Risk:**
-If the `DsmStream` is dropped during a panic or runtime shutdown, `cancel_stream` might fail or block if the control channel is full.
-**Verification:**
-You increased the control buffer size to 64KB (`dsm_stream.rs`, `exchange.rs`). This significantly reduces the risk of blocking during teardown.
-**Recommendation:**
-Ensure `cancel_stream` is non-blocking and handles full buffers gracefully (e.g., by logging a warning and giving up, rather than panicking or blocking). currently `send_control_message` returns `WouldBlock` if full, which is good.
-
-### 3. Protocol Mismatch Check
-
-**Observation:**
-I verified that `dsm_transfer.rs` constructs the `StartStream` payload using the Physical ID formula:
-`let physical_stream_id = (logical_stream_id << 16) | ((sender_index as u32) & 0xFFFF);`
-This matches the expectation in `exchange.rs`.
-**Status:**
-Correct.
-
 ### 4. macOS Socket Path Safety (New)
 
 **Observation:**

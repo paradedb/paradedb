@@ -71,13 +71,13 @@ pub struct StreamSource {
 #[derive(Default)]
 pub struct StreamRegistry {
     /// Maps Physical Stream ID -> The execution parameters.
-    sources: HashMap<u32, StreamSource>,
+    sources: HashMap<PhysicalStreamId, StreamSource>,
     /// Maps Physical Stream ID -> The handle of the running task (to prevent duplicate spawning).
-    running_tasks: HashMap<u32, JoinHandle<()>>,
+    running_tasks: HashMap<PhysicalStreamId, JoinHandle<()>>,
     /// Maps Physical Stream ID -> Abort handle for the task.
-    abort_handles: HashMap<u32, tokio::task::AbortHandle>,
+    abort_handles: HashMap<PhysicalStreamId, tokio::task::AbortHandle>,
     /// Maps Physical Stream ID -> A completion signal (for local waiting).
-    completions: HashMap<u32, watch::Sender<bool>>,
+    completions: HashMap<PhysicalStreamId, watch::Sender<bool>>,
 }
 
 /// A registry for process-local DSM communication channels.
@@ -102,7 +102,7 @@ pub fn register_stream_source(source: StreamSource, participant_index: usize) {
     if let Some(mesh) = guard.as_mut() {
         // Calculate physical ID: (Logical << 16) | Sender (us)
         // participant_index is "us" (the sender).
-        let physical_id = (source.config.stream_id << 16) | ((participant_index as u32) & 0xFFFF);
+        let physical_id = PhysicalStreamId::new(source.config.stream_id, participant_index);
 
         let mut registry = mesh.registry.lock();
         registry.sources.insert(physical_id, source);
@@ -118,7 +118,7 @@ impl Drop for SignalOnDrop {
     }
 }
 
-pub fn trigger_stream(physical_stream_id: u32, context: Arc<TaskContext>) {
+pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskContext>) {
     let mut guard = DSM_MESH.lock();
     let mesh = guard.as_mut().expect("DSM mesh not registered");
     let mut registry = mesh.registry.lock();
@@ -156,7 +156,7 @@ pub fn trigger_stream(physical_stream_id: u32, context: Arc<TaskContext>) {
     }
 }
 
-pub fn cancel_triggered_stream(physical_stream_id: u32) {
+pub fn cancel_triggered_stream(physical_stream_id: PhysicalStreamId) {
     let mut guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_mut() {
         let mut registry = mesh.registry.lock();
@@ -168,6 +168,7 @@ pub fn cancel_triggered_stream(physical_stream_id: u32) {
 }
 
 use crate::postgres::customscan::joinscan::dsm_stream::ControlMessage;
+use crate::postgres::customscan::joinscan::dsm_stream::{LogicalStreamId, PhysicalStreamId};
 use tokio::task::LocalSet;
 
 /// Spawns the background Control Service.
@@ -231,7 +232,7 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
 
 pub fn get_dsm_writer(
     participant: usize,
-    stream_id: u32,
+    stream_id: LogicalStreamId,
     sender_index: usize,
     schema: SchemaRef,
 ) -> Option<DsmSharedMemoryWriter> {
@@ -251,7 +252,7 @@ pub fn get_dsm_writer(
 
 pub fn get_dsm_reader(
     participant: usize,
-    stream_id: u32,
+    stream_id: LogicalStreamId,
     sender_index: usize,
     schema: SchemaRef,
 ) -> Option<SendableRecordBatchStream> {
@@ -281,11 +282,11 @@ impl EnforceDsmShuffle {
         &self,
         input: Arc<dyn ExecutionPlan>,
         partitioning: Partitioning,
-        stream_id: u32,
+        stream_id: u16,
         mode: ExchangeMode,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let config = DsmExchangeConfig {
-            stream_id,
+            stream_id: LogicalStreamId(stream_id),
             total_participants: self.total_participants,
             mode,
         };
@@ -315,13 +316,13 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let mut stream_id_counter = 0;
+        let mut stream_id_counter: u16 = 0;
 
         // Use a recursive function to wrap nodes top-down.
         fn wrap_node(
             node: Arc<dyn ExecutionPlan>,
             rule: &EnforceDsmShuffle,
-            counter: &mut u32,
+            counter: &mut u16,
         ) -> Result<Arc<dyn ExecutionPlan>> {
             // First, recursively optimize children.
             let children: Vec<_> = node
@@ -350,7 +351,11 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
                     };
 
                 let stream_id = *counter;
-                *counter += 1;
+                *counter = counter.checked_add(1).ok_or_else(|| {
+                    datafusion::common::DataFusionError::Internal(
+                        "Too many shuffle stages (max 65535)".to_string(),
+                    )
+                })?;
 
                 let input = repartition.children()[0].clone();
                 rule.wrap_in_dsm_exchange(input, reader_partitioning, stream_id, mode)
@@ -361,7 +366,11 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
                 {
                     let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
                     let stream_id = *counter;
-                    *counter += 1;
+                    *counter = counter.checked_add(1).ok_or_else(|| {
+                        datafusion::common::DataFusionError::Internal(
+                            "Too many shuffle stages (max 65535)".to_string(),
+                        )
+                    })?;
 
                     let reader = rule.wrap_in_dsm_exchange(
                         input,
@@ -381,7 +390,11 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
                 {
                     let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
                     let stream_id = *counter;
-                    *counter += 1;
+                    *counter = counter.checked_add(1).ok_or_else(|| {
+                        datafusion::common::DataFusionError::Internal(
+                            "Too many shuffle stages (max 65535)".to_string(),
+                        )
+                    })?;
 
                     let reader = rule.wrap_in_dsm_exchange(
                         input,
@@ -439,7 +452,7 @@ pub enum ExchangeMode {
 /// are configured identically for a given logical stream.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DsmExchangeConfig {
-    pub stream_id: u32,
+    pub stream_id: LogicalStreamId,
     pub total_participants: usize,
     pub mode: ExchangeMode,
 }
@@ -799,7 +812,7 @@ impl DsmReaderExec {
                     // We choose to wait when partition == participant_index.
                     if partition == participant_index {
                         let physical_id =
-                            (self.config.stream_id << 16) | (participant_index as u32);
+                            PhysicalStreamId::new(self.config.stream_id, participant_index);
 
                         let rx = {
                             let mut guard = DSM_MESH.lock();

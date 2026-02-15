@@ -12,15 +12,6 @@ The transition to a "Lazy Request" / RPC-style model is a significant improvemen
 
 ## Issues & Recommendations
 
-### 1. StartStream Payload Ambiguity
-
-**Observation:**
-In `dsm_stream.rs`, `ControlMessage::StartStream(u32)` carries a `u32`. In `exchange.rs`, `trigger_stream` uses this ID to look up the source.
-**Verification:**
-I verified in `dsm_transfer.rs` that the Reader constructs this ID as the **Physical Stream ID** (`(logical << 16) | participant_index`). This matches the key used in `StreamRegistry`.
-**Recommendation:**
-Add a comment to `ControlMessage::StartStream` explicitly stating that the payload is the **Physical Stream ID**, not the Logical ID. This avoids future confusion.
-
 ### 2. Private Method Usage in `MultiplexedDsmWriter`
 
 **Observation:**
@@ -28,15 +19,6 @@ The method `check_cancellations` in `MultiplexedDsmWriter` is private and docume
 **Recommendation:**
 As noted in your code comments, you should strictly enforce that **only** the Control Service (via `read_control_messages`) consumes messages. `MultiplexedDsmWriter::write_message` should rely on an external signal (e.g., a shared `AtomicBool` or just the `cancelled_streams` set updated publicly) rather than trying to peek/read the stream itself.
 _Action:_ Remove `check_cancellations` calls from `write_message` and `close_stream`. Let the Control Service handle all message consumption and update the writer's state.
-
-### 3. SocketBridge Task Leak (Minor)
-
-**Observation:**
-`SocketBridge::spawn_acceptor` spawns a loop that accepts connections. Inside, it spawns a task for each connection. If a peer connects but never sends data (and doesn't close), that task hangs in `stream.read()`.
-**Impact:**
-Low. The number of connections is bounded by `total_participants` (which is small).
-**Recommendation:**
-Consider adding a keep-alive or timeout, but strictly speaking, it's not critical for the query lifecycle as these tasks are bound to the `Runtime` which is dropped at the end of the query.
 
 ### 4. `StreamRegistry` Cleanup
 

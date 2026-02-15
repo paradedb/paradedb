@@ -429,7 +429,7 @@ impl std::io::Write for DsmWriteAdapter {
 pub struct MultiplexedDsmWriter {
     adapter: DsmWriteAdapter,
     /// Set of stream IDs that have been cancelled by the reader.
-    cancelled_streams: std::collections::HashSet<u32>,
+    cancelled_streams: std::collections::HashSet<PhysicalStreamId>,
     /// Reader for the control channel (reverse direction).
     control_reader: Option<DsmReadAdapter>,
     /// Bridge for signaling the remote reader.
@@ -450,6 +450,55 @@ impl std::fmt::Debug for MultiplexedDsmWriter {
     }
 }
 
+/// A unique identifier for a physical stream (Logical Stream + Sender).
+///
+/// This ID is used to multiplex multiple logical data streams over a single physical
+/// shared memory ring buffer connection between two participants.
+///
+/// The ID is a 32-bit integer packed as follows:
+/// - **High 16 bits**: The `LogicalStreamId` (from the query plan).
+/// - **Low 16 bits**: The Participant Index of the sender.
+///
+/// This packing strategy assumes that there are fewer than 65536 logical streams
+/// and fewer than 65536 participants in a single query execution, which is safe
+/// for PostgreSQL's limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PhysicalStreamId(pub u32);
+
+impl PhysicalStreamId {
+    /// Creates a new `PhysicalStreamId` from a logical stream ID and a sender index.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds, this function panics if:
+    /// - `participant_index` exceeds `u16::MAX` (65535).
+    pub fn new(logical: LogicalStreamId, participant_index: usize) -> Self {
+        debug_assert!(
+            participant_index <= 0xFFFF,
+            "Participant index {} exceeds 16-bit limit",
+            participant_index
+        );
+        Self(((logical.0 as u32) << 16) | ((participant_index as u32) & 0xFFFF))
+    }
+
+    pub fn to_le_bytes(self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
+}
+
+/// A unique identifier for a logical stream in the execution plan.
+///
+/// This ID corresponds to a specific shuffle/exchange operation in the DataFusion plan.
+/// All participants (senders) participating in this exchange will use the same `LogicalStreamId`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct LogicalStreamId(pub u16);
+
+impl std::fmt::Display for LogicalStreamId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// Control messages sent from Reader to Writer.
 ///
 /// This forms the "RPC Protocol" of the distributed execution.
@@ -457,9 +506,9 @@ impl std::fmt::Debug for MultiplexedDsmWriter {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControlMessage {
     /// Request the writer to start producing data for this stream.
-    StartStream(u32),
+    StartStream(PhysicalStreamId),
     /// Request the writer to stop producing data.
-    CancelStream(u32),
+    CancelStream(PhysicalStreamId),
 }
 
 impl MultiplexedDsmWriter {
@@ -537,7 +586,7 @@ impl MultiplexedDsmWriter {
                         let mut payload_buf = [0u8; 4];
                         match reader.read(&mut payload_buf) {
                             Ok(4) => {
-                                let stream_id = u32::from_le_bytes(payload_buf);
+                                let stream_id = PhysicalStreamId(u32::from_le_bytes(payload_buf));
                                 match msg_type {
                                     0 => messages.push(ControlMessage::StartStream(stream_id)),
                                     1 => {
@@ -579,7 +628,11 @@ impl MultiplexedDsmWriter {
     }
 
     /// Writes a framed message to the ring buffer.
-    pub fn write_message(&mut self, stream_id: u32, payload: &[u8]) -> std::io::Result<()> {
+    pub fn write_message(
+        &mut self,
+        stream_id: PhysicalStreamId,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
         // We assume the driver loop has updated cancelled_streams via read_control_messages -> mark_stream_cancelled
         if self.cancelled_streams.contains(&stream_id) {
             return Err(std::io::Error::from(ErrorKind::BrokenPipe));
@@ -612,7 +665,7 @@ impl MultiplexedDsmWriter {
     }
 
     /// Closes a specific stream by sending an empty message (len=0).
-    pub fn close_stream(&mut self, stream_id: u32) -> std::io::Result<()> {
+    pub fn close_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         // If already cancelled, no need to send close
         self.check_cancellations();
         if self.cancelled_streams.contains(&stream_id) {
@@ -653,12 +706,12 @@ impl MultiplexedDsmWriter {
 /// An adapter for a specific logical stream in a multiplexed DSM writer.
 pub struct DsmStreamWriterAdapter {
     multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
-    pub stream_id: u32,
+    pub stream_id: PhysicalStreamId,
     buffer: Vec<u8>,
 }
 
 impl DsmStreamWriterAdapter {
-    pub fn new(multiplexer: Arc<Mutex<MultiplexedDsmWriter>>, stream_id: u32) -> Self {
+    pub fn new(multiplexer: Arc<Mutex<MultiplexedDsmWriter>>, stream_id: PhysicalStreamId) -> Self {
         Self {
             multiplexer,
             stream_id,
@@ -793,10 +846,10 @@ struct StreamState {
 /// A demultiplexer for reading multiple logical streams from a single DSM ring buffer.
 pub struct MultiplexedDsmReader {
     adapter: DsmReadAdapter,
-    streams: HashMap<u32, StreamState>,
+    streams: HashMap<PhysicalStreamId, StreamState>,
     /// State for the current message being read from the physical DSM.
     partial_header: Vec<u8>,
-    partial_payload: Option<(u32, Vec<u8>)>,
+    partial_payload: Option<(PhysicalStreamId, Vec<u8>)>,
     /// Writer for the control channel (Reader -> Writer).
     control_writer: Option<DsmWriteAdapter>,
     /// Bridge for signaling/waiting.
@@ -882,7 +935,10 @@ impl MultiplexedDsmReader {
     /// This handles the demultiplexing of the physical pipe.
     /// Returns `Ok(Some(Vec<u8>))` for a message, `Ok(None)` for End-of-Stream (EOS),
     /// or `ErrorKind::WouldBlock` if no data is available in the physical buffer.
-    pub fn read_for_stream(&mut self, stream_id: u32) -> std::io::Result<Option<Vec<u8>>> {
+    pub fn read_for_stream(
+        &mut self,
+        stream_id: PhysicalStreamId,
+    ) -> std::io::Result<Option<Vec<u8>>> {
         let state = self.streams.entry(stream_id).or_default();
         if let Some(payload) = state.queue.pop_front() {
             if payload.is_empty() {
@@ -905,8 +961,9 @@ impl MultiplexedDsmReader {
                     }
                 }
 
-                let msg_stream_id =
-                    u32::from_le_bytes(self.partial_header[0..4].try_into().unwrap());
+                let msg_stream_id = PhysicalStreamId(u32::from_le_bytes(
+                    self.partial_header[0..4].try_into().unwrap(),
+                ));
                 let msg_len = u32::from_le_bytes(self.partial_header[4..8].try_into().unwrap());
                 self.partial_payload = Some((msg_stream_id, Vec::with_capacity(msg_len as usize)));
                 self.partial_header.clear();
@@ -945,7 +1002,11 @@ impl MultiplexedDsmReader {
         }
     }
 
-    fn send_control_message(&mut self, msg_type: u8, stream_id: u32) -> std::io::Result<()> {
+    fn send_control_message(
+        &mut self,
+        msg_type: u8,
+        stream_id: PhysicalStreamId,
+    ) -> std::io::Result<()> {
         if let Some(writer) = &mut self.control_writer {
             if writer.available_space() < 5 {
                 return Err(std::io::Error::from(ErrorKind::WouldBlock));
@@ -961,12 +1022,12 @@ impl MultiplexedDsmReader {
     }
 
     /// Signals the writer to start producing data for a stream.
-    pub fn start_stream(&mut self, stream_id: u32) -> std::io::Result<()> {
+    pub fn start_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         self.send_control_message(0, stream_id)
     }
 
     /// Cancels a stream by writing its ID to the control channel.
-    pub fn cancel_stream(&mut self, stream_id: u32) -> std::io::Result<()> {
+    pub fn cancel_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         self.send_control_message(1, stream_id)
     }
 
@@ -974,7 +1035,7 @@ impl MultiplexedDsmReader {
     /// with the bridge if data is not yet available.
     pub fn poll_read_for_stream(
         &mut self,
-        stream_id: u32,
+        stream_id: PhysicalStreamId,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<std::io::Result<Option<Vec<u8>>>> {
         // Register waker FIRST to avoid race condition where data arrives
@@ -1051,13 +1112,17 @@ mod tests {
             0,
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
 
         let payload = b"Hello World";
         writer.write_all(payload).unwrap();
         writer.flush().unwrap();
 
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, payload);
     }
 
@@ -1080,8 +1145,8 @@ mod tests {
             0,
         )));
 
-        let mut w1 = DsmStreamWriterAdapter::new(writer_mux.clone(), 1);
-        let mut w2 = DsmStreamWriterAdapter::new(writer_mux.clone(), 2);
+        let mut w1 = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
+        let mut w2 = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(2));
 
         w1.write_all(b"Stream1-A").unwrap();
         w1.flush().unwrap();
@@ -1091,15 +1156,27 @@ mod tests {
         w1.flush().unwrap();
 
         // Read Stream 1
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, b"Stream1-A");
 
         // Read Stream 2
-        let msg = reader_mux.lock().read_for_stream(2).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(2))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, b"Stream2-A");
 
         // Read Stream 1 again
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, b"Stream1-B");
     }
 
@@ -1123,7 +1200,7 @@ mod tests {
             0,
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
 
         // Frame overhead is 8 bytes (4 stream_id + 4 len).
         // Max payload in one message is 32 - 8 = 24 bytes (but limited by available space check logic)
@@ -1134,7 +1211,11 @@ mod tests {
         writer.flush().unwrap();
 
         // Read it back to clear space but advance read_pos
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg.len(), 10);
 
         // Now write enough to wrap around
@@ -1150,7 +1231,11 @@ mod tests {
         writer.write_all(&msg2).unwrap();
         writer.flush().unwrap();
 
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, msg2);
     }
 
@@ -1173,7 +1258,7 @@ mod tests {
             0,
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
 
         // Frame overhead 8 bytes.
         // Write 40 bytes payload. Total 48.
@@ -1191,7 +1276,11 @@ mod tests {
         assert_eq!(res.unwrap_err().kind(), ErrorKind::WouldBlock);
 
         // Read to free up space
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert!(!msg.is_empty());
 
         // Now flush should succeed (retry the write logic effectively)
@@ -1199,7 +1288,11 @@ mod tests {
         // When flush failed, the buffer was not cleared.
         writer.flush().unwrap();
 
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, msg2);
     }
 
@@ -1215,7 +1308,7 @@ mod tests {
             1,
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
 
         let msg = vec![0u8; 200];
         writer.write_all(&msg).unwrap();
@@ -1248,18 +1341,25 @@ mod tests {
             0,
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
 
         writer.write_all(b"data").unwrap();
         writer.flush().unwrap();
 
         writer_mux.lock().finish().unwrap();
 
-        let msg = reader_mux.lock().read_for_stream(1).unwrap().unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap()
+            .unwrap();
         assert_eq!(msg, b"data");
 
         // Next read should see EOF (None) because finished is set
-        let msg = reader_mux.lock().read_for_stream(1).unwrap();
+        let msg = reader_mux
+            .lock()
+            .read_for_stream(PhysicalStreamId(1))
+            .unwrap();
         assert!(msg.is_none());
     }
 
@@ -1446,7 +1546,10 @@ mod tests {
             runtime.block_on(async {
                 loop {
                     let res = futures::future::poll_fn(|cx| {
-                        match reader_mux.lock().poll_read_for_stream(1, cx) {
+                        match reader_mux
+                            .lock()
+                            .poll_read_for_stream(PhysicalStreamId(1), cx)
+                        {
                             Poll::Ready(Ok(Some(vec))) => Poll::Ready(Ok(Some(vec))),
                             Poll::Ready(Ok(None)) => Poll::Ready(Ok(None)),
                             Poll::Pending => Poll::Pending,
@@ -1538,7 +1641,7 @@ mod tests {
             bridge.clone(),
             1, // Remote is worker (1)
         )));
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), 1);
+        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
 
         let msg = vec![1u8; msg_size];
 

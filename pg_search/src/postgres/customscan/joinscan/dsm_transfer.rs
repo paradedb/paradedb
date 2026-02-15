@@ -38,8 +38,8 @@ use parking_lot::Mutex;
 
 // Re-export commonly used types from dsm_stream for convenience in other modules
 pub use crate::postgres::customscan::joinscan::dsm_stream::{
-    DsmStreamWriterAdapter, MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
-    SignalBridge,
+    DsmStreamWriterAdapter, LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter,
+    PhysicalStreamId, RingBufferHeader, SignalBridge,
 };
 
 /// A writer for a single logical stream within a multiplexed DSM region.
@@ -71,14 +71,14 @@ unsafe impl Send for DsmSharedMemoryWriter {}
 impl DsmSharedMemoryWriter {
     pub fn new(
         multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
-        logical_stream_id: u32,
+        logical_stream_id: LogicalStreamId,
         sender_index: usize,
         schema: SchemaRef,
     ) -> Self {
         // Construct a unique Physical Stream ID for this writer/channel pair.
         // We pack the Logical ID (from the plan) and the Sender Index (who is writing)
         // into a single u32. This assumes < 64k streams and < 64k workers, which is safe for Postgres.
-        let physical_stream_id = (logical_stream_id << 16) | ((sender_index as u32) & 0xFFFF);
+        let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_index);
 
         let adapter = DsmStreamWriterAdapter::new(multiplexer, physical_stream_id);
         // This will immediately write the Arrow schema to the ring buffer via the multiplexer.
@@ -153,14 +153,17 @@ impl DsmSharedMemoryWriter {
 
 struct DsmStream {
     multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
-    stream_id: u32,
+    stream_id: PhysicalStreamId,
     finished: bool,
     decoder: StreamDecoder,
     accumulated: Vec<u8>,
 }
 
 impl DsmStream {
-    async fn new(multiplexer: Arc<Mutex<MultiplexedDsmReader>>, stream_id: u32) -> Result<Self> {
+    async fn new(
+        multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
+        stream_id: PhysicalStreamId,
+    ) -> Result<Self> {
         {
             let mut mux = multiplexer.lock();
             // Send StartStream signal to the writer
@@ -241,13 +244,13 @@ impl DsmStream {
                         if self.accumulated.is_empty() {
                             pgrx::warning!(
                                 "StreamDecoder finish error for S{} (ignored as buffer empty): {}",
-                                self.stream_id,
+                                self.stream_id.0,
                                 e
                             );
                         } else {
                             return Err(datafusion::common::DataFusionError::Internal(format!(
                                 "StreamDecoder finish error for S{}: {}",
-                                self.stream_id, e
+                                self.stream_id.0, e
                             )));
                         }
                     }
@@ -264,26 +267,20 @@ impl DsmStream {
     }
 }
 
-impl Drop for DsmStream {
-    fn drop(&mut self) {
-        if self.finished {
-            return;
-        }
-        if std::thread::panicking() {
-            return;
-        }
-
-        let _ = self.multiplexer.lock().cancel_stream(self.stream_id);
+crate::impl_safe_drop!(DsmStream, |self| {
+    if self.finished {
+        return;
     }
-}
+    let _ = self.multiplexer.lock().cancel_stream(self.stream_id);
+});
 
 pub fn dsm_shared_memory_reader(
     multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
-    logical_stream_id: u32,
+    logical_stream_id: LogicalStreamId,
     sender_index: usize,
     schema: SchemaRef,
 ) -> SendableRecordBatchStream {
-    let physical_stream_id = (logical_stream_id << 16) | ((sender_index as u32) & 0xFFFF);
+    let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_index);
 
     let stream = try_stream! {
         let mut dsm_stream = DsmStream::new(multiplexer, physical_stream_id).await?;
@@ -363,11 +360,23 @@ mod tests {
             };
             crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
 
-            let mut writer1 = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
-            let mut writer2 = DsmSharedMemoryWriter::new(writer_mux.clone(), 2, 0, schema.clone());
+            let mut writer1 = DsmSharedMemoryWriter::new(
+                writer_mux.clone(),
+                LogicalStreamId(1),
+                0,
+                schema.clone(),
+            );
+            let mut writer2 = DsmSharedMemoryWriter::new(
+                writer_mux.clone(),
+                LogicalStreamId(2),
+                0,
+                schema.clone(),
+            );
 
-            let reader1 = dsm_shared_memory_reader(reader_mux.clone(), 1, 0, schema.clone());
-            let reader2 = dsm_shared_memory_reader(reader_mux.clone(), 2, 0, schema.clone());
+            let reader1 =
+                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(1), 0, schema.clone());
+            let reader2 =
+                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(2), 0, schema.clone());
 
             // Write synchronously (in this thread context, effectively)
             writer1.write_batch(&batch1).unwrap();
@@ -442,13 +451,13 @@ mod tests {
             for i in 0..num_streams {
                 writers.push(DsmSharedMemoryWriter::new(
                     writer_mux.clone(),
-                    i as u32,
+                    LogicalStreamId(i as u16),
                     0,
                     schema.clone(),
                 ));
                 readers.push(dsm_shared_memory_reader(
                     reader_mux.clone(),
-                    i as u32,
+                    LogicalStreamId(i as u16),
                     0,
                     schema.clone(),
                 ));
@@ -535,8 +544,14 @@ mod tests {
             };
             crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
 
-            let writer = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
-            let reader = dsm_shared_memory_reader(reader_mux.clone(), 1, 0, schema.clone());
+            let writer = DsmSharedMemoryWriter::new(
+                writer_mux.clone(),
+                LogicalStreamId(1),
+                0,
+                schema.clone(),
+            );
+            let reader =
+                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(1), 0, schema.clone());
 
             // Write NOTHING, just finish
             writer.finish().unwrap();
@@ -573,7 +588,8 @@ mod tests {
             bridge,
             0,
         )));
-        let mut writer = DsmSharedMemoryWriter::new(writer_mux.clone(), 1, 0, schema.clone());
+        let mut writer =
+            DsmSharedMemoryWriter::new(writer_mux.clone(), LogicalStreamId(1), 0, schema.clone());
 
         let result = writer.write_batch(&batch);
         assert!(result.is_err());

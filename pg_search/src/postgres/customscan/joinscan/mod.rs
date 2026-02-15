@@ -141,8 +141,6 @@
 
 mod build;
 pub mod dsm_stream;
-#[cfg(any(test, feature = "pg_test"))]
-mod dsm_test;
 mod dsm_transfer;
 pub mod exchange;
 mod explain;
@@ -1099,8 +1097,9 @@ impl CustomScan for JoinScan {
         state.custom_state_mut().result_slot = None;
 
         // Drop the stream and runtime resources FIRST.
-        // This ensures that any `StreamCanceller`s in the stream are dropped while the
-        // parallel process (and its DSM segments) are still valid.
+        // This ensures that `DsmStream`s (which send cancellation signals on Drop)
+        // are dropped while the parallel process infrastructure (DSM, SignalBridge)
+        // is still valid and operational.
         state.custom_state_mut().unified_stream = None;
         state.custom_state_mut().local_set = None;
         state.custom_state_mut().runtime = None;

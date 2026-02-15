@@ -261,7 +261,7 @@ fn build_clause_df<'a>(
         df = df.alias(&alias0)?;
 
         // Maintain a set of RTIs that are currently in 'df' (the left side)
-        let mut left_rtis = std::collections::HashSet::new();
+        let mut left_rtis = crate::api::HashSet::default();
         if let Some(rti) = join_clause.sources[0].scan_info.heap_rti {
             left_rtis.insert(rti);
         }

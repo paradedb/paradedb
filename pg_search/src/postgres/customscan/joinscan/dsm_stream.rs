@@ -27,7 +27,8 @@
 //!    and a direct demultiplexing reader (`MultiplexedDsmReader`) for easy integration
 //!    with higher-level protocols (like Arrow IPC).
 
-use std::collections::{HashMap, VecDeque};
+use crate::api::{HashMap, HashSet};
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -96,7 +97,7 @@ impl SignalBridge {
         let bridge = Self {
             participant_index,
             session_id,
-            outgoing: Mutex::new(HashMap::new()),
+            outgoing: Mutex::new(HashMap::default()),
             wakers,
         };
 
@@ -109,7 +110,7 @@ impl SignalBridge {
         Arc::new(Self {
             participant_index: 0,
             session_id: uuid::Uuid::new_v4(),
-            outgoing: Mutex::new(HashMap::new()),
+            outgoing: Mutex::new(HashMap::default()),
             wakers: Arc::new(Mutex::new(Vec::new())),
         })
     }
@@ -457,7 +458,7 @@ impl std::io::Write for DsmWriteAdapter {
 pub struct MultiplexedDsmWriter {
     adapter: DsmWriteAdapter,
     /// Set of stream IDs that have been cancelled by the reader.
-    cancelled_streams: std::collections::HashSet<PhysicalStreamId>,
+    cancelled_streams: HashSet<PhysicalStreamId>,
     /// Reader for the control channel (reverse direction).
     control_reader: Option<DsmReadAdapter>,
     /// Bridge for signaling the remote reader.
@@ -594,7 +595,7 @@ impl MultiplexedDsmWriter {
 
         Self {
             adapter: DsmWriteAdapter::new(header, data, data_len),
-            cancelled_streams: std::collections::HashSet::new(),
+            cancelled_streams: HashSet::default(),
             control_reader,
             bridge,
             remote_index,

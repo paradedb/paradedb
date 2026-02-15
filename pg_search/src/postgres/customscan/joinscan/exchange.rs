@@ -47,7 +47,7 @@ use crate::postgres::customscan::joinscan::dsm_transfer::{
 };
 use crate::scan::table_provider::MppParticipantConfig;
 
-use std::collections::HashMap;
+use crate::api::HashMap;
 use tokio::task::JoinHandle;
 
 pub struct StreamSource {

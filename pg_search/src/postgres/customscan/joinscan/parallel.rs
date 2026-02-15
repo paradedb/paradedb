@@ -37,7 +37,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
-    MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader, SignalBridge,
+    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, RingBufferHeader, SignalBridge,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
@@ -183,6 +183,7 @@ impl ParallelWorker for JoinWorker<'_> {
 
         let participant_index =
             worker_number.to_participant_index(self.config.leader_participation);
+        let participant_id = ParticipantId(participant_index as u16);
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -191,7 +192,7 @@ impl ParallelWorker for JoinWorker<'_> {
 
         let session_id = uuid::Uuid::from_bytes(self.config.session_id);
         let bridge = runtime
-            .block_on(SignalBridge::new(participant_index, session_id))
+            .block_on(SignalBridge::new(participant_id, session_id))
             .expect("Failed to initialize SignalBridge");
         let bridge = Arc::new(bridge);
 
@@ -208,7 +209,7 @@ impl ParallelWorker for JoinWorker<'_> {
             TransportMesh::init(
                 self.ring_buffer_ptr,
                 self.config.region_size,
-                participant_index,
+                participant_id,
                 total_participants,
                 bridge.clone(),
             )
@@ -371,7 +372,7 @@ pub fn launch_join_workers(
     // Initialize leader's bridge
     let bridge = runtime
         .block_on(SignalBridge::new(
-            0, // Leader is index 0
+            ParticipantId(0), // Leader is index 0
             session_id,
         ))
         .expect("Failed to initialize SignalBridge");
@@ -417,7 +418,7 @@ pub fn launch_join_workers(
             TransportMesh::init(
                 base_ptr,
                 region_size,
-                leader_participant_index,
+                ParticipantId(leader_participant_index as u16),
                 total_participants,
                 bridge.clone(),
             )
@@ -451,8 +452,8 @@ mod tests {
         register_dsm_mesh, DsmExchangeConfig, DsmMesh, DsmReaderExec, DsmWriterExec, ExchangeMode,
     };
     use crate::postgres::customscan::joinscan::transport::{
-        LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
-        SignalBridge, TransportMesh,
+        LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId,
+        RingBufferHeader, SignalBridge, TransportMesh,
     };
     use crate::postgres::locks::Spinlock;
     use crate::scan::table_provider::MppParticipantConfig;
@@ -733,6 +734,7 @@ mod tests {
             worker_number: ParallelWorkerNumber,
         ) -> anyhow::Result<()> {
             let participant_index = worker_number.to_participant_index(true);
+            let participant_id = ParticipantId(participant_index as u16);
             let total_participants = self.config.total_participants;
 
             // Signal readiness
@@ -750,7 +752,7 @@ mod tests {
 
             let session_id = uuid::Uuid::from_bytes(self.config.session_id);
             let bridge = runtime
-                .block_on(SignalBridge::new(participant_index, session_id))
+                .block_on(SignalBridge::new(participant_id, session_id))
                 .unwrap();
             let bridge = Arc::new(bridge);
 
@@ -761,7 +763,7 @@ mod tests {
                     region.data,
                     region.data_len,
                     bridge.clone(),
-                    j,
+                    ParticipantId(j as u16),
                 ))));
             }
 
@@ -772,7 +774,7 @@ mod tests {
                     region.data,
                     region.data_len,
                     bridge.clone(),
-                    j,
+                    ParticipantId(j as u16),
                 ))));
             }
 
@@ -843,7 +845,7 @@ mod tests {
                 for source in sources {
                     crate::postgres::customscan::joinscan::exchange::register_stream_source(
                         source,
-                        participant_index,
+                        participant_id,
                     );
                 }
 
@@ -906,7 +908,7 @@ mod tests {
 
         let bridge = runtime
             .block_on(SignalBridge::new(
-                0, // Leader index
+                ParticipantId(0), // Leader index
                 session_id,
             ))
             .unwrap();
@@ -934,7 +936,7 @@ mod tests {
                 data,
                 data_len,
                 bridge.clone(),
-                j,
+                ParticipantId(j as u16),
             ))));
 
             let reader_region_idx = 2 + (j * p + participant_index);
@@ -953,7 +955,7 @@ mod tests {
                 data,
                 data_len,
                 bridge.clone(),
-                j,
+                ParticipantId(j as u16),
             ))));
         }
 
@@ -1015,7 +1017,7 @@ mod tests {
             for source in sources {
                 crate::postgres::customscan::joinscan::exchange::register_stream_source(
                     source,
-                    participant_index,
+                    ParticipantId(participant_index as u16),
                 );
             }
 

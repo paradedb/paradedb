@@ -41,6 +41,19 @@ use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName};
 use parking_lot::Mutex;
 use tokio::io::AsyncReadExt;
 
+/// A strongly-typed wrapper around `u16` representing a participant's unique index in the MPP session.
+///
+/// This type ensures safety and clarity when passing participant indices through the
+/// transport layer, preventing confusion with other `usize` or `u32` values (like stream IDs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantId(pub u16);
+
+impl std::fmt::Display for ParticipantId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// A robust signaling bridge using `interprocess` Local Sockets (Stream-oriented).
 ///
 /// This component provides the async-friendly signaling required by the Tokio runtime.
@@ -49,9 +62,10 @@ use tokio::io::AsyncReadExt;
 /// # Signaling Mechanism
 ///
 /// When a producer writes data to a DSM buffer, it "signals" the consumer by
-/// establishing a connection (if not already cached) and writing a single byte.
+/// establishing a connection (if not already cached, performing a 4-byte handshake)
+/// and writing a single byte.
 ///
-/// We use synchronous `UnixStream` operations in **non-blocking mode**:
+/// We use synchronous `UnixStream` operations in **non-blocking mode** (after handshake):
 /// 1.  **Low Latency**: Local socket operations are extremely fast.
 /// 2.  **Safety**: We use non-blocking writes (`set_nonblocking(true)`). If the socket
 ///     buffer is full (consumer not processing signals), the write returns `WouldBlock`
@@ -67,24 +81,30 @@ use tokio::io::AsyncReadExt;
 /// This avoids the overhead of `connect()` syscalls and path construction on every signal,
 /// which is critical for high-throughput streaming.
 pub struct SignalBridge {
-    participant_index: usize,
+    participant_id: ParticipantId,
     session_id: uuid::Uuid,
     /// Cache of outgoing synchronous connections to other participants.
     /// We use `parking_lot::Mutex` for low-overhead synchronous locking.
-    outgoing: Mutex<HashMap<usize, UnixStream>>,
-    wakers: Arc<Mutex<Vec<Waker>>>,
+    outgoing: Mutex<HashMap<ParticipantId, UnixStream>>,
+    /// Wakers sharded by the sender who triggered the signal.
+    /// `None` key stores "Universal" wakers (e.g. Control Service) that are woken by any signal.
+    /// `Some(id)` key stores wakers interested only in signals from `id`.
+    wakers: Arc<Mutex<HashMap<Option<ParticipantId>, Vec<Waker>>>>,
 }
 
 impl SignalBridge {
-    fn socket_name(session_id: uuid::Uuid, index: usize) -> std::io::Result<String> {
+    fn socket_name(session_id: uuid::Uuid, id: ParticipantId) -> std::io::Result<String> {
         // Use a filesystem path in /tmp. This works on Unix.
         // interprocess supports namespaced names on Linux (@...) but macOS requires paths.
         // We use explicit filesystem paths for consistency.
-        Ok(format!("/tmp/pdb_mpp_{}_{}.sock", session_id, index))
+        Ok(format!("/tmp/pdb_mpp_{}_{}.sock", session_id, id))
     }
 
-    pub async fn new(participant_index: usize, session_id: uuid::Uuid) -> std::io::Result<Self> {
-        let name_str = Self::socket_name(session_id, participant_index)?;
+    pub async fn new(
+        participant_id: ParticipantId,
+        session_id: uuid::Uuid,
+    ) -> std::io::Result<Self> {
+        let name_str = Self::socket_name(session_id, participant_id)?;
         // Clean up previous file if it exists
         if std::fs::metadata(&name_str).is_ok() {
             let _ = std::fs::remove_file(&name_str);
@@ -93,9 +113,9 @@ impl SignalBridge {
         let name = name_str.to_fs_name::<GenericFilePath>()?;
         let listener = ListenerOptions::new().name(name).create_tokio()?;
 
-        let wakers = Arc::new(Mutex::new(Vec::new()));
+        let wakers = Arc::new(Mutex::new(HashMap::default()));
         let bridge = Self {
-            participant_index,
+            participant_id,
             session_id,
             outgoing: Mutex::new(HashMap::default()),
             wakers,
@@ -108,10 +128,10 @@ impl SignalBridge {
     #[cfg(any(test, feature = "pg_test"))]
     pub fn new_dummy() -> Arc<Self> {
         Arc::new(Self {
-            participant_index: 0,
+            participant_id: ParticipantId(0),
             session_id: uuid::Uuid::new_v4(),
             outgoing: Mutex::new(HashMap::default()),
-            wakers: Arc::new(Mutex::new(Vec::new())),
+            wakers: Arc::new(Mutex::new(HashMap::default())),
         })
     }
 
@@ -124,6 +144,13 @@ impl SignalBridge {
                     Ok(mut stream) => {
                         let wakers = wakers.clone();
                         tokio::task::spawn(async move {
+                            // Handshake: Read Sender ParticipantId (u32)
+                            let mut id_buf = [0u8; 4];
+                            if stream.read_exact(&mut id_buf).await.is_err() {
+                                return;
+                            }
+                            let sender_id = ParticipantId(u32::from_le_bytes(id_buf) as u16);
+
                             // Read in larger chunks to drain coalesced signals efficiently
                             let mut buf = [0u8; 1024];
                             loop {
@@ -133,7 +160,25 @@ impl SignalBridge {
                                         // Drop the lock before waking tasks to prevent deadlocks
                                         let wakers_to_wake: Vec<_> = {
                                             let mut guard = wakers.lock();
-                                            guard.drain(..).collect()
+                                            let mut to_wake = Vec::new();
+                                            // Wake specific listeners
+                                            if let Some(list) = guard.get_mut(&Some(sender_id)) {
+                                                to_wake.append(list);
+                                            }
+                                            // Wake universal listeners
+                                            // Note: We currently wake universal listeners on EVERY signal.
+                                            // Ideally we might want to be selective, but for Control Service
+                                            // we don't know who sent the control message until we check the ring buffer.
+                                            // So waking Control Service on every signal is correct behavior.
+                                            if let Some(list) = guard.get_mut(&None) {
+                                                // We must CLONE universal wakers because they might need to be
+                                                // woken by other participants too. Or do we drain them?
+                                                // If we drain them, they need to re-register.
+                                                // Standard poll_fn pattern re-registers waker every poll.
+                                                // So draining is correct.
+                                                to_wake.append(list);
+                                            }
+                                            to_wake
                                         };
                                         for waker in wakers_to_wake {
                                             waker.wake();
@@ -154,17 +199,29 @@ impl SignalBridge {
         });
     }
 
-    /// Signals a participant by writing a byte to a stream connected to its socket.
+    /// Signals a participant by writing a 4-byte handshake (if new connection) or a byte to a stream connected to its socket.
     ///
-    /// This method is safe to call from any context (async or sync) because it uses
-    /// non-blocking I/O and handles all potential errors (like full buffers or interruptions)
-    /// gracefully without blocking the thread.
-    pub fn signal(&self, target_index: usize) -> std::io::Result<()> {
-        if target_index == self.participant_index {
+    /// # Blocking Behavior
+    ///
+    /// This method uses **blocking I/O** for the initial handshake transmission (writing 4 bytes)
+    /// when establishing a new connection. This is considered safe because writing 4 bytes to a
+    /// freshly created local Unix socket is effectively non-blocking (kernel buffers are empty).
+    ///
+    /// Subsequent signals use **non-blocking I/O** and handle `WouldBlock` by silently dropping the signal
+    /// (event coalescing), ensuring that the main loop is never stalled by a slow consumer.
+    pub fn signal(&self, target_id: ParticipantId) -> std::io::Result<()> {
+        if target_id == self.participant_id {
             // Extract wakers before waking to prevent deadlocks
             let wakers_to_wake: Vec<_> = {
                 let mut guard = self.wakers.lock();
-                guard.drain(..).collect()
+                let mut to_wake = Vec::new();
+                if let Some(list) = guard.get_mut(&Some(self.participant_id)) {
+                    to_wake.append(list);
+                }
+                if let Some(list) = guard.get_mut(&None) {
+                    to_wake.append(list);
+                }
+                to_wake
             };
             for waker in wakers_to_wake {
                 waker.wake();
@@ -174,13 +231,13 @@ impl SignalBridge {
 
         let needs_connect = {
             let guard = self.outgoing.lock();
-            !guard.contains_key(&target_index)
+            !guard.contains_key(&target_id)
         };
 
         if needs_connect {
-            let name_str = Self::socket_name(self.session_id, target_index)?;
+            let name_str = Self::socket_name(self.session_id, target_id)?;
 
-            let stream = loop {
+            let mut stream = loop {
                 match UnixStream::connect(&name_str) {
                     Ok(s) => break s,
                     Err(e) if e.kind() == ErrorKind::Interrupted => continue,
@@ -196,12 +253,16 @@ impl SignalBridge {
                 }
             };
 
+            // Handshake: Write our ParticipantId (u32)
+            // Note: This is blocking, but on a local socket with empty buffer it should be instant.
+            let _ = stream.write_all(&(self.participant_id.0 as u32).to_le_bytes());
+
             stream.set_nonblocking(true)?;
-            self.outgoing.lock().insert(target_index, stream);
+            self.outgoing.lock().insert(target_id, stream);
         }
 
         let mut guard = self.outgoing.lock();
-        let stream = match guard.get_mut(&target_index) {
+        let stream = match guard.get_mut(&target_id) {
             Some(s) => s,
             None => return Ok(()),
         };
@@ -212,11 +273,11 @@ impl SignalBridge {
                 Err(e) if e.kind() == ErrorKind::Interrupted => continue,
                 Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(()),
                 Err(e) if e.kind() == ErrorKind::BrokenPipe => {
-                    guard.remove(&target_index);
+                    guard.remove(&target_id);
                     // Drop lock before reconnecting to prevent stalling other signals
                     drop(guard);
 
-                    let name_str = Self::socket_name(self.session_id, target_index)?;
+                    let name_str = Self::socket_name(self.session_id, target_id)?;
                     let mut stream = loop {
                         match UnixStream::connect(&name_str) {
                             Ok(s) => break s,
@@ -231,6 +292,10 @@ impl SignalBridge {
                             Err(e) => return Err(e),
                         }
                     };
+
+                    // Re-handshake
+                    let _ = stream.write_all(&(self.participant_id.0 as u32).to_le_bytes());
+
                     stream.set_nonblocking(true)?;
 
                     let res = loop {
@@ -243,7 +308,7 @@ impl SignalBridge {
                     };
 
                     // Cache the newly established stream so it isn't dropped!
-                    self.outgoing.lock().insert(target_index, stream);
+                    self.outgoing.lock().insert(target_id, stream);
                     return res;
                 }
                 Err(e) => return Err(e),
@@ -251,17 +316,19 @@ impl SignalBridge {
         }
     }
 
-    /// Registers a waker to be notified when ANY signal arrives on our socket.
-    pub fn register_waker(&self, waker: Waker) {
+    /// Registers a waker to be notified when a signal arrives from a specific participant.
+    /// If `source_id` is `None`, the waker is notified on ANY signal (Broadcast).
+    pub fn register_waker(&self, waker: Waker, source_id: Option<ParticipantId>) {
         let mut guard = self.wakers.lock();
+        let list = guard.entry(source_id).or_default();
         // Deduplicate wakers to prevent memory leaks from spurious polls
-        for w in guard.iter_mut() {
+        for w in list.iter_mut() {
             if w.will_wake(&waker) {
                 *w = waker; // Replace with updated waker just in case
                 return;
             }
         }
-        guard.push(waker);
+        list.push(waker);
     }
 }
 
@@ -464,7 +531,7 @@ pub struct MultiplexedDsmWriter {
     /// Bridge for signaling the remote reader.
     bridge: Arc<SignalBridge>,
     /// Index of the remote participant (reader).
-    remote_index: usize,
+    remote_id: ParticipantId,
 }
 
 unsafe impl Send for MultiplexedDsmWriter {}
@@ -473,7 +540,7 @@ unsafe impl Sync for MultiplexedDsmWriter {}
 impl std::fmt::Debug for MultiplexedDsmWriter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiplexedDsmWriter")
-            .field("remote_index", &self.remote_index)
+            .field("remote_id", &self.remote_id)
             .field("cancelled_streams", &self.cancelled_streams)
             .finish_non_exhaustive()
     }
@@ -486,7 +553,7 @@ impl std::fmt::Debug for MultiplexedDsmWriter {
 ///
 /// The ID is a 32-bit integer packed as follows:
 /// - **High 16 bits**: The `LogicalStreamId` (from the query plan).
-/// - **Low 16 bits**: The Participant Index of the sender.
+/// - **Low 16 bits**: The `ParticipantId` of the sender.
 ///
 /// This packing strategy assumes that there are fewer than 65536 logical streams
 /// and fewer than 65536 participants in a single query execution, which is safe
@@ -495,19 +562,9 @@ impl std::fmt::Debug for MultiplexedDsmWriter {
 pub struct PhysicalStreamId(pub u32);
 
 impl PhysicalStreamId {
-    /// Creates a new `PhysicalStreamId` from a logical stream ID and a sender index.
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, this function panics if:
-    /// - `participant_index` exceeds `u16::MAX` (65535).
-    pub fn new(logical: LogicalStreamId, participant_index: usize) -> Self {
-        debug_assert!(
-            participant_index <= 0xFFFF,
-            "Participant index {} exceeds 16-bit limit",
-            participant_index
-        );
-        Self(((logical.0 as u32) << 16) | ((participant_index as u32) & 0xFFFF))
+    /// Creates a new `PhysicalStreamId` from a logical stream ID and a sender ID.
+    pub fn new(logical: LogicalStreamId, participant_id: ParticipantId) -> Self {
+        Self(((logical.0 as u32) << 16) | ((participant_id.0 as u32) & 0xFFFF))
     }
 
     pub fn to_le_bytes(self) -> [u8; 4] {
@@ -538,7 +595,7 @@ impl MultiplexedDsmWriter {
         data: *mut u8,
         data_len: usize,
         bridge: Arc<SignalBridge>,
-        remote_index: usize,
+        remote_id: ParticipantId,
     ) -> Self {
         unsafe {
             if (*header).magic != DSM_MAGIC {
@@ -586,7 +643,7 @@ impl MultiplexedDsmWriter {
             cancelled_streams: HashSet::default(),
             control_reader,
             bridge,
-            remote_index,
+            remote_id,
         }
     }
 
@@ -652,8 +709,8 @@ impl MultiplexedDsmWriter {
         self.adapter.write_all(payload)?;
 
         // Signal the remote reader
-        if let Err(e) = self.bridge.signal(self.remote_index) {
-            pgrx::warning!("Signal error to remote {}: {}", self.remote_index, e);
+        if let Err(e) = self.bridge.signal(self.remote_id) {
+            pgrx::warning!("Signal error to remote {}: {}", self.remote_id, e);
         }
         Ok(())
     }
@@ -676,7 +733,7 @@ impl MultiplexedDsmWriter {
         self.adapter.write_all(&len.to_le_bytes())?;
         // No payload
 
-        let _ = self.bridge.signal(self.remote_index);
+        let _ = self.bridge.signal(self.remote_id);
         Ok(())
     }
 
@@ -690,7 +747,7 @@ impl MultiplexedDsmWriter {
             }
             (*self.adapter.header).finished.store(1, Ordering::Release);
         }
-        let _ = self.bridge.signal(self.remote_index);
+        let _ = self.bridge.signal(self.remote_id);
         Ok(())
     }
 }
@@ -847,7 +904,7 @@ pub struct MultiplexedDsmReader {
     /// Bridge for signaling/waiting.
     bridge: Arc<SignalBridge>,
     /// Index of the remote participant (writer).
-    remote_index: usize,
+    remote_id: ParticipantId,
 }
 
 unsafe impl Send for MultiplexedDsmReader {}
@@ -856,7 +913,7 @@ unsafe impl Sync for MultiplexedDsmReader {}
 impl std::fmt::Debug for MultiplexedDsmReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MultiplexedDsmReader")
-            .field("remote_index", &self.remote_index)
+            .field("remote_id", &self.remote_id)
             .field("active_streams", &self.streams.len())
             .finish_non_exhaustive()
     }
@@ -872,7 +929,7 @@ impl MultiplexedDsmReader {
         data: *mut u8,
         data_len: usize,
         bridge: Arc<SignalBridge>,
-        remote_index: usize,
+        remote_id: ParticipantId,
     ) -> Self {
         unsafe {
             if (*header).magic != DSM_MAGIC {
@@ -917,7 +974,7 @@ impl MultiplexedDsmReader {
             partial_payload: None,
             control_writer,
             bridge,
-            remote_index,
+            remote_id,
         }
     }
 
@@ -976,7 +1033,7 @@ impl MultiplexedDsmReader {
                 // Dispatch completed message
                 let (id, completed_payload) = self.partial_payload.take().unwrap();
                 // Signal the writer that space is potentially available
-                let _ = self.bridge.signal(self.remote_index);
+                let _ = self.bridge.signal(self.remote_id);
 
                 if id == stream_id {
                     if completed_payload.is_empty() {
@@ -1005,8 +1062,8 @@ impl MultiplexedDsmReader {
             }
             writer.write_all(&[msg_type])?;
             writer.write_all(&stream_id.to_le_bytes())?;
-            // Signal the writer (remote_index) to check control messages
-            let _ = self.bridge.signal(self.remote_index);
+            // Signal the writer (remote_id) to check control messages
+            let _ = self.bridge.signal(self.remote_id);
             Ok(())
         } else {
             Ok(())
@@ -1032,7 +1089,8 @@ impl MultiplexedDsmReader {
     ) -> std::task::Poll<std::io::Result<Option<Vec<u8>>>> {
         // Register waker FIRST to avoid race condition where data arrives
         // between read attempt and registration.
-        self.bridge.register_waker(cx.waker().clone());
+        self.bridge
+            .register_waker(cx.waker().clone(), Some(self.remote_id));
 
         match self.read_for_stream(stream_id) {
             Ok(Some(msg)) => std::task::Poll::Ready(Ok(Some(msg))),
@@ -1090,14 +1148,14 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge.clone(),
-            1,
+            ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.header,
             buf.data,
             buf.capacity,
             bridge,
-            0,
+            ParticipantId(0),
         )));
 
         let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
@@ -1123,14 +1181,14 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge.clone(),
-            1,
+            ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.header,
             buf.data,
             buf.capacity,
             bridge,
-            0,
+            ParticipantId(0),
         )));
 
         let mut w1 = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
@@ -1178,14 +1236,14 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge.clone(),
-            1,
+            ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.header,
             buf.data,
             buf.capacity,
             bridge,
-            0,
+            ParticipantId(0),
         )));
 
         let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
@@ -1236,14 +1294,14 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge.clone(),
-            1,
+            ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.header,
             buf.data,
             buf.capacity,
             bridge,
-            0,
+            ParticipantId(0),
         )));
 
         let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
@@ -1293,7 +1351,7 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge,
-            1,
+            ParticipantId(1),
         )));
 
         let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
@@ -1319,14 +1377,14 @@ mod tests {
             buf.data,
             buf.capacity,
             bridge.clone(),
-            1,
+            ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.header,
             buf.data,
             buf.capacity,
             bridge,
-            0,
+            ParticipantId(0),
         )));
 
         let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
@@ -1360,14 +1418,14 @@ mod tests {
 
         runtime.block_on(async {
             let uuid = uuid::Uuid::new_v4();
-            let bridge1 = SignalBridge::new(1, uuid).await.unwrap();
-            let _bridge2 = SignalBridge::new(2, uuid).await.unwrap();
+            let bridge1 = SignalBridge::new(ParticipantId(1), uuid).await.unwrap();
+            let _bridge2 = SignalBridge::new(ParticipantId(2), uuid).await.unwrap();
 
             // Bridge 1 signals Bridge 2
             // We can't verify reception easily without messing with the bridge internals or blocking,
             // but we can verify it doesn't error.
-            bridge1.signal(2).unwrap();
-            bridge1.signal(1).unwrap(); // Should be no-op or ok
+            bridge1.signal(ParticipantId(2)).unwrap();
+            bridge1.signal(ParticipantId(1)).unwrap(); // Should be no-op or ok
         });
     }
 
@@ -1500,6 +1558,7 @@ mod tests {
             worker_number: ParallelWorkerNumber,
         ) -> anyhow::Result<()> {
             let participant_index = worker_number.to_participant_index(true); // Leader is 0
+            let participant_id = ParticipantId(participant_index as u16);
 
             // Signal readiness
             let current = self.state.launched_workers();
@@ -1512,7 +1571,7 @@ mod tests {
 
             let session_id = uuid::Uuid::from_bytes(self.config.session_id);
             let bridge = runtime
-                .block_on(SignalBridge::new(participant_index, session_id))
+                .block_on(SignalBridge::new(participant_id, session_id))
                 .unwrap();
             let bridge = Arc::new(bridge);
 
@@ -1521,7 +1580,7 @@ mod tests {
                 self.data,
                 self.data_len,
                 bridge.clone(),
-                0, // Remote is leader (0)
+                ParticipantId(0), // Remote is leader (0)
             )));
 
             let mut received_bytes = 0;
@@ -1606,7 +1665,9 @@ mod tests {
             .unwrap();
 
         let session_id = uuid::Uuid::from_bytes(session_id_bytes);
-        let bridge = runtime.block_on(SignalBridge::new(0, session_id)).unwrap();
+        let bridge = runtime
+            .block_on(SignalBridge::new(ParticipantId(0), session_id))
+            .unwrap();
         let bridge = Arc::new(bridge);
 
         let ring_buffer_slice = launched.state_manager().slice::<u8>(2).unwrap().unwrap();
@@ -1619,7 +1680,7 @@ mod tests {
             data,
             data_len,
             bridge.clone(),
-            1, // Remote is worker (1)
+            ParticipantId(1), // Remote is worker (1)
         )));
         let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
 
@@ -1629,7 +1690,7 @@ mod tests {
             for _ in 0..num_messages {
                 writer.write_all(&msg).unwrap();
                 futures::future::poll_fn(|cx| {
-                    bridge.register_waker(cx.waker().clone());
+                    bridge.register_waker(cx.waker().clone(), None);
                     match writer.flush() {
                         Ok(_) => Poll::Ready(Ok(())),
                         Err(e) if e.kind() == ErrorKind::WouldBlock => Poll::Pending,

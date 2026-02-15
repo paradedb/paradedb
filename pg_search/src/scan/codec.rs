@@ -22,6 +22,7 @@ use crate::postgres::customscan::joinscan::exchange::{
     get_mpp_config, register_stream_source, DsmExchangeConfig, DsmReaderExec, DsmWriterExec,
     StreamSource,
 };
+use crate::postgres::customscan::joinscan::transport::ParticipantId;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::MultiSegmentPlan;
 use crate::scan::info::ScanInfo;
@@ -191,7 +192,7 @@ impl PhysicalExtensionCodec for PgSearchExtensionCodec {
                         partitioning,
                         config,
                     },
-                    participant_index,
+                    ParticipantId(participant_index as u16),
                 );
 
                 Ok(writer)

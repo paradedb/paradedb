@@ -1,4 +1,6 @@
-use super::shmem::{MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader, SignalBridge};
+use super::shmem::{
+    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, RingBufferHeader, SignalBridge,
+};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -35,7 +37,7 @@ impl TransportMesh {
     pub unsafe fn init(
         base_ptr: *mut u8,
         region_size: usize,
-        participant_index: usize,
+        participant_id: ParticipantId,
         total_participants: usize,
         bridge: Arc<SignalBridge>,
     ) -> Self {
@@ -45,7 +47,7 @@ impl TransportMesh {
         for j in 0..total_participants {
             // Writer: Us -> J
             // Layout index: participant_index * P + j
-            let writer_idx = participant_index * total_participants + j;
+            let writer_idx = (participant_id.0 as usize) * total_participants + j;
             let offset = writer_idx * region_size;
             let (header, data, data_len) =
                 RingBufferHeader::from_raw_parts(base_ptr, offset, region_size);
@@ -55,12 +57,12 @@ impl TransportMesh {
                 data,
                 data_len,
                 bridge.clone(),
-                j,
+                ParticipantId(j as u16),
             ))));
 
             // Reader: J -> Us
             // Layout index: j * P + participant_index
-            let reader_idx = j * total_participants + participant_index;
+            let reader_idx = j * total_participants + (participant_id.0 as usize);
             let offset = reader_idx * region_size;
             let (header, data, data_len) =
                 RingBufferHeader::from_raw_parts(base_ptr, offset, region_size);
@@ -70,7 +72,7 @@ impl TransportMesh {
                 data,
                 data_len,
                 bridge.clone(),
-                j,
+                ParticipantId(j as u16),
             ))));
         }
 

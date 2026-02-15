@@ -39,7 +39,7 @@ use parking_lot::Mutex;
 // Use types from shmem
 use super::shmem::{
     DsmStreamWriterAdapter, LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter,
-    PhysicalStreamId,
+    ParticipantId, PhysicalStreamId,
 };
 
 /// A writer for a single logical stream within a multiplexed DSM region.
@@ -72,13 +72,11 @@ impl DsmSharedMemoryWriter {
     pub fn new(
         multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
         logical_stream_id: LogicalStreamId,
-        sender_index: usize,
+        sender_id: ParticipantId,
         schema: SchemaRef,
     ) -> Self {
         // Construct a unique Physical Stream ID for this writer/channel pair.
-        // We pack the Logical ID (from the plan) and the Sender Index (who is writing)
-        // into a single u32. This assumes < 64k streams and < 64k workers, which is safe for Postgres.
-        let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_index);
+        let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_id);
 
         let adapter = DsmStreamWriterAdapter::new(multiplexer, physical_stream_id);
         // This will immediately write the Arrow schema to the ring buffer via the multiplexer.
@@ -277,10 +275,10 @@ crate::impl_safe_drop!(DsmStream, |self| {
 pub fn dsm_shared_memory_reader(
     multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
     logical_stream_id: LogicalStreamId,
-    sender_index: usize,
+    sender_id: ParticipantId,
     schema: SchemaRef,
 ) -> SendableRecordBatchStream {
-    let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_index);
+    let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_id);
 
     let stream = try_stream! {
         let mut dsm_stream = DsmStream::new(multiplexer, physical_stream_id).await?;
@@ -334,7 +332,9 @@ mod tests {
             }
 
             // Setup Bridge
-            let bridge = SignalBridge::new(0, uuid::Uuid::new_v4()).await.unwrap();
+            let bridge = SignalBridge::new(ParticipantId(0), uuid::Uuid::new_v4())
+                .await
+                .unwrap();
             let bridge = Arc::new(bridge);
 
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
@@ -342,14 +342,14 @@ mod tests {
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
@@ -367,20 +367,28 @@ mod tests {
             let mut writer1 = DsmSharedMemoryWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(1),
-                0,
+                ParticipantId(0),
                 schema.clone(),
             );
             let mut writer2 = DsmSharedMemoryWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(2),
-                0,
+                ParticipantId(0),
                 schema.clone(),
             );
 
-            let reader1 =
-                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(1), 0, schema.clone());
-            let reader2 =
-                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(2), 0, schema.clone());
+            let reader1 = dsm_shared_memory_reader(
+                reader_mux.clone(),
+                LogicalStreamId(1),
+                ParticipantId(0),
+                schema.clone(),
+            );
+            let reader2 = dsm_shared_memory_reader(
+                reader_mux.clone(),
+                LogicalStreamId(2),
+                ParticipantId(0),
+                schema.clone(),
+            );
 
             // Write synchronously (in this thread context, effectively)
             writer1.write_batch(&batch1).unwrap();
@@ -422,7 +430,9 @@ mod tests {
             }
 
             // Setup Bridge
-            let bridge = SignalBridge::new(0, uuid::Uuid::new_v4()).await.unwrap();
+            let bridge = SignalBridge::new(ParticipantId(0), uuid::Uuid::new_v4())
+                .await
+                .unwrap();
             let bridge = Arc::new(bridge);
 
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
@@ -430,14 +440,14 @@ mod tests {
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
@@ -459,13 +469,13 @@ mod tests {
                 writers.push(DsmSharedMemoryWriter::new(
                     writer_mux.clone(),
                     LogicalStreamId(i as u16),
-                    0,
+                    ParticipantId(0),
                     schema.clone(),
                 ));
                 readers.push(dsm_shared_memory_reader(
                     reader_mux.clone(),
                     LogicalStreamId(i as u16),
-                    0,
+                    ParticipantId(0),
                     schema.clone(),
                 ));
             }
@@ -532,14 +542,14 @@ mod tests {
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 header,
                 data,
                 buffer_size,
                 bridge.clone(),
-                0,
+                ParticipantId(0),
             )));
             let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
@@ -557,11 +567,15 @@ mod tests {
             let writer = DsmSharedMemoryWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(1),
-                0,
+                ParticipantId(0),
                 schema.clone(),
             );
-            let reader =
-                dsm_shared_memory_reader(reader_mux.clone(), LogicalStreamId(1), 0, schema.clone());
+            let reader = dsm_shared_memory_reader(
+                reader_mux.clone(),
+                LogicalStreamId(1),
+                ParticipantId(0),
+                schema.clone(),
+            );
 
             // Write NOTHING, just finish
             writer.finish().unwrap();
@@ -596,10 +610,14 @@ mod tests {
             data,
             buffer_size,
             bridge,
-            0,
+            ParticipantId(0),
         )));
-        let mut writer =
-            DsmSharedMemoryWriter::new(writer_mux.clone(), LogicalStreamId(1), 0, schema.clone());
+        let mut writer = DsmSharedMemoryWriter::new(
+            writer_mux.clone(),
+            LogicalStreamId(1),
+            ParticipantId(0),
+            schema.clone(),
+        );
 
         let result = writer.write_batch(&batch);
         assert!(result.is_err());

@@ -44,7 +44,7 @@ use tokio::sync::watch;
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
     dsm_shared_memory_reader, ControlMessage, DsmSharedMemoryWriter, LogicalStreamId,
-    PhysicalStreamId, SignalBridge,
+    ParticipantId, PhysicalStreamId, SignalBridge,
 };
 use crate::scan::table_provider::MppParticipantConfig;
 
@@ -96,12 +96,12 @@ pub fn register_dsm_mesh(mesh: DsmMesh) {
     *guard = Some(mesh);
 }
 
-pub fn register_stream_source(source: StreamSource, participant_index: usize) {
+pub fn register_stream_source(source: StreamSource, participant_id: ParticipantId) {
     let mut guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_mut() {
         // Calculate physical ID: (Logical << 16) | Sender (us)
-        // participant_index is "us" (the sender).
-        let physical_id = PhysicalStreamId::new(source.config.stream_id, participant_index);
+        // participant_id is "us" (the sender).
+        let physical_id = PhysicalStreamId::new(source.config.stream_id, participant_id);
 
         let mut registry = mesh.registry.lock();
         registry.sources.insert(physical_id, source);
@@ -192,7 +192,7 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
             };
 
             futures::future::poll_fn(|cx| {
-                bridge.register_waker(cx.waker().clone());
+                bridge.register_waker(cx.waker().clone(), None);
                 let mut work_done = false;
 
                 for mux in &mux_writers {
@@ -238,7 +238,7 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
 pub fn get_dsm_writer(
     participant: usize,
     stream_id: LogicalStreamId,
-    sender_index: usize,
+    sender_id: ParticipantId,
     schema: SchemaRef,
 ) -> Option<DsmSharedMemoryWriter> {
     let guard = DSM_MESH.lock();
@@ -247,7 +247,7 @@ pub fn get_dsm_writer(
             return Some(DsmSharedMemoryWriter::new(
                 mesh.transport.mux_writers[participant].clone(),
                 stream_id,
-                sender_index,
+                sender_id,
                 schema,
             ));
         }
@@ -258,7 +258,7 @@ pub fn get_dsm_writer(
 pub fn get_dsm_reader(
     participant: usize,
     stream_id: LogicalStreamId,
-    sender_index: usize,
+    sender_id: ParticipantId,
     schema: SchemaRef,
 ) -> Option<SendableRecordBatchStream> {
     let guard = DSM_MESH.lock();
@@ -267,7 +267,7 @@ pub fn get_dsm_reader(
             let reader = dsm_shared_memory_reader(
                 mesh.transport.mux_readers[participant].clone(),
                 stream_id,
-                sender_index,
+                sender_id,
                 schema,
             );
             return Some(reader);
@@ -515,6 +515,7 @@ impl DsmWriterExec {
         context: Arc<TaskContext>,
     ) {
         let (participant_index, total_participants) = get_mpp_config(&context);
+        let participant_id = ParticipantId(participant_index as u16);
         let num_partitions = input.output_partitioning().partition_count();
         let mut streams = Vec::with_capacity(num_partitions);
         for i in 0..num_partitions {
@@ -531,7 +532,7 @@ impl DsmWriterExec {
         let mut writers = Vec::new();
         for i in 0..total_participants {
             writers.push(
-                get_dsm_writer(i, config.stream_id, participant_index, schema.clone())
+                get_dsm_writer(i, config.stream_id, participant_id, schema.clone())
                     .expect("Failed to get DSM writer"),
             );
         }
@@ -577,7 +578,7 @@ impl DsmWriterExec {
                                 if msg.kind() == ErrorKind::WouldBlock =>
                             {
                                 // Check-Register-Check pattern
-                                bridge.register_waker(cx.waker().clone());
+                                bridge.register_waker(cx.waker().clone(), None);
 
                                 // Retry immediately to avoid race condition where space became available
                                 // after the first check but before we registered the waker.
@@ -658,7 +659,7 @@ impl DsmWriterExec {
                 // No progress made.
                 // If blocked on write, register waker with bridge.
                 if blocked_on_write {
-                    bridge.register_waker(cx.waker().clone());
+                    bridge.register_waker(cx.waker().clone(), None);
                 }
 
                 // If input is pending, it already registered waker.
@@ -771,7 +772,6 @@ impl DsmReaderExec {
         &self,
         partition: usize,
         context: Arc<TaskContext>,
-        bridge: Arc<SignalBridge>,
     ) -> Result<SendableRecordBatchStream> {
         let (participant_index, total_participants) = get_mpp_config(&context);
         let schema = self.input.schema();
@@ -796,10 +796,13 @@ impl DsmReaderExec {
                 let mut readers = Vec::new();
                 for i in 0..total_participants {
                     // Read from Participant i, Logical Stream S, Sender Index i.
-                    if let Some(reader) =
-                        get_dsm_reader(i, self.config.stream_id, i, schema.clone())
-                    {
-                        readers.push(shared_memory_stream(reader, bridge.clone()));
+                    if let Some(reader) = get_dsm_reader(
+                        i,
+                        self.config.stream_id,
+                        ParticipantId(i as u16),
+                        schema.clone(),
+                    ) {
+                        readers.push(shared_memory_stream(reader));
                     }
                 }
 
@@ -816,8 +819,10 @@ impl DsmReaderExec {
                     // Workers should only 'wait' once per logical stream.
                     // We choose to wait when partition == participant_index.
                     if partition == participant_index {
-                        let physical_id =
-                            PhysicalStreamId::new(self.config.stream_id, participant_index);
+                        let physical_id = PhysicalStreamId::new(
+                            self.config.stream_id,
+                            ParticipantId(participant_index as u16),
+                        );
 
                         let rx = {
                             let mut guard = DSM_MESH.lock();
@@ -842,10 +847,13 @@ impl DsmReaderExec {
 
                 // Leader: Pull Partition `partition` from Worker `partition`.
 
-                if let Some(reader) =
-                    get_dsm_reader(partition, self.config.stream_id, partition, schema.clone())
-                {
-                    Ok(shared_memory_stream(reader, bridge))
+                if let Some(reader) = get_dsm_reader(
+                    partition,
+                    self.config.stream_id,
+                    ParticipantId(partition as u16),
+                    schema.clone(),
+                ) {
+                    Ok(shared_memory_stream(reader))
                 } else {
                     Ok(Box::pin(RecordBatchStreamAdapter::new(
                         schema,
@@ -904,9 +912,8 @@ impl ExecutionPlan for DsmReaderExec {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let _ = self.input.execute(0, context.clone())?;
-        let bridge = get_dsm_bridge();
 
-        self.create_consumer_stream(partition, context, bridge)
+        self.create_consumer_stream(partition, context)
     }
 }
 
@@ -934,29 +941,11 @@ fn wait_for_producer_stream(
 
 /// Adapts a `SharedMemoryReader` (which requires manual waker registration via `SignalBridge`)
 /// into a standard `RecordBatchStream`.
-fn shared_memory_stream(
-    mut reader: SendableRecordBatchStream,
-    bridge: Arc<SignalBridge>,
-) -> SendableRecordBatchStream {
+fn shared_memory_stream(mut reader: SendableRecordBatchStream) -> SendableRecordBatchStream {
     let schema = reader.schema();
     let stream = try_stream! {
-        loop {
-            let item = futures::future::poll_fn(|cx| {
-                match reader.as_mut().poll_next(cx) {
-                    Poll::Pending => {
-                        bridge.register_waker(cx.waker().clone());
-                        Poll::Pending
-                    }
-                    r => r,
-                }
-            })
-            .await;
-
-            match item {
-                Some(Ok(batch)) => yield batch,
-                Some(Err(e)) => Err(e)?,
-                None => break,
-            }
+        while let Some(batch) = reader.next().await {
+            yield batch?;
         }
     };
     Box::pin(RecordBatchStreamAdapter::new(schema, Box::pin(stream)))

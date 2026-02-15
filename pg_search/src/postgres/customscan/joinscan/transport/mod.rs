@@ -64,7 +64,7 @@ mod shmem;
 pub use arrow::{dsm_shared_memory_reader, DsmSharedMemoryWriter};
 pub use mesh::TransportMesh;
 pub use shmem::{
-    LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, PhysicalStreamId,
+    LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, PhysicalStreamId,
     RingBufferHeader, SignalBridge,
 };
 

@@ -138,10 +138,9 @@
 //! - [`translator`]: Maps PostgreSQL expressions/columns to DataFusion expressions.
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
+//! - [`transport`]: Low-level data transport (Shared Memory) and signaling.
 
 mod build;
-pub mod dsm_stream;
-mod dsm_transfer;
 pub mod exchange;
 mod explain;
 mod memory;
@@ -151,6 +150,9 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
+pub mod transport;
+
+use transport::TransportMesh;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
@@ -944,10 +946,13 @@ impl CustomScan for JoinScan {
                         pg_sys::parallel_leader_participation,
                     ) {
                         // Register the DSM mesh for the leader process.
-                        let mesh = exchange::DsmMesh {
+                        let transport = TransportMesh {
                             mux_writers,
                             mux_readers,
                             bridge,
+                        };
+                        let mesh = exchange::DsmMesh {
+                            transport,
                             registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
                         };
                         exchange::register_dsm_mesh(mesh);

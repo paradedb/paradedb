@@ -35,8 +35,9 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     ParallelWorkerNumber, WorkerStyle,
 };
-use crate::postgres::customscan::joinscan::dsm_transfer::{
-    MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
+use crate::postgres::customscan::joinscan::transport::TransportMesh;
+use crate::postgres::customscan::joinscan::transport::{
+    MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader, SignalBridge,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
@@ -127,20 +128,11 @@ impl ParallelProcess for ParallelJoin {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct RegionInfo {
-    header: *mut RingBufferHeader,
-    data: *mut u8,
-    data_len: usize,
-}
-unsafe impl Send for RegionInfo {}
-
 pub struct JoinWorker<'a> {
     pub state: &'a mut JoinSharedState,
     pub config: JoinConfig,
     pub plan_slice: Vec<u8>,
-    pub writer_regions: Vec<RegionInfo>,
-    pub reader_regions: Vec<RegionInfo>,
+    pub ring_buffer_ptr: *mut u8,
 }
 
 impl ParallelWorker for JoinWorker<'_> {
@@ -157,9 +149,6 @@ impl ParallelWorker for JoinWorker<'_> {
             .expect("wrong type for config")
             .expect("missing config value");
 
-        let participant_index = worker_number.to_participant_index(config.leader_participation);
-        let total_participants = config.total_participants;
-
         // Plan slices start at index 2.
         let plan_slice = state_manager
             .slice::<u8>(2 + worker_number.0 as usize)
@@ -172,49 +161,11 @@ impl ParallelWorker for JoinWorker<'_> {
             .expect("missing ring_buffer value")
             .expect("missing ring_buffer value");
 
-        let mut writer_regions = Vec::new();
-        let mut reader_regions = Vec::new();
-
-        let p = total_participants;
-        let region_size = config.region_size;
-
-        // Base pointer of the shared memory region
-        let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-
-        for j in 0..p {
-            // Region for writer from us (participant_index) to participant j.
-            let writer_idx = participant_index * p + j;
-            let offset = writer_idx * region_size;
-
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
-
-            writer_regions.push(RegionInfo {
-                header,
-                data,
-                data_len,
-            });
-
-            // Region for reader from participant j to us (participant_index).
-            let reader_idx = j * p + participant_index;
-            let offset = reader_idx * region_size;
-
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
-
-            reader_regions.push(RegionInfo {
-                header,
-                data,
-                data_len,
-            });
-        }
-
         Self {
             state,
             config: *config,
             plan_slice: plan_slice.to_vec(),
-            writer_regions,
-            reader_regions,
+            ring_buffer_ptr: ring_buffer_slice.as_ptr() as *mut u8,
         }
     }
 
@@ -240,12 +191,7 @@ impl ParallelWorker for JoinWorker<'_> {
 
         let session_id = uuid::Uuid::from_bytes(self.config.session_id);
         let bridge = runtime
-            .block_on(
-                crate::postgres::customscan::joinscan::dsm_transfer::SignalBridge::new(
-                    participant_index,
-                    session_id,
-                ),
-            )
+            .block_on(SignalBridge::new(participant_index, session_id))
             .expect("Failed to initialize SignalBridge");
         let bridge = Arc::new(bridge);
 
@@ -258,33 +204,19 @@ impl ParallelWorker for JoinWorker<'_> {
             std::thread::yield_now();
         }
 
-        let mut mux_writers = Vec::with_capacity(total_participants);
-        for (j, region) in self.writer_regions.iter().enumerate() {
-            mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                region.header,
-                region.data,
-                region.data_len,
+        let transport = unsafe {
+            TransportMesh::init(
+                self.ring_buffer_ptr,
+                self.config.region_size,
+                participant_index,
+                total_participants,
                 bridge.clone(),
-                j,
-            ))));
-        }
-
-        let mut mux_readers = Vec::with_capacity(total_participants);
-        for (j, region) in self.reader_regions.iter().enumerate() {
-            mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                region.header,
-                region.data,
-                region.data_len,
-                bridge.clone(),
-                j,
-            ))));
-        }
+            )
+        };
 
         // Register the DSM mesh for this worker process.
         let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
-            mux_writers: mux_writers.clone(),
-            mux_readers: mux_readers.clone(),
-            bridge,
+            transport,
             registry: Mutex::new(
                 crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
             ),
@@ -357,7 +289,7 @@ pub type LaunchedJoinWorkers = (
     Vec<Arc<Mutex<MultiplexedDsmWriter>>>,
     Vec<Arc<Mutex<MultiplexedDsmReader>>>,
     uuid::Uuid,
-    Arc<crate::postgres::customscan::joinscan::dsm_transfer::SignalBridge>,
+    Arc<SignalBridge>,
 );
 
 /// Launches parallel workers for a JoinScan.
@@ -438,12 +370,10 @@ pub fn launch_join_workers(
 
     // Initialize leader's bridge
     let bridge = runtime
-        .block_on(
-            crate::postgres::customscan::joinscan::dsm_transfer::SignalBridge::new(
-                0, // Leader is index 0
-                session_id,
-            ),
-        )
+        .block_on(SignalBridge::new(
+            0, // Leader is index 0
+            session_id,
+        ))
         .expect("Failed to initialize SignalBridge");
     let bridge = Arc::new(bridge);
 
@@ -472,9 +402,6 @@ pub fn launch_join_workers(
             }
         }
 
-        let mut leader_mux_writers = Vec::with_capacity(total_participants);
-        let mut leader_mux_readers = Vec::with_capacity(total_participants);
-
         let leader_participant_index = 0;
 
         // Retrieve the ring buffer slice from DSM
@@ -486,46 +413,24 @@ pub fn launch_join_workers(
 
         let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
 
-        let p = total_participants;
-        for j in 0..p {
-            // Leader's writers to all participants j.
-            let writer_idx = leader_participant_index * p + j;
-            let offset = writer_idx * region_size;
-
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
-
-            let mux_writer = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                data_len,
+        let transport = unsafe {
+            TransportMesh::init(
+                base_ptr,
+                region_size,
+                leader_participant_index,
+                total_participants,
                 bridge.clone(),
-                j,
-            )));
-            leader_mux_writers.push(mux_writer);
+            )
+        };
 
-            // Leader's readers from all participants j.
-            let reader_idx = j * p + leader_participant_index;
-            let offset = reader_idx * region_size;
-
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
-
-            let mux_reader = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                data_len,
-                bridge.clone(),
-                j,
-            )));
-            leader_mux_readers.push(mux_reader.clone());
-        }
+        let mux_writers = transport.mux_writers.clone();
+        let mux_readers = transport.mux_readers.clone();
 
         Some((
             launched.into_iter(),
             Some(leader_plan),
-            leader_mux_writers,
-            leader_mux_readers,
+            mux_writers,
+            mux_readers,
             session_id,
             bridge,
         ))
@@ -542,12 +447,12 @@ mod tests {
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
         ParallelWorkerNumber, WorkerStyle,
     };
-    use crate::postgres::customscan::joinscan::dsm_stream::LogicalStreamId;
-    use crate::postgres::customscan::joinscan::dsm_transfer::{
-        MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
-    };
     use crate::postgres::customscan::joinscan::exchange::{
         register_dsm_mesh, DsmExchangeConfig, DsmMesh, DsmReaderExec, DsmWriterExec, ExchangeMode,
+    };
+    use crate::postgres::customscan::joinscan::transport::{
+        LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, RingBufferHeader,
+        SignalBridge, TransportMesh,
     };
     use crate::postgres::locks::Spinlock;
     use crate::scan::table_provider::MppParticipantConfig;
@@ -845,12 +750,7 @@ mod tests {
 
             let session_id = uuid::Uuid::from_bytes(self.config.session_id);
             let bridge = runtime
-                .block_on(
-                    crate::postgres::customscan::joinscan::dsm_transfer::SignalBridge::new(
-                        participant_index,
-                        session_id,
-                    ),
-                )
+                .block_on(SignalBridge::new(participant_index, session_id))
                 .unwrap();
             let bridge = Arc::new(bridge);
 
@@ -876,10 +776,13 @@ mod tests {
                 ))));
             }
 
-            let mesh = DsmMesh {
+            let transport = TransportMesh {
                 mux_writers,
                 mux_readers,
                 bridge,
+            };
+            let mesh = DsmMesh {
+                transport,
                 registry: Mutex::new(
                     crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
                 ),
@@ -1002,12 +905,10 @@ mod tests {
             .unwrap();
 
         let bridge = runtime
-            .block_on(
-                crate::postgres::customscan::joinscan::dsm_transfer::SignalBridge::new(
-                    0, // Leader index
-                    session_id,
-                ),
-            )
+            .block_on(SignalBridge::new(
+                0, // Leader index
+                session_id,
+            ))
             .unwrap();
         let bridge = Arc::new(bridge);
 
@@ -1056,10 +957,13 @@ mod tests {
             ))));
         }
 
-        let mesh = DsmMesh {
+        let transport = TransportMesh {
             mux_writers,
             mux_readers,
             bridge,
+        };
+        let mesh = DsmMesh {
+            transport,
             registry: Mutex::new(
                 crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
             ),

@@ -528,18 +528,6 @@ impl std::fmt::Display for LogicalStreamId {
     }
 }
 
-/// Control messages sent from Reader to Writer.
-///
-/// This forms the "RPC Protocol" of the distributed execution.
-/// The Reader sends these messages to the Writer via the reverse control channel.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ControlMessage {
-    /// Request the writer to start producing data for this stream.
-    StartStream(PhysicalStreamId),
-    /// Request the writer to stop producing data.
-    CancelStream(PhysicalStreamId),
-}
-
 impl MultiplexedDsmWriter {
     /// Creates a new multiplexed writer.
     ///
@@ -602,9 +590,10 @@ impl MultiplexedDsmWriter {
         }
     }
 
-    /// Reads pending control messages (Start/Cancel) from the reverse channel.
-    pub fn read_control_messages(&mut self) -> Vec<ControlMessage> {
-        let mut messages = Vec::new();
+    /// Reads pending control frames from the reverse channel.
+    /// Returns a vector of (message_type, payload).
+    pub fn read_control_frames(&mut self) -> Vec<(u8, Vec<u8>)> {
+        let mut frames = Vec::new();
         if let Some(reader) = &mut self.control_reader {
             // Read all available messages. Each message is 1 byte type + 4 bytes payload.
             let mut header_buf = [0u8; 1];
@@ -615,17 +604,7 @@ impl MultiplexedDsmWriter {
                         let mut payload_buf = [0u8; 4];
                         match reader.read(&mut payload_buf) {
                             Ok(4) => {
-                                let stream_id = PhysicalStreamId(u32::from_le_bytes(payload_buf));
-                                match msg_type {
-                                    0 => messages.push(ControlMessage::StartStream(stream_id)),
-                                    1 => {
-                                        messages.push(ControlMessage::CancelStream(stream_id));
-                                        self.cancelled_streams.insert(stream_id);
-                                    }
-                                    _ => {
-                                        panic!("Unknown control message type: {}", msg_type);
-                                    }
-                                }
+                                frames.push((msg_type, payload_buf.to_vec()));
                             }
                             _ => break, // Partial read
                         }
@@ -635,34 +614,20 @@ impl MultiplexedDsmWriter {
                 }
             }
         }
-        messages
+        frames
     }
 
-    fn check_cancellations(&mut self) {
-        // Drain control messages to update cancelled_streams set.
-        // Users of this method effectively ignore StartStream messages if they rely solely on this side-effect.
-        // Ideally, the "Service" loop handles this, but for legacy compatibility we might need this.
-        // However, with the overhaul, we expect read_control_messages to be called explicitly.
-        // For safety, we can process them here but we might lose StartStream events if not careful.
-        // BUT: check_cancellations is private and called internally by write_message.
-        // If we consume the stream here, the Service loop won't see them.
-        // Refactoring: We should rely on the Service loop to update `cancelled_streams` externally
-        // or make this method peek. DsmReadAdapter doesn't support peek.
-        //
-        // SOLUTION: We will make `read_control_messages` the primary way to consume messages.
-        // `write_message` will assume the `cancelled_streams` set is up to date.
-        // This implies `write_message` should NO LONGER implicitly check cancellations from the stream.
-        // It relies on the external driver (the Service) to call `read_control_messages` and possibly
-        // call a new method `mark_cancelled`.
+    /// Mark a stream as cancelled, preventing further writes to it.
+    pub fn mark_stream_cancelled(&mut self, stream_id: PhysicalStreamId) {
+        self.cancelled_streams.insert(stream_id);
     }
 
     /// Writes a framed message to the ring buffer.
-    pub fn write_message(
+    pub(super) fn write_message(
         &mut self,
         stream_id: PhysicalStreamId,
         payload: &[u8],
     ) -> std::io::Result<()> {
-        // We assume the driver loop has updated cancelled_streams via read_control_messages -> mark_stream_cancelled
         if self.cancelled_streams.contains(&stream_id) {
             return Err(std::io::Error::from(ErrorKind::BrokenPipe));
         }
@@ -694,9 +659,7 @@ impl MultiplexedDsmWriter {
     }
 
     /// Closes a specific stream by sending an empty message (len=0).
-    pub fn close_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
-        // If already cancelled, no need to send close
-        self.check_cancellations();
+    pub(super) fn close_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         if self.cancelled_streams.contains(&stream_id) {
             return Ok(());
         }
@@ -964,7 +927,7 @@ impl MultiplexedDsmReader {
     /// This handles the demultiplexing of the physical pipe.
     /// Returns `Ok(Some(Vec<u8>))` for a message, `Ok(None)` for End-of-Stream (EOS),
     /// or `ErrorKind::WouldBlock` if no data is available in the physical buffer.
-    pub fn read_for_stream(
+    pub(super) fn read_for_stream(
         &mut self,
         stream_id: PhysicalStreamId,
     ) -> std::io::Result<Option<Vec<u8>>> {
@@ -1051,18 +1014,18 @@ impl MultiplexedDsmReader {
     }
 
     /// Signals the writer to start producing data for a stream.
-    pub fn start_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
+    pub(super) fn start_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         self.send_control_message(0, stream_id)
     }
 
     /// Cancels a stream by writing its ID to the control channel.
-    pub fn cancel_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
+    pub(super) fn cancel_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         self.send_control_message(1, stream_id)
     }
 
     /// Async version of `read_for_stream` that registers the current task's waker
     /// with the bridge if data is not yet available.
-    pub fn poll_read_for_stream(
+    pub(super) fn poll_read_for_stream(
         &mut self,
         stream_id: PhysicalStreamId,
         cx: &mut std::task::Context<'_>,

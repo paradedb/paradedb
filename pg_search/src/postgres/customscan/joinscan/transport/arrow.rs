@@ -20,7 +20,7 @@
 //! This module implements the infrastructure for streaming Arrow `RecordBatch`es
 //! between processes via Shared Memory (DSM) ring buffers.
 //!
-//! It builds upon the generic DSM stream abstraction provided by `dsm_stream`.
+//! It builds upon the generic DSM stream abstraction provided by `shmem`.
 
 use std::io::Write;
 use std::sync::Arc;
@@ -36,10 +36,10 @@ use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use parking_lot::Mutex;
 
-// Re-export commonly used types from dsm_stream for convenience in other modules
-pub use crate::postgres::customscan::joinscan::dsm_stream::{
+// Use types from shmem
+use super::shmem::{
     DsmStreamWriterAdapter, LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter,
-    PhysicalStreamId, RingBufferHeader, SignalBridge,
+    PhysicalStreamId,
 };
 
 /// A writer for a single logical stream within a multiplexed DSM region.
@@ -297,7 +297,8 @@ pub fn dsm_shared_memory_reader(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::postgres::customscan::joinscan::dsm_stream::RingBufferHeader;
+    use crate::postgres::customscan::joinscan::transport::shmem::{RingBufferHeader, SignalBridge};
+    use crate::postgres::customscan::joinscan::transport::TransportMesh;
     use arrow_array::{Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
     use futures::StreamExt;
@@ -350,10 +351,13 @@ mod tests {
                 bridge.clone(),
                 0,
             )));
-            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+            let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
                 mux_readers: vec![reader_mux.clone()],
                 bridge,
+            };
+            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+                transport,
                 registry: Mutex::new(
                     crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
                 ),
@@ -435,10 +439,13 @@ mod tests {
                 bridge.clone(),
                 0,
             )));
-            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+            let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
                 mux_readers: vec![reader_mux.clone()],
                 bridge,
+            };
+            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+                transport,
                 registry: Mutex::new(
                     crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
                 ),
@@ -534,10 +541,13 @@ mod tests {
                 bridge.clone(),
                 0,
             )));
-            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+            let transport = TransportMesh {
                 mux_writers: vec![writer_mux.clone()],
                 mux_readers: vec![reader_mux.clone()],
                 bridge,
+            };
+            let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
+                transport,
                 registry: Mutex::new(
                     crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
                 ),

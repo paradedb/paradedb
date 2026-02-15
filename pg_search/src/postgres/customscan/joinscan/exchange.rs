@@ -41,9 +41,10 @@ use futures::{future::poll_fn, Stream, StreamExt};
 use parking_lot::Mutex;
 use tokio::sync::watch;
 
-use crate::postgres::customscan::joinscan::dsm_transfer::{
-    dsm_shared_memory_reader, DsmSharedMemoryWriter, MultiplexedDsmReader, MultiplexedDsmWriter,
-    SignalBridge,
+use crate::postgres::customscan::joinscan::transport::TransportMesh;
+use crate::postgres::customscan::joinscan::transport::{
+    dsm_shared_memory_reader, ControlMessage, DsmSharedMemoryWriter, LogicalStreamId,
+    PhysicalStreamId, SignalBridge,
 };
 use crate::scan::table_provider::MppParticipantConfig;
 
@@ -82,9 +83,7 @@ pub struct StreamRegistry {
 
 /// A registry for process-local DSM communication channels.
 pub struct DsmMesh {
-    pub mux_writers: Vec<Arc<Mutex<MultiplexedDsmWriter>>>,
-    pub mux_readers: Vec<Arc<Mutex<MultiplexedDsmReader>>>,
-    pub bridge: Arc<SignalBridge>,
+    pub transport: TransportMesh,
     pub registry: Mutex<StreamRegistry>,
 }
 
@@ -167,8 +166,6 @@ pub fn cancel_triggered_stream(physical_stream_id: PhysicalStreamId) {
     }
 }
 
-use crate::postgres::customscan::joinscan::dsm_stream::ControlMessage;
-use crate::postgres::customscan::joinscan::dsm_stream::{LogicalStreamId, PhysicalStreamId};
 use tokio::task::LocalSet;
 
 /// Spawns the background Control Service.
@@ -185,7 +182,10 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
             let (mux_writers, bridge) = {
                 let guard = DSM_MESH.lock();
                 if let Some(mesh) = guard.as_ref() {
-                    (mesh.mux_writers.clone(), mesh.bridge.clone())
+                    (
+                        mesh.transport.mux_writers.clone(),
+                        mesh.transport.bridge.clone(),
+                    )
                 } else {
                     return; // Mesh destroyed?
                 }
@@ -197,16 +197,21 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
 
                 for mux in &mux_writers {
                     let mut guard = mux.lock();
-                    let msgs = guard.read_control_messages();
-                    if !msgs.is_empty() {
+                    let frames = guard.read_control_frames();
+                    if !frames.is_empty() {
                         work_done = true;
-                        for msg in msgs {
-                            match msg {
-                                ControlMessage::StartStream(id) => {
-                                    trigger_stream(id, task_ctx.clone());
-                                }
-                                ControlMessage::CancelStream(id) => {
-                                    cancel_triggered_stream(id);
+                        for (msg_type, payload) in frames {
+                            if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
+                                match msg {
+                                    ControlMessage::StartStream(id) => {
+                                        trigger_stream(id, task_ctx.clone());
+                                    }
+                                    ControlMessage::CancelStream(id) => {
+                                        // Mark stream as cancelled in the transport layer
+                                        guard.mark_stream_cancelled(id);
+                                        // Cancel the execution task
+                                        cancel_triggered_stream(id);
+                                    }
                                 }
                             }
                         }
@@ -238,9 +243,9 @@ pub fn get_dsm_writer(
 ) -> Option<DsmSharedMemoryWriter> {
     let guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_ref() {
-        if participant < mesh.mux_writers.len() {
+        if participant < mesh.transport.mux_writers.len() {
             return Some(DsmSharedMemoryWriter::new(
-                mesh.mux_writers[participant].clone(),
+                mesh.transport.mux_writers[participant].clone(),
                 stream_id,
                 sender_index,
                 schema,
@@ -258,9 +263,9 @@ pub fn get_dsm_reader(
 ) -> Option<SendableRecordBatchStream> {
     let guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_ref() {
-        if participant < mesh.mux_readers.len() {
+        if participant < mesh.transport.mux_readers.len() {
             let reader = dsm_shared_memory_reader(
-                mesh.mux_readers[participant].clone(),
+                mesh.transport.mux_readers[participant].clone(),
                 stream_id,
                 sender_index,
                 schema,
@@ -434,7 +439,7 @@ pub fn collect_dsm_writers(plan: Arc<dyn ExecutionPlan>, sources: &mut Vec<Strea
 pub fn get_dsm_bridge() -> Arc<SignalBridge> {
     let guard = DSM_MESH.lock();
     let mesh = guard.as_ref().expect("DSM mesh not registered");
-    mesh.bridge.clone()
+    mesh.transport.bridge.clone()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]

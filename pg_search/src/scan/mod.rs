@@ -20,6 +20,7 @@ pub mod codec;
 pub mod execution_plan;
 pub mod filter_pushdown;
 pub mod info;
+pub mod pre_filter;
 pub mod search_predicate_udf;
 pub mod table_provider;
 #[cfg(any(test, feature = "pg_test"))]

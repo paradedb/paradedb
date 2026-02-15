@@ -33,6 +33,7 @@ use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, Whi
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
+use super::pre_filter::{apply_pre_filter, PreFilter};
 use super::VisibilityChecker;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
@@ -110,6 +111,10 @@ pub struct Scanner {
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
     prefetched: Option<Batch>,
+    /// Rows entering the pre-materialization filter stage (after visibility).
+    pub pre_filter_rows_scanned: usize,
+    /// Rows removed by pre-materialization filters.
+    pub pre_filter_rows_pruned: usize,
 }
 
 impl Scanner {
@@ -138,6 +143,8 @@ impl Scanner {
             which_fast_fields,
             table_oid,
             prefetched: None,
+            pre_filter_rows_scanned: 0,
+            pre_filter_rows_pruned: 0,
         }
     }
 
@@ -145,6 +152,11 @@ impl Scanner {
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {
         build_arrow_schema(&self.which_fast_fields)
+    }
+
+    /// Returns the estimated number of rows that will be produced by this scanner.
+    pub fn estimated_rows(&self) -> u64 {
+        self.search_results.estimated_doc_count()
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
@@ -178,11 +190,17 @@ impl Scanner {
         }
     }
 
-    /// Fetch the next batch of results, applying visibility checks.
+    /// Fetch the next batch of results, applying visibility checks and
+    /// pre-materialization filters.
+    ///
+    /// `pre_filters` are applied after visibility checks but *before* column
+    /// materialization, allowing string-column filters to operate on cheap
+    /// term ordinals rather than requiring expensive dictionary lookups.
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
+        pre_filters: &[PreFilter],
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -219,6 +237,26 @@ impl Scanner {
         ctids.truncate(write_idx);
         ids.truncate(write_idx);
         scores.truncate(write_idx);
+
+        // Apply pre-materialization filters (before expensive dictionary lookups).
+        if !pre_filters.is_empty() {
+            let before = ids.len();
+            for pre_filter in pre_filters {
+                if ids.is_empty() {
+                    break;
+                }
+                apply_pre_filter(
+                    ffhelper,
+                    segment_ord,
+                    pre_filter,
+                    &mut ids,
+                    &mut ctids,
+                    &mut scores,
+                );
+            }
+            self.pre_filter_rows_scanned += before;
+            self.pre_filter_rows_pruned += before - ids.len();
+        }
 
         // Execute batch lookups of the fast-field values, and construct the batch.
         let fields = self
@@ -301,9 +339,10 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut (impl VisibilityChecker + ?Sized),
+        pre_filters: &[PreFilter],
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
                 self.prefetched = Some(batch);
             }
         }

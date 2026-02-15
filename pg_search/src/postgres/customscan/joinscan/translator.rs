@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::OnceLock;
-
 use datafusion::common::{Column, ScalarValue, TableReference};
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use pgrx::{pg_sys, PgList};
@@ -26,12 +24,8 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinLevelSearchPredicate, JoinSource,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
-use crate::postgres::customscan::opexpr::{
-    initialize_equality_operator_lookup, OperatorAccepts, PostgresOperatorOid, TantivyOperator,
-};
+use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
-
-static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
 
 pub(super) trait ColumnMapper {
     /// Map a PostgreSQL variable to a DataFusion Column expression
@@ -178,7 +172,7 @@ impl<'a> PredicateTranslator<'a> {
         let right = self.translate(args.get_ptr(1)?)?;
 
         let opno = (*op_expr).opno;
-        let op_str = self.lookup_operator(opno)?;
+        let op_str = lookup_operator(opno)?;
 
         let op = match op_str {
             "=" => Operator::Eq,
@@ -301,12 +295,6 @@ impl<'a> PredicateTranslator<'a> {
             }
             _ => None,
         }
-    }
-
-    fn lookup_operator(&self, opno: pg_sys::Oid) -> Option<&'static str> {
-        let lookup = OPERATOR_LOOKUP
-            .get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) });
-        lookup.get(&opno).copied()
     }
 }
 

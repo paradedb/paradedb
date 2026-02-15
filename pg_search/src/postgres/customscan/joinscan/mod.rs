@@ -182,6 +182,8 @@ use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
+use datafusion::physical_plan::metrics::MetricValue;
+use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
 };
@@ -268,6 +270,12 @@ impl ParallelQueryCapable for JoinScan {
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
+
+        // Workers must wait for the leader to finish populating the segment pool.
+        unsafe {
+            (*pscan_state).wait_for_initialization();
+        }
+
         // We don't need to deserialize query from parallel state for JoinScan
         // because the full plan (including query) is serialized in PrivateData
         // and available to the worker via the plan.
@@ -870,7 +878,24 @@ impl CustomScan for JoinScan {
             );
         }
 
-        if let Some(ref logical_plan) = state.custom_state().logical_plan {
+        if explainer.is_analyze() {
+            // For EXPLAIN ANALYZE, render the plan with metrics inline.
+            // VERBOSE includes timing; without VERBOSE, timing is stripped for stable output.
+            if let Some(ref physical_plan) = state.custom_state().physical_plan {
+                explainer.add_text("DataFusion Physical Plan", "");
+                let mut lines = Vec::new();
+                render_plan_with_metrics(
+                    physical_plan.as_ref(),
+                    0,
+                    explainer.is_verbose(),
+                    &mut lines,
+                );
+                for line in &lines {
+                    explainer.add_text("  ", line);
+                }
+            }
+        } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
+            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
             let ctx = create_session_context();
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
@@ -980,6 +1005,9 @@ impl CustomScan for JoinScan {
                     plan.execute(0, task_ctx)
                         .expect("Failed to execute DataFusion plan")
                 };
+
+                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                state.custom_state_mut().physical_plan = Some(plan.clone());
 
                 let schema = plan.schema();
                 for (i, field) in schema.fields().iter().enumerate() {
@@ -1153,5 +1181,62 @@ impl JoinScan {
         // Use ExecStoreVirtualTuple to properly mark the slot as containing a virtual tuple
         pg_sys::ExecStoreVirtualTuple(result_slot);
         Some(result_slot)
+    }
+}
+
+/// Render a DataFusion physical plan tree with metrics.
+///
+/// Each node is rendered via its `DisplayAs` implementation, followed by
+/// collected metrics.  When `include_timing` is false, timing metrics
+/// (`elapsed_compute`, named `Time` values) are stripped so that regression
+/// test output remains stable.  Pass `true` (e.g. for EXPLAIN ANALYZE VERBOSE)
+/// to include everything.
+///
+/// TODO: In parallel mode each worker runs its own `exec_custom_scan` with its
+/// own plan instances, so the metrics stored on the leader's plan only reflect
+/// the leader's share of the work.  Once JoinScan parallelism is refactored
+/// (#4152), aggregate these across workers.
+fn render_plan_with_metrics(
+    plan: &dyn ExecutionPlan,
+    indent: usize,
+    include_timing: bool,
+    lines: &mut Vec<String>,
+) {
+    use std::fmt::Write;
+
+    let mut line = format!("{:indent$}", "", indent = indent * 2);
+
+    struct Fmt<'a>(&'a dyn ExecutionPlan);
+    impl std::fmt::Display for Fmt<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.0.fmt_as(DisplayFormatType::Default, f)
+        }
+    }
+    write!(line, "{}", Fmt(plan)).unwrap();
+
+    if let Some(metrics) = plan.metrics() {
+        let aggregated = metrics
+            .aggregate_by_name()
+            .sorted_for_display()
+            .timestamps_removed();
+        let parts: Vec<String> = aggregated
+            .iter()
+            .filter(|m| {
+                include_timing
+                    || !matches!(
+                        m.value(),
+                        MetricValue::ElapsedCompute(_) | MetricValue::Time { .. }
+                    )
+            })
+            .map(|m| m.to_string())
+            .collect();
+        if !parts.is_empty() {
+            write!(line, ", metrics=[{}]", parts.join(", ")).unwrap();
+        }
+    }
+
+    lines.push(line);
+    for child in plan.children() {
+        render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
 }

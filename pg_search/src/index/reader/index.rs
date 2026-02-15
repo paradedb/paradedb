@@ -205,6 +205,17 @@ impl MultiSegmentSearchResults {
         self.iterators.pop()
     }
 
+    /// Returns the total estimated number of documents across all segments in these results.
+    ///
+    /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
+    /// for this iterator.
+    pub fn estimated_doc_count(&self) -> u64 {
+        self.iterators
+            .iter()
+            .map(|iter| iter.estimated_doc_count() as u64)
+            .sum()
+    }
+
     /// Consumes and returns all segment iterators along with the searcher.
     ///
     /// This is useful for DataFusion integration where each segment iterator

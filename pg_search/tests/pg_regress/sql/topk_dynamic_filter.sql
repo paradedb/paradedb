@@ -1,0 +1,344 @@
+-- Test for TopK dynamic filter pushdown through DataFusion
+-- This test verifies that SortExec(TopK) propagates a DynamicFilterPhysicalExpr
+-- down to PgSearchScan, enabling row pruning at the scan level for ORDER BY ... LIMIT queries.
+-- Pruning occurs from two sources:
+--   1) HashJoin dynamic filter: after building the hash table, HashJoinExec pushes
+--      min/max bounds of join keys to the probe side, pruning rows that can't match.
+--   2) TopK dynamic filter: after processing initial batches, SortExec pushes
+--      the K-th threshold to leaf scans, pruning rows that can't make the top K.
+
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS suppliers CASCADE;
+
+CREATE TABLE suppliers (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    region TEXT
+);
+
+-- 5 suppliers. Only some will match search predicates in individual tests.
+INSERT INTO suppliers (id, name, region) VALUES
+(1, 'AlphaSupply', 'north america domestic shipping'),
+(2, 'BetaGoods', 'europe international logistics'),
+(3, 'GammaParts', 'asia pacific global trade'),
+(4, 'DeltaCorp', 'south america regional distribution'),
+(5, 'EpsilonTech', 'africa emerging market wireless');
+
+CREATE TABLE products (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    supplier_id INTEGER,
+    price NUMERIC(10,2)
+);
+
+-- 30 products: all mention "premium" so they all match the search predicate.
+-- supplier_id cycles 1-5, so each supplier has 6 products.
+-- Prices spread from ~20 to ~300.
+INSERT INTO products (id, name, description, supplier_id, price)
+SELECT
+    i,
+    'Product ' || i,
+    'premium quality item number ' || i || ' for professional use',
+    (i % 5) + 1,
+    round((10.0 + (i * 9.8))::numeric, 2)
+FROM generate_series(1, 30) AS i;
+
+CREATE INDEX products_bm25_idx ON products USING bm25 (id, name, description, supplier_id, price)
+WITH (key_field = 'id', numeric_fields = '{"supplier_id": {"fast": true}, "price": {"fast": true}}');
+CREATE INDEX suppliers_bm25_idx ON suppliers USING bm25 (id, name, region)
+WITH (key_field = 'id');
+
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
+-- TEST 1: EXPLAIN shows dynamic_filters on PgSearchScan with ORDER BY + LIMIT
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.id
+LIMIT 3;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.id
+LIMIT 3;
+
+-- =============================================================================
+-- TEST 2: Search predicate on the build side (suppliers) restricts join keys,
+-- causing the HashJoin dynamic filter to prune probe-side (products) rows.
+-- Only supplier 5 (EpsilonTech) matches 'wireless'. Products with supplier_id != 5
+-- are pruned by the HashJoin dynamic filter on the probe side.
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE s.region @@@ 'wireless'
+ORDER BY p.id
+LIMIT 3;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE s.region @@@ 'wireless'
+ORDER BY p.id
+LIMIT 3;
+
+-- =============================================================================
+-- TEST 2b: EXPLAIN ANALYZE shows Dynamic Filter metrics
+-- Using COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF to keep output stable.
+-- =============================================================================
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE s.region @@@ 'wireless'
+ORDER BY p.id
+LIMIT 3;
+
+-- =============================================================================
+-- TEST 3: ORDER BY DESC + LIMIT
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.id DESC
+LIMIT 2;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.id DESC
+LIMIT 2;
+
+-- =============================================================================
+-- TEST 4: ORDER BY price + LIMIT (numeric sort column)
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.price ASC
+LIMIT 2;
+
+SELECT p.id, p.name, p.price, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.price ASC
+LIMIT 2;
+
+-- =============================================================================
+-- TEST 5: Both sides have search predicates with ORDER BY + LIMIT.
+-- Only supplier 3 (GammaParts) matches 'global'. Products are further filtered.
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
+ORDER BY p.id
+LIMIT 5;
+
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium' AND s.region @@@ 'global'
+ORDER BY p.id
+LIMIT 5;
+
+-- =============================================================================
+-- TEST 6: Semi-join (IN subquery) with ORDER BY + LIMIT
+-- This mirrors the semi_join_filter benchmark pattern. The IN (SELECT ...)
+-- becomes a semi join. The build side (suppliers filtered by BM25) restricts
+-- join keys, and the probe side (products) benefits from pre-materialization
+-- filtering: the HashJoin dynamic filter prunes products by supplier_id range,
+-- and the TopK dynamic filter prunes by the sort column (name).
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+
+SELECT p.id, p.name, p.price
+FROM products p
+WHERE p.supplier_id IN (
+    SELECT s.id
+    FROM suppliers s
+    WHERE s.region @@@ 'wireless'
+)
+ORDER BY p.id ASC
+LIMIT 3;
+
+-- =============================================================================
+-- TEST 7: Without LIMIT - no dynamic filter should appear
+-- =============================================================================
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.name, s.name AS supplier_name
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'premium'
+ORDER BY p.id;
+
+-- =============================================================================
+-- CLEANUP (products/suppliers)
+-- =============================================================================
+
+DROP TABLE products CASCADE;
+DROP TABLE suppliers CASCADE;
+
+-- =============================================================================
+-- TEST 8: Benchmark-style semi-join with TEXT join keys (UUID-like)
+--
+-- This mimics the semi_join_filter benchmark: a "files" table with TEXT
+-- documentId (keyword-tokenized, fast), joined against a "documents" table
+-- via IN (SELECT ...) with a BM25 predicate, sorted by title LIMIT N.
+--
+-- Two variants show the contrast:
+--   a) Wide-range build side — matching document IDs span the full ID range,
+--      so the HashJoin dynamic filter's min/max bounds are useless.
+--   b) Narrow-range build side — matching document IDs cluster in a small range,
+--      so the HashJoin dynamic filter prunes effectively.
+-- =============================================================================
+
+DROP TABLE IF EXISTS bench_files CASCADE;
+DROP TABLE IF EXISTS bench_documents CASCADE;
+
+CREATE TABLE bench_documents (
+    id TEXT PRIMARY KEY,
+    category TEXT,
+    title TEXT
+);
+
+-- 20 documents: IDs are 'doc-01' .. 'doc-20'.
+-- "category" assigns roughly half to 'PROJECT_ALPHA' and the rest to other groups.
+-- The ALPHA documents are scattered: doc-01, doc-04, doc-07, doc-10, doc-13, doc-16, doc-19.
+INSERT INTO bench_documents (id, category, title) VALUES
+('doc-01', 'PROJECT_ALPHA review notes',        'Document Title 1 - intro'),
+('doc-02', 'BETA_GROUP project overview',        'Document Title 2 - overview'),
+('doc-03', 'GAMMA_DIVISION quarterly report',    'Document Title 3 - quarterly'),
+('doc-04', 'PROJECT_ALPHA design spec',          'Document Title 4 - design'),
+('doc-05', 'BETA_GROUP budget analysis',         'Document Title 5 - budget'),
+('doc-06', 'GAMMA_DIVISION team roster',         'Document Title 6 - roster'),
+('doc-07', 'PROJECT_ALPHA roadmap planning',     'Document Title 7 - roadmap'),
+('doc-08', 'BETA_GROUP status update',           'Document Title 8 - status'),
+('doc-09', 'GAMMA_DIVISION risk assessment',     'Document Title 9 - risk'),
+('doc-10', 'PROJECT_ALPHA launch checklist',     'Document Title 10 - launch'),
+('doc-11', 'BETA_GROUP marketing strategy',      'Document Title 11 - marketing'),
+('doc-12', 'GAMMA_DIVISION vendor evaluation',   'Document Title 12 - vendor'),
+('doc-13', 'PROJECT_ALPHA feedback summary',     'Document Title 13 - feedback'),
+('doc-14', 'BETA_GROUP compliance report',       'Document Title 14 - compliance'),
+('doc-15', 'GAMMA_DIVISION hiring plan',         'Document Title 15 - hiring'),
+('doc-16', 'PROJECT_ALPHA milestone tracker',    'Document Title 16 - milestone'),
+('doc-17', 'BETA_GROUP onboarding guide',        'Document Title 17 - onboarding'),
+('doc-18', 'GAMMA_DIVISION security audit',      'Document Title 18 - security'),
+('doc-19', 'PROJECT_ALPHA resource allocation',  'Document Title 19 - resource'),
+('doc-20', 'BETA_GROUP incident response',       'Document Title 20 - incident');
+
+CREATE TABLE bench_files (
+    id SERIAL PRIMARY KEY,
+    document_id TEXT,
+    title TEXT,
+    content TEXT
+);
+
+-- 200 files, each randomly referencing a document.
+-- document_id cycles: file 1 → doc-01, file 2 → doc-02, ..., file 20 → doc-20, file 21 → doc-01, etc.
+-- Titles are 'File Title NNN' so they sort nicely and TopK can tighten thresholds.
+INSERT INTO bench_files (document_id, title, content)
+SELECT
+    'doc-' || LPAD(((i - 1) % 20 + 1)::TEXT, 2, '0'),
+    'File Title ' || LPAD(i::TEXT, 3, '0'),
+    'file content for item ' || i
+FROM generate_series(1, 200) AS i;
+
+CREATE INDEX bench_documents_bm25_idx ON bench_documents USING bm25 (id, category, title)
+WITH (key_field = 'id');
+
+CREATE INDEX bench_files_bm25_idx ON bench_files USING bm25 (id, document_id, title, content)
+WITH (key_field = 'id', text_fields = '{"document_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}, "content": {"fast": true}}');
+
+-- ----- TEST 8a: Wide-range build side -----
+-- The subquery matches PROJECT_ALPHA documents scattered across doc-01..doc-19.
+-- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-19' which
+-- covers nearly all documents. TopK on title LIMIT 3 is the only useful filter.
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+-- ----- TEST 8b: Narrow-range build side -----
+-- The subquery matches only 'doc-01' (the only document with 'intro' in its title).
+-- The HashJoin pushes documentId >= 'doc-01' AND documentId <= 'doc-01', which
+-- is perfectly selective: only files referencing doc-01 survive. Combined with TopK,
+-- this should show significant pruning.
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+SELECT f.id, f.title
+FROM bench_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM bench_documents d WHERE d.title @@@ 'intro'
+)
+ORDER BY f.title ASC
+LIMIT 3;
+
+-- =============================================================================
+-- CLEANUP (bench tables)
+-- =============================================================================
+
+DROP TABLE bench_files CASCADE;
+DROP TABLE bench_documents CASCADE;

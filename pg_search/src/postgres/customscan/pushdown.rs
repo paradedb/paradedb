@@ -17,14 +17,11 @@
 
 use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
-use crate::api::{fieldname_typoid, FieldName, HashMap};
+use crate::api::{fieldname_typoid, FieldName};
 use crate::nodecast;
 use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::opexpr::{
-    initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
-    TantivyOperator, TantivyOperatorExt,
-};
+use crate::postgres::customscan::opexpr::{lookup_operator, OpExpr, TantivyOperatorExt};
 use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
@@ -176,8 +173,7 @@ pub unsafe fn try_pushdown_inner(
     let pushdown = PushdownField::try_new(root, maybe_field, indexrel)?;
     let search_field = pushdown.search_field();
 
-    static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
-    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
+    match lookup_operator(opexpr.opno()) {
         Some(pgsearch_operator) => {
             // can't push down tokenized text (but NumericBytes fields are stored as text with raw tokenizer)
             if (search_field.is_text() || opexpr.is_text_binary()) && !search_field.is_keyword() && !search_field.is_numeric_bytes() {
@@ -185,12 +181,12 @@ pub unsafe fn try_pushdown_inner(
             }
 
             // tantivy doesn't support JSON range if JSON is not fast
-            if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_range() {
+            if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_range() {
                 return None;
             }
 
             // tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists
-            if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_neq() {
+            if search_field.is_json() && !search_field.is_fast() && pgsearch_operator.is_neq() {
                 return None;
             }
 

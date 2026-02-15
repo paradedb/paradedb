@@ -21,7 +21,7 @@ fi
 
 # Load ParadeDB and third-party extensions into template1, $POSTGRES_DB, and paradedb
 # Creating extensions in template1 ensures that they are available in all new databases.
-for DB in template1 "$POSTGRES_DB" paradedb; do
+for DB in template1 paradedb "$POSTGRES_DB"; do
   echo "Loading ParadeDB extensions into $DB"
   psql -d "$DB" <<-'EOSQL'
     CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -36,7 +36,7 @@ EOSQL
 done
 
 # Add the `paradedb` schema to template1, $POSTGRES_DB, and paradedb
-for DB in template1 "$POSTGRES_DB" paradedb; do
+for DB in template1 paradedb "$POSTGRES_DB"; do
   echo "Adding 'paradedb' search_path to $DB"
   psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
 done

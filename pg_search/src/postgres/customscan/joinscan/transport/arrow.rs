@@ -59,16 +59,16 @@ use super::shmem::{
 /// The current approach serializes the entire batch to a `Vec<u8>` first. If the ring buffer
 /// is full, we keep the `Vec<u8>` and retry later, ensuring atomicity and preventing partial
 /// writes that could corrupt the stream if interrupted.
-pub struct DsmSharedMemoryWriter {
+pub struct DsmWriter {
     writer: StreamWriter<DsmStreamWriterAdapter>,
     /// Tracks whether the *current* batch has been serialized into the adapter's buffer but not yet flushed.
     /// This prevents duplicating the batch in the buffer if `write_batch` is retried after a `WouldBlock`.
     current_batch_buffered: bool,
 }
 
-unsafe impl Send for DsmSharedMemoryWriter {}
+unsafe impl Send for DsmWriter {}
 
-impl DsmSharedMemoryWriter {
+impl DsmWriter {
     pub fn new(
         multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
         logical_stream_id: LogicalStreamId,
@@ -272,7 +272,7 @@ crate::impl_safe_drop!(DsmStream, |self| {
     let _ = self.multiplexer.lock().cancel_stream(self.stream_id);
 });
 
-pub fn dsm_shared_memory_reader(
+pub fn dsm_reader(
     multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
     logical_stream_id: LogicalStreamId,
     sender_id: ParticipantId,
@@ -364,26 +364,26 @@ mod tests {
             };
             crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
 
-            let mut writer1 = DsmSharedMemoryWriter::new(
+            let mut writer1 = DsmWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(1),
                 ParticipantId(0),
                 schema.clone(),
             );
-            let mut writer2 = DsmSharedMemoryWriter::new(
+            let mut writer2 = DsmWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(2),
                 ParticipantId(0),
                 schema.clone(),
             );
 
-            let reader1 = dsm_shared_memory_reader(
+            let reader1 = dsm_reader(
                 reader_mux.clone(),
                 LogicalStreamId(1),
                 ParticipantId(0),
                 schema.clone(),
             );
-            let reader2 = dsm_shared_memory_reader(
+            let reader2 = dsm_reader(
                 reader_mux.clone(),
                 LogicalStreamId(2),
                 ParticipantId(0),
@@ -466,13 +466,13 @@ mod tests {
             let mut readers = Vec::new();
 
             for i in 0..num_streams {
-                writers.push(DsmSharedMemoryWriter::new(
+                writers.push(DsmWriter::new(
                     writer_mux.clone(),
                     LogicalStreamId(i as u16),
                     ParticipantId(0),
                     schema.clone(),
                 ));
-                readers.push(dsm_shared_memory_reader(
+                readers.push(dsm_reader(
                     reader_mux.clone(),
                     LogicalStreamId(i as u16),
                     ParticipantId(0),
@@ -564,13 +564,13 @@ mod tests {
             };
             crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
 
-            let writer = DsmSharedMemoryWriter::new(
+            let writer = DsmWriter::new(
                 writer_mux.clone(),
                 LogicalStreamId(1),
                 ParticipantId(0),
                 schema.clone(),
             );
-            let reader = dsm_shared_memory_reader(
+            let reader = dsm_reader(
                 reader_mux.clone(),
                 LogicalStreamId(1),
                 ParticipantId(0),
@@ -612,7 +612,7 @@ mod tests {
             bridge,
             ParticipantId(0),
         )));
-        let mut writer = DsmSharedMemoryWriter::new(
+        let mut writer = DsmWriter::new(
             writer_mux.clone(),
             LogicalStreamId(1),
             ParticipantId(0),

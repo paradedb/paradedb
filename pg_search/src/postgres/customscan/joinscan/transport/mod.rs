@@ -39,7 +39,7 @@
 //!
 //! 3.  **Adaptation Layer (`arrow.rs`)**:
 //!     *   Adapts the byte-oriented `shmem` streams to Arrow IPC.
-//!     *   Provides `DsmSharedMemoryWriter` (for `StreamWriter`) and `dsm_shared_memory_reader`
+//!     *   Provides `DsmWriter` (for `StreamWriter`) and `dsm_reader`
 //!         (for `StreamDecoder`).
 //!     *   Handles "double-buffering" to bridge the gap between synchronous `std::io::Write`
 //!         (Arrow) and non-blocking shared memory.
@@ -77,7 +77,7 @@ mod mesh;
 mod shmem;
 
 // Re-export commonly used types
-pub use arrow::{dsm_shared_memory_reader, DsmSharedMemoryWriter};
+pub use arrow::{dsm_reader, DsmWriter};
 pub use mesh::TransportMesh;
 pub use shmem::{
     LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, PhysicalStreamId,

@@ -98,8 +98,8 @@ use tokio::sync::watch;
 
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
-    dsm_shared_memory_reader, ControlMessage, DsmSharedMemoryWriter, LogicalStreamId,
-    ParticipantId, PhysicalStreamId, SignalBridge,
+    dsm_reader, ControlMessage, DsmWriter, LogicalStreamId, ParticipantId, PhysicalStreamId,
+    SignalBridge,
 };
 use crate::scan::table_provider::MppParticipantConfig;
 
@@ -295,11 +295,11 @@ pub fn get_dsm_writer(
     stream_id: LogicalStreamId,
     sender_id: ParticipantId,
     schema: SchemaRef,
-) -> Option<DsmSharedMemoryWriter> {
+) -> Option<DsmWriter> {
     let guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_ref() {
         if participant < mesh.transport.mux_writers.len() {
-            return Some(DsmSharedMemoryWriter::new(
+            return Some(DsmWriter::new(
                 mesh.transport.mux_writers[participant].clone(),
                 stream_id,
                 sender_id,
@@ -319,7 +319,7 @@ pub fn get_dsm_reader(
     let guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_ref() {
         if participant < mesh.transport.mux_readers.len() {
-            let reader = dsm_shared_memory_reader(
+            let reader = dsm_reader(
                 mesh.transport.mux_readers[participant].clone(),
                 stream_id,
                 sender_id,

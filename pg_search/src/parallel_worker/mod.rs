@@ -89,8 +89,15 @@ pub trait ParallelState {
         1
     }
 
-    /// Return a byte slice pointing to the raw bytes of this instance in memory
-    fn as_bytes(&self) -> &[u8];
+    /// Initialize the state at the given memory location.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `dest` is valid for writes of at least `self.size_of()` bytes
+    /// and is properly aligned.
+    ///
+    /// The implementation must ensure it does not write more than `self.size_of()` bytes.
+    unsafe fn initialize(&self, dest: *mut u8);
 }
 
 impl ParallelStateType for u8 {}
@@ -109,8 +116,8 @@ impl ParallelStateType for bool {}
 impl ParallelStateType for () {}
 
 impl<T: ParallelStateType> ParallelState for T {
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        std::ptr::copy_nonoverlapping(self as *const _ as *const u8, dest, self.size_of())
     }
 }
 
@@ -124,8 +131,8 @@ impl<T: ParallelStateType> ParallelState for Vec<T> {
     fn array_len(&self) -> usize {
         self.len()
     }
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr() as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        std::ptr::copy_nonoverlapping(self.as_ptr() as *const u8, dest, self.size_of())
     }
 }
 

@@ -110,8 +110,11 @@ impl ParallelState for ScanDesc {
         self.0
     }
 
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.1 as *const _ as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        // SAFETY: `self.1` points to valid initialized `ParallelTableScanDescData`.
+        // `self.0` (size) was calculated during allocation.
+        // `dest` is guaranteed by the caller to be valid for `self.size_of()` bytes.
+        std::ptr::copy_nonoverlapping(self.1 as *const _ as *const u8, dest, self.size_of());
     }
 }
 

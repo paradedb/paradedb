@@ -111,6 +111,62 @@ pub struct JoinConfig {
 
 impl ParallelStateType for JoinConfig {}
 
+pub struct JoinRingBufferBuilder {
+    pub total_size: usize,
+    pub region_size: usize,
+    pub ring_buffer_size: usize,
+    pub total_participants: usize,
+}
+
+impl ParallelState for JoinRingBufferBuilder {
+    fn type_name(&self) -> &'static str {
+        "u8"
+    }
+
+    fn size_of(&self) -> usize {
+        self.total_size
+    }
+
+    fn array_len(&self) -> usize {
+        self.total_size
+    }
+
+    unsafe fn initialize(&self, dest: *mut u8) {
+        let base_ptr = dest;
+
+        // Initialize all headers in the single flat buffer
+        for i in 0..(self.total_participants * self.total_participants) {
+            let offset = i * self.region_size;
+
+            // SAFETY:
+            // 1. `base_ptr` is the start of the allocated shared memory region.
+            // 2. `offset + region_size` is guaranteed to be within `self.total_size`
+            //    because `total_size` is `participants^2 * region_size`.
+            let (header, _, _) =
+                RingBufferHeader::from_raw_parts(base_ptr, offset, self.region_size);
+
+            // SAFETY: `header` points to valid memory within the allocated region.
+            // We do NOT zero out the data region (to avoid huge memsets). This is safe because:
+            // - `RingBufferHeader::init` initializes `write_pos` and `read_pos` to 0.
+            // - Consumers only read data up to `write_pos`.
+            // - Producers only write data starting at `write_pos`.
+            // Thus, uninitialized data is never read.
+            RingBufferHeader::init(
+                header,
+                size_of::<RingBufferHeader>() + self.ring_buffer_size,
+            );
+
+            // Initialize Control Header
+            let header_ptr = header as *mut u8;
+            let control_ptr = header_ptr.add((*header).control_offset);
+            let control_header = control_ptr as *mut RingBufferHeader;
+
+            // SAFETY: Same as above, control header is within the region.
+            RingBufferHeader::init(control_header, 0);
+        }
+    }
+}
+
 pub struct ParallelJoin {
     pub state: JoinSharedState,
     pub config: JoinConfig,
@@ -118,11 +174,15 @@ pub struct ParallelJoin {
     pub plan_slices: Vec<Vec<u8>>,
     /// A single flat buffer containing all ring buffer regions.
     /// Layout: [Region 0][Region 1]...[Region P*P-1]
-    pub ring_buffer: Vec<u8>,
+    pub ring_buffer: JoinRingBufferBuilder,
 }
 
 impl ParallelJoin {
-    pub fn new(config: JoinConfig, plan_slices: Vec<Vec<u8>>, ring_buffer: Vec<u8>) -> Self {
+    pub fn new(
+        config: JoinConfig,
+        plan_slices: Vec<Vec<u8>>,
+        ring_buffer: JoinRingBufferBuilder,
+    ) -> Self {
         Self {
             state: JoinSharedState {
                 mutex: Spinlock::default(),
@@ -367,27 +427,13 @@ pub fn launch_join_workers(
     };
 
     let total_size = region_size * total_participants * total_participants;
-    let mut ring_buffer = vec![0u8; total_size];
 
-    let base_ptr = ring_buffer.as_mut_ptr();
-
-    // Initialize all headers in the single flat buffer
-    for i in 0..(total_participants * total_participants) {
-        let offset = i * region_size;
-
-        let (header, _, _) =
-            unsafe { RingBufferHeader::from_raw_parts(base_ptr, offset, region_size) };
-
-        unsafe {
-            RingBufferHeader::init(header, size_of::<RingBufferHeader>() + ring_buffer_size);
-
-            // Initialize Control Header
-            let header_ptr = header as *mut u8;
-            let control_ptr = header_ptr.add((*header).control_offset);
-            let control_header = control_ptr as *mut RingBufferHeader;
-            RingBufferHeader::init(control_header, 0);
-        }
-    }
+    let ring_buffer = JoinRingBufferBuilder {
+        total_size,
+        region_size,
+        ring_buffer_size,
+        total_participants,
+    };
 
     // Initialize leader's bridge
     let bridge = runtime

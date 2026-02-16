@@ -103,11 +103,9 @@ impl ParallelProcessBuilder {
 
                 let nbytes = entry.size_of();
                 let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nbytes);
-                std::ptr::copy_nonoverlapping(
-                    entry.as_bytes().as_ptr().cast(),
-                    state_address,
-                    nbytes,
-                );
+                // SAFETY: `state_address` points to `nbytes` bytes of valid memory
+                // allocated by `shm_toc_allocate`, which matches `entry.size_of()`.
+                entry.initialize(state_address.cast());
                 pg_sys::shm_toc_insert((*pcxt.as_ptr()).toc, idx + i as u64 + 1, state_address);
             }
 

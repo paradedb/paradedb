@@ -15,6 +15,61 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+//! Parallel Exchange Operator for MPP Execution.
+//!
+//! This module implements the `DsmExchangeExec` operator, which serves as the boundary
+//! between parallel execution stages. It handles data shuffling across processes
+//! using shared memory ring buffers.
+//!
+//! # The "RPC-Server" Architecture
+//!
+//! This implementation follows a "Lazy Request" / "RPC-Server" model rather than the
+//! traditional "Eager Push" model used by Spark or Ballista.
+//!
+//! ## Core Concepts
+//!
+//! ### 1. Unique Physical Stream ID
+//!
+//! We distinguish between the **Logical Stream** (the shuffle operation in the plan) and
+//! the **Physical Stream** (the point-to-point connection).
+//!
+//! - **Logical Stream ID**: Assigned by `EnforceDsmShuffle` optimizer rule (sequential IDs).
+//! - **Physical Stream ID**: `(Logical ID << 16) | Sender Index`.
+//!   - Example: Logical Stream 1 from Worker 3 has Physical ID `0x00010003`.
+//!
+//! ### 2. Control Channel Protocol
+//!
+//! The "Control Channel" (reverse direction from Reader -> Writer) implements an RPC-like protocol:
+//! - StartStream - Begin executing a pre-arranged stream.
+//! - CancelStream - Cancel a stream after starting it.
+//!
+//! ### 3. Stream Registry (The "Listener")
+//!
+//! Each process (Leader and Workers) maintains a `StreamRegistry`.
+//!
+//! - **Registration Phase**: During startup (plan deserialization), we traverse the physical plan.
+//!   Every `DsmExchangeExec` encountered is "registered" but not executed. We store its input plan.
+//! - **Listening Phase**: The process runs a `Control Service` loop that polls the Control Channels
+//!   of all its `MultiplexedDsmWriter`s.
+//! - **Execution Phase**: When a `StartStream(id)` message arrives:
+//!   1.  The Control Service calls `trigger_stream(id)`.
+//!   2.  It looks up the registered plan for `id`.
+//!   3.  It spawns a background Tokio task to execute that sub-plan.
+//!   4.  The task writes data to the DSM buffer.
+//!
+//! ## Analogy: RPC Tree
+//!
+//! The system can be visualized as a tree of RPC calls.
+//!
+//! 1.  **Leader** executes the Root Plan.
+//! 2.  When it hits a `DsmExchangeExec` (acting as Consumer), it makes an "RPC Call" (`StartStream`)
+//!     to a specific Worker node (or itself).
+//! 3.  The **Worker** receives the call. It looks up the "Procedure" (the sub-plan corresponding
+//!     to that stream) and executes it.
+//! 4.  If that sub-plan contains more `DsmExchangeExec` nodes (acting as Consumers), the Worker
+//!     recursively makes more RPC calls to other nodes.
+//! 5.  Data flows back up the tree as the response stream.
+
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::io::ErrorKind;

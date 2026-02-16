@@ -433,10 +433,9 @@ fn build_clause_df<'a>(
             for info in &join_clause.order_by {
                 let expr = match &info.feature {
                     crate::api::OrderByFeature::Score => {
-                        // For N-way, 'ordering_side_is_outer' is insufficient.
-                        // We need the index of the ordering side.
-                        let ordering_idx = join_clause.ordering_side_index();
-                        if let Some(idx) = ordering_idx {
+                        // We need the index of the score provider.
+                        let score_provider_idx = join_clause.score_provider_index();
+                        if let Some(idx) = score_provider_idx {
                             let source = &join_clause.sources[idx];
                             let alias = source.execution_alias(idx);
 

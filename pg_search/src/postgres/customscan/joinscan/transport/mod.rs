@@ -1,7 +1,24 @@
+// Copyright (c) 2023-2026 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
 //! # Transport Layer
 //!
 //! This module implements the low-level data transport and signaling mechanisms for ParadeDB's
-//! distributed execution engine (JoinScan). It decouples the physical movement of data (via Shared
+//! parallel execution engine (JoinScan). It decouples the physical movement of data (via Shared
 //! Memory Ring Buffers) from the execution logic (DataFusion Plans).
 //!
 //! ## Architecture
@@ -14,12 +31,11 @@
 //!         notification.
 //!     *   Provides `MultiplexedDsmWriter` and `MultiplexedDsmReader` for multiplexing logical
 //!         streams over a single physical connection.
-//!     *   **Visibility**: Module-private (`pub(super)`).
 //!
 //! 2.  **Protocol Layer (`mod.rs`)**:
 //!     *   Defines the `ControlMessage` enum (Start/Cancel stream).
 //!     *   Provides the `TransportMesh` abstraction which encapsulates the topology of the
-//!         distributed session (Writers/Readers for all participants).
+//!         parallel session (Writers/Readers for all participants).
 //!
 //! 3.  **Adaptation Layer (`arrow.rs`)**:
 //!     *   Adapts the byte-oriented `shmem` streams to Arrow IPC.

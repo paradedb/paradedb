@@ -15,11 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! # Coordinated Parallel Execution (Local Distributed Engine)
+//! # Coordinated Parallel Execution
 //!
 //! This module implements the infrastructure for process-parallel execution of JoinScan.
-//! It follows a "Local Distributed Engine" model where the PostgreSQL leader backend
+//! It follows a "Coordinated Parallel Engine" model where the PostgreSQL leader backend
 //! acts as a scheduler, and multiple background workers act as executors.
+//!
+//! ## Process Model
+//!
+//! ### 1. Leader (The Scheduler)
+//!
+//! The Leader process (in `launch_join_workers`):
+//! - Computes the physical execution plan for the *entire* query.
+//! - Serializes the plan and broadcasts it to all workers via shared memory.
+//! - Initializes the Shared Memory Ring Buffers for data transport.
+//! - Launches $N$ background workers using the `parallel_worker` framework.
+//! - Executes its own portion of the plan (if `leader_participation` is enabled).
+//!
+//! ### 2. Worker (The RPC Server)
+//!
+//! Each Worker process (in `JoinWorker::run`):
+//! - Deserializes the full physical plan.
+//! - **Does NOT execute** the plan immediately. instead, it registers all `DsmExchangeExec` nodes
+//!   (sub-plans) into a local `StreamRegistry`.
+//! - Starts a `Control Service` loop to listen for incoming stream requests.
+//! - Parks the thread and waits for `StartStream` commands from consumers.
 //!
 //! ## Important Note on Parallelism
 //!

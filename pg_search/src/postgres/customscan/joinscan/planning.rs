@@ -612,10 +612,10 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
     true
 }
 
-/// Extract ORDER BY score pathkey for the ordering side.
+/// Extract ORDER BY score pathkey for the score provider side.
 ///
 /// This checks if the query has an ORDER BY clause with paradedb.score()
-/// referencing the ordering side relation. If found, returns the OrderByStyle
+/// referencing the score provider relation. If found, returns the OrderByStyle
 /// that can be used to declare pathkeys on the CustomPath, eliminating the
 /// need for PostgreSQL to add a separate Sort node.
 ///
@@ -625,7 +625,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 /// - Score function references a different relation
 pub(super) unsafe fn extract_score_pathkey(
     root: *mut pg_sys::PlannerInfo,
-    ordering_side: &JoinSource,
+    score_provider: &JoinSource,
 ) -> Option<OrderByStyle> {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
@@ -643,12 +643,12 @@ pub(super) unsafe fn extract_score_pathkey(
         if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
             if !phv.is_null() && !(*phv).phexpr.is_null() {
                 if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, (*phv).phexpr) {
-                    if is_score_func_recursive(funcexpr.cast(), ordering_side) {
+                    if is_score_func_recursive(funcexpr.cast(), score_provider) {
                         return Some(OrderByStyle::Score(pathkey));
                     }
                 }
             }
-        } else if is_score_func_recursive(expr.cast(), ordering_side) {
+        } else if is_score_func_recursive(expr.cast(), score_provider) {
             return Some(OrderByStyle::Score(pathkey));
         }
     }
@@ -732,7 +732,7 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[JoinSource],
-    ordering_side_index: Option<usize>,
+    score_provider_index: Option<usize>,
 ) -> Vec<OrderByInfo> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
@@ -781,9 +781,9 @@ pub(super) unsafe fn extract_orderby(
             let mut score_found = false;
             for (i, source) in sources.iter().enumerate() {
                 if is_score_func_recursive(check_expr.cast(), source) {
-                    let is_ordering_source = Some(i) == ordering_side_index;
+                    let is_score_provider = Some(i) == score_provider_index;
 
-                    if is_ordering_source {
+                    if is_score_provider {
                         result.push(OrderByInfo {
                             feature: OrderByFeature::Score,
                             direction,

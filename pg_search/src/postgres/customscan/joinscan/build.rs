@@ -412,15 +412,15 @@ impl JoinCSClause {
         self
     }
 
-    /// Returns the index of the ordering side (the source with a search predicate).
-    /// If multiple have it, returns the first one.
-    pub fn ordering_side_index(&self) -> Option<usize> {
+    /// Returns the index of the source that provides the score for ranking (if any).
+    /// If multiple sources have search predicates, returns the first one.
+    pub fn score_provider_index(&self) -> Option<usize> {
         self.sources.iter().position(|s| s.has_search_predicate())
     }
 
-    /// Get the ordering side source (side with search predicate).
-    pub fn ordering_side(&self) -> Option<&JoinSource> {
-        self.ordering_side_index().map(|i| &self.sources[i])
+    /// Get the source that provides the score (side with search predicate).
+    pub fn score_provider(&self) -> Option<&JoinSource> {
+        self.score_provider_index().map(|i| &self.sources[i])
     }
 
     /// Recursively collect all base relations in this join tree.

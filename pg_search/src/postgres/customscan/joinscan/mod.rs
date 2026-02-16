@@ -17,117 +17,42 @@
 
 //! JoinScan: Custom scan operator for optimizing joins with BM25 full-text search.
 //!
-//! JoinScan intercepts PostgreSQL join operations and executes them using Tantivy's
-//! search capabilities combined with a join algorithm, providing significant
-//! performance improvements for queries that combine full-text search with joins.
+//! JoinScan intercepts PostgreSQL join operations and executes them using a high-performance
+//! parallel execution engine powered by DataFusion and Tantivy. It enables efficient
+//! full-text search joins by leveraging columnar fast fields and late materialization.
 //!
 //! # Activation Conditions
 //!
-//! JoinScan is proposed by the planner when **all** of the following conditions are met.
-//! These restrictions ensure that we can execute the join efficiently using Tantivy's
-//! columnar storage (fast fields) and minimize expensive heap access.
+//! JoinScan is proposed when **all** of the following are met:
 //!
-//! The core strategy is **late materialization**:
-//! 1. Execute the search and join using ONLY the index (fast fields).
-//! 2. Apply sorting and limits on the joined index data.
-//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (top N).
-//!
-//! This strategy requires that all data needed for the join, filter, and sort phases
-//! resides in fast fields, and that the result set size is small enough (via LIMIT)
-//! that the random heap access cost doesn't outweigh the join benefit.
-//!
-//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
-//!
-//! 2. **Join type**: Only `INNER JOIN` is currently supported
-//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
-//!
-//! 3. **LIMIT clause**: Query must have a LIMIT clause
-//!    - This ensures we only pay the cost of "late materialization" (random heap access)
-//!      for a small number of rows. Without LIMIT, scanning the entire index and fetching
-//!      all rows from the heap is often slower than PostgreSQL's native execution.
-//!    - Future work will allow no-limit joins when both sides have search predicates.
-//!
-//! 4. **Search predicate**: At least one side must have:
-//!    - A BM25 index on the table
-//!    - A `@@@` search predicate in the WHERE clause
-//!
-//! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
-//!    It achieves this by reconstructing the join tree from PostgreSQL's plan or by nesting
-//!    multiple JoinScan operators.
-//!
-//! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
-//!    respective BM25 indexes. This allows the join to be executed entirely within the index:
-//!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
-//!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
-//!    - ORDER BY columns must be fast fields for efficient sorting
-//!    - If any required column is not a fast field, we would need to access the heap
-//!      during the join, breaking the late materialization strategy.
-//!
-//! 7. **Equi-join keys required**: At least one equi-join key (e.g., `a.id = b.id`) is
-//!    required. Cross joins (cartesian products) fall back to PostgreSQL
-//!
-//! # Example Queries
-//!
-//! ```sql
-//! -- JoinScan IS proposed (has LIMIT, has @@@ predicate)
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless'
-//! LIMIT 10;
-//!
-//! -- JoinScan is NOT proposed (no LIMIT)
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless';
-//!
-//! -- JoinScan is NOT proposed (LEFT JOIN not supported)
-//! SELECT p.name, s.name
-//! FROM products p
-//! LEFT JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless'
-//! LIMIT 10;
-//!
-//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless' AND p.price > s.min_price
-//! LIMIT 10;
-//!
-//! -- JoinScan is NOT proposed if price is NOT a fast field
-//! -- (falls back to PostgreSQL's native join)
-//! ```
+//! 1.  **GUC enabled**: `paradedb.enable_join_custom_scan = on`.
+//! 2.  **Inner Join**: Only `INNER JOIN` is currently supported.
+//! 3.  **LIMIT clause**: Required to ensure late materialization benefits.
+//! 4.  **Search Predicate**: At least one joined table must have a `@@@` predicate.
+//! 5.  **Fast Fields**: All columns used in the join (keys, predicates, sort) must be
+//!     fast fields in the BM25 index.
+//! 6.  **Equi-Join**: At least one equality condition (e.g., `a.id = b.id`) is required.
 //!
 //! # Architecture
 //!
-//! ```text
-//! ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-//! │   PostgreSQL    │     │    JoinScan      │     │     DataFusion      │
-//! │   Planner       │────▶│   Custom Scan    │────▶│   Execution Plan    │
-//! │   (hook)        │     │   (planning +    │     │                     │
-//! │                 │     │    execution)    │     │                     │
-//! └─────────────────┘     └──────────────────┘     └─────────────────────┘
-//!                                                             │
-//!                                                             ▼
-//!                                                  ┌─────────────────────┐
-//!                                                  │      Tantivy        │
-//!                                                  │    (Scan + Search)  │
-//!                                                  └─────────────────────┘
-//! ```
+//! ## Logical Execution Flow
 //!
-//! ## Execution Strategy
+//! 1.  **Planning**: `JoinScan` hooks into PostgreSQL's planner, identifying search joins
+//!     and building a `JoinCSClause`.
+//! 2.  **Execution**: A DataFusion logical plan is constructed, defining the join, filters,
+//!     sorts, and limits.
+//! 3.  **DataFusion**: The plan is executed by DataFusion, which chooses the optimal join algorithm.
+//! 4.  **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
 //!
-//! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into the join path list.
-//!    It identifies potential search joins (including reconstructing multi-level joins from
-//!    PostgreSQL's optimal paths), extracts predicates, and builds a `JoinCSClause`.
-//! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
-//!    This plan defines the join, filters, sorts, and limits.
-//! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
-//!    - **Ordering side**: Streams results from Tantivy (search results).
-//!    - **Non-ordering side**: Scans the other relation (or search results).
-//! 4. **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
+//! ## Parallel Execution (MPP)
+//!
+//! JoinScan uses a **"Lazy Request"** / **"RPC-Server"** model for parallel execution across
+//! PostgreSQL processes:
+//!
+//! 1.  **Leader as Scheduler**: The leader creates and broadcasts the physical plan to workers.
+//! 2.  **Worker as RPC Server**: Workers register sub-plans (`DsmExchangeExec`) and wait for requests.
+//! 3.  **Lazy Execution**: Execution starts only when a consumer sends a `StartStream` control message.
+//! 4.  **Data Transport**: Data is streamed via shared memory ring buffers using Arrow IPC.
 //!
 //! # Submodules
 //!
@@ -266,11 +191,11 @@ impl CustomScan for JoinScan {
 
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
-            // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
-            // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
-            // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
-            // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
+            // - LEFT JOIN: Return NULL for non-matching rows from the right side.
+            // - RIGHT JOIN: Swap sides if possible, or implement Right Join logic.
+            // - FULL OUTER JOIN: Track unmatched rows on both sides.
+            // - SEMI JOIN: Stop after first match (benefits EXISTS queries).
+            // - ANTI JOIN: Return only rows with no matches (benefits NOT EXISTS).
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
@@ -368,9 +293,9 @@ impl CustomScan for JoinScan {
             // Add current level keys
             join_clause.join_keys.extend(join_conditions.equi_keys);
 
-            // Determine ordering side index
-            let ordering_idx = join_clause.ordering_side_index();
-            let score_pathkey = if let Some(side) = join_clause.ordering_side() {
+            // Determine which side provides the score for ordering (if any)
+            let score_provider_idx = join_clause.score_provider_index();
+            let score_pathkey = if let Some(side) = join_clause.score_provider() {
                 extract_score_pathkey(root, side)
             } else {
                 None
@@ -379,14 +304,11 @@ impl CustomScan for JoinScan {
             for (i, source) in join_clause.sources.iter_mut().enumerate() {
                 // Check if paradedb.score() is used anywhere in the query for each side.
                 // This includes ORDER BY, SELECT list, or any other expression.
-                // We need to check ALL sides because:
-                // - Ordering side: scores come from the streaming executor
-                // - Non-ordering side: scores come from the pre-materialized search results
                 let score_in_tlist =
                     expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
 
-                let score_needed = if let Some(ord_idx) = ordering_idx {
-                    (i == ord_idx && score_pathkey.is_some()) || score_in_tlist
+                let score_needed = if let Some(provider_idx) = score_provider_idx {
+                    (i == provider_idx && score_pathkey.is_some()) || score_in_tlist
                 } else {
                     score_in_tlist
                 };
@@ -441,7 +363,7 @@ impl CustomScan for JoinScan {
             // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Extract ORDER BY info for DataFusion execution
-            let order_by = extract_orderby(root, &join_clause.sources, ordering_idx);
+            let order_by = extract_orderby(root, &join_clause.sources, score_provider_idx);
             join_clause = join_clause.with_order_by(order_by);
 
             // Use simple fixed costs since we force the path anyway.

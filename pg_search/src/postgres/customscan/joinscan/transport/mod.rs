@@ -27,7 +27,7 @@
 //!
 //! 1.  **Physical Layer (`shmem.rs`)**:
 //!     *   Manages raw Shared Memory (DSM) regions.
-//!     *   Implements `RingBufferHeader` and `SignalBridge` (Unix Domain Sockets) for cross-process
+//!     *   Implements `TransportHeader`, `RingBufferHeader`, and `SignalBridge` (Unix Domain Sockets) for cross-process
 //!         notification.
 //!     *   Provides `MultiplexedDsmWriter` and `MultiplexedDsmReader` for multiplexing logical
 //!         streams over a single physical connection.
@@ -81,7 +81,7 @@ pub use arrow::{dsm_reader, DsmWriter};
 pub use mesh::TransportMesh;
 pub use shmem::{
     LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, PhysicalStreamId,
-    RingBufferHeader, SignalBridge,
+    SignalBridge, TransportLayout,
 };
 
 /// Control messages sent from Reader to Writer.

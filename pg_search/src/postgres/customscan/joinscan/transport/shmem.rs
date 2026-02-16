@@ -334,11 +334,121 @@ impl SignalBridge {
 
 pub const DSM_MAGIC: u64 = 0x5044_425F_4453_4D31; // "PDB_DSM1"
 
-/// The header for a shared memory ring buffer.
+/// The top-level header for a Shared Memory Transport region.
 /// Located at the start of the DSM (Dynamic Shared Memory) region for each worker.
 ///
-/// This structure facilitates a "single-producer, single-consumer" (SPSC) queue
-/// of messages between two participants in an MPP session.
+/// This structure wraps the main data ring buffer and provides an offset to a secondary
+/// control channel (also a ring buffer) used for signaling (e.g. stream cancellation).
+///
+/// # Safety
+///
+/// This struct contains `AtomicU64` fields (via `RingBufferHeader`), which means it has interior mutability and is NOT `Pod`.
+/// Therefore, we cannot use `bytemuck::from_bytes` to safely cast a byte slice to a reference of this struct.
+/// Users must manually ensure that the backing memory is properly aligned (align 8) and sized
+/// before casting raw pointers.
+#[repr(C)]
+struct TransportHeader {
+    ring: RingBufferHeader,
+    /// Offset from the start of the DSM region to the control block.
+    /// The control block is used for reverse-channel signaling (e.g. cancellations).
+    /// If 0, the control block is not present.
+    control_offset: usize,
+}
+
+impl TransportHeader {
+    /// Initializes a `TransportHeader` at the given pointer.
+    unsafe fn init(header: *mut TransportHeader, control_offset: usize) {
+        let ring = &mut (*header).ring;
+        RingBufferHeader::init(ring);
+        (*header).control_offset = control_offset;
+    }
+}
+
+/// Helper to calculate layout and initialize a Transport region.
+///
+/// # Memory Layout
+///
+/// A Transport Region is a contiguous block of Shared Memory containing a Main Data Channel
+/// and a Secondary Control Channel.
+///
+/// ```text
+/// +-----------------------------------------------------------+
+/// |  TransportHeader (Private Struct)                         |
+/// |-----------------------------------------------------------|
+/// |  ring: RingBufferHeader                                   | <--- Main Data Channel Header
+/// |        - magic (u64)                                      |
+/// |        - write_pos (AtomicU64)                            |
+/// |        - read_pos (AtomicU64)                             |
+/// |        - finished (AtomicU64)                             |
+/// |-----------------------------------------------------------|
+/// |  control_offset: usize                                    | <--- Offset to Control Region
+/// +-----------------------------------------------------------+
+/// |                                                           |
+/// |  MAIN DATA RING BUFFER                                    |
+/// |  (Size: data_capacity)                                    |
+/// |                                                           |
+/// +-----------------------------------------------------------+ <--- Aligned to 8 bytes
+/// |  Control Ring Buffer Header (RingBufferHeader)            | <--- Control Channel Header
+/// +-----------------------------------------------------------+
+/// |                                                           |
+/// |  CONTROL DATA BUFFER                                      |
+/// |  (Size: control_capacity)                                 |
+/// |                                                           |
+/// +-----------------------------------------------------------+
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct TransportLayout {
+    pub data_capacity: usize,
+    pub control_capacity: usize,
+}
+
+impl TransportLayout {
+    pub fn new(data_capacity: usize, control_capacity: usize) -> Self {
+        Self {
+            data_capacity,
+            control_capacity,
+        }
+    }
+
+    fn align_up(offset: usize, align: usize) -> usize {
+        (offset + align - 1) & !(align - 1)
+    }
+
+    pub fn total_size(&self) -> usize {
+        let control_start = self.control_offset();
+        let control_end =
+            control_start + std::mem::size_of::<RingBufferHeader>() + self.control_capacity;
+        // Padding
+        control_end + 64
+    }
+
+    pub fn control_offset(&self) -> usize {
+        let unaligned = std::mem::size_of::<TransportHeader>() + self.data_capacity;
+        Self::align_up(unaligned, std::mem::align_of::<RingBufferHeader>())
+    }
+
+    /// Initializes the headers at the given base pointer.
+    ///
+    /// # Safety
+    /// `base_ptr` must point to a valid memory region of at least `total_size()` bytes.
+    pub unsafe fn init(&self, base_ptr: *mut u8) {
+        // 1. Initialize Main Header
+        let header = base_ptr as *mut TransportHeader;
+        TransportHeader::init(header, self.control_offset());
+
+        // 2. Initialize Control Header
+        let control_ptr = base_ptr.add(self.control_offset());
+        let control_header = control_ptr as *mut RingBufferHeader;
+        RingBufferHeader::init(control_header);
+    }
+}
+
+/// The header for a single circular buffer (SPSC queue).
+///
+/// This structure maintains the state (`write_pos`, `read_pos`) for a ring buffer.
+/// It is used for:
+/// 1. The main data channel (embedded in `TransportHeader`).
+/// 2. The secondary control channel (located at `control_offset`).
 ///
 /// # Safety
 ///
@@ -347,36 +457,33 @@ pub const DSM_MAGIC: u64 = 0x5044_425F_4453_4D31; // "PDB_DSM1"
 /// Users must manually ensure that the backing memory is properly aligned (align 8) and sized
 /// before casting raw pointers.
 #[repr(C)]
-pub struct RingBufferHeader {
+struct RingBufferHeader {
     /// Magic number to detect memory corruption.
-    pub magic: u64,
+    magic: u64,
+
     /// Monotonically increasing counter of total bytes written to the data region.
     /// The producer increments this after completing a write.
-    pub write_pos: AtomicU64,
+    write_pos: AtomicU64,
+
     /// Monotonically increasing counter of total bytes read from the data region.
     /// The consumer increments this after consuming a batch.
-    pub read_pos: AtomicU64,
+    read_pos: AtomicU64,
 
     /// A flag indicating that the producer has completed its execution and
     /// no more data will be written.
-    pub finished: AtomicU64,
-
-    /// Offset from the start of the DSM region to the control block.
-    /// The control block is used for reverse-channel signaling (e.g. cancellations).
-    /// If 0, the control block is not present (legacy compatibility).
-    pub control_offset: usize,
+    finished: AtomicU64,
 }
 
 impl RingBufferHeader {
     /// Initializes a `RingBufferHeader` at the given pointer.
     ///
-    /// This writes the magic number, zeroes the counters, and sets the control offset.
+    /// This writes the magic number and zeroes the counters.
     ///
     /// # Safety
     ///
     /// The caller must ensure that `header` points to a valid, aligned, and writeable memory region
     /// of size `size_of::<RingBufferHeader>()`.
-    pub unsafe fn init(header: *mut RingBufferHeader, control_offset: usize) {
+    unsafe fn init(header: *mut RingBufferHeader) {
         std::ptr::write(
             header,
             RingBufferHeader {
@@ -384,30 +491,8 @@ impl RingBufferHeader {
                 write_pos: AtomicU64::new(0),
                 read_pos: AtomicU64::new(0),
                 finished: AtomicU64::new(0),
-                control_offset,
             },
         );
-    }
-
-    /// Creates pointers to the header and data region from a base pointer and offset.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `base_ptr` + `offset` points to a valid, initialized
-    /// shared memory region that contains a `RingBufferHeader` followed by data.
-    /// The region must be at least `size_of::<RingBufferHeader>()` bytes.
-    ///
-    /// Returns: `(header_ptr, data_ptr, data_len)`
-    pub unsafe fn from_raw_parts(
-        base_ptr: *mut u8,
-        offset: usize,
-        total_region_size: usize,
-    ) -> (*mut RingBufferHeader, *mut u8, usize) {
-        let region_ptr = base_ptr.add(offset);
-        let header = region_ptr as *mut RingBufferHeader;
-        let data = region_ptr.add(std::mem::size_of::<RingBufferHeader>());
-        let data_len = total_region_size - std::mem::size_of::<RingBufferHeader>();
-        (header, data, data_len)
     }
 }
 
@@ -591,17 +676,19 @@ impl MultiplexedDsmWriter {
     /// If `control_offset` is non-zero in the header, it also initializes a reader
     /// for the reverse control channel to receive stream cancellation signals.
     pub fn new(
-        header: *mut RingBufferHeader,
-        data: *mut u8,
-        data_len: usize,
+        base_ptr: *mut u8,
+        data_capacity: usize,
         bridge: Arc<SignalBridge>,
         remote_id: ParticipantId,
     ) -> Self {
+        let header = base_ptr as *mut TransportHeader;
+        let data = unsafe { base_ptr.add(std::mem::size_of::<TransportHeader>()) };
+
         unsafe {
-            if (*header).magic != DSM_MAGIC {
+            if (*header).ring.magic != DSM_MAGIC {
                 pgrx::warning!(
                     "MultiplexedDsmWriter::new: Invalid magic number in header: {:x}",
-                    (*header).magic
+                    (*header).ring.magic
                 );
             }
         }
@@ -610,7 +697,7 @@ impl MultiplexedDsmWriter {
             let offset = (*header).control_offset;
             if offset > 0 {
                 // Sanity check control offset to avoid wrapping
-                if offset < std::mem::size_of::<RingBufferHeader>() {
+                if offset < std::mem::size_of::<TransportHeader>() {
                     pgrx::warning!(
                         "MultiplexedDsmWriter::new: Invalid control_offset {} (too small)",
                         offset
@@ -618,14 +705,14 @@ impl MultiplexedDsmWriter {
                 }
 
                 // Calculate pointer to control block
-                let base_ptr = header as *mut u8;
                 let control_ptr = base_ptr.add(offset);
                 let control_header = control_ptr as *mut RingBufferHeader;
 
                 // Data starts after the header.
                 let control_data = control_ptr.add(std::mem::size_of::<RingBufferHeader>());
                 // We'll use a fixed size for the control buffer for simplicity of this patch,
-                // matching what we'll allocate in the test/transfer logic (e.g. 4KB).
+                // matching what we'll allocate in the test/transfer logic (e.g. 64KB).
+                // TODO: Store control capacity in header or layout? For now constant is fine as long as consistent.
                 let control_len = 65536;
 
                 Some(DsmReadAdapter::new(
@@ -638,8 +725,10 @@ impl MultiplexedDsmWriter {
             }
         };
 
+        let adapter = unsafe { DsmWriteAdapter::new(&mut (*header).ring, data, data_capacity) };
+
         Self {
-            adapter: DsmWriteAdapter::new(header, data, data_len),
+            adapter,
             cancelled_streams: HashSet::default(),
             control_reader,
             bridge,
@@ -925,17 +1014,19 @@ impl MultiplexedDsmReader {
     /// If `control_offset` is non-zero in the header, it also initializes a writer
     /// for the reverse control channel to send stream cancellation signals.
     pub fn new(
-        header: *mut RingBufferHeader,
-        data: *mut u8,
-        data_len: usize,
+        base_ptr: *mut u8,
+        data_capacity: usize,
         bridge: Arc<SignalBridge>,
         remote_id: ParticipantId,
     ) -> Self {
+        let header = base_ptr as *mut TransportHeader;
+        let data = unsafe { base_ptr.add(std::mem::size_of::<TransportHeader>()) };
+
         unsafe {
-            if (*header).magic != DSM_MAGIC {
+            if (*header).ring.magic != DSM_MAGIC {
                 pgrx::warning!(
                     "MultiplexedDsmReader::new: Invalid magic number in header: {:x}",
-                    (*header).magic
+                    (*header).ring.magic
                 );
             }
         }
@@ -944,14 +1035,14 @@ impl MultiplexedDsmReader {
             let offset = (*header).control_offset;
             if offset > 0 {
                 // Sanity check control offset
-                if offset < std::mem::size_of::<RingBufferHeader>() {
+                if offset < std::mem::size_of::<TransportHeader>() {
                     pgrx::warning!(
                         "MultiplexedDsmReader::new: Invalid control_offset {} (too small)",
                         offset
                     );
                 }
 
-                let base_ptr = header as *mut u8;
+                // Calculate pointer to control block
                 let control_ptr = base_ptr.add(offset);
                 let control_header = control_ptr as *mut RingBufferHeader;
                 let control_data = control_ptr.add(std::mem::size_of::<RingBufferHeader>());
@@ -967,8 +1058,10 @@ impl MultiplexedDsmReader {
             }
         };
 
+        let adapter = unsafe { DsmReadAdapter::new(&mut (*header).ring, data, data_capacity) };
+
         Self {
-            adapter: DsmReadAdapter::new(header, data, data_len),
+            adapter,
             streams: HashMap::default(),
             partial_header: Vec::with_capacity(8),
             partial_payload: None,
@@ -1102,8 +1195,45 @@ impl MultiplexedDsmReader {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
+pub mod test_utils {
+    use super::*;
+
+    // Helper to create a dummy header and data buffer
+    pub struct TestBuffer {
+        _storage: Vec<u64>,
+        pub base_ptr: *mut u8,
+        pub capacity: usize,
+    }
+
+    impl TestBuffer {
+        pub fn new(capacity: usize) -> Self {
+            let control_capacity = 65536;
+            let layout = TransportLayout::new(capacity, control_capacity);
+            let total_size = layout.total_size();
+
+            // Align size to 8 bytes (u64)
+            let u64_count = total_size.div_ceil(8);
+            let mut storage = vec![0u64; u64_count];
+
+            let base_ptr = storage.as_mut_ptr() as *mut u8;
+
+            unsafe {
+                layout.init(base_ptr);
+            }
+
+            Self {
+                _storage: storage,
+                base_ptr,
+                capacity,
+            }
+        }
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use super::test_utils::TestBuffer;
     use super::*;
     use std::io::Write;
     use std::sync::Arc;
@@ -1112,47 +1242,18 @@ mod tests {
         SignalBridge::new_dummy()
     }
 
-    // Helper to create a dummy header and data buffer
-    struct TestBuffer {
-        _storage: Vec<u8>,
-        header: *mut RingBufferHeader,
-        data: *mut u8,
-        capacity: usize,
-    }
-
-    impl TestBuffer {
-        fn new(capacity: usize) -> Self {
-            let mut storage = vec![0u8; std::mem::size_of::<RingBufferHeader>() + capacity];
-            let (header, data, _) =
-                unsafe { RingBufferHeader::from_raw_parts(storage.as_mut_ptr(), 0, storage.len()) };
-
-            unsafe {
-                RingBufferHeader::init(header, 0);
-            }
-
-            Self {
-                _storage: storage,
-                header,
-                data,
-                capacity,
-            }
-        }
-    }
-
     #[pgrx::pg_test]
     fn test_basic_read_write() {
         let buf = TestBuffer::new(1024);
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(0),
@@ -1177,15 +1278,13 @@ mod tests {
         let buf = TestBuffer::new(1024);
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(0),
@@ -1232,15 +1331,13 @@ mod tests {
         let buf = TestBuffer::new(32); // 32 bytes data capacity
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(0),
@@ -1290,15 +1387,13 @@ mod tests {
         let buf = TestBuffer::new(50);
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(0),
@@ -1347,8 +1442,7 @@ mod tests {
         let buf = TestBuffer::new(100);
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(1),
@@ -1373,15 +1467,13 @@ mod tests {
         let buf = TestBuffer::new(1024);
         let bridge = create_dummy_bridge();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-            buf.header,
-            buf.data,
+            buf.base_ptr,
             buf.capacity,
             bridge,
             ParticipantId(0),
@@ -1485,11 +1577,13 @@ mod tests {
             msg_size: usize,
         ) -> Self {
             let session_id = uuid::Uuid::new_v4();
-            let mut region = vec![0u8; size_of::<RingBufferHeader>() + buffer_size + 64];
+            let control_capacity = 65536;
+            let layout = TransportLayout::new(buffer_size, control_capacity);
+            let total_size = layout.total_size();
+
+            let mut region = vec![0u8; total_size];
             unsafe {
-                let (header, _, _) =
-                    RingBufferHeader::from_raw_parts(region.as_mut_ptr(), 0, region.len());
-                RingBufferHeader::init(header, 0);
+                layout.init(region.as_mut_ptr());
             }
 
             Self {
@@ -1518,9 +1612,7 @@ mod tests {
     pub struct DsmStreamTestWorker<'a> {
         pub state: &'a mut DsmStreamTestState,
         pub config: DsmStreamTestConfig,
-        header: *mut RingBufferHeader,
-        data: *mut u8,
-        data_len: usize,
+        base_ptr: *mut u8,
     }
 
     impl ParallelWorker for DsmStreamTestWorker<'_> {
@@ -1540,15 +1632,11 @@ mod tests {
             // Buffer is at index 2
             let ring_buffer_slice = state_manager.slice::<u8>(2).unwrap().unwrap();
             let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, ring_buffer_slice.len()) };
 
             Self {
                 state,
                 config: *config,
-                header,
-                data,
-                data_len,
+                base_ptr,
             }
         }
 
@@ -1576,9 +1664,8 @@ mod tests {
             let bridge = Arc::new(bridge);
 
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                self.header,
-                self.data,
-                self.data_len,
+                self.base_ptr,
+                self.config.buffer_size,
                 bridge.clone(),
                 ParticipantId(0), // Remote is leader (0)
             )));
@@ -1672,13 +1759,10 @@ mod tests {
 
         let ring_buffer_slice = launched.state_manager().slice::<u8>(2).unwrap().unwrap();
         let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-        let (header, data, data_len) =
-            unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, ring_buffer_slice.len()) };
 
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            header,
-            data,
-            data_len,
+            base_ptr,
+            buffer_size,
             bridge.clone(),
             ParticipantId(1), // Remote is worker (1)
         )));

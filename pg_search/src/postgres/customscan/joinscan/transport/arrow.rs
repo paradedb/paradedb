@@ -295,7 +295,8 @@ pub fn dsm_reader(
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
-    use crate::postgres::customscan::joinscan::transport::shmem::{RingBufferHeader, SignalBridge};
+    use crate::postgres::customscan::joinscan::transport::shmem::test_utils::TestBuffer;
+    use crate::postgres::customscan::joinscan::transport::shmem::SignalBridge;
     use crate::postgres::customscan::joinscan::transport::TransportMesh;
     use arrow_array::{Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
@@ -323,13 +324,7 @@ mod tests {
             .unwrap();
 
             let buffer_size = 1024 * 1024;
-            let mut storage = vec![0u8; size_of::<RingBufferHeader>() + buffer_size];
-            let header = storage.as_mut_ptr() as *mut RingBufferHeader;
-            let data = unsafe { storage.as_mut_ptr().add(size_of::<RingBufferHeader>()) };
-
-            unsafe {
-                RingBufferHeader::init(header, 0);
-            }
+            let buf = TestBuffer::new(buffer_size);
 
             // Setup Bridge
             let bridge = SignalBridge::new(ParticipantId(0), uuid::Uuid::new_v4())
@@ -338,16 +333,14 @@ mod tests {
             let bridge = Arc::new(bridge);
 
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -421,13 +414,7 @@ mod tests {
             let num_streams = 5;
 
             let buffer_size = 10 * 1024 * 1024;
-            let mut storage = vec![0u8; size_of::<RingBufferHeader>() + buffer_size];
-            let header = storage.as_mut_ptr() as *mut RingBufferHeader;
-            let data = unsafe { storage.as_mut_ptr().add(size_of::<RingBufferHeader>()) };
-
-            unsafe {
-                RingBufferHeader::init(header, 0);
-            }
+            let buf = TestBuffer::new(buffer_size);
 
             // Setup Bridge
             let bridge = SignalBridge::new(ParticipantId(0), uuid::Uuid::new_v4())
@@ -436,16 +423,14 @@ mod tests {
             let bridge = Arc::new(bridge);
 
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -527,27 +512,19 @@ mod tests {
         runtime.block_on(async {
             let schema = Arc::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
             let buffer_size = 1024 * 1024;
-            let mut storage = vec![0u8; size_of::<RingBufferHeader>() + buffer_size];
-            let header = storage.as_mut_ptr() as *mut RingBufferHeader;
-            let data = unsafe { storage.as_mut_ptr().add(size_of::<RingBufferHeader>()) };
-
-            unsafe {
-                RingBufferHeader::init(header, 0);
-            }
+            let buf = TestBuffer::new(buffer_size);
 
             let bridge = SignalBridge::new_dummy();
 
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                buffer_size,
+                buf.base_ptr,
+                buf.capacity,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -596,19 +573,12 @@ mod tests {
         .unwrap();
 
         let buffer_size = 1024;
-        let mut storage = vec![0u8; size_of::<RingBufferHeader>() + buffer_size];
-        let header = storage.as_mut_ptr() as *mut RingBufferHeader;
-        let data = unsafe { storage.as_mut_ptr().add(size_of::<RingBufferHeader>()) };
-
-        unsafe {
-            RingBufferHeader::init(header, 0);
-        }
+        let buf = TestBuffer::new(buffer_size);
 
         let bridge = SignalBridge::new_dummy();
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-            header,
-            data,
-            buffer_size,
+            buf.base_ptr,
+            buf.capacity,
             bridge,
             ParticipantId(0),
         )));

@@ -57,7 +57,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
-    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, RingBufferHeader, SignalBridge,
+    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
@@ -107,6 +107,8 @@ pub struct JoinConfig {
     pub leader_participation: bool,
     pub session_id: uuid::Bytes,
     pub region_size: usize,
+    pub ring_buffer_size: usize,
+    pub control_size: usize,
 }
 
 impl ParallelStateType for JoinConfig {}
@@ -115,6 +117,7 @@ pub struct JoinRingBufferBuilder {
     pub total_size: usize,
     pub region_size: usize,
     pub ring_buffer_size: usize,
+    pub control_size: usize,
     pub total_participants: usize,
 }
 
@@ -133,36 +136,12 @@ impl ParallelState for JoinRingBufferBuilder {
 
     unsafe fn initialize(&self, dest: *mut u8) {
         let base_ptr = dest;
+        let layout = TransportLayout::new(self.ring_buffer_size, self.control_size);
 
         // Initialize all headers in the single flat buffer
         for i in 0..(self.total_participants * self.total_participants) {
             let offset = i * self.region_size;
-
-            // SAFETY:
-            // 1. `base_ptr` is the start of the allocated shared memory region.
-            // 2. `offset + region_size` is guaranteed to be within `self.total_size`
-            //    because `total_size` is `participants^2 * region_size`.
-            let (header, _, _) =
-                RingBufferHeader::from_raw_parts(base_ptr, offset, self.region_size);
-
-            // SAFETY: `header` points to valid memory within the allocated region.
-            // We do NOT zero out the data region (to avoid huge memsets). This is safe because:
-            // - `RingBufferHeader::init` initializes `write_pos` and `read_pos` to 0.
-            // - Consumers only read data up to `write_pos`.
-            // - Producers only write data starting at `write_pos`.
-            // Thus, uninitialized data is never read.
-            RingBufferHeader::init(
-                header,
-                size_of::<RingBufferHeader>() + self.ring_buffer_size,
-            );
-
-            // Initialize Control Header
-            let header_ptr = header as *mut u8;
-            let control_ptr = header_ptr.add((*header).control_offset);
-            let control_header = control_ptr as *mut RingBufferHeader;
-
-            // SAFETY: Same as above, control header is within the region.
-            RingBufferHeader::init(control_header, 0);
+            layout.init(base_ptr.add(offset));
         }
     }
 }
@@ -285,10 +264,11 @@ impl ParallelWorker for JoinWorker<'_> {
             std::thread::yield_now();
         }
 
+        let layout = TransportLayout::new(self.config.ring_buffer_size, self.config.control_size);
         let transport = unsafe {
             TransportMesh::init(
                 self.ring_buffer_ptr,
-                self.config.region_size,
+                layout,
                 participant_id,
                 total_participants,
                 bridge.clone(),
@@ -411,11 +391,8 @@ pub fn launch_join_workers(
     // CancelStream messages during high-concurrency teardown, which could lead to deadlocks.
     let control_size = 65536;
     // Data Header + Data + Control Header + Control Data + padding
-    let region_size = size_of::<RingBufferHeader>()
-        + ring_buffer_size
-        + size_of::<RingBufferHeader>()
-        + control_size
-        + 64;
+    let layout = TransportLayout::new(ring_buffer_size, control_size);
+    let region_size = layout.total_size();
 
     let config = JoinConfig {
         max_memory,
@@ -424,6 +401,8 @@ pub fn launch_join_workers(
         leader_participation,
         session_id: *session_id.as_bytes(),
         region_size,
+        ring_buffer_size,
+        control_size,
     };
 
     let total_size = region_size * total_participants * total_participants;
@@ -432,6 +411,7 @@ pub fn launch_join_workers(
         total_size,
         region_size,
         ring_buffer_size,
+        control_size,
         total_participants,
     };
 
@@ -483,7 +463,7 @@ pub fn launch_join_workers(
         let transport = unsafe {
             TransportMesh::init(
                 base_ptr,
-                region_size,
+                layout,
                 ParticipantId(leader_participant_index as u16),
                 total_participants,
                 bridge.clone(),
@@ -518,8 +498,8 @@ mod tests {
         register_dsm_mesh, DsmExchangeConfig, DsmExchangeExec, DsmMesh, ExchangeMode,
     };
     use crate::postgres::customscan::joinscan::transport::{
-        LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId,
-        RingBufferHeader, SignalBridge, TransportMesh,
+        LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge,
+        TransportLayout, TransportMesh,
     };
     use crate::postgres::locks::Spinlock;
     use crate::scan::table_provider::MppParticipantConfig;
@@ -643,6 +623,7 @@ mod tests {
     pub struct DsmTestConfig {
         pub total_participants: usize,
         pub session_id: uuid::Bytes,
+        pub buffer_size: usize,
     }
 
     impl ParallelStateType for DsmTestConfig {}
@@ -660,11 +641,8 @@ mod tests {
             let ring_buffer_size = 1024 * 1024;
             // Data Header + Data + Control Header + Control Data + padding
             let control_size = 65536;
-            let total_size = size_of::<RingBufferHeader>()
-                + ring_buffer_size
-                + size_of::<RingBufferHeader>()
-                + control_size
-                + 64;
+            let layout = TransportLayout::new(ring_buffer_size, control_size);
+            let total_size = layout.total_size();
 
             let mut ring_buffer_regions =
                 Vec::with_capacity(total_participants * total_participants);
@@ -675,19 +653,8 @@ mod tests {
 
                 let base_ptr = region.as_mut_ptr();
 
-                let (header, _, _) =
-                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, total_size) };
                 unsafe {
-                    RingBufferHeader::init(
-                        header,
-                        size_of::<RingBufferHeader>() + ring_buffer_size,
-                    );
-
-                    // Initialize Control Header
-                    let header_ptr = header as *mut u8;
-                    let control_ptr = header_ptr.add((*header).control_offset);
-                    let control_header = control_ptr as *mut RingBufferHeader;
-                    RingBufferHeader::init(control_header, 0);
+                    layout.init(base_ptr);
                 }
 
                 ring_buffer_regions.push(region);
@@ -701,6 +668,7 @@ mod tests {
                 config: DsmTestConfig {
                     total_participants,
                     session_id: *session_id.as_bytes(),
+                    buffer_size: ring_buffer_size,
                 },
                 ring_buffer_regions,
             }
@@ -719,9 +687,8 @@ mod tests {
 
     #[derive(Clone, Copy)]
     pub struct RegionInfo {
-        header: *mut RingBufferHeader,
-        data: *mut u8,
-        data_len: usize,
+        base_ptr: *mut u8,
+        capacity: usize,
     }
     unsafe impl Send for RegionInfo {}
 
@@ -757,15 +724,11 @@ mod tests {
                     .slice::<u8>(writer_region_idx)
                     .unwrap()
                     .unwrap();
-                let region_size = ring_buffer_slice.len();
                 let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-                let (header, data, data_len) =
-                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
 
                 writer_regions.push(RegionInfo {
-                    header,
-                    data,
-                    data_len,
+                    base_ptr,
+                    capacity: config.buffer_size,
                 });
 
                 // Region for reader from participant j to us (participant_index).
@@ -774,15 +737,11 @@ mod tests {
                     .slice::<u8>(reader_region_idx)
                     .unwrap()
                     .unwrap();
-                let region_size = ring_buffer_slice.len();
                 let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-                let (header, data, data_len) =
-                    unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
 
                 reader_regions.push(RegionInfo {
-                    header,
-                    data,
-                    data_len,
+                    base_ptr,
+                    capacity: config.buffer_size,
                 });
             }
 
@@ -825,9 +784,8 @@ mod tests {
             let mut mux_writers = Vec::with_capacity(total_participants);
             for (j, region) in self.writer_regions.iter().enumerate() {
                 mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                    region.header,
-                    region.data,
-                    region.data_len,
+                    region.base_ptr,
+                    region.capacity,
                     bridge.clone(),
                     ParticipantId(j as u16),
                 ))));
@@ -836,9 +794,8 @@ mod tests {
             let mut mux_readers = Vec::with_capacity(total_participants);
             for (j, region) in self.reader_regions.iter().enumerate() {
                 mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                    region.header,
-                    region.data,
-                    region.data_len,
+                    region.base_ptr,
+                    region.capacity,
                     bridge.clone(),
                     ParticipantId(j as u16),
                 ))));
@@ -991,6 +948,7 @@ mod tests {
         let p = total_participants;
         let participant_index = 0;
 
+        let buffer_size = 1024 * 1024;
         for j in 0..p {
             let writer_region_idx = 2 + (participant_index * p + j);
             let ring_buffer_slice = launched
@@ -998,15 +956,11 @@ mod tests {
                 .slice::<u8>(writer_region_idx)
                 .unwrap()
                 .unwrap();
-            let region_size = ring_buffer_slice.len();
             let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
 
             mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                data_len,
+                base_ptr,
+                buffer_size,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));
@@ -1017,15 +971,11 @@ mod tests {
                 .slice::<u8>(reader_region_idx)
                 .unwrap()
                 .unwrap();
-            let region_size = ring_buffer_slice.len();
             let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
-            let (header, data, data_len) =
-                unsafe { RingBufferHeader::from_raw_parts(base_ptr, 0, region_size) };
 
             mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                data_len,
+                base_ptr,
+                buffer_size,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));

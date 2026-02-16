@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::shmem::{
-    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, RingBufferHeader, SignalBridge,
+    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
 };
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -53,26 +53,25 @@ impl TransportMesh {
     /// 3. The memory is accessible for the lifetime of the returned `TransportMesh`.
     pub unsafe fn init(
         base_ptr: *mut u8,
-        region_size: usize,
+        layout: TransportLayout,
         participant_id: ParticipantId,
         total_participants: usize,
         bridge: Arc<SignalBridge>,
     ) -> Self {
         let mut mux_writers = Vec::with_capacity(total_participants);
         let mut mux_readers = Vec::with_capacity(total_participants);
+        let region_size = layout.total_size();
 
         for j in 0..total_participants {
             // Writer: Us -> J
             // Layout index: participant_index * P + j
             let writer_idx = (participant_id.0 as usize) * total_participants + j;
             let offset = writer_idx * region_size;
-            let (header, data, data_len) =
-                RingBufferHeader::from_raw_parts(base_ptr, offset, region_size);
+            let writer_base = base_ptr.add(offset);
 
             mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
-                header,
-                data,
-                data_len,
+                writer_base,
+                layout.data_capacity,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));
@@ -81,13 +80,11 @@ impl TransportMesh {
             // Layout index: j * P + participant_index
             let reader_idx = j * total_participants + (participant_id.0 as usize);
             let offset = reader_idx * region_size;
-            let (header, data, data_len) =
-                RingBufferHeader::from_raw_parts(base_ptr, offset, region_size);
+            let reader_base = base_ptr.add(offset);
 
             mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
-                header,
-                data,
-                data_len,
+                reader_base,
+                layout.data_capacity,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));

@@ -27,7 +27,7 @@ use super::build::{JoinCSClause, JoinKeyPair, JoinSource, ScanInfo};
 use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData, SCORE_COL_NAME};
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::pullup::resolve_fast_field;
@@ -88,9 +88,7 @@ pub(super) unsafe fn expr_uses_scores_from_source(
 
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
-use crate::postgres::customscan::opexpr::{
-    initialize_equality_operator_lookup, OperatorAccepts, PostgresOperatorOid, TantivyOperator,
-};
+use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
 use crate::postgres::rel::PgSearchRelation;
@@ -99,10 +97,7 @@ use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::{pg_sys, PgList};
-use std::sync::OnceLock;
 
-/// Cache for operator OID lookups.
-static OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
 pub(super) struct JoinConditions {
     /// Equi-join keys with type info for composite key extraction.
     pub equi_keys: Vec<JoinKeyPair>,
@@ -139,15 +134,6 @@ pub(super) unsafe fn extract_join_conditions(
     }
 
     extract_join_conditions_from_list(restrictlist, sources)
-}
-
-/// Lookup the Tantivy operator string for a given PostgreSQL operator OID.
-///
-/// Returns `Some("=")` for equality operators, or `None` if the operator is not supported.
-fn lookup_operator(opno: pg_sys::Oid) -> Option<&'static str> {
-    let lookup = OPERATOR_LOOKUP
-        .get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) });
-    lookup.get(&opno).copied()
 }
 
 /// Get type length and pass-by-value info for a given type OID.

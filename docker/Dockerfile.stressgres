@@ -11,7 +11,7 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.90.0-slim-trixie
+FROM rust:1.93-slim
 
 # Install build and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

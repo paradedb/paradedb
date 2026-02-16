@@ -113,6 +113,9 @@ pub struct JoinScanState {
     /// Serialized DataFusion LogicalPlan from planning phase.
     pub logical_plan: Option<bytes::Bytes>,
 
+    /// Retained executed physical plan for EXPLAIN ANALYZE metrics extraction.
+    pub physical_plan: Option<Arc<dyn ExecutionPlan>>,
+
     /// Shared state for parallel execution.
     /// This is set by either `initialize_dsm_custom_scan` (in the leader) or
     /// `initialize_worker_custom_scan` (in a worker), and then consumed in
@@ -140,7 +143,11 @@ impl CustomScanState for JoinScanState {
 /// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
 /// across machines with different CPU counts.
 pub fn create_session_context() -> SessionContext {
-    let config = SessionConfig::new().with_target_partitions(1);
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
     SessionContext::new_with_config(config)
 }
 

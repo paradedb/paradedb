@@ -17,34 +17,12 @@
 
 //! DataFusion `ExecutionPlan` implementations for scanning `pg_search` indexes.
 //!
-//! This module provides three distinct plans, each serving a different segment claiming
-//! and execution strategy:
+//! This module provides the `PgSearchScanPlan`, which handles scanning of `pg_search`
+//! index segments. It supports both single-partition (serial) and multi-partition
+//! (parallel or sorted) scans.
 //!
-//! 1.  **`SegmentPlan` (Single-Partition, Eager/Manual Claiming)**
-//!     *   **Partitions**: 1
-//!     *   **Claiming**: The caller must explicitly open the segment (`Scanner`) *before*
-//!         creating the plan.
-//!     *   **Usage**: Serial scans, or manual iteration where the caller loops, claims a segment,
-//!         executes this plan, and repeats.
-//!
-//! 2.  **`ParallelSegmentPlan` (Single-Partition, Lazy/Pull Claiming)**
-//!     *   **Partitions**: 1 (from DataFusion's perspective)
-//!     *   **Claiming**: The plan holds a pointer to shared `ParallelScanState`. During execution
-//!         (`poll_next`), it dynamically calls `checkout_segment` to "pull" the next available
-//!         segment.
-//!     *   **Usage**: Parallel scans where load balancing is critical. Workers claim segments as
-//!         they finish previous ones.
-//!     *   **Note**: Since DataFusion sees only 1 partition, it cannot perform partition-aware
-//!         optimizations (like sorted merges).
-//!
-//! 3.  **`MultiSegmentPlan` (Multi-Partition, Static Mapping)**
-//!     *   **Partitions**: N (matches the number of segments)
-//!     *   **Claiming**: The plan is initialized with a pre-opened list of segments.
-//!         DataFusion requests a specific partition index, and the plan yields the corresponding
-//!         segment scanner.
-//!     *   **Usage**: Scans where preserving segment order is important (e.g., merging sorted
-//!         segments via `SortPreservingMergeExec`). This allows DataFusion to treat each segment
-//!         as a distinct sorted stream.
+//! For sorted scans, `create_sorted_scan` can be used to wrap the plan in a
+//! `SortPreservingMergeExec` to merge sorted outputs from multiple segments.
 
 use std::any::Any;
 use std::pin::Pin;
@@ -53,24 +31,31 @@ use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
 use arrow_schema::{SchemaRef, SortOptions};
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::stats::{ColumnStatistics, Precision};
+use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::expressions::Column;
-use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, PhysicalSortExpr};
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
+use datafusion::physical_expr::{
+    EquivalenceProperties, LexOrdering, PhysicalExpr, PhysicalSortExpr,
+};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
+};
+use datafusion::physical_plan::metrics::{
+    Count, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
+};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
 
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::explain::ExplainFormat;
-use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::{SortByDirection, SortByField};
-use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::{Scanner, VisibilityChecker};
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -85,240 +70,97 @@ unsafe impl<T> Sync for UnsafeSendSync<T> {}
 /// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
 pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
 
-/// Parts required to initialize a parallel scan stream.
-pub type ParallelScanStateParts = (
-    *mut ParallelScanState,
-    SearchIndexReader,
-    Arc<FFHelper>,
-    Box<dyn VisibilityChecker>,
-    Vec<WhichFastField>,
-    u32, // table_oid
-);
-
-/// A DataFusion `ExecutionPlan` for scanning a single segment of a `pg_search` index.
+/// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
-/// This plan represents a single partition with **eager claiming**. The caller provides
-/// an already-opened `Scanner`. Used for serial execution or manual iteration logic.
-pub struct SegmentPlan {
-    // We use a Mutex to allow taking the fields during execute()
-    // We wrap the state in UnsafeSendSync to satisfy ExecutionPlan's Send+Sync requirements
-    // This is safe because we are running in a single-threaded environment (Postgres)
-    state: Mutex<Option<UnsafeSendSync<ScanState>>>,
+/// This plan represents a scan over one or more segments, where each segment
+/// corresponds to a DataFusion partition. It handles both:
+///
+/// 1.  **Serial Scans**: The plan is initialized with a single partition, or segments are
+///     processed lazily.
+/// 2.  **Parallel/Sorted Scans**: The plan is initialized with multiple pre-opened segments,
+///     each exposed as a distinct partition.
+pub struct PgSearchScanPlan {
+    /// Segments to scan, indexed by partition.
+    ///
+    /// We use a Mutex to allow taking ownership of the scanners during `execute()`.
+    /// We wrap the state in `UnsafeSendSync` to satisfy `ExecutionPlan`'s `Send` + `Sync`
+    /// requirements. This is safe because we are running in a single-threaded
+    /// environment (Postgres), which also means that the duration for which we
+    /// hold this Mutex does not impact performance.
+    states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
+    /// Estimated row counts for each partition, computed once at construction.
+    /// Stored separately so `partition_statistics` is deterministic, even after
+    /// the states have been consumed.
+    partition_row_counts: Vec<u64>,
     properties: PlanProperties,
     query_for_display: SearchQueryInput,
+    /// Dynamic filters pushed down from parent operators (e.g. TopK threshold
+    /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
+    /// by the scanner is filtered against all of these expressions so that rows
+    /// which cannot contribute to the final result are pruned early.
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Metrics for EXPLAIN ANALYZE.
+    metrics: ExecutionPlanMetricsSet,
 }
 
-impl std::fmt::Debug for SegmentPlan {
+impl std::fmt::Debug for PgSearchScanPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SegmentPlan")
+        f.debug_struct("PgSearchScanPlan")
             .field("properties", &self.properties)
             .finish()
     }
 }
 
-impl SegmentPlan {
-    pub fn new(
-        scanner: Scanner,
-        ffhelper: FFHelper,
-        visibility: Box<dyn VisibilityChecker>,
-        query_for_display: SearchQueryInput,
-    ) -> Self {
-        let schema = scanner.schema();
-        let properties = PlanProperties::new(
-            EquivalenceProperties::new(schema),
-            Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        );
-        Self {
-            state: Mutex::new(Some(UnsafeSendSync((
-                scanner,
-                Arc::new(ffhelper),
-                visibility,
-            )))),
-            properties,
-            query_for_display,
-        }
-    }
-
-    /// Creates a new SegmentPlan with a shared FFHelper.
+impl PgSearchScanPlan {
+    /// Creates a new PgSearchScanPlan with pre-opened segments.
     ///
-    /// This variant accepts an `Arc<FFHelper>` allowing the FFHelper to be shared
-    /// across multiple plans or with other components.
-    pub fn new_with_shared_ffhelper(
-        scanner: Scanner,
-        ffhelper: Arc<FFHelper>,
-        visibility: Box<dyn VisibilityChecker>,
+    /// # Arguments
+    ///
+    /// * `states` - The list of pre-opened segments (one per partition)
+    /// * `schema` - Arrow schema for the output
+    /// * `query_for_display` - Search query for EXPLAIN
+    /// * `sort_order` - Optional sort order declaration for equivalence properties
+    pub fn new(
+        states: Vec<ScanState>,
+        schema: SchemaRef,
         query_for_display: SearchQueryInput,
+        sort_order: Option<&SortByField>,
     ) -> Self {
-        let schema = scanner.schema();
+        // Ensure we always return at least one partition to satisfy DataFusion distribution
+        // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
+        // If states is empty, execute() will return an EmptyStream for this single partition.
+        let partition_count = states.len().max(1);
+        let eq_properties = build_equivalence_properties(schema, sort_order);
+
         let properties = PlanProperties::new(
-            EquivalenceProperties::new(schema),
-            Partitioning::UnknownPartitioning(1),
+            eq_properties,
+            Partitioning::UnknownPartitioning(partition_count),
             EmissionType::Incremental,
             Boundedness::Bounded,
         );
+
+        let partition_row_counts: Vec<u64> = if states.is_empty() {
+            vec![0]
+        } else {
+            states
+                .iter()
+                .map(|(scanner, _, _)| scanner.estimated_rows())
+                .collect()
+        };
+
+        let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
+            .into_iter()
+            .map(|s| Some(UnsafeSendSync(s)))
+            .collect();
+
         Self {
-            state: Mutex::new(Some(UnsafeSendSync((scanner, ffhelper, visibility)))),
+            states: Mutex::new(wrapped_states),
+            partition_row_counts,
             properties,
             query_for_display,
+            dynamic_filters: Vec::new(),
+            metrics: ExecutionPlanMetricsSet::new(),
         }
-    }
-}
-
-/// A DataFusion `ExecutionPlan` that dynamically claims and scans segments from a shared `ParallelScanState`.
-///
-/// This plan represents a single partition with **lazy, pull-based claiming**.
-/// It holds a reference to shared state and atomically claims segments one-by-one during
-/// execution, ensuring optimal load balancing across workers.
-pub struct ParallelSegmentPlan {
-    // Wrapped state components needed to create Scanners
-    state: Mutex<Option<UnsafeSendSync<ParallelScanStateParts>>>,
-    properties: PlanProperties,
-}
-
-impl std::fmt::Debug for ParallelSegmentPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ParallelSegmentPlan")
-            .field("properties", &self.properties)
-            .finish()
-    }
-}
-
-impl ParallelSegmentPlan {
-    pub fn new(parts: ParallelScanStateParts, schema: SchemaRef) -> Self {
-        let properties = PlanProperties::new(
-            EquivalenceProperties::new(schema),
-            Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        );
-        Self {
-            state: Mutex::new(Some(UnsafeSendSync(parts))),
-            properties,
-        }
-    }
-}
-
-impl DisplayAs for ParallelSegmentPlan {
-    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "PgSearchParallelScan")
-    }
-}
-
-impl ExecutionPlan for ParallelSegmentPlan {
-    fn name(&self) -> &str {
-        "PgSearchParallelScan"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn properties(&self) -> &PlanProperties {
-        &self.properties
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![]
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        _children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(self)
-    }
-
-    fn execute(
-        &self,
-        _partition: usize,
-        _context: Arc<TaskContext>,
-    ) -> Result<SendableRecordBatchStream> {
-        let mut state = self.state.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock ParallelSegmentPlan state: {e}"))
-        })?;
-        let UnsafeSendSync((
-            parallel_state,
-            reader,
-            ffhelper,
-            visibility,
-            which_fast_fields,
-            table_oid,
-        )) = state.take().ok_or_else(|| {
-            DataFusionError::Internal("ParallelSegmentPlan can only be executed once".to_string())
-        })?;
-
-        let stream = unsafe {
-            UnsafeSendStream::new(ParallelScanStream {
-                current_scanner: None,
-                parallel_state,
-                reader,
-                ffhelper,
-                visibility,
-                which_fast_fields,
-                table_oid,
-                schema: self.properties.eq_properties.schema().clone(),
-            })
-        };
-        Ok(Box::pin(stream))
-    }
-}
-
-struct ParallelScanStream {
-    current_scanner: Option<Scanner>,
-    parallel_state: *mut ParallelScanState,
-    reader: SearchIndexReader,
-    ffhelper: Arc<FFHelper>,
-    visibility: Box<dyn VisibilityChecker>,
-    which_fast_fields: Vec<WhichFastField>,
-    table_oid: u32,
-    schema: SchemaRef,
-}
-
-impl Stream for ParallelScanStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        loop {
-            if let Some(scanner) = &mut this.current_scanner {
-                match scanner.next(&this.ffhelper, &mut *this.visibility) {
-                    Some(batch) => {
-                        return Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema))))
-                    }
-                    None => {
-                        // Current segment done, try next one
-                        this.current_scanner = None;
-                        continue;
-                    }
-                }
-            }
-
-            // No current scanner, try to checkout next segment
-            if let Some(segment_id) = unsafe { checkout_segment(this.parallel_state) } {
-                let search_results = this.reader.search_segments(std::iter::once(segment_id));
-
-                let scanner = Scanner::new(
-                    search_results,
-                    None, // No batch hint for dynamic scan
-                    this.which_fast_fields.clone(),
-                    this.table_oid,
-                );
-
-                this.current_scanner = Some(scanner);
-            } else {
-                // No more segments
-                return Poll::Ready(None);
-            }
-        }
-    }
-}
-
-impl RecordBatchStream for ParallelScanStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
     }
 }
 
@@ -358,17 +200,21 @@ fn build_equivalence_properties(
     eq_properties
 }
 
-impl DisplayAs for SegmentPlan {
+impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "PgSearchScan: {}",
-            self.query_for_display.explain_format()
-        )
+            "PgSearchScan: segments={}",
+            self.states.lock().unwrap().len(),
+        )?;
+        if !self.dynamic_filters.is_empty() {
+            write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        }
+        write!(f, ", query={}", self.query_for_display.explain_format())
     }
 }
 
-impl ExecutionPlan for SegmentPlan {
+impl ExecutionPlan for PgSearchScanPlan {
     fn name(&self) -> &str {
         "PgSearchScan"
     }
@@ -379,6 +225,41 @@ impl ExecutionPlan for SegmentPlan {
 
     fn properties(&self) -> &PlanProperties {
         &self.properties
+    }
+
+    fn statistics(&self) -> Result<Statistics> {
+        self.partition_statistics(None)
+    }
+
+    fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
+        let num_rows = match partition {
+            Some(i) => {
+                if i >= self.partition_row_counts.len() {
+                    Precision::Absent
+                } else {
+                    Precision::Inexact(self.partition_row_counts[i] as usize)
+                }
+            }
+            None => {
+                let sum: u64 = self.partition_row_counts.iter().sum();
+                Precision::Inexact(sum as usize)
+            }
+        };
+
+        let column_statistics = self
+            .properties
+            .eq_properties
+            .schema()
+            .fields
+            .iter()
+            .map(|_| ColumnStatistics::default())
+            .collect();
+
+        Ok(Statistics {
+            num_rows,
+            total_byte_size: Precision::Absent,
+            column_statistics,
+        })
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
@@ -394,15 +275,41 @@ impl ExecutionPlan for SegmentPlan {
 
     fn execute(
         &self,
-        _partition: usize,
+        partition: usize,
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let mut state = self.state.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock SegmentPlan state: {e}"))
+        let mut states = self.states.lock().map_err(|e| {
+            DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
         })?;
-        let UnsafeSendSync((scanner, ffhelper, visibility)) = state.take().ok_or_else(|| {
-            DataFusionError::Internal("SegmentPlan can only be executed once".to_string())
-        })?;
+
+        if partition >= self.properties.output_partitioning().partition_count() {
+            return Err(DataFusionError::Internal(format!(
+                "Partition {} out of range (have {} partitions)",
+                partition,
+                self.properties.output_partitioning().partition_count()
+            )));
+        }
+
+        // Handle the case where no segments were claimed (EmptyStream).
+        if states.is_empty() {
+            return Ok(Box::pin(EmptyStream::new(
+                self.properties.eq_properties.schema().clone(),
+            )));
+        }
+
+        let UnsafeSendSync((scanner, ffhelper, visibility)) =
+            states[partition].take().ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "Partition {} has already been executed",
+                    partition
+                ))
+            })?;
+
+        let has_dynamic_filters = !self.dynamic_filters.is_empty();
+        let rows_scanned = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
+        let rows_pruned = has_dynamic_filters
+            .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,
         // so it is safe to wrap !Send types for use within DataFusion.
@@ -412,9 +319,78 @@ impl ExecutionPlan for SegmentPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
+                dynamic_filters: self.dynamic_filters.clone(),
+                rows_scanned,
+                rows_pruned,
             })
         };
         Ok(Box::pin(stream))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &datafusion::common::config::ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        // Only handle dynamic filters in the Post phase (TopK pushdown happens here).
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
+        }
+
+        // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
+        // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
+        // join-key bounds from HashJoinExec). We accept and apply all of them.
+        let mut dynamic_filters = Vec::new();
+        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if filter_result
+                .filter
+                .as_any()
+                .downcast_ref::<DynamicFilterPhysicalExpr>()
+                .is_some()
+            {
+                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                filters.push(PushedDown::Yes);
+            } else {
+                filters.push(filter_result.any());
+            }
+        }
+
+        if !dynamic_filters.is_empty() {
+            // Transfer state from the old plan to the new one.
+            let states = self
+                .states
+                .lock()
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
+                    ))
+                })?
+                .drain(..)
+                .collect();
+
+            let new_plan = Arc::new(PgSearchScanPlan {
+                states: Mutex::new(states),
+                partition_row_counts: self.partition_row_counts.clone(),
+                properties: self.properties.clone(),
+                query_for_display: self.query_for_display.clone(),
+                dynamic_filters,
+                metrics: self.metrics.clone(),
+            });
+
+            Ok(
+                FilterPushdownPropagation::with_parent_pushdown_result(filters)
+                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
+            )
+        } else {
+            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        }
     }
 }
 
@@ -423,6 +399,34 @@ struct ScanStream {
     ffhelper: Arc<FFHelper>,
     visibility: Box<dyn VisibilityChecker>,
     schema: SchemaRef,
+    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
+    rows_scanned: Option<Count>,
+    rows_pruned: Option<Count>,
+}
+
+impl ScanStream {
+    /// Evaluate the current dynamic filter expressions and convert them into
+    /// [`PreFilter`]s that the `Scanner` can apply before column materialization.
+    ///
+    /// This is called on every `poll_next` so that tightening thresholds (e.g.
+    /// from TopK) are picked up immediately.
+    ///
+    /// Only filter predicates that can be lowered to fast-field or term-ordinal
+    /// comparisons are retained. Anything else (unsupported types, non-comparison
+    /// operators) is silently dropped — the parent operator is still responsible
+    /// for enforcing the full predicate, so correctness is not affected.
+    fn build_filters(&self) -> Vec<PreFilter> {
+        let mut filters = Vec::new();
+        for df in &self.dynamic_filters {
+            if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
+                if let Ok(current_expr) = dynamic.current() {
+                    collect_filters(&*current_expr, &mut filters);
+                }
+            }
+        }
+        filters
+    }
 }
 
 impl Stream for ScanStream {
@@ -430,9 +434,22 @@ impl Stream for ScanStream {
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
-        match this.scanner.next(&this.ffhelper, &mut *this.visibility) {
+        let pre_filters = this.build_filters();
+        match this
+            .scanner
+            .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
+        {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
-            None => Poll::Ready(None),
+            None => {
+                // Flush pre-materialization filter stats from Scanner.
+                if let Some(ref counter) = this.rows_scanned {
+                    counter.add(this.scanner.pre_filter_rows_scanned);
+                }
+                if let Some(ref counter) = this.rows_pruned {
+                    counter.add(this.scanner.pre_filter_rows_pruned);
+                }
+                Poll::Ready(None)
+            }
         }
     }
 }
@@ -472,138 +489,28 @@ impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
     }
 }
 
-// ============================================================================
-// Multi-partition MultiSegmentPlan for sorted segment scanning
-// ============================================================================
-
-/// A DataFusion `ExecutionPlan` that scans multiple segments in partitions.
-///
-/// This plan exposes **N partitions** to DataFusion (where N = segment count).
-/// It uses a **static mapping** to produce the correct segment
-/// when DataFusion requests a specific partition index.
-///
-/// When the index is sorted (with `sort_by`), each partition produces sorted output,
-/// which can then be merged using `SortPreservingMergeExec`.
-pub struct MultiSegmentPlan {
-    /// Segments to scan, indexed by partition.
-    /// Wrapped in Mutex for interior mutability during execute (to take ownership).
-    /// Wrapped in UnsafeSendSync because ScanState is !Send/!Sync.
-    states: Mutex<Vec<Option<UnsafeSendSync<ScanState>>>>,
-    properties: PlanProperties,
+/// A stream that produces no batches.
+struct EmptyStream {
+    schema: SchemaRef,
 }
 
-impl std::fmt::Debug for MultiSegmentPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MultiSegmentPlan")
-            .field("properties", &self.properties)
-            .finish()
+impl EmptyStream {
+    fn new(schema: SchemaRef) -> Self {
+        Self { schema }
     }
 }
 
-impl MultiSegmentPlan {
-    /// Creates a new MultiSegmentPlan with pre-opened segments.
-    ///
-    /// # Arguments
-    ///
-    /// * `states` - The list of pre-opened segments (one per partition)
-    /// * `schema` - Arrow schema for the output
-    /// * `sort_order` - Optional sort order declaration for equivalence properties
-    pub fn new(
-        states: Vec<ScanState>,
-        schema: SchemaRef,
-        sort_order: Option<&SortByField>,
-    ) -> Self {
-        let segment_count = states.len();
-        let eq_properties = build_equivalence_properties(schema, sort_order);
+impl Stream for EmptyStream {
+    type Item = Result<RecordBatch>;
 
-        let properties = PlanProperties::new(
-            eq_properties,
-            Partitioning::UnknownPartitioning(segment_count),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        );
-
-        let wrapped_states: Vec<Option<UnsafeSendSync<ScanState>>> = states
-            .into_iter()
-            .map(|s| Some(UnsafeSendSync(s)))
-            .collect();
-
-        Self {
-            states: Mutex::new(wrapped_states),
-            properties,
-        }
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(None)
     }
 }
 
-impl DisplayAs for MultiSegmentPlan {
-    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "PgSearchSegmentScan(segments={})",
-            self.properties.output_partitioning().partition_count()
-        )
-    }
-}
-
-impl ExecutionPlan for MultiSegmentPlan {
-    fn name(&self) -> &str {
-        "PgSearchSegmentScan"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn properties(&self) -> &PlanProperties {
-        &self.properties
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![]
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        _children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(self)
-    }
-
-    fn execute(
-        &self,
-        partition: usize,
-        _context: Arc<TaskContext>,
-    ) -> Result<SendableRecordBatchStream> {
-        let mut states = self.states.lock().map_err(|e| {
-            DataFusionError::Internal(format!("Failed to lock MultiSegmentPlan state: {e}"))
-        })?;
-
-        if partition >= states.len() {
-            return Err(DataFusionError::Internal(format!(
-                "Partition {} out of range (have {} segments)",
-                partition,
-                states.len()
-            )));
-        }
-
-        let UnsafeSendSync((scanner, ffhelper, visibility)) =
-            states[partition].take().ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "Segment {} has already been executed",
-                    partition
-                ))
-            })?;
-
-        // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres
-        let stream = unsafe {
-            UnsafeSendStream::new(ScanStream {
-                scanner,
-                ffhelper,
-                visibility,
-                schema: self.properties.eq_properties.schema().clone(),
-            })
-        };
-        Ok(Box::pin(stream))
+impl RecordBatchStream for EmptyStream {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 }
 
@@ -613,21 +520,16 @@ impl ExecutionPlan for MultiSegmentPlan {
 
 /// Creates a sorted scan plan with `SortPreservingMergeExec` to merge sorted segments.
 ///
-/// When there is only one segment, returns the `MultiSegmentPlan` directly without
+/// When there is only one segment, returns the `PgSearchScanPlan` directly without
 /// the merge layer (no merging needed for a single partition).
 ///
 /// Returns `None` if the sort field is not present in the schema (e.g., the sort column
 /// was not projected in the scan). In this case, the caller should fall back to an
 /// unsorted scan to avoid producing incorrectly ordered results.
-///
-/// # Arguments
-///
-/// * `states` - The list of pre-opened segments (one per partition)
-/// * `schema` - Arrow schema for the output
-/// * `sort_order` - Sort order for the merge operation
 pub fn create_sorted_scan(
     states: Vec<ScanState>,
     schema: SchemaRef,
+    query_for_display: SearchQueryInput,
     sort_order: &SortByField,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     // Validate that the sort field exists in the schema
@@ -644,9 +546,10 @@ pub fn create_sorted_scan(
     };
 
     let segment_count = states.len();
-    let segment_scan = Arc::new(MultiSegmentPlan::new(
+    let segment_scan = Arc::new(PgSearchScanPlan::new(
         states,
         schema.clone(),
+        query_for_display,
         Some(sort_order),
     ));
 

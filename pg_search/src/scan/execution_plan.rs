@@ -615,7 +615,7 @@ impl DisplayAs for MultiSegmentPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "PgSearchSegmentScan: segments={}",
+            "PgSearchScan: segments={}",
             self.properties.output_partitioning().partition_count(),
         )?;
         if !self.dynamic_filters.is_empty() {
@@ -627,7 +627,7 @@ impl DisplayAs for MultiSegmentPlan {
 
 impl ExecutionPlan for MultiSegmentPlan {
     fn name(&self) -> &str {
-        "PgSearchSegmentScan"
+        "PgSearchScan"
     }
 
     fn as_any(&self) -> &dyn Any {

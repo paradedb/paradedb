@@ -214,15 +214,17 @@ impl PgSearchTableProvider {
             datafusion::physical_plan::Partitioning::UnknownPartitioning(segments.len().max(1))
         };
 
-        Ok(Arc::new(crate::scan::execution_plan::MultiSegmentPlan::new_with_partitioning(
-            segments,
-            self.get_schema(),
-            query_for_display,
-            actual_sort_order,
-            Some(partitioning),
-            scan_info,
-            fields,
-        )))
+        Ok(Arc::new(
+            crate::scan::execution_plan::MultiSegmentPlan::new_with_partitioning(
+                segments,
+                self.get_schema(),
+                query_for_display,
+                actual_sort_order,
+                Some(partitioning),
+                scan_info,
+                fields,
+            ),
+        ))
     }
 }
 

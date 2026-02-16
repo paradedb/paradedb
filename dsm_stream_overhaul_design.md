@@ -36,7 +36,7 @@ enum ControlMessage {
 
 Each process (Leader and Workers) maintains a `StreamRegistry`.
 
-- **Registration Phase:** During startup (plan deserialization), we traverse the physical plan using `collect_dsm_writers`. Every `DsmWriterExec` encountered is "registered" but not executed. We store its input plan and configuration.
+- **Registration Phase:** During startup (plan deserialization), we traverse the physical plan using `collect_dsm_exchanges`. Every `DsmExchangeExec` encountered is "registered" but not executed. We store its input plan and configuration.
 - **Listening Phase:** The process runs a `Control Service` loop (spawned on `tokio::task::LocalSet`) that polls the Control Channels of all its `MultiplexedDsmWriter`s.
 - **Execution Phase:** When a `StartStream(id)` message arrives:
   1.  The Control Service calls `trigger_stream(id)`.
@@ -56,8 +56,9 @@ Each process (Leader and Workers) maintains a `StreamRegistry`.
 
 - **StreamRegistry:** Replaces `ProducerState`. Manages the mapping of `PhysicalStreamId` -> `Plan`.
 - **Control Service:** A background task spawned via `spawn_control_service`. It integrates with `SocketBridge` to sleep until woken by an incoming control message (via `bridge.signal()`).
-- **DsmWriterExec:** Now a passive data structure. `execute()` is a no-op. Its logic is moved to `producer_task` which is invoked by the Registry.
-- **DsmReaderExec:** In `execute()`, it creates a lazy stream. When the stream is first polled (in `dsm_transfer.rs`), it sends `StartStream` to the producer.
+- **DsmExchangeExec:** Consolidates Reader and Writer logic.
+  - **As Producer:** `execute()` is skipped. Logic is moved to `producer_task`, invoked by the Registry upon RPC request.
+  - **As Consumer:** `execute()` creates a lazy stream that sends `StartStream` to the producer when polled.
 
 ### C. `pg_search/src/postgres/customscan/joinscan/dsm_transfer.rs`
 
@@ -65,7 +66,7 @@ Each process (Leader and Workers) maintains a `StreamRegistry`.
 
 ### D. `pg_search/src/postgres/customscan/joinscan/parallel.rs` & `mod.rs`
 
-- **Plan Traversal:** Both `JoinWorker::run` (Workers) and `exec_custom_scan` (Leader) call `collect_dsm_writers` to populate the registry.
+- **Plan Traversal:** Both `JoinWorker::run` (Workers) and `exec_custom_scan` (Leader) call `collect_dsm_exchanges` to populate the registry.
 - **Service Lifecycle:** Both spawn the `Control Service` on the `LocalSet` before beginning main execution.
 
 ## Analogy: RPC Tree
@@ -73,9 +74,9 @@ Each process (Leader and Workers) maintains a `StreamRegistry`.
 The system can be visualized as a tree of RPC calls.
 
 1.  **Leader** executes the Root Plan.
-2.  When it hits a `DsmReaderExec`, it makes an "RPC Call" (`StartStream`) to a specific Worker node (or itself).
+2.  When it hits a `DsmExchangeExec` (acting as Consumer), it makes an "RPC Call" (`StartStream`) to a specific Worker node (or itself).
 3.  The **Worker** receives the call. It looks up the "Procedure" (the sub-plan corresponding to that stream) and executes it.
-4.  If that sub-plan contains more `DsmReaderExec` nodes, the Worker recursively makes more RPC calls to other nodes.
+4.  If that sub-plan contains more `DsmExchangeExec` nodes (acting as Consumers), the Worker recursively makes more RPC calls to other nodes.
 5.  Data flows back up the tree as the response stream.
 
 This "Pull-Based" / "Lazy" execution ensures that only necessary work is performed and that the lifecycle of every data stream is strictly coupled to the request that initiated it.

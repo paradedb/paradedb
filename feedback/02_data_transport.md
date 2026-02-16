@@ -6,7 +6,7 @@ The data transport layer correctly implements backpressure and signaling using a
 
 ## Strengths
 
-1.  **Backpressure:** The chain from `DsmSharedMemoryWriter` (`WouldBlock`) -> `DsmWriterExec` (`yield_now`) -> `DsmStream` (`Poll::Pending`) works correctly. It ensures that a slow consumer eventually halts the producer without unbounded buffering.
+1.  **Backpressure:** The chain from `DsmSharedMemoryWriter` (`WouldBlock`) -> `DsmExchangeExec` (`yield_now`) -> `DsmStream` (`Poll::Pending`) works correctly. It ensures that a slow consumer eventually halts the producer without unbounded buffering.
 2.  **Signaling:** `SocketBridge` provides a reliable, async-friendly wake-up mechanism that works around the limitations of standard Postgres latches in a `tokio` environment.
 
 ## Issues & Recommendations
@@ -14,7 +14,7 @@ The data transport layer correctly implements backpressure and signaling using a
 ### 1. Busy-Wait in Producer Task
 
 **Observation:**
-In `exchange.rs`, `DsmWriterExec::producer_task` handles `WouldBlock` by calling `tokio::task::yield_now()`.
+In `exchange.rs`, `DsmExchangeExec::producer_task` handles `WouldBlock` by calling `tokio::task::yield_now()`.
 
 ```rust
 Err(datafusion::error::DataFusionError::IoError(ref msg)) if msg.kind() == std::io::ErrorKind::WouldBlock => {

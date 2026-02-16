@@ -131,7 +131,7 @@ pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskCon
         let partitioning = source.partitioning.clone();
         let config = source.config.clone();
 
-        // Prepare completion notifier. Create it if it doesn't exist (DsmReaderExec hasn't run yet).
+        // Prepare completion notifier. Create it if it doesn't exist (DsmExchangeExec hasn't run yet).
         let tx = registry
             .completions
             .entry(physical_stream_id)
@@ -143,7 +143,7 @@ pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskCon
 
         let task = tokio::task::spawn_local(async move {
             let _guard = SignalOnDrop(Some(tx));
-            DsmWriterExec::producer_task(input, partitioning, config, context).await;
+            DsmExchangeExec::producer_task(input, partitioning, config, context).await;
         });
 
         registry
@@ -276,7 +276,7 @@ pub fn get_dsm_reader(
     None
 }
 
-/// A physical optimizer rule that replaces standard `RepartitionExec` with `DsmWriterExec` and `DsmReaderExec`.
+/// A physical optimizer rule that replaces standard `RepartitionExec` with `DsmExchangeExec`.
 #[derive(Debug)]
 pub struct EnforceDsmShuffle {
     pub total_participants: usize,
@@ -286,7 +286,8 @@ impl EnforceDsmShuffle {
     fn wrap_in_dsm_exchange(
         &self,
         input: Arc<dyn ExecutionPlan>,
-        partitioning: Partitioning,
+        producer_partitioning: Partitioning,
+        output_partitioning: Partitioning,
         stream_id: u16,
         mode: ExchangeMode,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -296,14 +297,12 @@ impl EnforceDsmShuffle {
             mode,
         };
 
-        let writer = Arc::new(DsmWriterExec::try_new(
+        Ok(Arc::new(DsmExchangeExec::try_new(
             input,
-            partitioning.clone(),
-            config.clone(),
-        )?);
-        let reader = DsmReaderExec::try_new(writer, config, partitioning)?;
-
-        Ok(Arc::new(reader))
+            producer_partitioning,
+            output_partitioning,
+            config,
+        )?))
     }
 }
 
@@ -344,15 +343,20 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
 
             // Now, check if this node needs wrapping.
             if let Some(repartition) = node.as_any().downcast_ref::<RepartitionExec>() {
-                let partitioning = repartition.partitioning().clone();
-                let (mode, reader_partitioning) =
-                    if matches!(partitioning, Partitioning::UnknownPartitioning(1)) {
+                let producer_partitioning = repartition.partitioning().clone();
+                let (mode, output_partitioning) =
+                    if matches!(producer_partitioning, Partitioning::UnknownPartitioning(1)) {
                         (
                             ExchangeMode::Gather,
                             Partitioning::UnknownPartitioning(rule.total_participants),
                         )
                     } else {
-                        (ExchangeMode::Redistribute, partitioning.clone())
+                        (
+                            ExchangeMode::Redistribute,
+                            Partitioning::UnknownPartitioning(
+                                producer_partitioning.partition_count(),
+                            ),
+                        )
                     };
 
                 let stream_id = *counter;
@@ -363,11 +367,17 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
                 })?;
 
                 let input = repartition.children()[0].clone();
-                rule.wrap_in_dsm_exchange(input, reader_partitioning, stream_id, mode)
+                rule.wrap_in_dsm_exchange(
+                    input,
+                    producer_partitioning,
+                    output_partitioning,
+                    stream_id,
+                    mode,
+                )
             } else if let Some(merge) = node.as_any().downcast_ref::<SortPreservingMergeExec>() {
                 let input = merge.children()[0].clone();
                 if input.output_partitioning().partition_count() > 1
-                    && !input.as_any().is::<DsmReaderExec>()
+                    && !input.as_any().is::<DsmExchangeExec>()
                 {
                     let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
                     let stream_id = *counter;
@@ -379,6 +389,7 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
 
                     let reader = rule.wrap_in_dsm_exchange(
                         input,
+                        partitioning.clone(),
                         partitioning,
                         stream_id,
                         ExchangeMode::Gather,
@@ -391,7 +402,7 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
             } else if let Some(coalesce) = node.as_any().downcast_ref::<CoalescePartitionsExec>() {
                 let input = coalesce.children()[0].clone();
                 if input.output_partitioning().partition_count() > 1
-                    && !input.as_any().is::<DsmReaderExec>()
+                    && !input.as_any().is::<DsmExchangeExec>()
                 {
                     let partitioning = Partitioning::UnknownPartitioning(rule.total_participants);
                     let stream_id = *counter;
@@ -403,6 +414,7 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
 
                     let reader = rule.wrap_in_dsm_exchange(
                         input,
+                        partitioning.clone(),
                         partitioning,
                         stream_id,
                         ExchangeMode::Gather,
@@ -422,17 +434,17 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
-pub fn collect_dsm_writers(plan: Arc<dyn ExecutionPlan>, sources: &mut Vec<StreamSource>) {
-    if let Some(writer) = plan.as_any().downcast_ref::<DsmWriterExec>() {
+pub fn collect_dsm_exchanges(plan: Arc<dyn ExecutionPlan>, sources: &mut Vec<StreamSource>) {
+    if let Some(exchange) = plan.as_any().downcast_ref::<DsmExchangeExec>() {
         sources.push(StreamSource {
-            input: writer.input.clone(),
-            partitioning: writer.partitioning.clone(),
-            config: writer.config.clone(),
+            input: exchange.input.clone(),
+            partitioning: exchange.producer_partitioning.clone(),
+            config: exchange.config.clone(),
         });
     }
 
     for child in plan.children() {
-        collect_dsm_writers(child.clone(), sources);
+        collect_dsm_exchanges(child.clone(), sources);
     }
 }
 
@@ -471,38 +483,41 @@ pub(crate) fn get_mpp_config(ctx: &TaskContext) -> (usize, usize) {
         .unwrap_or((0, 1))
 }
 
-/// A physical operator that handles producing shuffled data.
+/// A physical operator that handles both the production (passive) and consumption (active) of shuffled data.
 ///
-/// In the Lazy/RPC model, `DsmWriterExec` is a **passive** operator.
-/// It does not execute logic when `execute()` is called by DataFusion (it returns an empty stream).
+/// This single node replaces the `DsmReaderExec` / `DsmWriterExec` pair.
 ///
-/// Instead, it serves as a marker in the plan. Its configuration and input plan are extracted
-/// and stored in the `StreamRegistry`. The actual execution logic (`producer_task`) is
-/// spawned only when a `StartStream` request is received.
+/// **As a Consumer (Reader)**:
+/// When `execute()` is called, it initiates the stream by sending `StartStream` to the producer(s).
+///
+/// **As a Producer (Writer)**:
+/// It holds the `input` plan and `producer_partitioning`. It registers these in the `StreamRegistry`.
+/// When triggered via `StartStream`, `producer_task` is executed to run the input plan and write to DSM.
 #[derive(Debug)]
-pub struct DsmWriterExec {
+pub struct DsmExchangeExec {
     pub input: Arc<dyn ExecutionPlan>,
-    pub partitioning: Partitioning,
+    pub producer_partitioning: Partitioning,
     pub config: DsmExchangeConfig,
     pub properties: PlanProperties,
 }
 
-impl DsmWriterExec {
+impl DsmExchangeExec {
     pub fn try_new(
         input: Arc<dyn ExecutionPlan>,
-        partitioning: Partitioning,
+        producer_partitioning: Partitioning,
+        output_partitioning: Partitioning,
         config: DsmExchangeConfig,
     ) -> Result<Self> {
         let properties = PlanProperties::new(
             input.equivalence_properties().clone(),
-            partitioning.clone(),
+            output_partitioning,
             EmissionType::Incremental,
             input.boundedness(),
         );
 
         Ok(Self {
             input,
-            partitioning,
+            producer_partitioning,
             config,
             properties,
         })
@@ -673,100 +688,6 @@ impl DsmWriterExec {
             let _ = writer.finish();
         }
     }
-}
-
-impl DisplayAs for DsmWriterExec {
-    fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        match t {
-            DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(
-                    f,
-                    "DsmWriterExec(stream_id={}, partitioning={:?})",
-                    self.config.stream_id, self.partitioning
-                )
-            }
-            _ => Ok(()),
-        }
-    }
-}
-
-impl ExecutionPlan for DsmWriterExec {
-    fn name(&self) -> &str {
-        "DsmWriterExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn properties(&self) -> &PlanProperties {
-        &self.properties
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![&self.input]
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(Self::try_new(
-            children[0].clone(),
-            self.partitioning.clone(),
-            self.config.clone(),
-        )?))
-    }
-
-    fn execute(
-        &self,
-        partition: usize,
-        _context: Arc<TaskContext>,
-    ) -> Result<SendableRecordBatchStream> {
-        assert_eq!(partition, 0);
-        // In the RPC-server model, workers do not eagerly execute the plan tree.
-        // DsmWriterExec is a passive marker in the plan.
-        // Execution is triggered by StartStream requests and handled in producer_task.
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.input.schema(),
-            futures::stream::empty(),
-        )))
-    }
-}
-
-/// A physical operator that handles consuming shuffled data.
-///
-/// `DsmReaderExec` acts as the **RPC Client**. When it executes, it initiates the
-/// data stream by sending a `StartStream` control message to the corresponding Writer
-/// (which may be on a remote node or the same node).
-///
-/// This "Pull" triggers the execution of the upstream plan fragment.
-#[derive(Debug)]
-pub struct DsmReaderExec {
-    pub input: Arc<dyn ExecutionPlan>,
-    pub config: DsmExchangeConfig,
-    pub properties: PlanProperties,
-}
-
-impl DsmReaderExec {
-    pub fn try_new(
-        input: Arc<dyn ExecutionPlan>,
-        config: DsmExchangeConfig,
-        partitioning: Partitioning,
-    ) -> Result<Self> {
-        let properties = PlanProperties::new(
-            input.equivalence_properties().clone(),
-            Partitioning::UnknownPartitioning(partitioning.partition_count()),
-            EmissionType::Incremental,
-            input.boundedness(),
-        );
-
-        Ok(Self {
-            input,
-            config,
-            properties,
-        })
-    }
 
     fn create_consumer_stream(
         &self,
@@ -865,20 +786,24 @@ impl DsmReaderExec {
     }
 }
 
-impl DisplayAs for DsmReaderExec {
+impl DisplayAs for DsmExchangeExec {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(f, "DsmReaderExec(stream_id={})", self.config.stream_id)
+                write!(
+                    f,
+                    "DsmExchangeExec(stream_id={}, producer_partitioning={:?})",
+                    self.config.stream_id, self.producer_partitioning
+                )
             }
             _ => Ok(()),
         }
     }
 }
 
-impl ExecutionPlan for DsmReaderExec {
+impl ExecutionPlan for DsmExchangeExec {
     fn name(&self) -> &str {
-        "DsmReaderExec"
+        "DsmExchangeExec"
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -899,8 +824,9 @@ impl ExecutionPlan for DsmReaderExec {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         Ok(Arc::new(Self::try_new(
             children[0].clone(),
-            self.config.clone(),
+            self.producer_partitioning.clone(),
             self.properties.output_partitioning().clone(),
+            self.config.clone(),
         )?))
     }
 
@@ -911,7 +837,16 @@ impl ExecutionPlan for DsmReaderExec {
 
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
-        let _ = self.input.execute(0, context.clone())?;
+        // In the RPC-Server model, the execution of the input plan (production)
+        // is decoupled from the execution of this node (consumption).
+        //
+        // 1. The input plan is executed by the `producer_task`, which is triggered
+        //    asynchronously by a `StartStream` control message.
+        // 2. This `execute` method acts as the "Client": it initiates the stream
+        //    by sending `StartStream` and returning a consumer stream that reads
+        //    from the shared memory ring buffer.
+        //
+        // Therefore, we do NOT execute `self.input` here.
 
         self.create_consumer_stream(partition, context)
     }
@@ -1023,8 +958,9 @@ mod tests {
             .optimize(repartition, &ConfigOptions::default())
             .unwrap();
 
-        assert!(optimized.as_any().is::<DsmReaderExec>());
+        assert!(optimized.as_any().is::<DsmExchangeExec>());
         assert_eq!(optimized.children().len(), 1);
-        assert!(optimized.children()[0].as_any().is::<DsmWriterExec>());
+        // The child is now the input of DsmExchangeExec (MockLeaf), not DsmWriterExec
+        assert!(optimized.children()[0].as_any().is::<MockLeaf>());
     }
 }

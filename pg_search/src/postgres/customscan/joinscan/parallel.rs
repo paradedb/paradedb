@@ -449,7 +449,7 @@ mod tests {
         ParallelWorkerNumber, WorkerStyle,
     };
     use crate::postgres::customscan::joinscan::exchange::{
-        register_dsm_mesh, DsmExchangeConfig, DsmMesh, DsmReaderExec, DsmWriterExec, ExchangeMode,
+        register_dsm_mesh, DsmExchangeConfig, DsmExchangeExec, DsmMesh, ExchangeMode,
     };
     use crate::postgres::customscan::joinscan::transport::{
         LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId,
@@ -805,20 +805,26 @@ mod tests {
             let input = Arc::new(MockExec::new(batch, schema.clone()));
 
             // Exchange: Gather to node 0.
-            let partitioning = Partitioning::UnknownPartitioning(total_participants);
+            let producer_partitioning = Partitioning::UnknownPartitioning(total_participants);
+            let output_partitioning = Partitioning::UnknownPartitioning(total_participants);
             let config = DsmExchangeConfig {
                 stream_id: LogicalStreamId(0),
                 total_participants,
                 mode: ExchangeMode::Gather,
             };
-            let writer =
-                DsmWriterExec::try_new(input, partitioning.clone(), config.clone()).unwrap();
-            let reader =
-                DsmReaderExec::try_new(Arc::new(writer), config.clone(), partitioning).unwrap();
+
+            let exchange = DsmExchangeExec::try_new(
+                input,
+                producer_partitioning,
+                output_partitioning,
+                config.clone(),
+            )
+            .unwrap();
+
             // Wrap in CoalescePartitionsExec so that execute(0) pulls from ALL workers
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
                 datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec::new(
-                    Arc::new(reader),
+                    Arc::new(exchange),
                 ),
             );
 
@@ -838,7 +844,7 @@ mod tests {
 
                 // Register the writer
                 let mut sources = Vec::new();
-                crate::postgres::customscan::joinscan::exchange::collect_dsm_writers(
+                crate::postgres::customscan::joinscan::exchange::collect_dsm_exchanges(
                     plan.clone(),
                     &mut sources,
                 );
@@ -979,18 +985,26 @@ mod tests {
 
         let input = Arc::new(MockExec::new(batch, schema.clone()));
 
-        let partitioning = Partitioning::UnknownPartitioning(total_participants);
+        let producer_partitioning = Partitioning::UnknownPartitioning(total_participants);
+        let output_partitioning = Partitioning::UnknownPartitioning(total_participants);
         let config = DsmExchangeConfig {
             stream_id: LogicalStreamId(0),
             total_participants,
             mode: ExchangeMode::Gather,
         };
-        let writer = DsmWriterExec::try_new(input, partitioning.clone(), config.clone()).unwrap();
-        let reader = DsmReaderExec::try_new(Arc::new(writer), config, partitioning).unwrap();
+
+        let exchange = DsmExchangeExec::try_new(
+            input,
+            producer_partitioning,
+            output_partitioning,
+            config.clone(),
+        )
+        .unwrap();
+
         // Wrap in CoalescePartitionsExec so that execute(0) pulls from ALL workers
         let plan: Arc<dyn ExecutionPlan> = Arc::new(
             datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec::new(Arc::new(
-                reader,
+                exchange,
             )),
         );
 
@@ -1010,7 +1024,7 @@ mod tests {
 
             // Register Leader sources
             let mut sources = Vec::new();
-            crate::postgres::customscan::joinscan::exchange::collect_dsm_writers(
+            crate::postgres::customscan::joinscan::exchange::collect_dsm_exchanges(
                 plan.clone(),
                 &mut sources,
             );

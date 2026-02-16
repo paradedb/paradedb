@@ -19,8 +19,7 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::exchange::{
-    get_mpp_config, register_stream_source, DsmExchangeConfig, DsmReaderExec, DsmWriterExec,
-    StreamSource,
+    get_mpp_config, register_stream_source, DsmExchangeConfig, DsmExchangeExec, StreamSource,
 };
 use crate::postgres::customscan::joinscan::transport::ParticipantId;
 use crate::query::SearchQueryInput;
@@ -46,13 +45,10 @@ use prost::Message;
 
 #[derive(Serialize, Deserialize)]
 enum PhysicalNode {
-    DsmReader {
+    DsmExchange {
         config: DsmExchangeConfig,
-        partitioning_bytes: Vec<u8>,
-    },
-    DsmWriter {
-        config: DsmExchangeConfig,
-        partitioning_bytes: Vec<u8>,
+        producer_partitioning_bytes: Vec<u8>,
+        output_partitioning_bytes: Vec<u8>,
     },
     MultiSegment {
         scan_info: Box<ScanInfo>,
@@ -145,57 +141,56 @@ impl PhysicalExtensionCodec for PgSearchExtensionCodec {
         })?;
 
         match node {
-            PhysicalNode::DsmReader {
+            PhysicalNode::DsmExchange {
                 config,
-                partitioning_bytes,
+                producer_partitioning_bytes,
+                output_partitioning_bytes,
             } => {
-                let proto =
-                    protobuf::Partitioning::decode(&partitioning_bytes[..]).map_err(|e| {
-                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
-                    })?;
-                let schema = inputs[0].schema();
-                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
-                    .ok_or_else(|| {
-                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                let producer_proto = protobuf::Partitioning::decode(
+                    &producer_partitioning_bytes[..],
+                )
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to decode Producer Partitioning: {e}"
+                    ))
                 })?;
-                Ok(Arc::new(DsmReaderExec::try_new(
-                    inputs[0].clone(),
-                    config,
-                    partitioning,
-                )?))
-            }
-            PhysicalNode::DsmWriter {
-                config,
-                partitioning_bytes,
-            } => {
-                let proto =
-                    protobuf::Partitioning::decode(&partitioning_bytes[..]).map_err(|e| {
-                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
-                    })?;
-                let schema = inputs[0].schema();
-                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
-                    .ok_or_else(|| {
-                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                let output_proto = protobuf::Partitioning::decode(&output_partitioning_bytes[..])
+                    .map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to decode Output Partitioning: {e}"))
                 })?;
+                let schema = inputs[0].schema();
+                let producer_partitioning =
+                    parse_protobuf_partitioning(Some(&producer_proto), ctx, &schema, self)?
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "Failed to parse producer partitioning".to_string(),
+                            )
+                        })?;
+                let output_partitioning =
+                    parse_protobuf_partitioning(Some(&output_proto), ctx, &schema, self)?
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "Failed to parse output partitioning".to_string(),
+                            )
+                        })?;
 
-                let writer = Arc::new(DsmWriterExec::try_new(
-                    inputs[0].clone(),
-                    partitioning.clone(),
-                    config.clone(),
-                )?);
-
-                // Register this writer as a procedure available on this node
+                // Register this exchange as a procedure available on this node (Producer Side)
                 let (participant_index, _) = get_mpp_config(ctx);
                 register_stream_source(
                     StreamSource {
                         input: inputs[0].clone(),
-                        partitioning,
-                        config,
+                        partitioning: producer_partitioning.clone(),
+                        config: config.clone(),
                     },
                     ParticipantId(participant_index as u16),
                 );
 
-                Ok(writer)
+                Ok(Arc::new(DsmExchangeExec::try_new(
+                    inputs[0].clone(),
+                    producer_partitioning,
+                    output_partitioning,
+                    config,
+                )?))
             }
             PhysicalNode::MultiSegment {
                 scan_info,
@@ -311,26 +306,20 @@ impl PhysicalExtensionCodec for PgSearchExtensionCodec {
         node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
         buf: &mut Vec<u8>,
     ) -> Result<()> {
-        if let Some(reader) = node.as_any().downcast_ref::<DsmReaderExec>() {
-            let partitioning = reader.properties.output_partitioning();
-            let proto = serialize_partitioning(partitioning, self)?;
-            let physical_node = PhysicalNode::DsmReader {
-                config: reader.config.clone(),
-                partitioning_bytes: proto.encode_to_vec(),
+        if let Some(exchange) = node.as_any().downcast_ref::<DsmExchangeExec>() {
+            let producer_partitioning = &exchange.producer_partitioning;
+            let output_partitioning = exchange.properties.output_partitioning();
+
+            let producer_proto = serialize_partitioning(producer_partitioning, self)?;
+            let output_proto = serialize_partitioning(output_partitioning, self)?;
+
+            let physical_node = PhysicalNode::DsmExchange {
+                config: exchange.config.clone(),
+                producer_partitioning_bytes: producer_proto.encode_to_vec(),
+                output_partitioning_bytes: output_proto.encode_to_vec(),
             };
             serde_json::to_writer(buf, &physical_node).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize DsmReaderExec: {e}"))
-            })?;
-            Ok(())
-        } else if let Some(writer) = node.as_any().downcast_ref::<DsmWriterExec>() {
-            let partitioning = writer.partitioning.clone();
-            let proto = serialize_partitioning(&partitioning, self)?;
-            let physical_node = PhysicalNode::DsmWriter {
-                config: writer.config.clone(),
-                partitioning_bytes: proto.encode_to_vec(),
-            };
-            serde_json::to_writer(buf, &physical_node).map_err(|e| {
-                DataFusionError::Internal(format!("Failed to serialize DsmWriterExec: {e}"))
+                DataFusionError::Internal(format!("Failed to serialize DsmExchangeExec: {e}"))
             })?;
             Ok(())
         } else if let Some(ms) = node.as_any().downcast_ref::<MultiSegmentPlan>() {

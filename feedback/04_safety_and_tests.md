@@ -14,11 +14,11 @@ The testing strategy covers the core functionality and the integration test `tes
 ### 1. Error Propagation
 
 **Observation:**
-If a background `producer_task` panics or fails, how does the `DsmReaderExec` know?
+If a background `producer_task` panics or fails, how does the `DsmExchangeExec` (Consumer) know?
 
 - The `SocketBridge` might detect a disconnect (if process dies).
 - But if the task just errors (e.g. DataFusion error), it logs a warning and exits.
-- The `DsmReader` will likely wait forever (or until timeout/hang) if the writer stops without sending EOS (len=0).
+- The `DsmExchangeExec` (Consumer) will likely wait forever (or until timeout/hang) if the writer stops without sending EOS (len=0).
   **Analysis:**
   In `producer_task`:
 

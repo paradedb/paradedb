@@ -241,21 +241,18 @@ EXPLAIN SELECT users.id, users.name, users.age, products.age FROM users JOIN pro
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@5 as col_1, NULL as col_2, age@4 as col_3, age@1 as col_4, id@2 as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
            :   SortPreservingMergeExec: [id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], fetch=2
-           :     DsmReaderExec(stream_id=2)
-           :       DsmWriterExec(stream_id=2, partitioning=UnknownPartitioning(2))
-           :         SortExec: TopK(fetch=2), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(uuid@1, uuid@1)], filter=pdb_search_predicate(ctid_1@1) OR age@2 > age@0, projection=[ctid_2@0, age@2, id@3, ctid_1@4, age@6, id@7]
-           :             DsmReaderExec(stream_id=0)
-           :               DsmWriterExec(stream_id=0, partitioning=Hash([Column { name: "uuid", index: 1 }], 2))
-           :                 ProjectionExec: expr=[ctid@0 as ctid_2, uuid@1 as uuid, age@2 as age, id@3 as id]
-           :                   CooperativeExec
-           :                     PgSearchSegmentScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-           :             DsmReaderExec(stream_id=1)
-           :               DsmWriterExec(stream_id=1, partitioning=Hash([Column { name: "uuid", index: 1 }], 2))
-           :                 ProjectionExec: expr=[ctid@0 as ctid_1, uuid@1 as uuid, age@2 as age, id@3 as id]
-           :                   CooperativeExec
-           :                     PgSearchSegmentScan: segments=1, query="all"
-(27 rows)
+           :     DsmExchangeExec(stream_id=2, producer_partitioning=UnknownPartitioning(2))
+           :       SortExec: TopK(fetch=2), expr=[id@5 ASC NULLS LAST, id@2 ASC NULLS LAST], preserve_partitioning=[true]
+           :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(uuid@1, uuid@1)], filter=pdb_search_predicate(ctid_1@1) OR age@2 > age@0, projection=[ctid_2@0, age@2, id@3, ctid_1@4, age@6, id@7]
+           :           DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "uuid", index: 1 }], 2))
+           :             ProjectionExec: expr=[ctid@0 as ctid_2, uuid@1 as uuid, age@2 as age, id@3 as id]
+           :               CooperativeExec
+           :                 PgSearchSegmentScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+           :           DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "uuid", index: 1 }], 2))
+           :             ProjectionExec: expr=[ctid@0 as ctid_1, uuid@1 as uuid, age@2 as age, id@3 as id]
+           :               CooperativeExec
+           :                 PgSearchSegmentScan: segments=1, query="all"
+(24 rows)
 
 SELECT users.id, users.name, users.age, products.age FROM users JOIN products ON users.uuid = products.uuid WHERE users.name @@@ 'bob' AND (products.name @@@ 'bob') OR (products.name @@@ 'bob') AND users.age > products.age ORDER BY users.id, products.id LIMIT 2;
  id | name | age | age 

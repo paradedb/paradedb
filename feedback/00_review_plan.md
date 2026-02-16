@@ -37,7 +37,7 @@ To verify the correctness, safety, and maintainability of the DSM Stream Overhau
   - `pg_search/src/scan/execution_plan.rs`
   - `pg_search/src/scan/table_provider.rs`
 - **Review Goals:**
-  - Validate `collect_dsm_writers`: Does it correctly traverse arbitrary DataFusion plans?
+  - Validate `collect_dsm_exchanges`: Does it correctly traverse arbitrary DataFusion plans?
   - Check the initialization sequence in `exec_custom_scan` and `JoinWorker::run`.
   - Ensure `LocalSet` usage is correct for the `Control Service` alongside the main execution.
   - **Output:** `feedback/03_execution_integration.md`

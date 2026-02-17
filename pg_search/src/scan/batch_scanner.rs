@@ -29,7 +29,7 @@ use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, SegmentOrdinal};
 
-use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
+use crate::index::fast_fields_helper::{FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
@@ -146,20 +146,6 @@ impl Scanner {
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
         }
-    }
-
-    /// Override the batch size, clamped to `MAX_BATCH_SIZE`.
-    ///
-    /// Used to reduce batch size when dynamic filters are present, allowing
-    /// the filter threshold to tighten between smaller batches.
-    pub fn set_batch_size(&mut self, size: usize) {
-        self.batch_size = size.min(MAX_BATCH_SIZE);
-    }
-
-    /// Returns the Arrow schema for this scanner.
-    #[allow(dead_code)]
-    pub fn schema(&self) -> SchemaRef {
-        build_arrow_schema(&self.which_fast_fields)
     }
 
     /// Returns the estimated number of rows that will be produced by this scanner.

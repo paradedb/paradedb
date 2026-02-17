@@ -318,7 +318,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
-        let UnsafeSendSync((mut scanner, ffhelper, visibility)) =
+        let UnsafeSendSync((scanner, ffhelper, visibility)) =
             states[partition].take().ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "Partition {} has already been executed",
@@ -333,13 +333,14 @@ impl ExecutionPlan for PgSearchScanPlan {
         })?;
         let has_dynamic_filters = !dynamic_filters.is_empty();
 
-        // When dynamic filters are present (e.g. TopK threshold), reduce the
-        // batch size so that the filter can tighten between batches. Without
-        // this, the scanner might produce all rows in a single batch before
-        // the TopK operator ever updates the threshold.
-        if has_dynamic_filters {
-            scanner.set_batch_size(256);
-        }
+        // TODO: Reducing the batch size here (e.g. 256) would let TopK
+        // tighten its DynamicFilterPhysicalExpr between smaller batches,
+        // enabling pre-materialization pruning. However, the DFE's column
+        // references use JOIN OUTPUT indices/names, while collect_filters
+        // resolves by name against the scan's LOCAL schema. When multiple
+        // tables share a column name (e.g. "id"), the pre-filter matches
+        // the wrong column and incorrectly prunes rows. Fix the column
+        // resolution in collect_filters before enabling this.
         let rows_scanned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
         let rows_pruned = has_dynamic_filters

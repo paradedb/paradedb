@@ -73,7 +73,6 @@ use super::scan_state::create_session_context;
 pub struct JoinSharedState {
     pub mutex: Spinlock,
     pub nlaunched: usize,
-    pub sockets_ready: usize,
 }
 
 impl ParallelStateType for JoinSharedState {}
@@ -87,16 +86,6 @@ impl JoinSharedState {
     pub fn launched_workers(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
-    }
-
-    pub fn inc_sockets_ready(&mut self) {
-        let _lock = self.mutex.acquire();
-        self.sockets_ready += 1;
-    }
-
-    pub fn sockets_ready(&mut self) -> usize {
-        let _lock = self.mutex.acquire();
-        self.sockets_ready
     }
 }
 
@@ -162,7 +151,6 @@ impl ParallelJoin {
             state: JoinSharedState {
                 mutex: Spinlock::default(),
                 nlaunched: 0,
-                sockets_ready: 0,
             },
             config,
             ring_buffer,
@@ -239,15 +227,6 @@ impl ParallelWorker for JoinWorker<'_> {
             .expect("Failed to initialize SignalBridge");
         let bridge = Arc::new(bridge);
 
-        // Signal readiness
-        self.state.inc_sockets_ready();
-
-        // Wait for all participants to create their sockets
-        while self.state.sockets_ready() < launched_participants {
-            pgrx::check_for_interrupts!();
-            std::thread::yield_now();
-        }
-
         let layout = TransportLayout::new(self.config.ring_buffer_size, self.config.control_size);
         let transport = unsafe {
             TransportMesh::init(
@@ -260,32 +239,32 @@ impl ParallelWorker for JoinWorker<'_> {
         };
 
         // Wait for the plan via the control channel.
-        let mut buffered_frames = Vec::new();
-        let mut received_plan = None;
-
-        loop {
-            for mux in &transport.mux_writers {
-                let mut guard = mux.lock();
-                let frames = guard.read_control_frames();
-                for (msg_type, payload) in frames {
-                    if let Some(ControlMessage::BroadcastPlan(bytes)) =
-                        ControlMessage::try_from_frame(msg_type, &payload)
-                    {
-                        received_plan = Some(bytes);
-                    } else {
-                        buffered_frames.push((msg_type, payload));
+        let plan_slice = runtime.block_on(async {
+            futures::future::poll_fn(|cx| {
+                for mux in &transport.mux_writers {
+                    let mut guard = mux.lock();
+                    match guard.poll_read_control_frames(cx) {
+                        std::task::Poll::Ready(Ok(frames)) => {
+                            if let Some((msg_type, payload)) = frames.into_iter().next() {
+                                if let Some(ControlMessage::BroadcastPlan(bytes)) =
+                                    ControlMessage::try_from_frame(msg_type, &payload)
+                                {
+                                    return std::task::Poll::Ready(bytes);
+                                } else {
+                                    panic!(
+                                        "Received unexpected control message before BroadcastPlan: type {}",
+                                        msg_type
+                                    );
+                                }
+                            }
+                        }
+                        std::task::Poll::Ready(Err(e)) => panic!("Error reading control frames: {}", e),
+                        std::task::Poll::Pending => {} // Continue checking other muxes
                     }
                 }
-            }
-
-            if received_plan.is_some() {
-                break;
-            }
-
-            std::thread::sleep(std::time::Duration::from_millis(1));
-            pgrx::check_for_interrupts!();
-        }
-        let plan_slice = received_plan.unwrap();
+                std::task::Poll::Pending
+            }).await
+        });
 
         // Register the DSM mesh for this worker process.
         let mesh = exchange::DsmMesh {
@@ -303,23 +282,6 @@ impl ParallelWorker for JoinWorker<'_> {
         let codec = PgSearchExtensionCodec::default();
         let _ = physical_plan_from_bytes_with_extension_codec(&plan_slice, &ctx.task_ctx(), &codec)
             .expect("Failed to parse physical plan");
-
-        let task_ctx = ctx.task_ctx();
-
-        // Replay buffered control messages (that arrived before/with the plan)
-        for (msg_type, payload) in buffered_frames {
-            if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
-                match msg {
-                    ControlMessage::StartStream(id) => {
-                        exchange::trigger_stream(id, task_ctx.clone());
-                    }
-                    ControlMessage::CancelStream(id) => {
-                        exchange::cancel_triggered_stream(id);
-                    }
-                    _ => {}
-                }
-            }
-        }
 
         let task_ctx = ctx.task_ctx();
 
@@ -451,12 +413,6 @@ pub fn launch_join_workers(
             let shared_state = state_manager.object::<JoinSharedState>(0).unwrap().unwrap();
 
             shared_state.set_launched_workers(nlaunched);
-            shared_state.inc_sockets_ready();
-
-            while shared_state.sockets_ready() < nlaunched {
-                pgrx::check_for_interrupts!();
-                std::thread::yield_now();
-            }
         }
 
         let leader_participant_index = 0;

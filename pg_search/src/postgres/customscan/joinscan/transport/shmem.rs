@@ -608,6 +608,8 @@ impl std::io::Write for DsmWriteAdapter {
     }
 }
 
+pub type ControlFrames = Vec<(u8, Vec<u8>)>;
+
 /// A multiplexer for writing multiple logical streams into a single DSM ring buffer.
 ///
 /// Framing: `[stream_id: u32][len: u32][payload: len bytes]`
@@ -746,7 +748,7 @@ impl MultiplexedDsmWriter {
 
     /// Reads pending control frames from the reverse channel.
     /// Returns a vector of (message_type, payload).
-    pub fn read_control_frames(&mut self) -> Vec<(u8, Vec<u8>)> {
+    pub fn read_control_frames(&mut self) -> ControlFrames {
         let mut frames = Vec::new();
         if let Some(reader) = &mut self.control_reader {
             loop {
@@ -836,6 +838,25 @@ impl MultiplexedDsmWriter {
             }
         }
         frames
+    }
+
+    /// Async version of `read_control_frames` that registers the current task's waker
+    /// with the bridge if data is not yet available.
+    pub fn poll_read_control_frames(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<ControlFrames>> {
+        // Register waker FIRST to avoid race condition where data arrives
+        // between read attempt and registration.
+        self.bridge
+            .register_waker(cx.waker().clone(), Some(self.remote_id));
+
+        let frames = self.read_control_frames();
+        if !frames.is_empty() {
+            std::task::Poll::Ready(Ok(frames))
+        } else {
+            std::task::Poll::Pending
+        }
     }
 
     /// Mark a stream as cancelled, preventing further writes to it.

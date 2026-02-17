@@ -289,8 +289,7 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
                                         cancel_triggered_stream(id);
                                     }
                                     ControlMessage::BroadcastPlan(_) => {
-                                        // This message is handled during startup (JoinWorker::run).
-                                        // If received here, it's either late or redundant. safely ignore.
+                                        panic!("Received unexpected BroadcastPlan message during execution");
                                     }
                                 }
                             }

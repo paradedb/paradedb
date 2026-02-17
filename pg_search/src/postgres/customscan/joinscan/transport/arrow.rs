@@ -206,12 +206,14 @@ struct DsmStream {
     finished: bool,
     decoder: StreamDecoder,
     accumulated: Vec<u8>,
+    sanitized: bool,
 }
 
 impl DsmStream {
     async fn new(
         multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
         stream_id: PhysicalStreamId,
+        sanitized: bool,
     ) -> Result<Self> {
         {
             let mut mux = multiplexer.lock();
@@ -229,6 +231,7 @@ impl DsmStream {
             finished: false,
             decoder: StreamDecoder::new(),
             accumulated: Vec::new(),
+            sanitized,
         })
     }
 
@@ -276,9 +279,15 @@ impl DsmStream {
 
             // 2. Read from DSM
             let chunk = futures::future::poll_fn(|cx| {
-                self.multiplexer
-                    .lock()
-                    .poll_read_for_stream(self.stream_id, cx)
+                if self.sanitized {
+                    self.multiplexer
+                        .lock()
+                        .poll_read_for_stream_copying(self.stream_id, cx)
+                } else {
+                    self.multiplexer
+                        .lock()
+                        .poll_read_for_stream(self.stream_id, cx)
+                }
             })
             .await;
 
@@ -347,16 +356,28 @@ crate::impl_safe_drop!(DsmStream, |self| {
     let _ = self.multiplexer.lock().cancel_stream(self.stream_id);
 });
 
+/// Creates a record batch stream that reads from a DSM ring buffer.
+///
+/// # Arguments
+///
+/// * `multiplexer` - The reader multiplexer.
+/// * `logical_stream_id` - The logical stream ID to read.
+/// * `sender_id` - The participant ID of the sender.
+/// * `schema` - The schema of the stream.
+/// * `sanitized` - If true, the stream will perform a deep copy of the data immediately upon reading.
+///   This is necessary to prevent deadlocks when feeding blocking operators (like Sort) that might
+///   hold references to the zero-copy buffer.
 pub fn dsm_reader(
     multiplexer: Arc<Mutex<MultiplexedDsmReader>>,
     logical_stream_id: LogicalStreamId,
     sender_id: ParticipantId,
     schema: SchemaRef,
+    sanitized: bool,
 ) -> SendableRecordBatchStream {
     let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_id);
 
     let stream = try_stream! {
-        let mut dsm_stream = DsmStream::new(multiplexer, physical_stream_id).await?;
+        let mut dsm_stream = DsmStream::new(multiplexer, physical_stream_id, sanitized).await?;
 
         while let Some(batch) = dsm_stream.next_batch().await? {
             yield batch;
@@ -450,12 +471,14 @@ mod tests {
                 LogicalStreamId(1),
                 ParticipantId(0),
                 schema.clone(),
+                false,
             );
             let reader2 = dsm_reader(
                 reader_mux.clone(),
                 LogicalStreamId(2),
                 ParticipantId(0),
                 schema.clone(),
+                false,
             );
 
             // Write synchronously (in this thread context, effectively)
@@ -537,6 +560,7 @@ mod tests {
                     LogicalStreamId(i as u16),
                     ParticipantId(0),
                     schema.clone(),
+                    false,
                 ));
             }
 
@@ -627,6 +651,7 @@ mod tests {
                 LogicalStreamId(1),
                 ParticipantId(0),
                 schema.clone(),
+                false,
             );
 
             // Write NOTHING, just finish

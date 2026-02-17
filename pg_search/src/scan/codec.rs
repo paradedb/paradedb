@@ -21,6 +21,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::exchange::{
     get_mpp_config, register_stream_source, DsmExchangeConfig, DsmExchangeExec, StreamSource,
 };
+use crate::postgres::customscan::joinscan::sanitize::DsmSanitizeExec;
 use crate::postgres::customscan::joinscan::transport::ParticipantId;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::MultiSegmentPlan;
@@ -50,6 +51,7 @@ enum PhysicalNode {
         producer_partitioning_bytes: Vec<u8>,
         output_partitioning_bytes: Vec<u8>,
     },
+    DsmSanitize,
     MultiSegment {
         scan_info: Box<ScanInfo>,
         fields: Vec<WhichFastField>,
@@ -192,6 +194,7 @@ impl PhysicalExtensionCodec for PgSearchExtensionCodec {
                     config,
                 )?))
             }
+            PhysicalNode::DsmSanitize => Ok(Arc::new(DsmSanitizeExec::new(inputs[0].clone()))),
             PhysicalNode::MultiSegment {
                 scan_info,
                 fields,
@@ -320,6 +323,12 @@ impl PhysicalExtensionCodec for PgSearchExtensionCodec {
             };
             serde_json::to_writer(buf, &physical_node).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to serialize DsmExchangeExec: {e}"))
+            })?;
+            Ok(())
+        } else if node.as_any().is::<DsmSanitizeExec>() {
+            let physical_node = PhysicalNode::DsmSanitize;
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmSanitizeExec: {e}"))
             })?;
             Ok(())
         } else if let Some(ms) = node.as_any().downcast_ref::<MultiSegmentPlan>() {

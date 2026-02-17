@@ -196,6 +196,10 @@ pub fn create_session_context(
             },
         );
         builder = builder.with_physical_optimizer_rule(rule);
+
+        let sanitize_rule =
+            Arc::new(crate::postgres::customscan::joinscan::sanitize::EnforceSanitization::new());
+        builder = builder.with_physical_optimizer_rule(sanitize_rule);
     }
 
     let state = builder.build();

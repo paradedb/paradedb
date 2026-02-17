@@ -105,4 +105,16 @@ impl TransportMesh {
             reader.lock().detach();
         }
     }
+
+    /// Returns the virtual memory address ranges of all shared memory ring buffers
+    /// currently mapped by this mesh (via readers).
+    ///
+    /// This is used by `SharedMemoryDetector` to identify if an Arrow buffer resides
+    /// in shared memory.
+    pub fn memory_regions(&self) -> Vec<(usize, usize)> {
+        self.mux_readers
+            .iter()
+            .map(|r| r.lock().memory_region())
+            .collect()
+    }
 }

@@ -836,6 +836,7 @@ mod tests {
                 stream_id: LogicalStreamId(0),
                 total_participants,
                 mode: ExchangeMode::Gather,
+                sanitized: false,
             };
 
             let exchange = DsmExchangeExec::try_new(
@@ -1009,6 +1010,7 @@ mod tests {
             stream_id: LogicalStreamId(0),
             total_participants,
             mode: ExchangeMode::Gather,
+            sanitized: false,
         };
 
         let exchange = DsmExchangeExec::try_new(

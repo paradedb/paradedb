@@ -923,6 +923,10 @@ impl DsmReadAdapter {
             }
         }
     }
+
+    pub fn memory_region(&self) -> (usize, usize) {
+        (self.data as usize, self.data_len)
+    }
 }
 
 impl std::io::Read for DsmReadAdapter {
@@ -1181,15 +1185,24 @@ impl MultiplexedDsmReader {
         self.reclaimer.lock().detach();
     }
 
+    pub fn memory_region(&self) -> (usize, usize) {
+        self.adapter.memory_region()
+    }
+
     /// Reads from the physical DSM buffer and dispatches messages to stream-specific
     /// buffers until a message for the requested `stream_id` is found.
     ///
     /// This handles the demultiplexing of the physical pipe.
     /// Returns `Ok(Some(Vec<u8>))` for a message, `Ok(None)` for End-of-Stream (EOS),
     /// or `ErrorKind::WouldBlock` if no data is available in the physical buffer.
+    ///
+    /// # Arguments
+    /// * `force_copy` - If true, disables the Zero-Copy optimization and forces a copy into
+    ///   a local `Vec<u8>`. This is used for sanitization to break shared memory dependencies.
     pub(super) fn read_for_stream(
         &mut self,
         stream_id: PhysicalStreamId,
+        force_copy: bool,
     ) -> std::io::Result<Option<Buffer>> {
         let state = self.streams.entry(stream_id).or_default();
         if let Some(payload) = state.queue.pop_front() {
@@ -1257,7 +1270,7 @@ impl MultiplexedDsmReader {
                 let write_pos = self.adapter.write_pos();
                 let available = write_pos.wrapping_sub(self.local_read_pos) as usize;
 
-                if total_len <= contiguous && total_len <= available {
+                if !force_copy && total_len <= contiguous && total_len <= available {
                     // ZERO-COPY PATH
                     let lease = Arc::new(ShmLease {
                         offset: self.local_read_pos,
@@ -1391,7 +1404,24 @@ impl MultiplexedDsmReader {
         self.bridge
             .register_waker(cx.waker().clone(), Some(self.remote_id));
 
-        match self.read_for_stream(stream_id) {
+        match self.read_for_stream(stream_id, false) {
+            Ok(Some(msg)) => std::task::Poll::Ready(Ok(Some(msg))),
+            Ok(None) => std::task::Poll::Ready(Ok(None)),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => std::task::Poll::Pending,
+            Err(e) => std::task::Poll::Ready(Err(e)),
+        }
+    }
+
+    /// Async version of `read_for_stream` that forces a copy of the data.
+    pub(super) fn poll_read_for_stream_copying(
+        &mut self,
+        stream_id: PhysicalStreamId,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<Option<Buffer>>> {
+        self.bridge
+            .register_waker(cx.waker().clone(), Some(self.remote_id));
+
+        match self.read_for_stream(stream_id, true) {
             Ok(Some(msg)) => std::task::Poll::Ready(Ok(Some(msg))),
             Ok(None) => std::task::Poll::Ready(Ok(None)),
             Err(e) if e.kind() == ErrorKind::WouldBlock => std::task::Poll::Pending,
@@ -1472,7 +1502,7 @@ mod tests {
 
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), payload);
@@ -1511,7 +1541,7 @@ mod tests {
         // Read Stream 1
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), b"Stream1-A");
@@ -1519,7 +1549,7 @@ mod tests {
         // Read Stream 2
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(2))
+            .read_for_stream(PhysicalStreamId(2), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), b"Stream2-A");
@@ -1527,7 +1557,7 @@ mod tests {
         // Read Stream 1 again
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), b"Stream1-B");
@@ -1564,7 +1594,7 @@ mod tests {
         // Read it back to clear space but advance read_pos
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.len(), 10);
@@ -1587,7 +1617,7 @@ mod tests {
 
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), msg2);
@@ -1629,7 +1659,7 @@ mod tests {
         // Read to free up space
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert!(!msg.is_empty());
@@ -1643,7 +1673,7 @@ mod tests {
 
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), msg2);
@@ -1697,7 +1727,7 @@ mod tests {
 
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap()
             .unwrap();
         assert_eq!(msg.as_slice(), b"data");
@@ -1705,7 +1735,7 @@ mod tests {
         // Next read should see EOF (None) because finished is set
         let msg = reader_mux
             .lock()
-            .read_for_stream(PhysicalStreamId(1))
+            .read_for_stream(PhysicalStreamId(1), false)
             .unwrap();
         assert!(msg.is_none());
     }

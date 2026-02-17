@@ -57,6 +57,16 @@
 //!   3.  It spawns a background Tokio task to execute that sub-plan.
 //!   4.  The task writes data to the DSM buffer.
 //!
+//! ## Sanitization (Deadlock Prevention)
+//!
+//! To prevent deadlocks caused by DataFusion operators pinning shared memory buffers (e.g. `SortExec`),
+//! `DsmExchangeExec` supports a `sanitized` mode. When enabled (`config.sanitized = true`):
+//! - The reader side performs a deep copy of the data *immediately* upon reading from DSM.
+//! - This ensures that the downstream operators (like Sort/Join) hold references to heap-allocated
+//!   memory (Copy) rather than the shared memory ring buffer (Zero-Copy).
+//! - This is controlled by the `EnforceSanitization` optimizer rule, which detects unsafe patterns
+//!   and enables sanitization on the exchange.
+//!
 //! ## Analogy: RPC Tree
 //!
 //! The system can be visualized as a tree of RPC calls.
@@ -326,6 +336,7 @@ pub fn get_dsm_reader(
     stream_id: LogicalStreamId,
     sender_id: ParticipantId,
     schema: SchemaRef,
+    sanitized: bool,
 ) -> Option<SendableRecordBatchStream> {
     let guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_ref() {
@@ -335,6 +346,7 @@ pub fn get_dsm_reader(
                 stream_id,
                 sender_id,
                 schema,
+                sanitized,
             );
             return Some(reader);
         }
@@ -361,6 +373,7 @@ impl EnforceDsmShuffle {
             stream_id: LogicalStreamId(stream_id),
             total_participants: self.total_participants,
             mode,
+            sanitized: false,
         };
 
         Ok(Arc::new(DsmExchangeExec::try_new(
@@ -538,6 +551,8 @@ pub struct DsmExchangeConfig {
     pub stream_id: LogicalStreamId,
     pub total_participants: usize,
     pub mode: ExchangeMode,
+    #[serde(default)]
+    pub sanitized: bool,
 }
 
 pub(crate) fn get_mpp_config(ctx: &TaskContext) -> (usize, usize) {
@@ -555,6 +570,8 @@ pub(crate) fn get_mpp_config(ctx: &TaskContext) -> (usize, usize) {
 ///
 /// **As a Consumer (Reader)**:
 /// When `execute()` is called, it initiates the stream by sending `StartStream` to the producer(s).
+/// If `config.sanitized` is true, it performs a deep copy of incoming batches to prevent deadlocks
+/// with downstream blocking operators.
 ///
 /// **As a Producer (Writer)**:
 /// It holds the `input` plan and `producer_partitioning`. It registers these in the `StreamRegistry`.
@@ -788,6 +805,7 @@ impl DsmExchangeExec {
                         self.config.stream_id,
                         ParticipantId(i as u16),
                         schema.clone(),
+                        self.config.sanitized,
                     ) {
                         readers.push(shared_memory_stream(reader));
                     }
@@ -839,6 +857,7 @@ impl DsmExchangeExec {
                     self.config.stream_id,
                     ParticipantId(partition as u16),
                     schema.clone(),
+                    self.config.sanitized,
                 ) {
                     Ok(shared_memory_stream(reader))
                 } else {
@@ -858,8 +877,8 @@ impl DisplayAs for DsmExchangeExec {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
-                    "DsmExchangeExec(stream_id={}, producer_partitioning={:?})",
-                    self.config.stream_id, self.producer_partitioning
+                    "DsmExchangeExec(stream_id={}, producer_partitioning={:?}, sanitized={})",
+                    self.config.stream_id, self.producer_partitioning, self.config.sanitized
                 )
             }
             _ => Ok(()),

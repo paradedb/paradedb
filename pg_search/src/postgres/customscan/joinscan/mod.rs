@@ -73,6 +73,7 @@ mod parallel;
 mod planning;
 mod predicate;
 mod privdat;
+pub mod sanitize;
 mod scan_state;
 mod translator;
 pub mod transport;

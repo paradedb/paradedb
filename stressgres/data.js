@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770942694516,
+  "lastUpdate": 1771360264931,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -998,6 +998,78 @@ window.BENCHMARK_DATA = {
             "value": 42.65998250411346,
             "unit": "median tps",
             "extra": "avg tps: 83.39627466120139, max tps: 343.905563532254, count: 55147"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771360260981,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.032868455205,
+            "unit": "median tps",
+            "extra": "avg tps: 128.59294755585444, max tps: 135.38248167339194, count: 55173"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3012.1257446641275,
+            "unit": "median tps",
+            "extra": "avg tps: 2998.53812026549, max tps: 3080.6866850621004, count: 55173"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 455.28436733480856,
+            "unit": "median tps",
+            "extra": "avg tps: 450.3223388197692, max tps: 536.1261728525925, count: 55173"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3040.3335509333638,
+            "unit": "median tps",
+            "extra": "avg tps: 3024.0071980038406, max tps: 3063.426324072951, count: 110346"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 530.8316725598856,
+            "unit": "median tps",
+            "extra": "avg tps: 528.376144511472, max tps: 545.2449175386301, count: 55173"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 521.5276029327767,
+            "unit": "median tps",
+            "extra": "avg tps: 517.6401319464416, max tps: 550.0984095493661, count: 55173"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1964.8357593915907,
+            "unit": "median tps",
+            "extra": "avg tps: 1947.6620802721236, max tps: 1971.4000898601562, count: 55173"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 95.7079019072967,
+            "unit": "median tps",
+            "extra": "avg tps: 112.09010852347059, max tps: 281.85423925361874, count: 55173"
           }
         ]
       }

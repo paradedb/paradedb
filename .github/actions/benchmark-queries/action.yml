@@ -27,12 +27,14 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Start Postgres Stacktrace Dumper
+    - name: Run Benchmarks
+      working-directory: benchmarks/
       shell: bash
       run: |
+        trap "kill 0" EXIT
         (
           while true; do
-            sleep 180
+            sleep 60
             echo "[$(date)] Dumping postgres stack traces..." >&2
             for pid in $(pgrep -x postgres); do
               echo "Stack trace for PID $pid:" >&2
@@ -45,10 +47,6 @@ runs:
           done
         ) &
 
-    - name: Run Benchmarks
-      working-directory: benchmarks/
-      shell: bash
-      run: |
         # Use provided rows if specified, otherwise use dataset defaults
         if [ -n "${{ inputs.rows }}" ]; then
           NUM_ROWS=${{ inputs.rows }}

@@ -174,6 +174,7 @@ impl PgSearchScanPlan {
     ///
     /// This is used by `StripOrderingExec` to propagate TopK dynamic filters
     /// through `SortMergeJoinExec`, which does not implement filter pushdown.
+    #[allow(dead_code)]
     pub(crate) fn set_dynamic_filters(&self, filters: Vec<Arc<dyn PhysicalExpr>>) {
         let mut df = self
             .dynamic_filters

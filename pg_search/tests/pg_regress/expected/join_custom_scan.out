@@ -1329,20 +1329,7 @@ JOIN large_suppliers ls ON lo.supplier_id = ls.id
 WHERE lo.description @@@ 'wireless'
 ORDER BY lo.id
 LIMIT 10;
- id |      description       | supplier_name 
-----+------------------------+---------------
-  5 | wireless product order | Supplier 6
- 10 | wireless product order | Supplier 11
- 15 | wireless product order | Supplier 16
- 20 | wireless product order | Supplier 21
- 25 | wireless product order | Supplier 26
- 30 | wireless product order | Supplier 31
- 35 | wireless product order | Supplier 36
- 40 | wireless product order | Supplier 41
- 45 | wireless product order | Supplier 46
- 50 | wireless product order | Supplier 51
-(10 rows)
-
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
 -- Reset work_mem
 RESET work_mem;
 -- =============================================================================
@@ -1962,15 +1949,7 @@ JOIN mem_test_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-    name    | supplier_name 
-------------+---------------
- Product 3  | Supplier 4
- Product 6  | Supplier 7
- Product 9  | Supplier 10
- Product 12 | Supplier 13
- Product 15 | Supplier 16
-(5 rows)
-
+ERROR:  JoinScan: Out of memory! Query exceeded work_mem limit of 65536 bytes.
 RESET work_mem;
 -- =============================================================================
 -- TEST 26: UUID join keys

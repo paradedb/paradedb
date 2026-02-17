@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771361229887,
+  "lastUpdate": 1771361282396,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3778,6 +3778,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3565646630294985,
             "unit": "median tps",
             "extra": "avg tps: 4.794091933231307, max tps: 5.984008710842227, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8208003e39fa852eb620d7d2165c65377749a882",
+          "message": "fix: unit test flake (#4187)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSometimes our `parallel_build_large` test creates 1 extra segment and\nthat's fine\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:40-05:00",
+          "tree_id": "c8571230dc18809896363e68b9c93e2af143f079",
+          "url": "https://github.com/paradedb/paradedb/commit/8208003e39fa852eb620d7d2165c65377749a882"
+        },
+        "date": 1771361278404,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.493409873131189,
+            "unit": "median tps",
+            "extra": "avg tps: 6.408560364882041, max tps: 9.85274195561417, count: 57329"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.2626848341273655,
+            "unit": "median tps",
+            "extra": "avg tps: 4.691572611524322, max tps: 5.919335017078555, count: 57329"
           }
         ]
       }

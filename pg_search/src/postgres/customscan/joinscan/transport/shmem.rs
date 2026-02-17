@@ -779,7 +779,10 @@ impl MultiplexedDsmWriter {
         }
 
         let len = payload.len() as u32;
-        let total_len = 8 + payload.len();
+        let header_len = 8;
+        // Calculate padding to ensure the total message size (header + payload + padding) is 8-byte aligned.
+        let padding = (8 - (len % 8)) % 8;
+        let total_len = (header_len + len + padding) as usize;
 
         if total_len > self.adapter.data_len {
             return Err(std::io::Error::other(format!(
@@ -797,6 +800,11 @@ impl MultiplexedDsmWriter {
         self.adapter.write_all(&len.to_le_bytes())?;
         self.adapter.write_all(payload)?;
 
+        if padding > 0 {
+            let pad_bytes = [0u8; 8];
+            self.adapter.write_all(&pad_bytes[0..padding as usize])?;
+        }
+
         // Signal the remote reader
         if let Err(e) = self.bridge.signal(self.remote_id) {
             pgrx::warning!("Signal error to remote {}: {}", self.remote_id, e);
@@ -812,7 +820,7 @@ impl MultiplexedDsmWriter {
 
         // Write header with len=0
         let len = 0u32;
-        let total_len = 8; // Just header
+        let total_len = 8; // Just header, already aligned
 
         if self.adapter.available_space() < total_len {
             return Err(std::io::Error::from(ErrorKind::WouldBlock));
@@ -820,7 +828,7 @@ impl MultiplexedDsmWriter {
 
         self.adapter.write_all(&stream_id.to_le_bytes())?;
         self.adapter.write_all(&len.to_le_bytes())?;
-        // No payload
+        // No payload, no padding
 
         let _ = self.bridge.signal(self.remote_id);
         Ok(())
@@ -987,7 +995,7 @@ pub struct MultiplexedDsmReader {
     streams: HashMap<PhysicalStreamId, StreamState>,
     /// State for the current message being read from the physical DSM.
     partial_header: Vec<u8>,
-    partial_payload: Option<(PhysicalStreamId, Vec<u8>)>,
+    partial_payload: Option<(PhysicalStreamId, Vec<u8>, usize)>,
     /// Writer for the control channel (Reader -> Writer).
     control_writer: Option<DsmWriteAdapter>,
     /// Bridge for signaling/waiting.
@@ -1107,15 +1115,26 @@ impl MultiplexedDsmReader {
                     self.partial_header[0..4].try_into().unwrap(),
                 ));
                 let msg_len = u32::from_le_bytes(self.partial_header[4..8].try_into().unwrap());
-                self.partial_payload = Some((msg_stream_id, Vec::with_capacity(msg_len as usize)));
+
+                // Calculate total length including padding for 8-byte alignment
+                let padding = (8 - (msg_len % 8)) % 8;
+                let total_len = (msg_len + padding) as usize;
+
+                self.partial_payload = Some((
+                    msg_stream_id,
+                    Vec::with_capacity(total_len),
+                    msg_len as usize,
+                ));
                 self.partial_header.clear();
             }
 
             // Read payload
-            if let Some((_, ref mut payload)) = self.partial_payload {
-                let msg_len = payload.capacity();
-                while payload.len() < msg_len {
-                    let mut chunk = vec![0u8; msg_len - payload.len()];
+            if let Some((_, ref mut payload, msg_len)) = self.partial_payload {
+                let padding = (8 - (msg_len % 8)) % 8;
+                let total_len = msg_len + padding;
+
+                while payload.len() < total_len {
+                    let mut chunk = vec![0u8; total_len - payload.len()];
                     match self.adapter.read(&mut chunk) {
                         Ok(0) => return Ok(None), // Unexpected EOF
                         Ok(n) => payload.extend_from_slice(&chunk[..n]),
@@ -1124,7 +1143,11 @@ impl MultiplexedDsmReader {
                 }
 
                 // Dispatch completed message
-                let (id, completed_payload) = self.partial_payload.take().unwrap();
+                let (id, mut completed_payload, logical_len) = self.partial_payload.take().unwrap();
+
+                // Truncate padding to restore original logical message
+                completed_payload.truncate(logical_len);
+
                 // Signal the writer that space is potentially available
                 let _ = self.bridge.signal(self.remote_id);
 

@@ -18,6 +18,7 @@
 use super::shmem::{
     MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
 };
+use super::ControlMessage;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -118,5 +119,37 @@ impl TransportMesh {
             .iter()
             .map(|r| r.lock().memory_region())
             .collect()
+    }
+
+    /// Waits for the `BroadcastPlan` control message from the Leader.
+    ///
+    /// This method polls all writers (connections to other participants) for control messages.
+    /// It enforces a strict protocol where the FIRST message received MUST be `BroadcastPlan`.
+    pub async fn wait_for_broadcast_plan(&self) -> Vec<u8> {
+        futures::future::poll_fn(|cx| {
+            for mux in &self.mux_writers {
+                let mut guard = mux.lock();
+                match guard.poll_read_control_frames(cx) {
+                    std::task::Poll::Ready(Ok(frames)) => {
+                        if let Some((msg_type, payload)) = frames.into_iter().next() {
+                            if let Some(ControlMessage::BroadcastPlan(bytes)) =
+                                ControlMessage::try_from_frame(msg_type, &payload)
+                            {
+                                return std::task::Poll::Ready(bytes);
+                            } else {
+                                panic!(
+                                    "Received unexpected control message before BroadcastPlan: type {}",
+                                    msg_type
+                                );
+                            }
+                        }
+                    }
+                    std::task::Poll::Ready(Err(e)) => panic!("Error reading control frames: {}", e),
+                    std::task::Poll::Pending => {} // Continue checking other muxes
+                }
+            }
+            std::task::Poll::Pending
+        })
+        .await
     }
 }

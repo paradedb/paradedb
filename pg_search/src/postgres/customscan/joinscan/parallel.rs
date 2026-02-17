@@ -58,8 +58,7 @@ use crate::parallel_worker::{
 use crate::postgres::customscan::joinscan::exchange;
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
-    ControlMessage, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge,
-    TransportLayout,
+    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
@@ -239,32 +238,7 @@ impl ParallelWorker for JoinWorker<'_> {
         };
 
         // Wait for the plan via the control channel.
-        let plan_slice = runtime.block_on(async {
-            futures::future::poll_fn(|cx| {
-                for mux in &transport.mux_writers {
-                    let mut guard = mux.lock();
-                    match guard.poll_read_control_frames(cx) {
-                        std::task::Poll::Ready(Ok(frames)) => {
-                            if let Some((msg_type, payload)) = frames.into_iter().next() {
-                                if let Some(ControlMessage::BroadcastPlan(bytes)) =
-                                    ControlMessage::try_from_frame(msg_type, &payload)
-                                {
-                                    return std::task::Poll::Ready(bytes);
-                                } else {
-                                    panic!(
-                                        "Received unexpected control message before BroadcastPlan: type {}",
-                                        msg_type
-                                    );
-                                }
-                            }
-                        }
-                        std::task::Poll::Ready(Err(e)) => panic!("Error reading control frames: {}", e),
-                        std::task::Poll::Pending => {} // Continue checking other muxes
-                    }
-                }
-                std::task::Poll::Pending
-            }).await
-        });
+        let plan_slice = runtime.block_on(transport.wait_for_broadcast_plan());
 
         // Register the DSM mesh for this worker process.
         let mesh = exchange::DsmMesh {

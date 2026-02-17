@@ -178,7 +178,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }} gdb procps
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install Rust Cache
@@ -226,62 +226,6 @@ jobs:
       - name: Install pg_search
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-
-      # Benchmark "logs" dataset at multiple scales (10K, 100K, 1M, 10M, 100M)
-      - name: Benchmark "logs" Dataset (10K rows)
-        uses: ./.github/actions/benchmark-queries
-        with:
-          dataset: logs
-          rows: 10000
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark "logs" Dataset (100K rows)
-        uses: ./.github/actions/benchmark-queries
-        with:
-          dataset: logs
-          rows: 100000
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark "logs" Dataset (1M rows)
-        uses: ./.github/actions/benchmark-queries
-        with:
-          dataset: logs
-          rows: 1000000
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark "logs" Dataset (10M rows)
-        uses: ./.github/actions/benchmark-queries
-        with:
-          dataset: logs
-          rows: 10000000
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark "logs" Dataset (100M rows)
-        uses: ./.github/actions/benchmark-queries
-        with:
-          dataset: logs
-          rows: 100000000
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "docs" Dataset (25M rows)
         uses: ./.github/actions/benchmark-queries

@@ -842,6 +842,7 @@ impl CustomScan for JoinScan {
                     create_session_context(0, total_participants, state.custom_state().max_memory);
 
                 if nworkers > 0 {
+                    pgrx::warning!("JoinScan: Entering parallel mode with {} workers", nworkers);
                     let leader_logical_plan = logical_plan_from_bytes_with_extension_codec(
                         &plan_bytes,
                         &ctx.task_ctx(),
@@ -854,6 +855,7 @@ impl CustomScan for JoinScan {
                         .block_on(build_joinscan_physical_plan(&ctx, leader_logical_plan))
                         .expect("Failed to create execution plan");
 
+                    pgrx::warning!("JoinScan: Launching join workers");
                     if let Some((
                         process,
                         Some(plan),
@@ -868,6 +870,7 @@ impl CustomScan for JoinScan {
                         state.custom_state().max_memory,
                         pg_sys::parallel_leader_participation,
                     ) {
+                        pgrx::warning!("JoinScan: Workers launched, registering DSM mesh");
                         // Register the DSM mesh for the leader process.
                         let transport = TransportMesh {
                             mux_writers,
@@ -901,8 +904,10 @@ impl CustomScan for JoinScan {
                         let task_ctx = ctx.task_ctx();
 
                         // Start the control service to listen for stream requests
+                        pgrx::warning!("JoinScan: Spawning control service");
                         exchange::spawn_control_service(&local_set, task_ctx.clone());
 
+                        pgrx::warning!("JoinScan: Executing plan on leader");
                         let (stream, ctid_col_mapping) =
                             runtime.block_on(local_set.run_until(async {
                                 let stream = plan
@@ -921,6 +926,7 @@ impl CustomScan for JoinScan {
                                 }
                                 (stream, mapping)
                             }));
+                        pgrx::warning!("JoinScan: Plan executed, stream ready");
 
                         for (rti, i) in ctid_col_mapping {
                             if let Some(rel_state) =
@@ -993,7 +999,10 @@ impl CustomScan for JoinScan {
                         .as_mut()
                         .unwrap()
                         .block_on(local_set.run_until(async {
-                            custom_state.unified_stream.as_mut().unwrap().next().await
+                            pgrx::warning!("JoinScan: Waiting for next batch from unified stream");
+                            let res = custom_state.unified_stream.as_mut().unwrap().next().await;
+                            pgrx::warning!("JoinScan: Received batch from unified stream");
+                            res
                         }))
                 };
 
@@ -1011,9 +1020,12 @@ impl CustomScan for JoinScan {
         }
     }
 
-    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {
+        pgrx::warning!("JoinScan: shutdown_custom_scan called");
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        pgrx::warning!("JoinScan: end_custom_scan called");
         unsafe {
             // Drop tuple slots that we own.
             for rel_state in state.custom_state().relations.values() {
@@ -1028,11 +1040,16 @@ impl CustomScan for JoinScan {
         // This ensures that `DsmStream`s (which send cancellation signals on Drop)
         // are dropped while the parallel process infrastructure (DSM, SignalBridge)
         // is still valid and operational.
+        pgrx::warning!("JoinScan: Dropping unified_stream");
         state.custom_state_mut().unified_stream = None;
+        pgrx::warning!("JoinScan: Dropping local_set");
         state.custom_state_mut().local_set = None;
+        pgrx::warning!("JoinScan: Dropping runtime");
         state.custom_state_mut().runtime = None;
 
+        pgrx::warning!("JoinScan: Dropping parallel_process");
         state.custom_state_mut().parallel_process = None;
+        pgrx::warning!("JoinScan: end_custom_scan finished");
     }
 }
 

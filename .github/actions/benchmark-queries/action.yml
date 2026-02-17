@@ -27,6 +27,24 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Start Postgres Stacktrace Dumper
+      shell: bash
+      run: |
+        (
+          while true; do
+            sleep 180
+            echo "[$(date)] Dumping postgres stack traces..." >&2
+            for pid in $(pgrep -x postgres); do
+              echo "Stack trace for PID $pid:" >&2
+              if command -v gdb &> /dev/null; then
+                sudo gdb -batch -ex "thread apply all bt" -p "$pid" 2>&1 | sed 's/^/  /' >&2 || echo "Failed to dump stack for $pid" >&2
+              else
+                echo "gdb is not installed." >&2
+              fi
+            done
+          done
+        ) &
+
     - name: Run Benchmarks
       working-directory: benchmarks/
       shell: bash

@@ -233,12 +233,14 @@ impl ParallelWorker for JoinWorker<'_> {
         _mq_sender: &MessageQueueSender,
         worker_number: ParallelWorkerNumber,
     ) -> anyhow::Result<()> {
+        pgrx::warning!("JoinWorker: Started worker number {:?}", worker_number);
         // Wait for all workers to launch to ensure deterministic behavior.
         while self.state.launched_workers() == 0 {
             pgrx::check_for_interrupts!();
             std::thread::yield_now();
         }
         let total_participants = self.state.launched_workers();
+        pgrx::warning!("JoinWorker: All {} workers launched", total_participants);
 
         let participant_index =
             worker_number.to_participant_index(self.config.leader_participation);
@@ -250,6 +252,7 @@ impl ParallelWorker for JoinWorker<'_> {
             .unwrap();
 
         let session_id = uuid::Uuid::from_bytes(self.config.session_id);
+        pgrx::warning!("JoinWorker: Initializing SignalBridge");
         let bridge = runtime
             .block_on(SignalBridge::new(participant_id, session_id))
             .expect("Failed to initialize SignalBridge");
@@ -259,10 +262,12 @@ impl ParallelWorker for JoinWorker<'_> {
         self.state.inc_sockets_ready();
 
         // Wait for all participants to create their sockets
+        pgrx::warning!("JoinWorker: Waiting for sockets to be ready");
         while self.state.sockets_ready() < total_participants {
             pgrx::check_for_interrupts!();
             std::thread::yield_now();
         }
+        pgrx::warning!("JoinWorker: Sockets ready");
 
         let layout = TransportLayout::new(self.config.ring_buffer_size, self.config.control_size);
         let transport = unsafe {
@@ -276,6 +281,7 @@ impl ParallelWorker for JoinWorker<'_> {
         };
 
         // Register the DSM mesh for this worker process.
+        pgrx::warning!("JoinWorker: Registering DSM mesh");
         let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
             transport,
             registry: Mutex::new(
@@ -304,6 +310,7 @@ impl ParallelWorker for JoinWorker<'_> {
         // 1. Deserializing the plan populated the local StreamRegistry via the physical codec.
         // 2. Start the "Listener" (Control Service) to accept incoming RPC calls (StartStream).
         // 3. Park the main thread and wait for session termination.
+        pgrx::warning!("JoinWorker: Entering worker loop");
         runtime.block_on(async {
             let local = tokio::task::LocalSet::new();
 
@@ -332,6 +339,7 @@ impl ParallelWorker for JoinWorker<'_> {
                 .await
         });
 
+        pgrx::warning!("JoinWorker: Clearing DSM mesh");
         crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
 
         Ok(())
@@ -363,6 +371,7 @@ pub fn launch_join_workers(
     max_memory: usize,
     leader_participation: bool,
 ) -> Option<LaunchedJoinWorkers> {
+    pgrx::warning!("launch_join_workers: starting with {} workers", nworkers);
     if nworkers == 0 {
         return None;
     }
@@ -435,6 +444,7 @@ pub fn launch_join_workers(
         nworkers,
         16384
     ) {
+        pgrx::warning!("launch_join_workers: Parallel process launched");
         let nlaunched = launched.launched_workers() + if leader_participation { 1 } else { 0 };
 
         // Signal readiness and wait for workers
@@ -445,11 +455,13 @@ pub fn launch_join_workers(
             shared_state.set_launched_workers(nlaunched);
             shared_state.inc_sockets_ready();
 
+            pgrx::warning!("launch_join_workers: Waiting for workers to be ready");
             while shared_state.sockets_ready() < total_participants {
                 pgrx::check_for_interrupts!();
                 std::thread::yield_now();
             }
         }
+        pgrx::warning!("launch_join_workers: Workers ready");
 
         let leader_participant_index = 0;
 
@@ -462,6 +474,7 @@ pub fn launch_join_workers(
 
         let base_ptr = ring_buffer_slice.as_ptr() as *mut u8;
 
+        pgrx::warning!("launch_join_workers: Initializing transport mesh");
         let transport = unsafe {
             TransportMesh::init(
                 base_ptr,
@@ -484,6 +497,7 @@ pub fn launch_join_workers(
             bridge,
         ))
     } else {
+        pgrx::warning!("launch_join_workers: Failed to launch parallel process");
         None
     }
 }

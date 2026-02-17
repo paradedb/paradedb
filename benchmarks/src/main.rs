@@ -20,7 +20,7 @@ use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -636,15 +636,33 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     let mut num_results = 0;
 
     for i in 0..times {
-        let output = base_psql_command(url)
+        let mut child = base_psql_command(url)
             .arg("-c")
             .arg("\\timing")
             .arg("-c")
             .arg(query)
-            .output()
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
             .expect("Failed to execute query");
 
-        let output_str = String::from_utf8_lossy(&output.stdout);
+        let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let reader = std::io::BufReader::new(stdout);
+        let mut output_str = String::new();
+
+        for line in reader.lines() {
+            let line = line.expect("Failed to read line");
+            eprintln!("{}", line);
+            output_str.push_str(&line);
+            output_str.push('\n');
+        }
+
+        let status = child.wait().expect("Failed to wait on child");
+
+        if !status.success() {
+            panic!("psql command failed: {}", status);
+        }
+
         let duration = output_str
             .lines()
             .find(|line| line.contains("Time"))

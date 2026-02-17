@@ -104,19 +104,40 @@ impl TerminatingWrite for SegmentComponentWriter {
 struct InnerSegmentComponentWriter {
     header_blockno: pg_sys::BlockNumber,
     total_bytes: Arc<AtomicUsize>,
-    buffer: Option<BufWriter<LinkedBytesListWriter>>,
+    buffer: Option<PanicSafeBufWriter<LinkedBytesListWriter>>,
 }
 
-// We are intentionally not using impl_safe_drop! here because we want to leak the writer
-// to avoid double panics. Without this, Postgres can error when trying to read a buffer,
-// which gets translated to a Rust panic, and then dropping the writer can trigger a second panic.
-impl Drop for InnerSegmentComponentWriter {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Some(buffer) = self.buffer.take() {
-                std::mem::forget(buffer);
-            }
+/// Wrapper around [`BufWriter`] that skips flush-on-drop while unwinding.
+///
+/// During unwind (e.g. PostgreSQL ERROR translated to Rust panic), dropping `BufWriter`
+/// may flush buffered bytes and re-enter PostgreSQL buffer APIs, causing a second panic
+/// in cleanup. We avoid that by leaking the wrapped `BufWriter` only on panic.
+struct PanicSafeBufWriter<W: Write> {
+    inner: Option<BufWriter<W>>,
+}
+
+impl<W: Write> PanicSafeBufWriter<W> {
+    fn new(writer: W) -> Self {
+        Self {
+            inner: Some(BufWriter::new(writer)),
         }
+    }
+
+    fn into_inner(mut self) -> Result<W> {
+        Ok(self.inner.take().unwrap().into_inner()?)
+    }
+}
+
+impl<W: Write> Write for PanicSafeBufWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.inner.as_mut().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        if std::thread::panicking() {
+            return Ok(());
+        }
+        self.inner.as_mut().unwrap().flush()
     }
 }
 
@@ -127,7 +148,7 @@ impl InnerSegmentComponentWriter {
         Self {
             header_blockno: segment_component.header_blockno,
             total_bytes: Default::default(),
-            buffer: Some(BufWriter::new(segment_component.writer())),
+            buffer: Some(PanicSafeBufWriter::new(segment_component.writer())),
         }
     }
 

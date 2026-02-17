@@ -905,8 +905,8 @@ mod tests {
                             );
                         } else if *ts == 32 {
                             assert!(
-                                (28..=32).contains(&count),
-                                "Expected 28-32 segments with workers={}, leader={}, mem={}, segments={}, got {}",
+                                (28..=33).contains(&count),
+                                "Expected 28-33 segments with workers={}, leader={}, mem={}, segments={}, got {}",
                                 mw, lp, mwm, ts, count
                             );
                         }

@@ -175,13 +175,6 @@ impl PgSearchScanPlan {
     /// This is used by `StripOrderingExec` to propagate TopK dynamic filters
     /// through `SortMergeJoinExec`, which does not implement filter pushdown.
     pub(crate) fn set_dynamic_filters(&self, filters: Vec<Arc<dyn PhysicalExpr>>) {
-        for f in &filters {
-            pgrx::warning!(
-                "set_dynamic_filters: ptr={:p}, query={}",
-                Arc::as_ptr(f),
-                self.query_for_display.explain_format()
-            );
-        }
         let mut df = self
             .dynamic_filters
             .write()
@@ -339,13 +332,6 @@ impl ExecutionPlan for PgSearchScanPlan {
             ))
         })?;
         let has_dynamic_filters = !dynamic_filters.is_empty();
-        for f in dynamic_filters.iter() {
-            pgrx::warning!(
-                "execute: dynamic_filter ptr={:p}, query={}",
-                Arc::as_ptr(f),
-                self.query_for_display.explain_format()
-            );
-        }
 
         // When dynamic filters are present (e.g. TopK threshold), reduce the
         // batch size so that the filter can tighten between batches. Without
@@ -412,13 +398,6 @@ impl ExecutionPlan for PgSearchScanPlan {
         }
 
         if !new_dynamic_filters.is_empty() {
-            for f in &new_dynamic_filters {
-                pgrx::warning!(
-                    "handle_child_pushdown: ptr={:p}, query={}",
-                    Arc::as_ptr(f),
-                    self.query_for_display.explain_format()
-                );
-            }
             // Store the filters via interior mutability. By NOT returning an
             // `updated_node`, we prevent the FilterPushdown optimizer from
             // calling `with_new_children` on ancestor nodes. This is critical
@@ -468,21 +447,10 @@ impl ScanStream {
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    pgrx::warning!(
-                        "build_filters: ptr={:p}, expr={}, fields={:?}",
-                        Arc::as_ptr(df),
-                        current_expr,
-                        self.schema
-                            .fields()
-                            .iter()
-                            .map(|f| f.name().as_str())
-                            .collect::<Vec<_>>()
-                    );
                     collect_filters(&*current_expr, &self.schema, &mut filters);
                 }
             }
         }
-        pgrx::warning!("build_filters: produced {} pre-filters", filters.len());
         filters
     }
 }

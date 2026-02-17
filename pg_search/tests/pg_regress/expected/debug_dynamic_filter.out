@@ -1,0 +1,70 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan TO OFF;
+SET paradedb.enable_join_custom_scan = on;
+DROP TABLE IF EXISTS df_t1 CASCADE;
+DROP TABLE IF EXISTS df_t2 CASCADE;
+CREATE TABLE df_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE df_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+INSERT INTO df_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
+INSERT INTO df_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
+CREATE INDEX df_t1_idx ON df_t1 USING bm25 (id, val)
+WITH (key_field = 'id', sort_by = 'id ASC NULLS FIRST', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX df_t2_idx ON df_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', sort_by = 't1_id ASC NULLS FIRST', numeric_fields = '{"t1_id": {"fast": true}}');
+ANALYZE df_t1;
+ANALYZE df_t2;
+-- EXPLAIN ANALYZE to see the final TopK filter after execution
+EXPLAIN (ANALYZE, COSTS OFF, VERBOSE, TIMING OFF)
+SELECT t1.val, t2.val
+FROM df_t1 t1
+JOIN df_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC NULLS FIRST
+LIMIT 10;
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   Output: t1.val, t2.val, t1.id
+   Buffers: shared hit=2054
+   ->  Sort (actual rows=10.00 loops=1)
+         Output: t1.val, t2.val, t1.id
+         Sort Key: t1.id NULLS FIRST
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=2054
+         ->  Result (actual rows=10.00 loops=1)
+               Output: t1.val, t2.val, t1.id
+               Buffers: shared hit=2054
+               ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+                     Output: t1.val, t1.id, t2.val
+                     Join Type: Inner
+                     Relation 0: df_t2 (t2)
+                     Relation 1: df_t1 (t1)
+                     Join Cond: t1.id = t2.t1_id
+                     Limit: 10
+                     Order By: t1.id asc nulls first, t2.t1_id asc nulls first
+                     DataFusion Physical Plan: 
+                       : ProjectionExec: expr=[NULL as col_1, id@3 as col_2, NULL as col_3, ctid_2@0 as ctid_2, ctid_1@2 as ctid_1], metrics=[output_rows=10, elapsed_compute=13.79µs, output_bytes=240.0 B, output_batches=1, expr_0_eval_time=11.58µs, expr_1_eval_time=166ns, expr_2_eval_time=167ns, expr_3_eval_time=42ns, expr_4_eval_time=84ns]
+                       :   SortExec: TopK(fetch=10), expr=[t1_id@1 ASC], preserve_partitioning=[false], filter=[t1_id@1 IS NULL OR t1_id@1 < 10], metrics=[output_rows=10, elapsed_compute=448.38µs, output_bytes=320.0 B, output_batches=1, row_replacements=10]
+                       :     StripOrderingExec
+                       :       SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=256, elapsed_compute=1ns, output_bytes=8.0 KB, output_batches=1, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=5, input_rows=1.26 K, peak_mem_used=17.01 K, join_time=2.02ms]
+                       :         ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=256, elapsed_compute=15.08µs, output_bytes=4.0 KB, output_batches=4, expr_0_eval_time=1.21µs, expr_1_eval_time=335ns]
+                       :           CooperativeExec
+                       :             PgSearchScan: segments=1, dynamic_filters=1, query="all", metrics=[rows_pruned=744, rows_scanned=744]
+                       :         ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id], metrics=[output_rows=1.00 K, elapsed_compute=4.17µs, output_bytes=15.6 KB, output_batches=4, expr_0_eval_time=541ns, expr_1_eval_time=332ns]
+                       :           CooperativeExec
+                       :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=0]
+                     Buffers: shared hit=2054
+ Planning:
+   Buffers: shared hit=686
+ Planning Time: 14.571 ms
+ Execution Time: 9.418 ms
+(35 rows)
+
+DROP TABLE df_t1 CASCADE;
+DROP TABLE df_t2 CASCADE;

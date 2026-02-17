@@ -332,6 +332,8 @@ impl ParallelWorker for JoinWorker<'_> {
                 .await
         });
 
+        crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+
         Ok(())
     }
 }

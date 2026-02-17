@@ -96,4 +96,13 @@ impl TransportMesh {
             bridge,
         }
     }
+
+    /// Detaches all underlying readers, preventing further access to shared memory.
+    /// This is a safety mechanism to prevent use-after-free when DSM is unmapped
+    /// but Arrow buffers (holding leases) are still alive.
+    pub fn detach(&self) {
+        for reader in &self.mux_readers {
+            reader.lock().detach();
+        }
+    }
 }

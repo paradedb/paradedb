@@ -283,19 +283,43 @@ impl DsmStream {
             .await;
 
             match chunk {
-                Ok(Some(vec)) => {
-                    self.accumulated.extend_from_slice(&vec);
-                    // Loop to try decoding again
+                Ok(Some(mut buffer)) => {
+                    // Optimized Path: If accumulated is empty, decode directly from the zero-copy buffer
+                    if self.accumulated.is_empty() {
+                        match self.decoder.decode(&mut buffer) {
+                            Ok(Some(batch)) => {
+                                // If there are remaining bytes (e.g. next message partial), stash them
+                                if !buffer.is_empty() {
+                                    self.accumulated.extend_from_slice(buffer.as_slice());
+                                }
+                                return Ok(Some(batch));
+                            }
+                            Ok(None) => {
+                                // Consumed some or none?
+                                // If consumed everything (unlikely for None), buffer is empty.
+                                // If partial, stash remaining.
+                                // If we consumed some bytes (e.g. Schema), we might need to loop again?
+                                // Decoder updates `buffer` slice to point to remaining data.
+                                // We stash remaining data.
+                                self.accumulated.extend_from_slice(buffer.as_slice());
+                                continue;
+                            }
+                            Err(e) => {
+                                return Err(datafusion::common::DataFusionError::Internal(
+                                    format!("StreamDecoder error: {e}"),
+                                ));
+                            }
+                        }
+                    } else {
+                        // Slow Path: Append to existing accumulator
+                        self.accumulated.extend_from_slice(buffer.as_slice());
+                    }
                 }
                 Ok(None) => {
                     // EOS
                     if let Err(e) = self.decoder.finish() {
                         if self.accumulated.is_empty() {
-                            pgrx::warning!(
-                                "StreamDecoder finish error for S{} (ignored as buffer empty): {}",
-                                self.stream_id.0,
-                                e
-                            );
+                            // Ignored as harmless if buffer empty
                         } else {
                             return Err(datafusion::common::DataFusionError::Internal(format!(
                                 "StreamDecoder finish error for S{}: {}",

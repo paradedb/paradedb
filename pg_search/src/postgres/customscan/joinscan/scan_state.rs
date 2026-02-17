@@ -132,6 +132,12 @@ impl JoinScanState {
     }
 }
 
+impl Drop for JoinScanState {
+    fn drop(&mut self) {
+        crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+    }
+}
+
 impl CustomScanState for JoinScanState {
     fn init_exec_method(&mut self, _cstate: *mut pg_sys::CustomScanState) {
         // No special initialization needed for the plain exec method

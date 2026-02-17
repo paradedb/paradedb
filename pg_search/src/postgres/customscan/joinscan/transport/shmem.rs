@@ -28,12 +28,13 @@
 //!    with higher-level protocols (like Arrow IPC).
 
 use crate::api::{HashMap, HashSet};
-use arrow_buffer::alloc::Allocation;
+use arrow_buffer::Buffer;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::panic::RefUnwindSafe;
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::Waker;
@@ -853,6 +854,7 @@ impl MultiplexedDsmWriter {
 }
 
 /// An adapter for a specific logical stream in a multiplexed DSM writer.
+#[cfg(any(test, feature = "pg_test"))]
 pub struct DsmStreamWriterAdapter {
     multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
     pub stream_id: PhysicalStreamId,
@@ -927,6 +929,14 @@ impl DsmReadAdapter {
 
     fn write_pos(&self) -> u64 {
         unsafe { (*self.header).write_pos.load(Ordering::Acquire) }
+    }
+
+    fn data_ptr(&self) -> *mut u8 {
+        self.data
+    }
+
+    fn capacity(&self) -> usize {
+        self.data_len
     }
 
     fn copy_at(&self, offset: u64, buf: &mut [u8]) {
@@ -1021,6 +1031,7 @@ struct DsmReclaimer {
     pending_frees: BinaryHeap<Reverse<(u64, u64)>>, // (start, len)
     bridge: Arc<SignalBridge>,
     remote_id: ParticipantId,
+    detached: bool,
 }
 
 unsafe impl Send for DsmReclaimer {}
@@ -1040,10 +1051,19 @@ impl DsmReclaimer {
             pending_frees: BinaryHeap::new(),
             bridge,
             remote_id,
+            detached: false,
         }
     }
 
+    fn detach(&mut self) {
+        self.detached = true;
+    }
+
     fn mark_freed(&mut self, offset: u64, len: u64) {
+        if self.detached {
+            return;
+        }
+
         self.pending_frees.push(Reverse((offset, len)));
 
         // Process contiguous frees
@@ -1084,7 +1104,7 @@ impl Drop for ShmLease {
 
 #[derive(Default)]
 struct StreamState {
-    queue: VecDeque<Vec<u8>>,
+    queue: VecDeque<Buffer>,
 }
 
 /// A demultiplexer for reading multiple logical streams from a single DSM ring buffer.
@@ -1188,6 +1208,12 @@ impl MultiplexedDsmReader {
         }
     }
 
+    /// Marks the transport as detached, preventing further access to shared memory metadata.
+    /// This should be called before the underlying DSM segment is unmapped.
+    pub fn detach(&self) {
+        self.reclaimer.lock().detach();
+    }
+
     /// Reads from the physical DSM buffer and dispatches messages to stream-specific
     /// buffers until a message for the requested `stream_id` is found.
     ///
@@ -1197,7 +1223,7 @@ impl MultiplexedDsmReader {
     pub(super) fn read_for_stream(
         &mut self,
         stream_id: PhysicalStreamId,
-    ) -> std::io::Result<Option<Vec<u8>>> {
+    ) -> std::io::Result<Option<Buffer>> {
         let state = self.streams.entry(stream_id).or_default();
         if let Some(payload) = state.queue.pop_front() {
             if payload.is_empty() {
@@ -1251,12 +1277,56 @@ impl MultiplexedDsmReader {
                 let padding = (8 - (msg_len % 8)) % 8;
                 let total_len = (msg_len + padding) as usize;
 
-                self.partial_payload = Some((
-                    msg_stream_id,
-                    Vec::with_capacity(total_len),
-                    msg_len as usize,
-                ));
+                // Header consumed, clear it
                 self.partial_header.clear();
+
+                // ZERO-COPY OPPORTUNITY
+                // Check if contiguous and fully available
+                let cap = self.adapter.capacity();
+                let offset = (self.local_read_pos % cap as u64) as usize;
+                let contiguous = cap - offset;
+
+                // Refresh available because we consumed header
+                let write_pos = self.adapter.write_pos();
+                let available = write_pos.wrapping_sub(self.local_read_pos) as usize;
+
+                if total_len <= contiguous && total_len <= available {
+                    // ZERO-COPY PATH
+                    let lease = Arc::new(ShmLease {
+                        offset: self.local_read_pos,
+                        len: total_len as u64,
+                        reclaimer: self.reclaimer.clone(),
+                    });
+
+                    let ptr = unsafe { self.adapter.data_ptr().add(offset) };
+                    let ptr = NonNull::new(ptr).unwrap();
+
+                    // Create Buffer from custom allocation
+                    let buffer =
+                        unsafe { Buffer::from_custom_allocation(ptr, msg_len as usize, lease) };
+
+                    self.local_read_pos += total_len as u64;
+
+                    if msg_stream_id == stream_id {
+                        if buffer.is_empty() {
+                            return Ok(None);
+                        }
+                        return Ok(Some(buffer));
+                    } else {
+                        self.streams
+                            .entry(msg_stream_id)
+                            .or_default()
+                            .queue
+                            .push_back(buffer);
+                        continue;
+                    }
+                } else {
+                    self.partial_payload = Some((
+                        msg_stream_id,
+                        Vec::with_capacity(total_len),
+                        msg_len as usize,
+                    ));
+                }
             }
 
             // Read payload
@@ -1300,18 +1370,15 @@ impl MultiplexedDsmReader {
 
                 // Truncate padding to restore original logical message
                 completed_payload.truncate(logical_len);
+                let buffer = Buffer::from(completed_payload);
 
                 if id == stream_id {
-                    if completed_payload.is_empty() {
+                    if buffer.is_empty() {
                         return Ok(None); // EOS
                     }
-                    return Ok(Some(completed_payload));
+                    return Ok(Some(buffer));
                 } else {
-                    self.streams
-                        .entry(id)
-                        .or_default()
-                        .queue
-                        .push_back(completed_payload);
+                    self.streams.entry(id).or_default().queue.push_back(buffer);
                 }
             }
         }
@@ -1351,7 +1418,7 @@ impl MultiplexedDsmReader {
         &mut self,
         stream_id: PhysicalStreamId,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<Option<Vec<u8>>>> {
+    ) -> std::task::Poll<std::io::Result<Option<Buffer>>> {
         // Register waker FIRST to avoid race condition where data arrives
         // between read attempt and registration.
         self.bridge
@@ -1442,7 +1509,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, payload);
+        assert_eq!(msg.as_slice(), payload);
     }
 
     #[pgrx::pg_test]
@@ -1478,7 +1545,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, b"Stream1-A");
+        assert_eq!(msg.as_slice(), b"Stream1-A");
 
         // Read Stream 2
         let msg = reader_mux
@@ -1486,7 +1553,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(2))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, b"Stream2-A");
+        assert_eq!(msg.as_slice(), b"Stream2-A");
 
         // Read Stream 1 again
         let msg = reader_mux
@@ -1494,7 +1561,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, b"Stream1-B");
+        assert_eq!(msg.as_slice(), b"Stream1-B");
     }
 
     #[pgrx::pg_test]
@@ -1532,6 +1599,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(msg.len(), 10);
+        drop(msg); // Free space
 
         // Now write enough to wrap around
         // Buffer size 32.
@@ -1551,7 +1619,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, msg2);
+        assert_eq!(msg.as_slice(), msg2);
     }
 
     #[pgrx::pg_test]
@@ -1595,6 +1663,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!msg.is_empty());
+        drop(msg); // Drop lease to free space!
 
         // Now flush should succeed (retry the write logic effectively)
         // Note: DsmStreamWriterAdapter buffers internally.
@@ -1606,7 +1675,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, msg2);
+        assert_eq!(msg.as_slice(), msg2);
     }
 
     #[pgrx::pg_test]
@@ -1663,7 +1732,7 @@ mod tests {
             .read_for_stream(PhysicalStreamId(1))
             .unwrap()
             .unwrap();
-        assert_eq!(msg, b"data");
+        assert_eq!(msg.as_slice(), b"data");
 
         // Next read should see EOF (None) because finished is set
         let msg = reader_mux

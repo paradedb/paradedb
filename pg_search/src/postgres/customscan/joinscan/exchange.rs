@@ -151,6 +151,17 @@ pub fn register_dsm_mesh(mesh: DsmMesh) {
     *guard = Some(mesh);
 }
 
+pub fn clear_dsm_mesh() {
+    let mut guard = DSM_MESH.lock();
+    *guard = None;
+}
+
+impl Drop for DsmMesh {
+    fn drop(&mut self) {
+        self.transport.detach();
+    }
+}
+
 pub fn register_stream_source(source: StreamSource, participant_id: ParticipantId) {
     let mut guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_mut() {

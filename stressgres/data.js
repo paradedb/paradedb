@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771362185781,
+  "lastUpdate": 1771362270020,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5490,6 +5490,54 @@ window.BENCHMARK_DATA = {
             "value": 5.486503921117421,
             "unit": "median tps",
             "extra": "avg tps: 5.495287855399114, max tps: 6.689867338442183, count: 56704"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8208003e39fa852eb620d7d2165c65377749a882",
+          "message": "fix: unit test flake (#4187)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSometimes our `parallel_build_large` test creates 1 extra segment and\nthat's fine\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:40-05:00",
+          "tree_id": "c8571230dc18809896363e68b9c93e2af143f079",
+          "url": "https://github.com/paradedb/paradedb/commit/8208003e39fa852eb620d7d2165c65377749a882"
+        },
+        "date": 1771362266105,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1105.7585677368081,
+            "unit": "median tps",
+            "extra": "avg tps: 1108.5728536570302, max tps: 1141.896829239457, count: 56488"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1230.85912369448,
+            "unit": "median tps",
+            "extra": "avg tps: 1231.895913371293, max tps: 1246.5827639411887, count: 56488"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1847.8790517742905,
+            "unit": "median tps",
+            "extra": "avg tps: 1823.9500203025661, max tps: 1985.7441968540732, count: 56488"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.177056743663724,
+            "unit": "median tps",
+            "extra": "avg tps: 5.215802941322133, max tps: 8.035087814309636, count: 56488"
           }
         ]
       }

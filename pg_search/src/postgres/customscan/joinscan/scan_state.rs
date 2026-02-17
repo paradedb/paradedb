@@ -144,6 +144,22 @@ impl CustomScanState for JoinScanState {
     }
 }
 
+/// Compute the total number of participants (workers + leader if applicable).
+///
+/// Handles the serial case (planned_workers == 0) by returning 1.
+pub fn compute_total_participants(planned_workers: usize) -> usize {
+    if planned_workers == 0 {
+        1
+    } else {
+        planned_workers
+            + if unsafe { pg_sys::parallel_leader_participation } {
+                1
+            } else {
+                0
+            }
+    }
+}
+
 /// Creates a DataFusion SessionContext with specified parallelization and memory limit.
 pub fn create_session_context(
     participant_index: usize,
@@ -214,12 +230,7 @@ pub async fn build_joinscan_logical_plan(
     custom_exprs: *mut pg_sys::List,
 ) -> Result<datafusion::logical_expr::LogicalPlan> {
     let nworkers = join_clause.planned_workers;
-    let total_participants = nworkers
-        + if unsafe { pg_sys::parallel_leader_participation } {
-            1
-        } else {
-            0
-        };
+    let total_participants = compute_total_participants(nworkers);
     let ctx = create_session_context(0, total_participants, 1024 * 1024 * 1024); // 1GB default for planning
     let df = build_clause_df(&ctx, join_clause, private_data, custom_exprs).await?;
     df.into_optimized_plan()

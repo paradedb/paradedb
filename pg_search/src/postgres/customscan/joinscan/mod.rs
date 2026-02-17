@@ -434,15 +434,7 @@ impl CustomScan for JoinScan {
 
             if nworkers > 0 {
                 // Adjust result rows per worker for better costing
-                let processes = std::cmp::max(
-                    1,
-                    nworkers
-                        + if pg_sys::parallel_leader_participation {
-                            1
-                        } else {
-                            0
-                        },
-                );
+                let processes = std::cmp::max(1, scan_state::compute_total_participants(nworkers));
                 result_rows /= processes as f64;
             }
 
@@ -740,12 +732,7 @@ impl CustomScan for JoinScan {
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
             let nworkers = join_clause.planned_workers;
-            let total_participants = nworkers
-                + if unsafe { pg_sys::parallel_leader_participation } {
-                    1
-                } else {
-                    0
-                };
+            let total_participants = scan_state::compute_total_participants(nworkers);
             let max_mem = if state.custom_state().max_memory > 0 {
                 state.custom_state().max_memory
             } else {
@@ -832,12 +819,7 @@ impl CustomScan for JoinScan {
                     .expect("Logical plan is required");
 
                 let nworkers = join_clause.planned_workers;
-                let total_participants = nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    };
+                let total_participants = scan_state::compute_total_participants(nworkers);
                 let ctx =
                     create_session_context(0, total_participants, state.custom_state().max_memory);
 

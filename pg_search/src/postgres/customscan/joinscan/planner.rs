@@ -15,20 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::any::Any;
 use std::sync::Arc;
 
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::Result;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::equivalence::EquivalenceProperties;
-use datafusion::physical_expr::expressions::Column;
+use datafusion::physical_expr::expressions::{Column, DynamicFilterPhysicalExpr};
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
+};
 use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::limit::GlobalLimitExec;
 use datafusion::physical_plan::projection::ProjectionExec;
+use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, Partitioning,
+    PlanProperties,
+};
+
+use crate::scan::execution_plan::PgSearchScanPlan;
 
 /// A DataFusion physical optimizer rule that replaces `HashJoinExec` with `SortMergeJoinExec`
 /// when the inputs are already sorted by the join keys.
@@ -94,9 +107,24 @@ impl SortMergeJoinEnforcer {
             |plan: Arc<dyn ExecutionPlan>,
              keys: &[Arc<dyn PhysicalExpr>]|
              -> Option<(Arc<dyn ExecutionPlan>, Vec<arrow_schema::SortOptions>)> {
+                // Look through StripOrderingExec wrappers from recursive join
+                // conversion. The inner plan still has the real ordering; we just
+                // need to see past the wrapper so the outer join can be converted
+                // too. Returning `ordering_source` (without the wrapper) naturally
+                // drops the intermediate StripOrderingExec.
+                let ordering_source =
+                    if let Some(strip) = plan.as_any().downcast_ref::<StripOrderingExec>() {
+                        strip.input.clone()
+                    } else {
+                        plan.clone()
+                    };
+
                 // 1. Check if CoalescePartitions wrapping sorted partitions
                 // We check this first to "rescue" sortedness from Coalesce
-                if let Some(coalesce) = plan.as_any().downcast_ref::<CoalescePartitionsExec>() {
+                if let Some(coalesce) = ordering_source
+                    .as_any()
+                    .downcast_ref::<CoalescePartitionsExec>()
+                {
                     let child = coalesce.input().clone();
                     if let Some(opts) = check_ordering(child.equivalence_properties(), keys) {
                         // Replace Coalesce with SortPreservingMerge
@@ -116,12 +144,12 @@ impl SortMergeJoinEnforcer {
                 }
 
                 // 2. Check if plan itself is sorted
-                if let Some(opts) = check_ordering(plan.equivalence_properties(), keys) {
+                if let Some(opts) = check_ordering(ordering_source.equivalence_properties(), keys) {
                     // If plan is sorted but has multiple partitions, wrap in SortPreservingMerge
                     // to ensure we provide a single sorted stream to SortMergeJoin.
                     // This is necessary because HashJoin might have left one side partitioned
                     // (CollectLeft), leading to partition mismatch if we don't merge.
-                    if plan.output_partitioning().partition_count() > 1 {
+                    if ordering_source.output_partitioning().partition_count() > 1 {
                         let ordering_vec: Vec<PhysicalSortExpr> = keys
                             .iter()
                             .zip(&opts)
@@ -132,11 +160,11 @@ impl SortMergeJoinEnforcer {
                             .collect();
 
                         let ordering = LexOrdering::new(ordering_vec).expect("valid ordering");
-                        let spm = Arc::new(SortPreservingMergeExec::new(ordering, plan));
+                        let spm = Arc::new(SortPreservingMergeExec::new(ordering, ordering_source));
                         return Some((spm, opts));
                     }
 
-                    return Some((plan, opts));
+                    return Some((ordering_source, opts));
                 }
 
                 None
@@ -165,7 +193,7 @@ impl SortMergeJoinEnforcer {
                     // SortMergeJoinExec outputs all columns from both sides.
                     // If HashJoinExec has a projection, we must wrap the SortMergeJoinExec in a ProjectionExec
                     // to match the output schema expected by the parent node.
-                    if let Some(projection) = hash_join.projection.as_ref() {
+                    let exec = if let Some(projection) = hash_join.projection.as_ref() {
                         let schema = exec.schema();
                         let exprs: Vec<(Arc<dyn PhysicalExpr>, String)> = projection
                             .iter()
@@ -175,9 +203,10 @@ impl SortMergeJoinEnforcer {
                                 (col as Arc<dyn PhysicalExpr>, field.name().clone())
                             })
                             .collect();
-                        let proj = ProjectionExec::try_new(exprs, exec)?;
-                        return Ok(Some(Arc::new(proj)));
-                    }
+                        Arc::new(ProjectionExec::try_new(exprs, exec)?) as Arc<dyn ExecutionPlan>
+                    } else {
+                        exec
+                    };
 
                     return Ok(Some(exec));
                 }
@@ -194,15 +223,74 @@ impl PhysicalOptimizerRule for SortMergeJoinEnforcer {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        plan.transform_up(|plan| {
-            if let Some(hash_join) = plan.as_any().downcast_ref::<HashJoinExec>() {
-                if let Some(smj) = self.try_convert_to_smj(hash_join)? {
-                    return Ok(Transformed::yes(smj));
+        // Pass 1: Replace HashJoinExec with SortMergeJoinExec (preserving ordering).
+        // StripOrderingExec is NOT added here because multi-level joins (e.g. 3-table)
+        // need the inner SMJ ordering visible so the outer HashJoinExec can detect it
+        // and also be converted to SMJ.
+        let plan = plan
+            .transform_up(|plan| {
+                if let Some(hash_join) = plan.as_any().downcast_ref::<HashJoinExec>() {
+                    if let Some(smj) = self.try_convert_to_smj(hash_join)? {
+                        return Ok(Transformed::yes(smj));
+                    }
                 }
-            }
-            Ok(Transformed::no(plan))
-        })
-        .map(|t| t.data)
+                Ok(Transformed::no(plan))
+            })?
+            .data;
+
+        // Pass 2: Convert GlobalLimitExec above SortMergeJoinExec into
+        // SortExec(TopK) + StripOrderingExec. This ensures an active TopK
+        // operator exists that creates and updates a DynamicFilterPhysicalExpr,
+        // enabling pre-materialization pruning in PgSearchScan.
+        //
+        // Without this, the logical optimizer eliminates the Sort node (because
+        // PgSearchScanPlan declares ordering and the join output is already sorted),
+        // leaving only GlobalLimitExec which has no dynamic filter capability.
+        let plan = plan
+            .transform_down(|plan| {
+                if let Some(limit) = plan.as_any().downcast_ref::<GlobalLimitExec>() {
+                    if limit.skip() == 0 {
+                        if let Some(fetch) = limit.fetch() {
+                            let child = limit.input();
+                            if contains_sort_merge_join(child) {
+                                if let Some(ordering) =
+                                    child.equivalence_properties().output_ordering()
+                                {
+                                    // Extract column names from the ordering so
+                                    // StripOrderingExec can target the correct scans.
+                                    let sort_column_names: Vec<String> = ordering
+                                        .iter()
+                                        .filter_map(|sort_expr| {
+                                            sort_expr
+                                                .expr
+                                                .as_any()
+                                                .downcast_ref::<Column>()
+                                                .map(|c| c.name().to_string())
+                                        })
+                                        .collect();
+
+                                    // Wrap child in StripOrderingExec so SortExec
+                                    // uses its full TopK implementation (not the
+                                    // short-circuit LimitStream for sorted input).
+                                    let strip = Arc::new(StripOrderingExec::new(
+                                        Arc::clone(child),
+                                        sort_column_names,
+                                    ));
+                                    let sort = SortExec::new(ordering.clone(), strip)
+                                        .with_fetch(Some(fetch));
+                                    return Ok(Transformed::yes(
+                                        Arc::new(sort) as Arc<dyn ExecutionPlan>
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(Transformed::no(plan))
+            })?
+            .data;
+
+        Ok(plan)
     }
 
     fn name(&self) -> &str {
@@ -212,6 +300,16 @@ impl PhysicalOptimizerRule for SortMergeJoinEnforcer {
     fn schema_check(&self) -> bool {
         true
     }
+}
+
+/// Returns true if the plan tree rooted at `plan` contains a `SortMergeJoinExec`.
+fn contains_sort_merge_join(plan: &Arc<dyn ExecutionPlan>) -> bool {
+    if plan.as_any().downcast_ref::<SortMergeJoinExec>().is_some() {
+        return true;
+    }
+    plan.children()
+        .iter()
+        .any(|child| contains_sort_merge_join(child))
 }
 
 impl std::fmt::Debug for SortMergeJoinEnforcer {
@@ -265,4 +363,165 @@ fn check_ordering(
     }
 
     None
+}
+
+/// A thin wrapper around an `ExecutionPlan` that strips output ordering from
+/// its equivalence properties while passing through all execution unchanged.
+///
+/// When `SortMergeJoinExec` replaces `HashJoinExec`, the join output is already
+/// sorted by the join keys. If a parent `SortExec(TopK)` sees sorted input it
+/// short-circuits to a simple `LimitStream` and never updates its dynamic filter.
+/// By stripping the ordering, we force `SortExec` to use its full `TopK`
+/// implementation, which updates the `DynamicFilterPhysicalExpr` that was pushed
+/// to `PgSearchScan`. This enables pre-materialization pruning in Tantivy.
+#[derive(Debug)]
+struct StripOrderingExec {
+    input: Arc<dyn ExecutionPlan>,
+    properties: PlanProperties,
+    /// Column names from the parent SortExec's ordering expression.
+    /// Used to determine which PgSearchScanPlan nodes should receive
+    /// pushed-down dynamic filters — only scans whose declared sort
+    /// column matches one of these names are eligible. This prevents
+    /// false-positive column name matches (e.g. multiple tables having
+    /// a column named `id` where only one is the actual sort key).
+    sort_column_names: Vec<String>,
+}
+
+impl StripOrderingExec {
+    fn new(input: Arc<dyn ExecutionPlan>, sort_column_names: Vec<String>) -> Self {
+        let eq = EquivalenceProperties::new(input.schema());
+        let properties = PlanProperties::new(
+            eq,
+            Partitioning::UnknownPartitioning(input.output_partitioning().partition_count()),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+        Self {
+            input,
+            properties,
+            sort_column_names,
+        }
+    }
+}
+
+impl DisplayAs for StripOrderingExec {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "StripOrderingExec")
+    }
+}
+
+impl ExecutionPlan for StripOrderingExec {
+    fn name(&self) -> &str {
+        "StripOrderingExec"
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn properties(&self) -> &PlanProperties {
+        &self.properties
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
+        vec![&self.input]
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(StripOrderingExec::new(
+            children[0].clone(),
+            self.sort_column_names.clone(),
+        )))
+    }
+
+    fn execute(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        self.input.execute(partition, context)
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        if !matches!(phase, FilterPushdownPhase::Post) {
+            return Ok(FilterPushdownPropagation::if_all(child_pushdown_result));
+        }
+
+        // Accept DynamicFilterPhysicalExpr filters from parent (TopK) and
+        // inject them directly into PgSearchScanPlan nodes in our subtree.
+        // This bypasses SortMergeJoinExec which doesn't support filter pushdown.
+        let mut dynamic_filters = Vec::new();
+        let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
+
+        for filter_result in &child_pushdown_result.parent_filters {
+            if filter_result
+                .filter
+                .as_any()
+                .downcast_ref::<DynamicFilterPhysicalExpr>()
+                .is_some()
+            {
+                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                filters.push(PushedDown::Yes);
+            } else {
+                filters.push(filter_result.any());
+            }
+        }
+
+        if !dynamic_filters.is_empty() {
+            inject_dynamic_filters_into_scans(
+                &self.input,
+                &dynamic_filters,
+                &self.sort_column_names,
+            );
+            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters,
+            ))
+        } else {
+            Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
+        }
+    }
+}
+
+/// Walk the plan tree to find `PgSearchScanPlan` nodes and inject dynamic
+/// filters directly into them via interior mutability.
+///
+/// Only injects into scans whose declared output ordering column matches
+/// one of `sort_column_names`. This prevents false-positive column name
+/// matches (e.g. multiple tables having a column named `id` where only
+/// one is the actual sort key used by TopK).
+fn inject_dynamic_filters_into_scans(
+    plan: &Arc<dyn ExecutionPlan>,
+    filters: &[Arc<dyn PhysicalExpr>],
+    sort_column_names: &[String],
+) {
+    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+        // Check if the scan's output ordering column matches any sort column.
+        let scan_ordering = scan.properties().equivalence_properties().output_ordering();
+        let is_eligible = scan_ordering
+            .map(|ordering| {
+                ordering.iter().any(|sort_expr| {
+                    if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
+                        sort_column_names.iter().any(|name| col.name() == name)
+                    } else {
+                        false
+                    }
+                })
+            })
+            .unwrap_or(false);
+
+        if is_eligible {
+            scan.set_dynamic_filters(filters.to_vec());
+        }
+    }
+    for child in plan.children() {
+        inject_dynamic_filters_into_scans(child, filters, sort_column_names);
+    }
 }

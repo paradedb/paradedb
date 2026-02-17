@@ -148,6 +148,14 @@ impl Scanner {
         }
     }
 
+    /// Override the batch size, clamped to `MAX_BATCH_SIZE`.
+    ///
+    /// Used to reduce batch size when dynamic filters are present, allowing
+    /// the filter threshold to tighten between smaller batches.
+    pub fn set_batch_size(&mut self, size: usize) {
+        self.batch_size = size.min(MAX_BATCH_SIZE);
+    }
+
     /// Returns the Arrow schema for this scanner.
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {

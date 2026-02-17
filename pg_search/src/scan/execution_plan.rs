@@ -26,7 +26,7 @@
 
 use std::any::Any;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 
 use arrow_array::RecordBatch;
@@ -98,7 +98,13 @@ pub struct PgSearchScanPlan {
     /// from SortExec, join-key bounds from HashJoinExec). Each batch produced
     /// by the scanner is filtered against all of these expressions so that rows
     /// which cannot contribute to the final result are pruned early.
-    dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
+    ///
+    /// Uses interior mutability (`RwLock`) so that `handle_child_pushdown_result`
+    /// can accept new filters without returning an `updated_node`. This is critical
+    /// because returning an updated node causes DataFusion to rebuild parent nodes
+    /// via `with_new_children`, which in `SortExec`'s case creates a new
+    /// `DynamicFilterPhysicalExpr` disconnected from the one stored here.
+    dynamic_filters: Arc<RwLock<Vec<Arc<dyn PhysicalExpr>>>>,
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
 }
@@ -158,9 +164,29 @@ impl PgSearchScanPlan {
             partition_row_counts,
             properties,
             query_for_display,
-            dynamic_filters: Vec::new(),
+            dynamic_filters: Arc::new(RwLock::new(Vec::new())),
             metrics: ExecutionPlanMetricsSet::new(),
         }
+    }
+
+    /// Directly inject dynamic filters into this scan plan, bypassing the
+    /// standard `FilterPushdown` optimizer pass.
+    ///
+    /// This is used by `StripOrderingExec` to propagate TopK dynamic filters
+    /// through `SortMergeJoinExec`, which does not implement filter pushdown.
+    pub(crate) fn set_dynamic_filters(&self, filters: Vec<Arc<dyn PhysicalExpr>>) {
+        for f in &filters {
+            pgrx::warning!(
+                "set_dynamic_filters: ptr={:p}, query={}",
+                Arc::as_ptr(f),
+                self.query_for_display.explain_format()
+            );
+        }
+        let mut df = self
+            .dynamic_filters
+            .write()
+            .expect("dynamic_filters lock poisoned");
+        *df = filters;
     }
 }
 
@@ -207,9 +233,11 @@ impl DisplayAs for PgSearchScanPlan {
             "PgSearchScan: segments={}",
             self.states.lock().unwrap().len(),
         )?;
-        if !self.dynamic_filters.is_empty() {
-            write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        let df = self.dynamic_filters.read().unwrap();
+        if !df.is_empty() {
+            write!(f, ", dynamic_filters={}", df.len())?;
         }
+        drop(df);
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
 }
@@ -297,7 +325,7 @@ impl ExecutionPlan for PgSearchScanPlan {
             )));
         }
 
-        let UnsafeSendSync((scanner, ffhelper, visibility)) =
+        let UnsafeSendSync((mut scanner, ffhelper, visibility)) =
             states[partition].take().ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "Partition {} has already been executed",
@@ -305,7 +333,27 @@ impl ExecutionPlan for PgSearchScanPlan {
                 ))
             })?;
 
-        let has_dynamic_filters = !self.dynamic_filters.is_empty();
+        let dynamic_filters = self.dynamic_filters.read().map_err(|e| {
+            DataFusionError::Internal(format!(
+                "Failed to read PgSearchScanPlan dynamic_filters: {e}"
+            ))
+        })?;
+        let has_dynamic_filters = !dynamic_filters.is_empty();
+        for f in dynamic_filters.iter() {
+            pgrx::warning!(
+                "execute: dynamic_filter ptr={:p}, query={}",
+                Arc::as_ptr(f),
+                self.query_for_display.explain_format()
+            );
+        }
+
+        // When dynamic filters are present (e.g. TopK threshold), reduce the
+        // batch size so that the filter can tighten between batches. Without
+        // this, the scanner might produce all rows in a single batch before
+        // the TopK operator ever updates the threshold.
+        if has_dynamic_filters {
+            scanner.set_batch_size(256);
+        }
         let rows_scanned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_scanned", partition));
         let rows_pruned = has_dynamic_filters
@@ -319,11 +367,12 @@ impl ExecutionPlan for PgSearchScanPlan {
                 ffhelper,
                 visibility,
                 schema: self.properties.eq_properties.schema().clone(),
-                dynamic_filters: self.dynamic_filters.clone(),
+                dynamic_filters: dynamic_filters.clone(),
                 rows_scanned,
                 rows_pruned,
             })
         };
+        drop(dynamic_filters);
         Ok(Box::pin(stream))
     }
 
@@ -345,7 +394,7 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Collect all DynamicFilterPhysicalExpr instances from the parent filters.
         // Multiple sources may push dynamic filters (e.g. TopK from SortExec,
         // join-key bounds from HashJoinExec). We accept and apply all of them.
-        let mut dynamic_filters = Vec::new();
+        let mut new_dynamic_filters = Vec::new();
         let mut filters = Vec::with_capacity(child_pushdown_result.parent_filters.len());
 
         for filter_result in &child_pushdown_result.parent_filters {
@@ -355,39 +404,37 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .downcast_ref::<DynamicFilterPhysicalExpr>()
                 .is_some()
             {
-                dynamic_filters.push(Arc::clone(&filter_result.filter));
+                new_dynamic_filters.push(Arc::clone(&filter_result.filter));
                 filters.push(PushedDown::Yes);
             } else {
                 filters.push(filter_result.any());
             }
         }
 
-        if !dynamic_filters.is_empty() {
-            // Transfer state from the old plan to the new one.
-            let states = self
-                .states
-                .lock()
-                .map_err(|e| {
-                    DataFusionError::Internal(format!(
-                        "Failed to lock PgSearchScanPlan state during filter pushdown: {e}"
-                    ))
-                })?
-                .drain(..)
-                .collect();
+        if !new_dynamic_filters.is_empty() {
+            for f in &new_dynamic_filters {
+                pgrx::warning!(
+                    "handle_child_pushdown: ptr={:p}, query={}",
+                    Arc::as_ptr(f),
+                    self.query_for_display.explain_format()
+                );
+            }
+            // Store the filters via interior mutability. By NOT returning an
+            // `updated_node`, we prevent the FilterPushdown optimizer from
+            // calling `with_new_children` on ancestor nodes. This is critical
+            // for SortExec, whose `with_new_children` creates a brand new
+            // `DynamicFilterPhysicalExpr`, breaking the shared reference
+            // between TopK and this scan node.
+            let mut df = self.dynamic_filters.write().map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "Failed to write PgSearchScanPlan dynamic_filters: {e}"
+                ))
+            })?;
+            *df = new_dynamic_filters;
 
-            let new_plan = Arc::new(PgSearchScanPlan {
-                states: Mutex::new(states),
-                partition_row_counts: self.partition_row_counts.clone(),
-                properties: self.properties.clone(),
-                query_for_display: self.query_for_display.clone(),
-                dynamic_filters,
-                metrics: self.metrics.clone(),
-            });
-
-            Ok(
-                FilterPushdownPropagation::with_parent_pushdown_result(filters)
-                    .with_updated_node(new_plan as Arc<dyn ExecutionPlan>),
-            )
+            Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters,
+            ))
         } else {
             Ok(FilterPushdownPropagation::if_all(child_pushdown_result))
         }
@@ -421,10 +468,21 @@ impl ScanStream {
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&*current_expr, &mut filters);
+                    pgrx::warning!(
+                        "build_filters: ptr={:p}, expr={}, fields={:?}",
+                        Arc::as_ptr(df),
+                        current_expr,
+                        self.schema
+                            .fields()
+                            .iter()
+                            .map(|f| f.name().as_str())
+                            .collect::<Vec<_>>()
+                    );
+                    collect_filters(&*current_expr, &self.schema, &mut filters);
                 }
             }
         }
+        pgrx::warning!("build_filters: produced {} pre-filters", filters.len());
         filters
     }
 }

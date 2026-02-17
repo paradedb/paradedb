@@ -74,6 +74,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                    QUERY PLAN                                                                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -105,6 +111,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |   name   | supplier_name 
 ----+----------+---------------
   1 | Laptop   | TechCorp
@@ -122,6 +147,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                             QUERY PLAN                                                                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -153,6 +184,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'monitor OR webcam' OR s.description @@@ 'display OR premium')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |  name   | supplier_name 
 ----+---------+---------------
   4 | Monitor | DisplayPro
@@ -172,6 +222,12 @@ WHERE p.price > 100
   AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                          QUERY PLAN                                                                                                                                                         
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -204,6 +260,25 @@ WHERE p.price > 100
   AND (p.description @@@ 'laptop OR keyboard' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |   name   | price  | supplier_name 
 ----+----------+--------+---------------
   1 | Laptop   | 999.99 | TechCorp
@@ -222,6 +297,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                          
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -253,6 +334,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (p.description @@@ 'laptop' OR p.description @@@ 'monitor' OR s.description @@@ 'professional')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -272,6 +372,12 @@ WHERE p.stock >= 25
   AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                                   QUERY PLAN                                                                                                                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -304,6 +410,25 @@ WHERE p.stock >= 25
   AND (p.description @@@ 'laptop OR monitor OR headphones' OR s.description @@@ 'audio OR display')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c9d0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | price  | supplier_name 
 ----+------------+--------+---------------
   1 | Laptop     | 999.99 | TechCorp
@@ -326,6 +451,12 @@ WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
   AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c730, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -359,6 +490,25 @@ WHERE (p.description @@@ 'laptop' OR p.description @@@ 'keyboard')
   AND (p.description @@@ 'computer' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c730, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712c730, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=id@1 >= 1 AND id@1 <= 1 AND id@1 IN (SET) ([1, 1]), fields=["ctid", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c730, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, expr=id@1 >= 1 AND id@1 <= 1 AND id@1 IN (SET) ([1, 1]), fields=["ctid", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c730, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |   name   | supplier_name 
 ----+----------+---------------
   1 | Laptop   | TechCorp
@@ -377,6 +527,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ce50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c910, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c7f0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -409,6 +565,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'keyboard' OR (p.description @@@ 'headphones' OR (s.description @@@ 'professional' AND NOT p.description @@@ 'wireless'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ce50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c910, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c7f0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":["all",{"boolean":{"should":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}]}}]}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712c7f0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, expr=id@1 >= 1 AND id@1 <= 5 AND id@1 IN (SET) ([1, 1, 2, 2, 3, 3, 4, 4, 5]), fields=["ctid", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c7f0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, expr=id@1 >= 1 AND id@1 <= 5 AND id@1 IN (SET) ([1, 1, 2, 2, 3, 3, 4, 4, 5]), fields=["ctid", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c7f0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | supplier_name 
 ----+------------+---------------
   3 | Keyboard   | TechCorp
@@ -428,6 +603,12 @@ WHERE (p.description @@@ 'laptop OR headphones')
   AND (s.description @@@ 'technology OR audio')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -459,6 +640,25 @@ WHERE (p.description @@@ 'laptop OR headphones')
   AND (s.description @@@ 'technology OR audio')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cbb0, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c8b0, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c790, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology OR audio","lenient":null,"conjunction_mode":null}}}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 3 AND supplier_id@1 IN (SET) ([1, 3]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 3 AND supplier_id@1 IN (SET) ([1, 3]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca90, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -477,6 +677,12 @@ WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
     OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c910, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -509,6 +715,25 @@ WHERE ((p.description @@@ 'laptop' AND s.description @@@ 'technology')
     OR (p.description @@@ 'headphones' AND s.description @@@ 'audio'))
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd30, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c910, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712caf0, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 3 AND supplier_id@1 IN (SET) ([1, 3]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cd90, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 3 AND supplier_id@1 IN (SET) ([1, 3]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cc10, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp
@@ -526,6 +751,12 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
                                                                                                                                                                          QUERY PLAN                                                                                                                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -557,6 +788,25 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE (NOT p.description @@@ 'wireless' OR s.description @@@ 'technology')
 ORDER BY p.id
 LIMIT 10;
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cc70, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c970, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712c850, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  handle_child_pushdown: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  execute: dynamic_filter ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, query="all"
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ca30, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "id"]
+WARNING:  build_filters: produced 0 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712ccd0, metadata: DynMetadata(0x137c5d0b8) }, expr=supplier_id@1 >= 1 AND supplier_id@1 <= 5 AND supplier_id@1 IN (SET) ([1, 2, 3, 4, 5]), fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: ptr=Pointer { addr: 0x9b712cb50, metadata: DynMetadata(0x137c5d0b8) }, expr=true, fields=["ctid", "supplier_id", "id"]
+WARNING:  build_filters: produced 2 pre-filters
  id |    name    | supplier_name 
 ----+------------+---------------
   1 | Laptop     | TechCorp

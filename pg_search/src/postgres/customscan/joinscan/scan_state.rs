@@ -65,6 +65,7 @@ use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -148,7 +149,9 @@ impl CustomScanState for JoinScanState {
 /// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
 /// in a compatible way.
 pub fn create_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
+    let mut config = SessionConfig::new()
+        .with_target_partitions(1)
+        .with_batch_size(256);
     config
         .options_mut()
         .optimizer
@@ -159,6 +162,14 @@ pub fn create_session_context() -> SessionContext {
     if crate::gucs::is_mixed_fast_field_sort_enabled() {
         let rule = Arc::new(SortMergeJoinEnforcer::new());
         builder = builder.with_physical_optimizer_rule(rule);
+        // Re-run dynamic filter pushdown after the enforcer. The enforcer
+        // replaces HashJoinExec with SortMergeJoinExec (wrapped in
+        // StripOrderingExec), which causes DataFusion to rebuild ancestor
+        // nodes via `with_new_children`. For SortExec this creates a new
+        // DynamicFilterPhysicalExpr that hasn't been pushed to PgSearchScan
+        // yet. This second pass establishes the connection.
+        builder =
+            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
 
     let state = builder.build();

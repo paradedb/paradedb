@@ -28,9 +28,12 @@
 //!    with higher-level protocols (like Arrow IPC).
 
 use crate::api::{HashMap, HashSet};
-use std::collections::VecDeque;
+use arrow_buffer::alloc::Allocation;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, VecDeque};
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::panic::RefUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::task::Waker;
@@ -921,6 +924,33 @@ impl DsmReadAdapter {
     fn is_finished(&self) -> bool {
         unsafe { (*self.header).finished.load(Ordering::Acquire) == 1 }
     }
+
+    fn write_pos(&self) -> u64 {
+        unsafe { (*self.header).write_pos.load(Ordering::Acquire) }
+    }
+
+    fn copy_at(&self, offset: u64, buf: &mut [u8]) {
+        let len = buf.len();
+        let buffer_offset = (offset % self.data_len as u64) as usize;
+        unsafe {
+            if buffer_offset + len <= self.data_len {
+                std::ptr::copy_nonoverlapping(self.data.add(buffer_offset), buf.as_mut_ptr(), len);
+            } else {
+                let first_part = self.data_len - buffer_offset;
+                let second_part = len - first_part;
+                std::ptr::copy_nonoverlapping(
+                    self.data.add(buffer_offset),
+                    buf.as_mut_ptr(),
+                    first_part,
+                );
+                std::ptr::copy_nonoverlapping(
+                    self.data,
+                    buf.as_mut_ptr().add(first_part),
+                    second_part,
+                );
+            }
+        }
+    }
 }
 
 impl std::io::Read for DsmReadAdapter {
@@ -984,6 +1014,74 @@ impl std::io::Read for DsmReadAdapter {
     }
 }
 
+/// A controller for reclaiming shared memory space.
+struct DsmReclaimer {
+    header: *mut RingBufferHeader,
+    committed_read_pos: u64,
+    pending_frees: BinaryHeap<Reverse<(u64, u64)>>, // (start, len)
+    bridge: Arc<SignalBridge>,
+    remote_id: ParticipantId,
+}
+
+unsafe impl Send for DsmReclaimer {}
+unsafe impl Sync for DsmReclaimer {}
+impl RefUnwindSafe for DsmReclaimer {}
+
+impl DsmReclaimer {
+    fn new(
+        header: *mut RingBufferHeader,
+        bridge: Arc<SignalBridge>,
+        remote_id: ParticipantId,
+    ) -> Self {
+        let committed_read_pos = unsafe { (*header).read_pos.load(Ordering::Acquire) };
+        Self {
+            header,
+            committed_read_pos,
+            pending_frees: BinaryHeap::new(),
+            bridge,
+            remote_id,
+        }
+    }
+
+    fn mark_freed(&mut self, offset: u64, len: u64) {
+        self.pending_frees.push(Reverse((offset, len)));
+
+        // Process contiguous frees
+        while let Some(Reverse((start, length))) = self.pending_frees.peek() {
+            if *start == self.committed_read_pos {
+                self.committed_read_pos += length;
+                self.pending_frees.pop();
+            } else {
+                break;
+            }
+        }
+
+        // Update atomic
+        unsafe {
+            (*self.header)
+                .read_pos
+                .store(self.committed_read_pos, Ordering::Release);
+        }
+
+        // Signal writer
+        let _ = self.bridge.signal(self.remote_id);
+    }
+}
+
+pub struct ShmLease {
+    offset: u64,
+    len: u64,
+    reclaimer: Arc<Mutex<DsmReclaimer>>,
+}
+
+impl RefUnwindSafe for ShmLease {}
+
+impl Drop for ShmLease {
+    fn drop(&mut self) {
+        self.reclaimer.lock().mark_freed(self.offset, self.len);
+    }
+}
+
 #[derive(Default)]
 struct StreamState {
     queue: VecDeque<Vec<u8>>,
@@ -992,6 +1090,8 @@ struct StreamState {
 /// A demultiplexer for reading multiple logical streams from a single DSM ring buffer.
 pub struct MultiplexedDsmReader {
     adapter: DsmReadAdapter,
+    reclaimer: Arc<Mutex<DsmReclaimer>>,
+    local_read_pos: u64,
     streams: HashMap<PhysicalStreamId, StreamState>,
     /// State for the current message being read from the physical DSM.
     partial_header: Vec<u8>,
@@ -1068,8 +1168,17 @@ impl MultiplexedDsmReader {
 
         let adapter = unsafe { DsmReadAdapter::new(&mut (*header).ring, data, data_capacity) };
 
+        let reclaimer = Arc::new(Mutex::new(DsmReclaimer::new(
+            unsafe { &mut (*header).ring },
+            bridge.clone(),
+            remote_id,
+        )));
+        let local_read_pos = unsafe { (*header).ring.read_pos.load(Ordering::Acquire) };
+
         Self {
             adapter,
+            reclaimer,
+            local_read_pos,
             streams: HashMap::default(),
             partial_header: Vec::with_capacity(8),
             partial_payload: None,
@@ -1100,14 +1209,36 @@ impl MultiplexedDsmReader {
 
         // Fallback to reading loop
         loop {
+            let write_pos = self.adapter.write_pos();
+            let available = write_pos.wrapping_sub(self.local_read_pos) as usize;
+
+            // Check for finished only if no data available
+            if available == 0 {
+                if self.adapter.is_finished() {
+                    return Ok(None);
+                }
+                return Err(std::io::Error::from(ErrorKind::WouldBlock));
+            }
+
             // Read header if needed
             if self.partial_payload.is_none() {
-                while self.partial_header.len() < 8 {
-                    let mut byte = [0u8; 1];
-                    match self.adapter.read(&mut byte) {
-                        Ok(0) => return Ok(None), // EOF
-                        Ok(_) => self.partial_header.push(byte[0]),
-                        Err(e) => return Err(e),
+                if self.partial_header.len() < 8 {
+                    let needed = 8 - self.partial_header.len();
+                    let to_read = std::cmp::min(needed, available);
+
+                    let mut chunk = vec![0u8; to_read];
+                    self.adapter.copy_at(self.local_read_pos, &mut chunk);
+
+                    self.partial_header.extend_from_slice(&chunk);
+
+                    // Mark freed immediately (simulating copy behavior)
+                    let start_pos = self.local_read_pos;
+                    self.local_read_pos += to_read as u64;
+                    self.reclaimer.lock().mark_freed(start_pos, to_read as u64);
+
+                    if self.partial_header.len() < 8 {
+                        // Not enough data yet
+                        continue;
                     }
                 }
 
@@ -1131,14 +1262,36 @@ impl MultiplexedDsmReader {
             // Read payload
             if let Some((_, ref mut payload, msg_len)) = self.partial_payload {
                 let padding = (8 - (msg_len % 8)) % 8;
-                let total_len = msg_len + padding;
+                let total_len = msg_len + padding as usize;
 
-                while payload.len() < total_len {
-                    let mut chunk = vec![0u8; total_len - payload.len()];
-                    match self.adapter.read(&mut chunk) {
-                        Ok(0) => return Ok(None), // Unexpected EOF
-                        Ok(n) => payload.extend_from_slice(&chunk[..n]),
-                        Err(e) => return Err(e),
+                let current_len = payload.len();
+                if current_len < total_len {
+                    let needed = total_len - current_len;
+                    // Re-calculate available because we might have consumed some for header
+                    let write_pos = self.adapter.write_pos();
+                    let available = write_pos.wrapping_sub(self.local_read_pos) as usize;
+
+                    if available == 0 {
+                        if self.adapter.is_finished() {
+                            return Err(std::io::Error::other(
+                                "Unexpected EOF while reading payload",
+                            ));
+                        }
+                        return Err(std::io::Error::from(ErrorKind::WouldBlock));
+                    }
+
+                    let to_read = std::cmp::min(needed, available);
+                    let mut chunk = vec![0u8; to_read];
+                    self.adapter.copy_at(self.local_read_pos, &mut chunk);
+
+                    payload.extend_from_slice(&chunk);
+
+                    let start_pos = self.local_read_pos;
+                    self.local_read_pos += to_read as u64;
+                    self.reclaimer.lock().mark_freed(start_pos, to_read as u64);
+
+                    if payload.len() < total_len {
+                        continue;
                     }
                 }
 
@@ -1147,9 +1300,6 @@ impl MultiplexedDsmReader {
 
                 // Truncate padding to restore original logical message
                 completed_payload.truncate(logical_len);
-
-                // Signal the writer that space is potentially available
-                let _ = self.bridge.signal(self.remote_id);
 
                 if id == stream_id {
                     if completed_payload.is_empty() {
@@ -1166,7 +1316,6 @@ impl MultiplexedDsmReader {
             }
         }
     }
-
     fn send_control_message(
         &mut self,
         msg_type: u8,

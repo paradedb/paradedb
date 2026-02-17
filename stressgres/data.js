@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771366308104,
+  "lastUpdate": 1771366313298,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10560,6 +10560,114 @@ window.BENCHMARK_DATA = {
             "value": 170.75,
             "unit": "median mem",
             "extra": "avg mem: 167.47949756655686, max mem: 171.63671875, count: 55554"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "santoshakil@users.noreply.github.com",
+            "name": "Santo Shakil",
+            "username": "santoshakil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4718d76c584014e1002ffe5affe762ed96dd4bf5",
+          "message": "fix: prevent silent date/timestamp overflow in Tantivy DateTime conversion (#4156)\n\n## Summary\n\nFixes #3544.\n\nTantivy stores DateTime as i64 nanoseconds, limiting the representable\nrange to approximately year 1678–2262. Dates outside this range caused:\n\n- **Silent data corruption** (e.g. year 0001): row indexed with garbage\nnanos via `as i64` truncation from i128, appears to succeed but returns\n0 search results\n- **Cryptic error** (e.g. year 57439): `time` crate rejects the value\nwith an opaque `ComponentRange` error\n\nThree overflow paths existed:\n1. **Date path** (`types.rs`):\n`time::OffsetDateTime::unix_timestamp_nanos()` returns i128, cast to i64\nwith `as` silently truncates\n2. **Timestamp path** (`types.rs`): Tantivy's `from_timestamp_micros()`\ndoes unchecked `micros * 1_000` internally\n3. **Query path** (`utils.rs`): All 5 date/time branches in\n`convert_pg_date_string` used unchecked `from_timestamp_micros()`\n\n### Changes\n\n- Add `micros_to_tantivy_datetime()` helper in `datetime.rs` using\n`checked_mul(1_000)` to detect overflow\n- Date path: replace `time::OffsetDateTime` intermediary with direct\n`checked_mul(1_000_000_000)` on POSIX seconds (faster — removes i128\nroundtrip)\n- Timestamp path: replace `chrono::DateTime` roundtrip with direct\n`micros_to_tantivy_datetime()` (faster — removes chrono dependency in\nhot path)\n- Query path: update all 5 branches in `convert_pg_date_string` to use\nthe checked helper\n- Out-of-range dates now fail early with clear error messages\n\n## Test plan\n\n- [x] 3 existing datetime tests pass (microsecond, millisecond, second\nprecision)\n- [x] New: wide-range dates (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: wide-range timestamps (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: year 57439 date reports clear overflow error at index\ncreation\n- [x] New: year 0001 date reports clear overflow error at index creation\n(was silently corrupted before)\n- [x] New: year 57439 timestamp reports clear overflow error\n- [x] New: year 0001 timestamp reports clear overflow error\n- [x] Before/after live testing confirms year 0001 was silently\ncorrupted (indexed but 0 search results) — now fails with clear error",
+          "timestamp": "2026-02-17T13:13:29-08:00",
+          "tree_id": "376e0254a8b019fc2e74560a1b4a8b3b775618e8",
+          "url": "https://github.com/paradedb/paradedb/commit/4718d76c584014e1002ffe5affe762ed96dd4bf5"
+        },
+        "date": 1771366309254,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.375748743587312, max cpu: 42.60355, count: 55791"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 164.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 154.08531744031296, max mem: 176.81640625, count: 55791"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.758519309612401, max cpu: 33.82929, count: 55791"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 118.29093409163217, max mem: 119.51953125, count: 55791"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752696910659383, max cpu: 9.448819, count: 55791"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 129.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.40188528671739, max mem: 159.0546875, count: 55791"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13783,
+            "unit": "median block_count",
+            "extra": "avg block_count: 14204.369844598592, max block_count: 25534.0, count: 55791"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.257246231843033, max cpu: 4.655674, count: 55791"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 100.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.04872026570146, max mem: 134.6015625, count: 55791"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.53960316180029, max segment_count: 43.0, count: 55791"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.083710064893989, max cpu: 33.82929, count: 111582"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 160.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.49906122851357, max mem: 164.30078125, count: 111582"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.902473338209179, max cpu: 23.27837, count: 55791"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.1806589688525, max mem: 171.828125, count: 55791"
           }
         ]
       }

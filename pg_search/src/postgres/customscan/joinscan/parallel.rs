@@ -151,19 +151,13 @@ impl ParallelState for JoinRingBufferBuilder {
 pub struct ParallelJoin {
     pub state: JoinSharedState,
     pub config: JoinConfig,
-    /// One serialized logical plan slice per worker.
-    pub plan_slices: Vec<Vec<u8>>,
     /// A single flat buffer containing all ring buffer regions.
     /// Layout: [Region 0][Region 1]...[Region P*P-1]
     pub ring_buffer: JoinRingBufferBuilder,
 }
 
 impl ParallelJoin {
-    pub fn new(
-        config: JoinConfig,
-        plan_slices: Vec<Vec<u8>>,
-        ring_buffer: JoinRingBufferBuilder,
-    ) -> Self {
+    pub fn new(config: JoinConfig, ring_buffer: JoinRingBufferBuilder) -> Self {
         Self {
             state: JoinSharedState {
                 mutex: Spinlock::default(),
@@ -171,7 +165,6 @@ impl ParallelJoin {
                 sockets_ready: 0,
             },
             config,
-            plan_slices,
             ring_buffer,
         }
     }
@@ -180,9 +173,6 @@ impl ParallelJoin {
 impl ParallelProcess for ParallelJoin {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
         let mut values: Vec<&dyn ParallelState> = vec![&self.state, &self.config];
-        for slice in &self.plan_slices {
-            values.push(slice);
-        }
         // Push the single flat buffer
         values.push(&self.ring_buffer);
         values
@@ -192,14 +182,13 @@ impl ParallelProcess for ParallelJoin {
 pub struct JoinWorker<'a> {
     pub state: &'a mut JoinSharedState,
     pub config: JoinConfig,
-    pub plan_slice: Vec<u8>,
     pub ring_buffer_ptr: *mut u8,
 }
 
 impl ParallelWorker for JoinWorker<'_> {
     fn new_parallel_worker(
         state_manager: ParallelStateManager,
-        worker_number: ParallelWorkerNumber,
+        _worker_number: ParallelWorkerNumber,
     ) -> Self {
         let state = state_manager
             .object::<JoinSharedState>(0)
@@ -210,22 +199,15 @@ impl ParallelWorker for JoinWorker<'_> {
             .expect("wrong type for config")
             .expect("missing config value");
 
-        // Plan slices start at index 2.
-        let plan_slice = state_manager
-            .slice::<u8>(2 + worker_number.0 as usize)
-            .expect("wrong type for plan_slice")
-            .expect("missing plan_slice value");
-
-        // The ring buffer is at index 2 + nworkers
+        // The ring buffer is at index 2
         let ring_buffer_slice = state_manager
-            .slice::<u8>(2 + config.nworkers)
+            .slice::<u8>(2)
             .expect("missing ring_buffer value")
             .expect("missing ring_buffer value");
 
         Self {
             state,
             config: *config,
-            plan_slice: plan_slice.to_vec(),
             ring_buffer_ptr: ring_buffer_slice.as_ptr() as *mut u8,
         }
     }
@@ -277,37 +259,33 @@ impl ParallelWorker for JoinWorker<'_> {
             )
         };
 
-        // If no plan was provided at launch, wait for it via the control channel.
+        // Wait for the plan via the control channel.
         let mut buffered_frames = Vec::new();
-        let plan_slice = if self.plan_slice.is_empty() {
-            let mut received_plan = None;
+        let mut received_plan = None;
 
-            loop {
-                for mux in &transport.mux_writers {
-                    let mut guard = mux.lock();
-                    let frames = guard.read_control_frames();
-                    for (msg_type, payload) in frames {
-                        if let Some(ControlMessage::BroadcastPlan(bytes)) =
-                            ControlMessage::try_from_frame(msg_type, &payload)
-                        {
-                            received_plan = Some(bytes);
-                        } else {
-                            buffered_frames.push((msg_type, payload));
-                        }
+        loop {
+            for mux in &transport.mux_writers {
+                let mut guard = mux.lock();
+                let frames = guard.read_control_frames();
+                for (msg_type, payload) in frames {
+                    if let Some(ControlMessage::BroadcastPlan(bytes)) =
+                        ControlMessage::try_from_frame(msg_type, &payload)
+                    {
+                        received_plan = Some(bytes);
+                    } else {
+                        buffered_frames.push((msg_type, payload));
                     }
                 }
-
-                if received_plan.is_some() {
-                    break;
-                }
-
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                pgrx::check_for_interrupts!();
             }
-            received_plan.unwrap()
-        } else {
-            self.plan_slice
-        };
+
+            if received_plan.is_some() {
+                break;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            pgrx::check_for_interrupts!();
+        }
+        let plan_slice = received_plan.unwrap();
 
         // Register the DSM mesh for this worker process.
         let mesh = exchange::DsmMesh {
@@ -413,13 +391,6 @@ pub fn launch_join_workers(
         nworkers
     };
 
-    // Deferred Planning: We do NOT serialize the plan here.
-    // We pass empty slices to the workers.
-    let mut plan_slices = Vec::with_capacity(nworkers);
-    for _ in 0..nworkers {
-        plan_slices.push(Vec::new());
-    }
-
     let session_id = uuid::Uuid::new_v4();
 
     // Allocate 128MB ring buffers per worker.
@@ -463,7 +434,7 @@ pub fn launch_join_workers(
         .expect("Failed to initialize SignalBridge");
     let bridge = Arc::new(bridge);
 
-    let process = ParallelJoin::new(config, plan_slices, ring_buffer);
+    let process = ParallelJoin::new(config, ring_buffer);
 
     if let Some(mut launched) = launch_parallel_process!(
         ParallelJoin<JoinWorker>,
@@ -491,9 +462,10 @@ pub fn launch_join_workers(
         let leader_participant_index = 0;
 
         // Retrieve the ring buffer slice from DSM
+        // Index is 2 (0: state, 1: config, 2: ring_buffer)
         let ring_buffer_slice = launched
             .state_manager()
-            .slice::<u8>(2 + nworkers)
+            .slice::<u8>(2)
             .expect("wrong type for ring_buffer_slice")
             .expect("missing ring_buffer_slice value");
 

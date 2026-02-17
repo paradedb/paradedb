@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771364176726,
+  "lastUpdate": 1771364423667,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4018,6 +4018,42 @@ window.BENCHMARK_DATA = {
             "value": 5.2626848341273655,
             "unit": "median tps",
             "extra": "avg tps: 4.691572611524322, max tps: 5.919335017078555, count: 57329"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "santoshakil@users.noreply.github.com",
+            "name": "Santo Shakil",
+            "username": "santoshakil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4718d76c584014e1002ffe5affe762ed96dd4bf5",
+          "message": "fix: prevent silent date/timestamp overflow in Tantivy DateTime conversion (#4156)\n\n## Summary\n\nFixes #3544.\n\nTantivy stores DateTime as i64 nanoseconds, limiting the representable\nrange to approximately year 1678–2262. Dates outside this range caused:\n\n- **Silent data corruption** (e.g. year 0001): row indexed with garbage\nnanos via `as i64` truncation from i128, appears to succeed but returns\n0 search results\n- **Cryptic error** (e.g. year 57439): `time` crate rejects the value\nwith an opaque `ComponentRange` error\n\nThree overflow paths existed:\n1. **Date path** (`types.rs`):\n`time::OffsetDateTime::unix_timestamp_nanos()` returns i128, cast to i64\nwith `as` silently truncates\n2. **Timestamp path** (`types.rs`): Tantivy's `from_timestamp_micros()`\ndoes unchecked `micros * 1_000` internally\n3. **Query path** (`utils.rs`): All 5 date/time branches in\n`convert_pg_date_string` used unchecked `from_timestamp_micros()`\n\n### Changes\n\n- Add `micros_to_tantivy_datetime()` helper in `datetime.rs` using\n`checked_mul(1_000)` to detect overflow\n- Date path: replace `time::OffsetDateTime` intermediary with direct\n`checked_mul(1_000_000_000)` on POSIX seconds (faster — removes i128\nroundtrip)\n- Timestamp path: replace `chrono::DateTime` roundtrip with direct\n`micros_to_tantivy_datetime()` (faster — removes chrono dependency in\nhot path)\n- Query path: update all 5 branches in `convert_pg_date_string` to use\nthe checked helper\n- Out-of-range dates now fail early with clear error messages\n\n## Test plan\n\n- [x] 3 existing datetime tests pass (microsecond, millisecond, second\nprecision)\n- [x] New: wide-range dates (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: wide-range timestamps (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: year 57439 date reports clear overflow error at index\ncreation\n- [x] New: year 0001 date reports clear overflow error at index creation\n(was silently corrupted before)\n- [x] New: year 57439 timestamp reports clear overflow error\n- [x] New: year 0001 timestamp reports clear overflow error\n- [x] Before/after live testing confirms year 0001 was silently\ncorrupted (indexed but 0 search results) — now fails with clear error",
+          "timestamp": "2026-02-17T13:13:29-08:00",
+          "tree_id": "376e0254a8b019fc2e74560a1b4a8b3b775618e8",
+          "url": "https://github.com/paradedb/paradedb/commit/4718d76c584014e1002ffe5affe762ed96dd4bf5"
+        },
+        "date": 1771364419698,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.665773062835666,
+            "unit": "median tps",
+            "extra": "avg tps: 6.56570186566137, max tps: 9.947805970694827, count: 57944"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.361208323691604,
+            "unit": "median tps",
+            "extra": "avg tps: 4.796145729657578, max tps: 6.0100269128643, count: 57944"
           }
         ]
       }

@@ -55,9 +55,11 @@ use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
     ParallelWorkerNumber, WorkerStyle,
 };
+use crate::postgres::customscan::joinscan::exchange;
 use crate::postgres::customscan::joinscan::transport::TransportMesh;
 use crate::postgres::customscan::joinscan::transport::{
-    MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
+    ControlMessage, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge,
+    TransportLayout,
 };
 use crate::postgres::locks::Spinlock;
 use crate::scan::PgSearchExtensionCodec;
@@ -238,7 +240,7 @@ impl ParallelWorker for JoinWorker<'_> {
             pgrx::check_for_interrupts!();
             std::thread::yield_now();
         }
-        let total_participants = self.state.launched_workers();
+        let launched_participants = self.state.launched_workers();
 
         let participant_index =
             worker_number.to_participant_index(self.config.leader_participation);
@@ -259,7 +261,7 @@ impl ParallelWorker for JoinWorker<'_> {
         self.state.inc_sockets_ready();
 
         // Wait for all participants to create their sockets
-        while self.state.sockets_ready() < total_participants {
+        while self.state.sockets_ready() < launched_participants {
             pgrx::check_for_interrupts!();
             std::thread::yield_now();
         }
@@ -270,33 +272,76 @@ impl ParallelWorker for JoinWorker<'_> {
                 self.ring_buffer_ptr,
                 layout,
                 participant_id,
-                total_participants,
+                self.config.total_participants, // Use Max/Configured participants for layout
                 bridge.clone(),
             )
         };
 
-        // Register the DSM mesh for this worker process.
-        let mesh = crate::postgres::customscan::joinscan::exchange::DsmMesh {
-            transport,
-            registry: Mutex::new(
-                crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
-            ),
+        // If no plan was provided at launch, wait for it via the control channel.
+        let mut buffered_frames = Vec::new();
+        let plan_slice = if self.plan_slice.is_empty() {
+            let mut received_plan = None;
+
+            loop {
+                for mux in &transport.mux_writers {
+                    let mut guard = mux.lock();
+                    let frames = guard.read_control_frames();
+                    for (msg_type, payload) in frames {
+                        if let Some(ControlMessage::BroadcastPlan(bytes)) =
+                            ControlMessage::try_from_frame(msg_type, &payload)
+                        {
+                            received_plan = Some(bytes);
+                        } else {
+                            buffered_frames.push((msg_type, payload));
+                        }
+                    }
+                }
+
+                if received_plan.is_some() {
+                    break;
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                pgrx::check_for_interrupts!();
+            }
+            received_plan.unwrap()
+        } else {
+            self.plan_slice
         };
-        crate::postgres::customscan::joinscan::exchange::register_dsm_mesh(mesh);
+
+        // Register the DSM mesh for this worker process.
+        let mesh = exchange::DsmMesh {
+            transport,
+            registry: Mutex::new(exchange::StreamRegistry::default()),
+        };
+        exchange::register_dsm_mesh(mesh);
 
         let ctx = create_session_context(
             participant_index,
-            total_participants,
+            launched_participants, // Use Actual participants for execution context
             self.config.max_memory,
         );
 
         let codec = PgSearchExtensionCodec::default();
-        let _ = physical_plan_from_bytes_with_extension_codec(
-            &self.plan_slice,
-            &ctx.task_ctx(),
-            &codec,
-        )
-        .expect("Failed to parse physical plan");
+        let _ = physical_plan_from_bytes_with_extension_codec(&plan_slice, &ctx.task_ctx(), &codec)
+            .expect("Failed to parse physical plan");
+
+        let task_ctx = ctx.task_ctx();
+
+        // Replay buffered control messages (that arrived before/with the plan)
+        for (msg_type, payload) in buffered_frames {
+            if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
+                match msg {
+                    ControlMessage::StartStream(id) => {
+                        exchange::trigger_stream(id, task_ctx.clone());
+                    }
+                    ControlMessage::CancelStream(id) => {
+                        exchange::cancel_triggered_stream(id);
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let task_ctx = ctx.task_ctx();
 
@@ -308,10 +353,7 @@ impl ParallelWorker for JoinWorker<'_> {
             let local = tokio::task::LocalSet::new();
 
             // Start the control service to listen for stream requests
-            crate::postgres::customscan::joinscan::exchange::spawn_control_service(
-                &local,
-                task_ctx.clone(),
-            );
+            exchange::spawn_control_service(&local, task_ctx.clone());
 
             let mut sigterm =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -332,7 +374,7 @@ impl ParallelWorker for JoinWorker<'_> {
                 .await
         });
 
-        crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+        exchange::clear_dsm_mesh();
 
         Ok(())
     }
@@ -341,9 +383,7 @@ impl ParallelWorker for JoinWorker<'_> {
 impl JoinWorker<'_> {}
 
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_proto::bytes::{
-    physical_plan_from_bytes_with_extension_codec, physical_plan_to_bytes_with_extension_codec,
-};
+use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// The result of launching parallel join workers.
 pub type LaunchedJoinWorkers = (
@@ -353,12 +393,12 @@ pub type LaunchedJoinWorkers = (
     Vec<Arc<Mutex<MultiplexedDsmReader>>>,
     uuid::Uuid,
     Arc<SignalBridge>,
+    usize,
 );
 
 /// Launches parallel workers for a JoinScan.
 pub fn launch_join_workers(
     runtime: &tokio::runtime::Runtime,
-    leader_plan: Arc<dyn ExecutionPlan>,
     nworkers: usize,
     max_memory: usize,
     leader_participation: bool,
@@ -373,14 +413,11 @@ pub fn launch_join_workers(
         nworkers
     };
 
-    let codec = PgSearchExtensionCodec::default();
-    let leader_plan_bytes =
-        physical_plan_to_bytes_with_extension_codec(leader_plan.clone(), &codec)
-            .expect("Failed to serialize physical plan to bytes");
-
+    // Deferred Planning: We do NOT serialize the plan here.
+    // We pass empty slices to the workers.
     let mut plan_slices = Vec::with_capacity(nworkers);
     for _ in 0..nworkers {
-        plan_slices.push(leader_plan_bytes.to_vec());
+        plan_slices.push(Vec::new());
     }
 
     let session_id = uuid::Uuid::new_v4();
@@ -389,9 +426,9 @@ pub fn launch_join_workers(
     // TODO: This is temporary! Should implement support for reconstructing a larger buffer without
     // needing this much dedicated space.
     let ring_buffer_size = 128 * 1024 * 1024;
-    // We increase the control buffer size to 64KB (from 4KB) to prevent dropping
-    // CancelStream messages during high-concurrency teardown, which could lead to deadlocks.
-    let control_size = 65536;
+    // We increase the control buffer size to 4MB (from 64KB) to accommodate serialized plans
+    // sent via BroadcastPlan.
+    let control_size = 4 * 1024 * 1024;
     // Data Header + Data + Control Header + Control Data + padding
     let layout = TransportLayout::new(ring_buffer_size, control_size);
     let region_size = layout.total_size();
@@ -445,7 +482,7 @@ pub fn launch_join_workers(
             shared_state.set_launched_workers(nlaunched);
             shared_state.inc_sockets_ready();
 
-            while shared_state.sockets_ready() < total_participants {
+            while shared_state.sockets_ready() < nlaunched {
                 pgrx::check_for_interrupts!();
                 std::thread::yield_now();
             }
@@ -477,11 +514,12 @@ pub fn launch_join_workers(
 
         Some((
             launched.into_iter(),
-            Some(leader_plan),
+            None, // Leader plan is not built yet
             mux_writers,
             mux_readers,
             session_id,
             bridge,
+            nlaunched,
         ))
     } else {
         None
@@ -497,7 +535,7 @@ mod tests {
         ParallelWorkerNumber, WorkerStyle,
     };
     use crate::postgres::customscan::joinscan::exchange::{
-        register_dsm_mesh, DsmExchangeConfig, DsmExchangeExec, DsmMesh, ExchangeMode,
+        self, register_dsm_mesh, DsmExchangeConfig, DsmExchangeExec, DsmMesh, ExchangeMode,
     };
     use crate::postgres::customscan::joinscan::transport::{
         LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge,
@@ -788,6 +826,7 @@ mod tests {
                 mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                     region.base_ptr,
                     region.capacity,
+                    65536,
                     bridge.clone(),
                     ParticipantId(j as u16),
                 ))));
@@ -798,6 +837,7 @@ mod tests {
                 mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
                     region.base_ptr,
                     region.capacity,
+                    65536,
                     bridge.clone(),
                     ParticipantId(j as u16),
                 ))));
@@ -810,9 +850,7 @@ mod tests {
             };
             let mesh = DsmMesh {
                 transport,
-                registry: Mutex::new(
-                    crate::postgres::customscan::joinscan::exchange::StreamRegistry::default(),
-                ),
+                registry: Mutex::new(exchange::StreamRegistry::default()),
             };
             register_dsm_mesh(mesh);
 
@@ -870,22 +908,13 @@ mod tests {
 
                 // Register the writer
                 let mut sources = Vec::new();
-                crate::postgres::customscan::joinscan::exchange::collect_dsm_exchanges(
-                    plan.clone(),
-                    &mut sources,
-                );
+                exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
                 for source in sources {
-                    crate::postgres::customscan::joinscan::exchange::register_stream_source(
-                        source,
-                        participant_id,
-                    );
+                    exchange::register_stream_source(source, participant_id);
                 }
 
                 // Start Control Service
-                crate::postgres::customscan::joinscan::exchange::spawn_control_service(
-                    &local,
-                    task_ctx.clone(),
-                );
+                exchange::spawn_control_service(&local, task_ctx.clone());
 
                 local
                     .run_until(async {
@@ -964,6 +993,7 @@ mod tests {
             mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 base_ptr,
                 buffer_size,
+                65536,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));
@@ -979,6 +1009,7 @@ mod tests {
             mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 base_ptr,
                 buffer_size,
+                65536,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));

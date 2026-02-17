@@ -621,6 +621,10 @@ pub struct MultiplexedDsmWriter {
     bridge: Arc<SignalBridge>,
     /// Index of the remote participant (reader).
     remote_id: ParticipantId,
+    /// Partial header buffer for stateful control message parsing
+    control_partial_header: Vec<u8>,
+    /// Partial payload state: (msg_type, buffer, expected_len)
+    control_partial_payload: Option<(u8, Vec<u8>, usize)>,
 }
 
 unsafe impl Send for MultiplexedDsmWriter {}
@@ -682,6 +686,7 @@ impl MultiplexedDsmWriter {
     pub fn new(
         base_ptr: *mut u8,
         data_capacity: usize,
+        control_capacity: usize,
         bridge: Arc<SignalBridge>,
         remote_id: ParticipantId,
     ) -> Self {
@@ -714,10 +719,7 @@ impl MultiplexedDsmWriter {
 
                 // Data starts after the header.
                 let control_data = control_ptr.add(std::mem::size_of::<RingBufferHeader>());
-                // We'll use a fixed size for the control buffer for simplicity of this patch,
-                // matching what we'll allocate in the test/transfer logic (e.g. 64KB).
-                // TODO: Store control capacity in header or layout? For now constant is fine as long as consistent.
-                let control_len = 65536;
+                let control_len = control_capacity;
 
                 Some(DsmReadAdapter::new(
                     control_header,
@@ -737,6 +739,8 @@ impl MultiplexedDsmWriter {
             control_reader,
             bridge,
             remote_id,
+            control_partial_header: Vec::with_capacity(5),
+            control_partial_payload: None,
         }
     }
 
@@ -745,22 +749,89 @@ impl MultiplexedDsmWriter {
     pub fn read_control_frames(&mut self) -> Vec<(u8, Vec<u8>)> {
         let mut frames = Vec::new();
         if let Some(reader) = &mut self.control_reader {
-            // Read all available messages. Each message is 1 byte type + 4 bytes payload.
-            let mut header_buf = [0u8; 1];
-            while reader.has_data() {
-                match reader.read(&mut header_buf) {
-                    Ok(1) => {
-                        let msg_type = header_buf[0];
-                        let mut payload_buf = [0u8; 4];
-                        match reader.read(&mut payload_buf) {
-                            Ok(4) => {
-                                frames.push((msg_type, payload_buf.to_vec()));
+            loop {
+                // If we are waiting for payload
+                if let Some((msg_type, ref mut buffer, expected_len)) = self.control_partial_payload
+                {
+                    let current_len = buffer.len();
+                    let needed = expected_len - current_len;
+                    let mut chunk = vec![0u8; needed];
+
+                    match reader.read(&mut chunk) {
+                        Ok(n) => {
+                            if n > 0 {
+                                buffer.extend_from_slice(&chunk[0..n]);
                             }
-                            _ => break, // Partial read
+                            if buffer.len() == expected_len {
+                                // Full message received
+                                frames.push((
+                                    msg_type,
+                                    self.control_partial_payload.take().unwrap().1,
+                                ));
+                            } else {
+                                // Partial read, break loop (wait for more data)
+                                break;
+                            }
+                        }
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => break,
+                        Err(_) => break, // Error or EOF?
+                    }
+                    continue; // Check if more messages available
+                }
+
+                // If we are reading header
+                // Type byte
+                if self.control_partial_header.is_empty() {
+                    let mut type_buf = [0u8; 1];
+                    match reader.read(&mut type_buf) {
+                        Ok(1) => self.control_partial_header.push(type_buf[0]),
+                        Ok(_) => break,  // EOF
+                        Err(_) => break, // WouldBlock
+                    }
+                }
+
+                let msg_type = self.control_partial_header[0];
+                let is_variable = msg_type >= 128;
+
+                // Read rest of header (length prefix for variable, or nothing for fixed)
+                if is_variable {
+                    // Need 4 bytes length
+                    let current_len = self.control_partial_header.len();
+                    if current_len < 5 {
+                        let needed = 5 - current_len;
+                        let mut chunk = vec![0u8; needed];
+                        match reader.read(&mut chunk) {
+                            Ok(n) => {
+                                if n > 0 {
+                                    self.control_partial_header.extend_from_slice(&chunk[0..n]);
+                                }
+                                if self.control_partial_header.len() < 5 {
+                                    break; // Partial header
+                                }
+                            }
+                            Err(_) => break,
                         }
                     }
-                    Ok(_) => break,  // EOF or partial
-                    Err(_) => break, // WouldBlock
+                }
+
+                // Header complete
+                if is_variable {
+                    let len_bytes: [u8; 4] = self.control_partial_header[1..5].try_into().unwrap();
+                    let payload_len = u32::from_le_bytes(len_bytes) as usize;
+
+                    // Reset header buffer
+                    self.control_partial_header.clear();
+
+                    // Setup payload state
+                    self.control_partial_payload =
+                        Some((msg_type, Vec::with_capacity(payload_len), payload_len));
+                } else {
+                    // Fixed length (4 bytes payload)
+                    // We treat fixed payload as "payload state" too for simplicity
+                    // Reset header buffer
+                    self.control_partial_header.clear();
+
+                    self.control_partial_payload = Some((msg_type, Vec::with_capacity(4), 4));
                 }
             }
         }
@@ -1115,6 +1186,7 @@ impl MultiplexedDsmReader {
     pub fn new(
         base_ptr: *mut u8,
         data_capacity: usize,
+        control_capacity: usize,
         bridge: Arc<SignalBridge>,
         remote_id: ParticipantId,
     ) -> Self {
@@ -1145,7 +1217,7 @@ impl MultiplexedDsmReader {
                 let control_ptr = base_ptr.add(offset);
                 let control_header = control_ptr as *mut RingBufferHeader;
                 let control_data = control_ptr.add(std::mem::size_of::<RingBufferHeader>());
-                let control_len = 65536; // Same constant as in writer
+                let control_len = control_capacity;
 
                 Some(DsmWriteAdapter::new(
                     control_header,
@@ -1392,6 +1464,35 @@ impl MultiplexedDsmReader {
         self.send_control_message(1, stream_id)
     }
 
+    /// Sends a variable-length control message.
+    /// Format: [type: u8 (>= 128)][len: u32][payload: len bytes]
+    pub fn send_control_message_variable(
+        &mut self,
+        msg_type: u8,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        if msg_type < 128 {
+            return Err(std::io::Error::other(
+                "Variable message type must be >= 128",
+            ));
+        }
+        if let Some(writer) = &mut self.control_writer {
+            let len = payload.len() as u32;
+            let total_len = 1 + 4 + len as usize;
+            if writer.available_space() < total_len {
+                return Err(std::io::Error::from(ErrorKind::WouldBlock));
+            }
+            writer.write_all(&[msg_type])?;
+            writer.write_all(&len.to_le_bytes())?;
+            writer.write_all(payload)?;
+            // Signal the writer (remote_id) to check control messages
+            let _ = self.bridge.signal(self.remote_id);
+            Ok(())
+        } else {
+            Ok(())
+        }
+    }
+
     /// Async version of `read_for_stream` that registers the current task's waker
     /// with the bridge if data is not yet available.
     pub(super) fn poll_read_for_stream(
@@ -1484,12 +1585,14 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));
@@ -1515,12 +1618,14 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));
@@ -1571,12 +1676,14 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));
@@ -1630,12 +1737,14 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));
@@ -1686,6 +1795,7 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(1),
         )));
@@ -1708,12 +1818,14 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge.clone(),
             ParticipantId(1),
         )));
         let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));
@@ -1758,6 +1870,38 @@ mod tests {
             bridge1.signal(ParticipantId(2)).unwrap();
             bridge1.signal(ParticipantId(1)).unwrap(); // Should be no-op or ok
         });
+    }
+
+    #[pgrx::pg_test]
+    fn test_variable_control_message() {
+        let buf = TestBuffer::new(1024);
+        let bridge = create_dummy_bridge();
+        let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
+            buf.base_ptr,
+            buf.capacity,
+            65536,
+            bridge.clone(),
+            ParticipantId(1),
+        )));
+        let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
+            buf.base_ptr,
+            buf.capacity,
+            65536,
+            bridge,
+            ParticipantId(0),
+        )));
+
+        // Send variable length message
+        let payload = vec![1u8, 2, 3, 4, 5];
+        reader_mux
+            .lock()
+            .send_control_message_variable(128, &payload)
+            .unwrap();
+
+        let frames = writer_mux.lock().read_control_frames();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, 128);
+        assert_eq!(frames[0].1, payload);
     }
 
     use crate::launch_parallel_process;
@@ -1905,6 +2049,7 @@ mod tests {
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 self.base_ptr,
                 self.config.buffer_size,
+                65536,
                 bridge.clone(),
                 ParticipantId(0), // Remote is leader (0)
             )));
@@ -2002,6 +2147,7 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             base_ptr,
             buffer_size,
+            65536,
             bridge.clone(),
             ParticipantId(1), // Remote is worker (1)
         )));

@@ -72,6 +72,7 @@ impl TransportMesh {
             mux_writers.push(Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 writer_base,
                 layout.data_capacity,
+                layout.control_capacity,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));
@@ -85,6 +86,7 @@ impl TransportMesh {
             mux_readers.push(Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 reader_base,
                 layout.data_capacity,
+                layout.control_capacity,
                 bridge.clone(),
                 ParticipantId(j as u16),
             ))));

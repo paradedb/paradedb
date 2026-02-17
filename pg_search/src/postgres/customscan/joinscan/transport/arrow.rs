@@ -431,12 +431,14 @@ mod tests {
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -523,12 +525,14 @@ mod tests {
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -618,12 +622,14 @@ mod tests {
             let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
             let reader_mux = Arc::new(Mutex::new(MultiplexedDsmReader::new(
                 buf.base_ptr,
                 buf.capacity,
+                65536,
                 bridge.clone(),
                 ParticipantId(0),
             )));
@@ -679,6 +685,7 @@ mod tests {
         let writer_mux = Arc::new(Mutex::new(MultiplexedDsmWriter::new(
             buf.base_ptr,
             buf.capacity,
+            65536,
             bridge,
             ParticipantId(0),
         )));

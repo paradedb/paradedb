@@ -824,32 +824,67 @@ impl CustomScan for JoinScan {
                     create_session_context(0, total_participants, state.custom_state().max_memory);
 
                 if nworkers > 0 {
-                    let leader_logical_plan = logical_plan_from_bytes_with_extension_codec(
-                        &plan_bytes,
-                        &ctx.task_ctx(),
-                        &PgSearchExtensionCodec::default(),
-                    )
-                    .expect("Failed to deserialize leader logical plan");
-
-                    // Convert logical plan to physical plan ONCE on the leader
-                    let plan = runtime
-                        .block_on(build_joinscan_physical_plan(&ctx, leader_logical_plan))
-                        .expect("Failed to create execution plan");
-
                     if let Some((
                         process,
-                        Some(plan),
+                        _, // leader_plan is None
                         mux_writers,
                         mux_readers,
                         _session_id,
                         bridge,
+                        nlaunched,
                     )) = parallel::launch_join_workers(
                         &runtime,
-                        plan,
                         nworkers,
                         state.custom_state().max_memory,
                         pg_sys::parallel_leader_participation,
                     ) {
+                        // DEFERRED PHYSICAL PLANNING
+                        // Now that workers are launched, we know the exact number of participants.
+                        // We build the physical plan targeting this topology.
+
+                        let total_participants = nlaunched;
+
+                        // Re-create context with actual participant count
+                        let ctx = create_session_context(
+                            0,
+                            total_participants,
+                            state.custom_state().max_memory,
+                        );
+
+                        let leader_logical_plan = logical_plan_from_bytes_with_extension_codec(
+                            &plan_bytes,
+                            &ctx.task_ctx(),
+                            &PgSearchExtensionCodec::default(),
+                        )
+                        .expect("Failed to deserialize leader logical plan");
+
+                        // Build the physical plan
+                        let plan = runtime
+                            .block_on(build_joinscan_physical_plan(&ctx, leader_logical_plan))
+                            .expect("Failed to create execution plan");
+
+                        // Serialize plan for broadcast
+                        let codec = PgSearchExtensionCodec::default();
+                        let plan_bytes =
+                            physical_plan_to_bytes_with_extension_codec(plan.clone(), &codec)
+                                .expect("Failed to serialize physical plan on leader");
+
+                        // BROADCAST PLAN TO WORKERS
+                        // Iterate over all readers (which correspond to connections FROM workers)
+                        // and use their control channel to send the plan TO the worker.
+                        // Note: Reader[i] connects to Participant i.
+                        for (i, reader_mutex) in mux_readers.iter().enumerate() {
+                            if i == 0 {
+                                continue;
+                            } // Skip self (Leader)
+
+                            let mut reader = reader_mutex.lock();
+                            // Send BroadcastPlan (Type 128)
+                            reader
+                                .send_control_message_variable(128, &plan_bytes)
+                                .expect("Failed to broadcast plan to worker");
+                        }
+
                         // Register the DSM mesh for the leader process.
                         let transport = TransportMesh {
                             mux_writers,
@@ -865,7 +900,6 @@ impl CustomScan for JoinScan {
                         // SERIALIZATION ROUNDTRIP: Serialize and deserialize the plan on the leader
                         // NOW that the mesh is registered. This ensures that the leader's stream
                         // sources are registered in the registry exactly like the workers' sources.
-                        let codec = PgSearchExtensionCodec::default();
                         let plan_bytes = physical_plan_to_bytes_with_extension_codec(plan, &codec)
                             .expect("Failed to serialize physical plan on leader");
                         let plan = physical_plan_from_bytes_with_extension_codec(

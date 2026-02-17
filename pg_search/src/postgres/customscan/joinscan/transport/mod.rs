@@ -88,23 +88,35 @@ pub use shmem::{
 };
 
 /// Control messages sent from Reader to Writer.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ControlMessage {
     /// Request the writer to start producing data for this stream.
     StartStream(PhysicalStreamId),
     /// Request the writer to stop producing data.
     CancelStream(PhysicalStreamId),
+    /// Broadcast the physical plan to all workers (Leader -> Worker).
+    /// The payload is the serialized physical plan bytes.
+    BroadcastPlan(Vec<u8>),
 }
 
 impl ControlMessage {
     pub fn try_from_frame(msg_type: u8, payload: &[u8]) -> Option<Self> {
-        if payload.len() != 4 {
-            return None;
-        }
-        let stream_id = PhysicalStreamId(u32::from_le_bytes(payload.try_into().unwrap()));
         match msg_type {
-            0 => Some(ControlMessage::StartStream(stream_id)),
-            1 => Some(ControlMessage::CancelStream(stream_id)),
+            0 => {
+                if payload.len() != 4 {
+                    return None;
+                }
+                let stream_id = PhysicalStreamId(u32::from_le_bytes(payload.try_into().unwrap()));
+                Some(ControlMessage::StartStream(stream_id))
+            }
+            1 => {
+                if payload.len() != 4 {
+                    return None;
+                }
+                let stream_id = PhysicalStreamId(u32::from_le_bytes(payload.try_into().unwrap()));
+                Some(ControlMessage::CancelStream(stream_id))
+            }
+            128 => Some(ControlMessage::BroadcastPlan(payload.to_vec())),
             _ => None,
         }
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771360269999,
+  "lastUpdate": 1771360319978,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1070,6 +1070,78 @@ window.BENCHMARK_DATA = {
             "value": 95.7079019072967,
             "unit": "median tps",
             "extra": "avg tps: 112.09010852347059, max tps: 281.85423925361874, count: 55173"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8208003e39fa852eb620d7d2165c65377749a882",
+          "message": "fix: unit test flake (#4187)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSometimes our `parallel_build_large` test creates 1 extra segment and\nthat's fine\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:40-05:00",
+          "tree_id": "c8571230dc18809896363e68b9c93e2af143f079",
+          "url": "https://github.com/paradedb/paradedb/commit/8208003e39fa852eb620d7d2165c65377749a882"
+        },
+        "date": 1771360316065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 126.94854427077827,
+            "unit": "median tps",
+            "extra": "avg tps: 126.68881868282875, max tps: 139.33023500045422, count: 55113"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3015.382343217082,
+            "unit": "median tps",
+            "extra": "avg tps: 3005.3853013106686, max tps: 3030.1600639221783, count: 55113"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 485.85447301247456,
+            "unit": "median tps",
+            "extra": "avg tps: 484.05988600679655, max tps: 588.3877124934644, count: 55113"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3016.129870120407,
+            "unit": "median tps",
+            "extra": "avg tps: 3035.8742628545024, max tps: 3102.219965524166, count: 110226"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 558.9048842528009,
+            "unit": "median tps",
+            "extra": "avg tps: 557.5230762005936, max tps: 643.9585826042292, count: 55113"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 539.5604429302005,
+            "unit": "median tps",
+            "extra": "avg tps: 538.1973761116295, max tps: 633.1394992389487, count: 55113"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1966.758103466418,
+            "unit": "median tps",
+            "extra": "avg tps: 1948.2535544769235, max tps: 1970.2912440138027, count: 55113"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 62.30635013771768,
+            "unit": "median tps",
+            "extra": "avg tps: 92.25252654532463, max tps: 332.0315703585855, count: 55113"
           }
         ]
       }

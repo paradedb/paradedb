@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771361224770,
+  "lastUpdate": 1771361229887,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4616,6 +4616,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.3209725807577, max segment_count: 129.0, count: 57332"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771361225833,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.220986013100745, max cpu: 42.857143, count: 57330"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.7254097712803, max mem: 237.34765625, count: 57330"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.46667174853727, max cpu: 33.366436, count: 57330"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.36223822060876, max mem: 175.828125, count: 57330"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34090,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33417.83169370312, max block_count: 36247.0, count: 57330"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 80.89349380777952, max segment_count: 130.0, count: 57330"
           }
         ]
       }

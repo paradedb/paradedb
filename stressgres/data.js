@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771361287402,
+  "lastUpdate": 1771362180638,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5442,6 +5442,54 @@ window.BENCHMARK_DATA = {
             "value": 5.197822330278597,
             "unit": "median tps",
             "extra": "avg tps: 5.267973520115695, max tps: 7.408657110664622, count: 56022"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771362176645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1125.5782876568926,
+            "unit": "median tps",
+            "extra": "avg tps: 1131.0064476230075, max tps: 1182.3918020985197, count: 56704"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1197.242703993857,
+            "unit": "median tps",
+            "extra": "avg tps: 1198.5296414303784, max tps: 1299.2971415340312, count: 56704"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1894.222913056845,
+            "unit": "median tps",
+            "extra": "avg tps: 1872.2715027265667, max tps: 2049.9312519602663, count: 56704"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.486503921117421,
+            "unit": "median tps",
+            "extra": "avg tps: 5.495287855399114, max tps: 6.689867338442183, count: 56704"
           }
         ]
       }

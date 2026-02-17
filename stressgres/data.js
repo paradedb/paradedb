@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771361282396,
+  "lastUpdate": 1771361287402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4712,6 +4712,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.89349380777952, max segment_count: 130.0, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8208003e39fa852eb620d7d2165c65377749a882",
+          "message": "fix: unit test flake (#4187)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSometimes our `parallel_build_large` test creates 1 extra segment and\nthat's fine\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:40-05:00",
+          "tree_id": "c8571230dc18809896363e68b9c93e2af143f079",
+          "url": "https://github.com/paradedb/paradedb/commit/8208003e39fa852eb620d7d2165c65377749a882"
+        },
+        "date": 1771361283439,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.143684,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.965621281880527, max cpu: 42.64561, count: 57329"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.69640453838807, max mem: 237.32421875, count: 57329"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.483249410099408, max cpu: 33.20158, count: 57329"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.26723059010274, max mem: 176.14453125, count: 57329"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33929,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33414.96089239303, max block_count: 35999.0, count: 57329"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.2101903050812, max segment_count: 128.0, count: 57329"
           }
         ]
       }

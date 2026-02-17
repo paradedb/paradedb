@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771363222149,
+  "lastUpdate": 1771363472686,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1142,6 +1142,78 @@ window.BENCHMARK_DATA = {
             "value": 62.30635013771768,
             "unit": "median tps",
             "extra": "avg tps: 92.25252654532463, max tps: 332.0315703585855, count: 55113"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "santoshakil@users.noreply.github.com",
+            "name": "Santo Shakil",
+            "username": "santoshakil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4718d76c584014e1002ffe5affe762ed96dd4bf5",
+          "message": "fix: prevent silent date/timestamp overflow in Tantivy DateTime conversion (#4156)\n\n## Summary\n\nFixes #3544.\n\nTantivy stores DateTime as i64 nanoseconds, limiting the representable\nrange to approximately year 1678–2262. Dates outside this range caused:\n\n- **Silent data corruption** (e.g. year 0001): row indexed with garbage\nnanos via `as i64` truncation from i128, appears to succeed but returns\n0 search results\n- **Cryptic error** (e.g. year 57439): `time` crate rejects the value\nwith an opaque `ComponentRange` error\n\nThree overflow paths existed:\n1. **Date path** (`types.rs`):\n`time::OffsetDateTime::unix_timestamp_nanos()` returns i128, cast to i64\nwith `as` silently truncates\n2. **Timestamp path** (`types.rs`): Tantivy's `from_timestamp_micros()`\ndoes unchecked `micros * 1_000` internally\n3. **Query path** (`utils.rs`): All 5 date/time branches in\n`convert_pg_date_string` used unchecked `from_timestamp_micros()`\n\n### Changes\n\n- Add `micros_to_tantivy_datetime()` helper in `datetime.rs` using\n`checked_mul(1_000)` to detect overflow\n- Date path: replace `time::OffsetDateTime` intermediary with direct\n`checked_mul(1_000_000_000)` on POSIX seconds (faster — removes i128\nroundtrip)\n- Timestamp path: replace `chrono::DateTime` roundtrip with direct\n`micros_to_tantivy_datetime()` (faster — removes chrono dependency in\nhot path)\n- Query path: update all 5 branches in `convert_pg_date_string` to use\nthe checked helper\n- Out-of-range dates now fail early with clear error messages\n\n## Test plan\n\n- [x] 3 existing datetime tests pass (microsecond, millisecond, second\nprecision)\n- [x] New: wide-range dates (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: wide-range timestamps (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: year 57439 date reports clear overflow error at index\ncreation\n- [x] New: year 0001 date reports clear overflow error at index creation\n(was silently corrupted before)\n- [x] New: year 57439 timestamp reports clear overflow error\n- [x] New: year 0001 timestamp reports clear overflow error\n- [x] Before/after live testing confirms year 0001 was silently\ncorrupted (indexed but 0 search results) — now fails with clear error",
+          "timestamp": "2026-02-17T13:13:29-08:00",
+          "tree_id": "376e0254a8b019fc2e74560a1b4a8b3b775618e8",
+          "url": "https://github.com/paradedb/paradedb/commit/4718d76c584014e1002ffe5affe762ed96dd4bf5"
+        },
+        "date": 1771363468701,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.24150486513676,
+            "unit": "median tps",
+            "extra": "avg tps: 128.36979516620246, max tps: 135.43079238045942, count: 2749"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2824.3604577380065,
+            "unit": "median tps",
+            "extra": "avg tps: 2808.376439307678, max tps: 2942.234024610077, count: 2749"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 493.9264010806846,
+            "unit": "median tps",
+            "extra": "avg tps: 492.226959256125, max tps: 544.6303994171521, count: 2749"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2953.8604631538183,
+            "unit": "median tps",
+            "extra": "avg tps: 2943.4982097283337, max tps: 3018.1331458305126, count: 5498"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 544.8434827562784,
+            "unit": "median tps",
+            "extra": "avg tps: 543.5398427380561, max tps: 586.7133362808482, count: 2749"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 574.8869193336625,
+            "unit": "median tps",
+            "extra": "avg tps: 571.086611235225, max tps: 682.8553798841805, count: 2749"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1866.7880440098643,
+            "unit": "median tps",
+            "extra": "avg tps: 1851.5453235829004, max tps: 1900.762246445643, count: 2749"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 278.0316361077462,
+            "unit": "median tps",
+            "extra": "avg tps: 264.73642198809125, max tps: 344.8209870466272, count: 2749"
           }
         ]
       }

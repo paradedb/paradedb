@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771362180638,
+  "lastUpdate": 1771362185781,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6916,6 +6916,108 @@ window.BENCHMARK_DATA = {
             "value": 162.7265625,
             "unit": "median mem",
             "extra": "avg mem: 180.84910545745421, max mem: 223.15625, count: 56022"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771362181761,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07683761286681716, max background_merging: 2.0, count: 56704"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.762156647115266, max cpu: 9.542743, count: 56704"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.350989692636322, max mem: 26.36328125, count: 56704"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.869370406266048, max cpu: 14.145383, count: 56704"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.3452730544803, max mem: 168.796875, count: 56704"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51444,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51309.83013544018, max block_count: 51444.0, count: 56704"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.4538480530474, max segment_count: 56.0, count: 56704"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.554334347194966, max cpu: 9.448819, count: 56704"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 124.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.9474069840752, max mem: 138.53125, count: 56704"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.773487469413058, max cpu: 9.628887, count: 56704"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.2918841704289, max mem: 168.41796875, count: 56704"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.552504,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.96703013551978, max cpu: 33.7011, count: 56704"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.51507492582093, max mem: 222.93359375, count: 56704"
           }
         ]
       }

@@ -111,7 +111,7 @@ struct InnerSegmentComponentWriter {
 ///
 /// During unwind (e.g. PostgreSQL ERROR translated to Rust panic), dropping `BufWriter`
 /// may flush buffered bytes and re-enter PostgreSQL buffer APIs, causing a second panic
-/// in cleanup. We avoid that by leaking the wrapped `BufWriter` only on panic.
+/// in cleanup.
 struct PanicSafeBufWriter<W: Write> {
     inner: Option<BufWriter<W>>,
 }
@@ -134,10 +134,17 @@ impl<W: Write> Write for PanicSafeBufWriter<W> {
     }
 
     fn flush(&mut self) -> Result<()> {
-        if std::thread::panicking() {
-            return Ok(());
-        }
         self.inner.as_mut().unwrap().flush()
+    }
+}
+
+impl<W: Write> Drop for PanicSafeBufWriter<W> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            if let Some(buffer) = self.inner.take() {
+                std::mem::forget(buffer);
+            }
+        }
     }
 }
 

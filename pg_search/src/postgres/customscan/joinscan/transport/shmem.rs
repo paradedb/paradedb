@@ -23,9 +23,9 @@
 //! 1. **Multiplexing**: Multiple logical streams can share a single physical ring buffer
 //!    via a simple framing protocol (`[stream_id: u32][len: u32][payload]`).
 //! 2. **Signaling**: Uses Unix Domain Sockets (`SignalBridge`) for async waking of Tokio tasks.
-//! 3. **Stream Adapters**: Provides a `std::io::Write` adapter (`DsmStreamWriterAdapter`)
-//!    and a direct demultiplexing reader (`MultiplexedDsmReader`) for easy integration
-//!    with higher-level protocols (like Arrow IPC).
+//! 3. **Stream Adapters**: Provides a direct demultiplexing reader (`MultiplexedDsmReader`)
+//!    optimized for Zero-Copy reads (via `ShmLease`), and a legacy `std::io::Write` adapter
+//!    (`DsmStreamWriterAdapter`) for testing.
 
 use crate::api::{HashMap, HashSet};
 use arrow_buffer::Buffer;
@@ -853,44 +853,6 @@ impl MultiplexedDsmWriter {
     }
 }
 
-/// An adapter for a specific logical stream in a multiplexed DSM writer.
-#[cfg(any(test, feature = "pg_test"))]
-pub struct DsmStreamWriterAdapter {
-    multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
-    pub stream_id: PhysicalStreamId,
-    buffer: Vec<u8>,
-}
-
-impl DsmStreamWriterAdapter {
-    pub fn new(multiplexer: Arc<Mutex<MultiplexedDsmWriter>>, stream_id: PhysicalStreamId) -> Self {
-        Self {
-            multiplexer,
-            stream_id,
-            buffer: Vec::new(),
-        }
-    }
-
-    pub fn close_stream(&self) -> std::io::Result<()> {
-        self.multiplexer.lock().close_stream(self.stream_id)
-    }
-}
-
-impl std::io::Write for DsmStreamWriterAdapter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.buffer.extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        if !self.buffer.is_empty() {
-            let mut mux = self.multiplexer.lock();
-            mux.write_message(self.stream_id, &self.buffer)?;
-            self.buffer.clear();
-        }
-        Ok(())
-    }
-}
-
 /// A bridge between the Shared Memory Ring Buffer and the `std::io::Read` trait.
 struct DsmReadAdapter {
     header: *mut RingBufferHeader,
@@ -1088,6 +1050,11 @@ impl DsmReclaimer {
     }
 }
 
+/// A lease representing a pinned region of shared memory.
+///
+/// This struct implements `Drop` to automatically reclaim the memory in the
+/// underlying `DsmReclaimer` when the lease (and any Arrow Buffers wrapping it)
+/// is destroyed.
 pub struct ShmLease {
     offset: u64,
     len: u64,
@@ -1332,7 +1299,7 @@ impl MultiplexedDsmReader {
             // Read payload
             if let Some((_, ref mut payload, msg_len)) = self.partial_payload {
                 let padding = (8 - (msg_len % 8)) % 8;
-                let total_len = msg_len + padding as usize;
+                let total_len = msg_len + padding;
 
                 let current_len = payload.len();
                 if current_len < total_len {
@@ -1474,7 +1441,6 @@ pub mod test_utils {
 mod tests {
     use super::test_utils::TestBuffer;
     use super::*;
-    use std::io::Write;
     use std::sync::Arc;
 
     fn create_dummy_bridge() -> Arc<SignalBridge> {
@@ -1498,11 +1464,11 @@ mod tests {
             ParticipantId(0),
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
-
         let payload = b"Hello World";
-        writer.write_all(payload).unwrap();
-        writer.flush().unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), payload)
+            .unwrap();
 
         let msg = reader_mux
             .lock()
@@ -1529,15 +1495,18 @@ mod tests {
             ParticipantId(0),
         )));
 
-        let mut w1 = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
-        let mut w2 = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(2));
-
-        w1.write_all(b"Stream1-A").unwrap();
-        w1.flush().unwrap();
-        w2.write_all(b"Stream2-A").unwrap();
-        w2.flush().unwrap();
-        w1.write_all(b"Stream1-B").unwrap();
-        w1.flush().unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), b"Stream1-A")
+            .unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(2), b"Stream2-A")
+            .unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), b"Stream1-B")
+            .unwrap();
 
         // Read Stream 1
         let msg = reader_mux
@@ -1582,15 +1551,15 @@ mod tests {
             ParticipantId(0),
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
-
         // Frame overhead is 8 bytes (4 stream_id + 4 len).
         // Max payload in one message is 32 - 8 = 24 bytes (but limited by available space check logic)
 
         // Write some initial data to advance the pointer
         let msg1 = vec![1u8; 10];
-        writer.write_all(&msg1).unwrap();
-        writer.flush().unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), &msg1)
+            .unwrap();
 
         // Read it back to clear space but advance read_pos
         let msg = reader_mux
@@ -1611,8 +1580,10 @@ mod tests {
         // Should wrap.
 
         let msg2 = vec![2u8; 20];
-        writer.write_all(&msg2).unwrap();
-        writer.flush().unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), &msg2)
+            .unwrap();
 
         let msg = reader_mux
             .lock()
@@ -1639,19 +1610,18 @@ mod tests {
             ParticipantId(0),
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
-
         // Frame overhead 8 bytes.
         // Write 40 bytes payload. Total 48.
         let msg1 = vec![1u8; 40];
-        writer.write_all(&msg1).unwrap();
-        writer.flush().unwrap(); // Success. 2 bytes left.
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), &msg1)
+            .unwrap();
 
         // Try to write another message. even small one.
         // Overhead 8 bytes -> requires 8 bytes at least.
         let msg2 = vec![2u8; 1];
-        writer.write_all(&msg2).unwrap();
-        let res = writer.flush();
+        let res = writer_mux.lock().write_message(PhysicalStreamId(1), &msg2);
 
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().kind(), ErrorKind::WouldBlock);
@@ -1665,10 +1635,11 @@ mod tests {
         assert!(!msg.is_empty());
         drop(msg); // Drop lease to free space!
 
-        // Now flush should succeed (retry the write logic effectively)
-        // Note: DsmStreamWriterAdapter buffers internally.
-        // When flush failed, the buffer was not cleared.
-        writer.flush().unwrap();
+        // Now write should succeed
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), &msg2)
+            .unwrap();
 
         let msg = reader_mux
             .lock()
@@ -1689,11 +1660,8 @@ mod tests {
             ParticipantId(1),
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux, PhysicalStreamId(1));
-
         let msg = vec![0u8; 200];
-        writer.write_all(&msg).unwrap();
-        let res = writer.flush();
+        let res = writer_mux.lock().write_message(PhysicalStreamId(1), &msg);
 
         assert!(res.is_err());
         // Custom error message check
@@ -1720,10 +1688,10 @@ mod tests {
             ParticipantId(0),
         )));
 
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
-
-        writer.write_all(b"data").unwrap();
-        writer.flush().unwrap();
+        writer_mux
+            .lock()
+            .write_message(PhysicalStreamId(1), b"data")
+            .unwrap();
 
         writer_mux.lock().finish().unwrap();
 
@@ -2007,16 +1975,13 @@ mod tests {
             bridge.clone(),
             ParticipantId(1), // Remote is worker (1)
         )));
-        let mut writer = DsmStreamWriterAdapter::new(writer_mux.clone(), PhysicalStreamId(1));
-
         let msg = vec![1u8; msg_size];
 
         runtime.block_on(async {
             for _ in 0..num_messages {
-                writer.write_all(&msg).unwrap();
                 futures::future::poll_fn(|cx| {
                     bridge.register_waker(cx.waker().clone(), None);
-                    match writer.flush() {
+                    match writer_mux.lock().write_message(PhysicalStreamId(1), &msg) {
                         Ok(_) => Poll::Ready(Ok(())),
                         Err(e) if e.kind() == ErrorKind::WouldBlock => Poll::Pending,
                         Err(e) => Poll::Ready(Err(e)),

@@ -39,10 +39,13 @@
 //!
 //! 3.  **Adaptation Layer (`arrow.rs`)**:
 //!     *   Adapts the byte-oriented `shmem` streams to Arrow IPC.
-//!     *   Provides `DsmWriter` (for `StreamWriter`) and `dsm_reader`
-//!         (for `StreamDecoder`).
-//!     *   Handles "double-buffering" to bridge the gap between synchronous `std::io::Write`
-//!         (Arrow) and non-blocking shared memory.
+//!     *   Provides `DsmWriter` (using `IpcDataGenerator` for 1-copy writes) and `dsm_reader`
+//!         (supporting Zero-Copy reads).
+//!     *   Implements optimal memory usage strategies:
+//!         1.  **1-Copy Write**: Serializes batches directly to a local buffer before flushing
+//!             to shared memory, avoiding intermediate Arrow IPC buffers.
+//!         2.  **Zero-Copy Read**: When possible, maps shared memory regions directly to Arrow
+//!             `Buffer`s, avoiding copies on the consumer side.
 //!
 //! ## Key Concepts
 //!

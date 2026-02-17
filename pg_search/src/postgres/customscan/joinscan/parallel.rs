@@ -369,18 +369,17 @@ pub fn launch_join_workers(
     leader_plan: Arc<dyn ExecutionPlan>,
     nworkers: usize,
     max_memory: usize,
-    leader_participation: bool,
+    _leader_participation: bool,
 ) -> Option<LaunchedJoinWorkers> {
     pgrx::warning!("launch_join_workers: starting with {} workers", nworkers);
     if nworkers == 0 {
         return None;
     }
 
-    let total_participants = if leader_participation {
-        nworkers + 1
-    } else {
-        nworkers
-    };
+    // In JoinScan, the leader ALWAYS participates in the mesh as the Consumer/Gather node (Participant 0),
+    // regardless of whether it also executes a worker slice of the plan.
+    // Therefore, we must ensure total_participants includes the leader, and workers are offset by 1.
+    let total_participants = nworkers + 1;
 
     let codec = PgSearchExtensionCodec::default();
     let leader_plan_bytes =
@@ -409,7 +408,9 @@ pub fn launch_join_workers(
         max_memory,
         nworkers,
         total_participants,
-        leader_participation,
+        // Force true so workers use to_participant_index(true) -> worker_idx + 1
+        // This reserves ParticipantId(0) for the Leader.
+        leader_participation: true,
         session_id: *session_id.as_bytes(),
         region_size,
         ring_buffer_size,
@@ -445,7 +446,7 @@ pub fn launch_join_workers(
         16384
     ) {
         pgrx::warning!("launch_join_workers: Parallel process launched");
-        let nlaunched = launched.launched_workers() + if leader_participation { 1 } else { 0 };
+        let nlaunched = launched.launched_workers() + 1;
 
         // Signal readiness and wait for workers
         {

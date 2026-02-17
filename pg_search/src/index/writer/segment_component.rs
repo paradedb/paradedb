@@ -178,6 +178,7 @@ mod tests {
 
     #[pg_test]
     #[should_panic(expected = "no unpinned buffers available")]
+    #[ignore = "must be run in isolation because it intentionally starves the buffer cache"]
     fn writer_does_not_double_panic() {
         Spi::run("DROP TABLE IF EXISTS segment_component_drop_guard;").unwrap();
         Spi::run("CREATE TABLE segment_component_drop_guard (id SERIAL PRIMARY KEY, body TEXT);")

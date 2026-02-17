@@ -29,9 +29,10 @@
 
 use crate::api::{HashMap, HashSet};
 use arrow_buffer::Buffer;
+use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Write};
 use std::os::unix::net::UnixStream;
 use std::panic::RefUnwindSafe;
 use std::ptr::NonNull;
@@ -623,10 +624,6 @@ pub struct MultiplexedDsmWriter {
     bridge: Arc<SignalBridge>,
     /// Index of the remote participant (reader).
     remote_id: ParticipantId,
-    /// Partial header buffer for stateful control message parsing
-    control_partial_header: Vec<u8>,
-    /// Partial payload state: (msg_type, buffer, expected_len)
-    control_partial_payload: Option<(u8, Vec<u8>, usize)>,
 }
 
 unsafe impl Send for MultiplexedDsmWriter {}
@@ -741,8 +738,6 @@ impl MultiplexedDsmWriter {
             control_reader,
             bridge,
             remote_id,
-            control_partial_header: Vec::with_capacity(5),
-            control_partial_payload: None,
         }
     }
 
@@ -750,92 +745,35 @@ impl MultiplexedDsmWriter {
     /// Returns a vector of (message_type, payload).
     pub fn read_control_frames(&mut self) -> ControlFrames {
         let mut frames = Vec::new();
-        if let Some(reader) = &mut self.control_reader {
-            loop {
-                // If we are waiting for payload
-                if let Some((msg_type, ref mut buffer, expected_len)) = self.control_partial_payload
-                {
-                    let current_len = buffer.len();
-                    let needed = expected_len - current_len;
-                    let mut chunk = vec![0u8; needed];
+        if let Some(adapter) = &mut self.control_reader {
+            let mut reader = adapter.as_peekable();
+            while let Some(type_cow) = reader.try_read_slice(1) {
+                let msg_type = type_cow[0];
 
-                    match reader.read(&mut chunk) {
-                        Ok(n) => {
-                            if n > 0 {
-                                buffer.extend_from_slice(&chunk[0..n]);
-                            }
-                            if buffer.len() == expected_len {
-                                // Full message received
-                                frames.push((
-                                    msg_type,
-                                    self.control_partial_payload.take().unwrap().1,
-                                ));
-                            } else {
-                                // Partial read, break loop (wait for more data)
-                                break;
-                            }
-                        }
-                        Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                        Err(_) => break, // Error or EOF?
-                    }
-                    continue; // Check if more messages available
-                }
-
-                // If we are reading header
-                // Type byte
-                if self.control_partial_header.is_empty() {
-                    let mut type_buf = [0u8; 1];
-                    match reader.read(&mut type_buf) {
-                        Ok(1) => self.control_partial_header.push(type_buf[0]),
-                        Ok(_) => break,  // EOF
-                        Err(_) => break, // WouldBlock
-                    }
-                }
-
-                let msg_type = self.control_partial_header[0];
-                let is_variable = msg_type >= 128;
-
-                // Read rest of header (length prefix for variable, or nothing for fixed)
-                if is_variable {
-                    // Need 4 bytes length
-                    let current_len = self.control_partial_header.len();
-                    if current_len < 5 {
-                        let needed = 5 - current_len;
-                        let mut chunk = vec![0u8; needed];
-                        match reader.read(&mut chunk) {
-                            Ok(n) => {
-                                if n > 0 {
-                                    self.control_partial_header.extend_from_slice(&chunk[0..n]);
-                                }
-                                if self.control_partial_header.len() < 5 {
-                                    break; // Partial header
-                                }
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                }
-
-                // Header complete
-                if is_variable {
-                    let len_bytes: [u8; 4] = self.control_partial_header[1..5].try_into().unwrap();
-                    let payload_len = u32::from_le_bytes(len_bytes) as usize;
-
-                    // Reset header buffer
-                    self.control_partial_header.clear();
-
-                    // Setup payload state
-                    self.control_partial_payload =
-                        Some((msg_type, Vec::with_capacity(payload_len), payload_len));
+                // 2. Determine Payload Length
+                let payload_len = if msg_type >= 128 {
+                    // Variable Frame: [len: u32]
+                    let len_cow = match reader.try_read_slice(4) {
+                        Some(cow) => cow,
+                        None => break,
+                    };
+                    u32::from_le_bytes(len_cow.as_ref().try_into().unwrap()) as usize
                 } else {
-                    // Fixed length (4 bytes payload)
-                    // We treat fixed payload as "payload state" too for simplicity
-                    // Reset header buffer
-                    self.control_partial_header.clear();
+                    4 // Fixed size for legacy messages
+                };
 
-                    self.control_partial_payload = Some((msg_type, Vec::with_capacity(4), 4));
-                }
+                // 3. Try peek Payload
+                let payload_cow = match reader.try_read_slice(payload_len) {
+                    Some(cow) => cow,
+                    None => break,
+                };
+
+                // 4. Success!
+                // We clone to owning Vec here because the frame needs to outlive the reader transaction/lock.
+                frames.push((msg_type, payload_cow.into_owned()));
+                reader.checkpoint();
             }
+            reader.commit();
         }
         frames
     }
@@ -945,6 +883,110 @@ impl MultiplexedDsmWriter {
     }
 }
 
+/// A stateful reader that allows peeking into the ring buffer without consuming data until committed.
+struct DsmPeekableReader<'a> {
+    header: &'a mut RingBufferHeader,
+    data: *const u8,
+    capacity: usize,
+
+    // Snapshot of the shared state
+    start_pos: u64, // The committed read_pos when transaction started
+    limit_pos: u64, // The write_pos (end of valid data)
+
+    // Local traversal state
+    cursor_offset: usize,    // Bytes peeked so far relative to start_pos
+    committed_offset: usize, // Bytes marked as successfully parsed
+}
+
+impl<'a> DsmPeekableReader<'a> {
+    /// Starts a read transaction by snapshotting the current read/write pointers.
+    fn begin(header: &'a mut RingBufferHeader, data: *const u8, capacity: usize) -> Self {
+        let start_pos = header.read_pos.load(Ordering::Acquire);
+        let limit_pos = header.write_pos.load(Ordering::Acquire);
+
+        Self {
+            header,
+            data,
+            capacity,
+            start_pos,
+            limit_pos,
+            cursor_offset: 0,
+            committed_offset: 0,
+        }
+    }
+
+    /// Returns the number of bytes available to be peeked.
+    fn available(&self) -> usize {
+        // limit_pos - (start_pos + cursor_offset)
+        let consumed = self.start_pos + self.cursor_offset as u64;
+        self.limit_pos.wrapping_sub(consumed) as usize
+    }
+
+    /// Attempts to retrieve a view of the next `len` bytes from the current cursor position.
+    ///
+    /// - **Contiguous Case:** Returns `Cow::Borrowed(&[u8])` pointing directly into shared memory.
+    /// - **Wrap-around Case:** Returns `Cow::Owned(Vec<u8>)` containing a copy of the split data.
+    /// - **Insufficient Data:** Returns `None`.
+    ///
+    /// Advances the local cursor on success.
+    ///
+    /// # Future Optimization
+    /// TODO: Implement "Magic Ring Buffer" pattern (Virtual Memory Mirroring).
+    /// By mapping the same physical memory twice adjacently (A | A), we can eliminate the wrap-around
+    /// edge case entirely. This would allow us to always return `&[u8]` (Zero-Copy) even for messages
+    /// that cross the physical buffer boundary.
+    /// Reference: https://fgiesen.wordpress.com/2012/07/21/the-magic-ring-buffer/
+    fn try_read_slice(&mut self, len: usize) -> Option<Cow<'a, [u8]>> {
+        if self.available() < len {
+            return None;
+        }
+
+        // Calculate physical offset
+        let offset = (self.start_pos + self.cursor_offset as u64) % self.capacity as u64;
+        let offset = offset as usize;
+
+        let result = if offset + len <= self.capacity {
+            // Contiguous: Return direct reference
+            unsafe {
+                let slice = std::slice::from_raw_parts(self.data.add(offset), len);
+                Cow::Borrowed(slice)
+            }
+        } else {
+            // Wrapped: Must copy to contiguous buffer
+            let mut buf = vec![0u8; len];
+            let first_part = self.capacity - offset;
+            let second_part = len - first_part;
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.data.add(offset), buf.as_mut_ptr(), first_part);
+                std::ptr::copy_nonoverlapping(
+                    self.data,
+                    buf.as_mut_ptr().add(first_part),
+                    second_part,
+                );
+            }
+            Cow::Owned(buf)
+        };
+
+        self.cursor_offset += len;
+        Some(result)
+    }
+
+    /// Marks the current cursor position as a valid commit point.
+    /// If subsequent reads fail, we can still commit up to this point.
+    fn checkpoint(&mut self) {
+        self.committed_offset = self.cursor_offset;
+    }
+
+    /// Commits the consumed bytes to the shared ring buffer header.
+    fn commit(self) {
+        if self.committed_offset > 0 {
+            self.header
+                .read_pos
+                .fetch_add(self.committed_offset as u64, Ordering::Release);
+        }
+    }
+}
+
 /// A bridge between the Shared Memory Ring Buffer and the `std::io::Read` trait.
 struct DsmReadAdapter {
     header: *mut RingBufferHeader,
@@ -967,13 +1009,6 @@ impl DsmReadAdapter {
             data,
             data_len,
         }
-    }
-
-    /// Checks if new data is available to be read.
-    fn has_data(&self) -> bool {
-        let write_pos = unsafe { (*self.header).write_pos.load(Ordering::Acquire) };
-        let read_pos = unsafe { (*self.header).read_pos.load(Ordering::Acquire) };
-        write_pos > read_pos
     }
 
     /// Checks if the writer has finished.
@@ -1019,66 +1054,9 @@ impl DsmReadAdapter {
     pub fn memory_region(&self) -> (usize, usize) {
         (self.data as usize, self.data_len)
     }
-}
 
-impl std::io::Read for DsmReadAdapter {
-    /// Reads raw bytes from the DSM ring buffer into the provided buffer.
-    ///
-    /// This implementation handles wrap-around reads and updates the `read_pos`.
-    /// It returns `ErrorKind::WouldBlock` if no data is available.
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        unsafe {
-            if (*self.header).magic != DSM_MAGIC {
-                return Err(std::io::Error::other(format!(
-                    "DsmReadAdapter::read: RingBufferHeader corruption (magic mismatch: {:x})",
-                    (*self.header).magic
-                )));
-            }
-        }
-
-        if !self.has_data() {
-            if self.is_finished() {
-                return Ok(0);
-            }
-            return Err(std::io::Error::from(ErrorKind::WouldBlock));
-        }
-
-        let write_pos = unsafe { (*self.header).write_pos.load(Ordering::Acquire) };
-        let read_pos = unsafe { (*self.header).read_pos.load(Ordering::Acquire) };
-
-        let available = write_pos.wrapping_sub(read_pos) as usize;
-        if available > self.data_len {
-            return Err(std::io::Error::other(format!(
-                "DsmReadAdapter::read: RingBufferHeader corruption (available {} > data_len {})",
-                available, self.data_len
-            )));
-        }
-
-        let to_read = std::cmp::min(buf.len(), available);
-        let offset = (read_pos % self.data_len as u64) as usize;
-
-        unsafe {
-            if offset + to_read <= self.data_len {
-                // Contiguous read.
-                std::ptr::copy_nonoverlapping(self.data.add(offset), buf.as_mut_ptr(), to_read);
-            } else {
-                // Wrap-around read.
-                let first_part = self.data_len - offset;
-                let second_part = to_read - first_part;
-                std::ptr::copy_nonoverlapping(self.data.add(offset), buf.as_mut_ptr(), first_part);
-                std::ptr::copy_nonoverlapping(
-                    self.data,
-                    buf.as_mut_ptr().add(first_part),
-                    second_part,
-                );
-            }
-            // Update read position to free up space in the buffer.
-            (*self.header)
-                .read_pos
-                .fetch_add(to_read as u64, Ordering::Release);
-        }
-
-        Ok(to_read)
+    fn as_peekable(&mut self) -> DsmPeekableReader<'_> {
+        DsmPeekableReader::begin(unsafe { &mut *self.header }, self.data, self.data_len)
     }
 }
 

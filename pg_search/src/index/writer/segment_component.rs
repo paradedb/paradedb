@@ -107,6 +107,19 @@ struct InnerSegmentComponentWriter {
     buffer: Option<BufWriter<LinkedBytesListWriter>>,
 }
 
+// We are intentionally not using impl_safe_drop! here because we want to leak the writer
+// to avoid double panics. Without this, Postgres can error when trying to read a buffer,
+// which gets translated to a Rust panic, and then dropping the writer can trigger a second panic.
+impl Drop for InnerSegmentComponentWriter {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            if let Some(buffer) = self.buffer.take() {
+                std::mem::forget(buffer);
+            }
+        }
+    }
+}
+
 impl InnerSegmentComponentWriter {
     pub unsafe fn new(indexrel: &PgSearchRelation) -> Self {
         let segment_component = LinkedBytesList::create_with_fsm(indexrel);
@@ -150,5 +163,53 @@ impl TerminatingWrite for InnerSegmentComponentWriter {
         buffer.flush()?;
         buffer.into_inner()?.finalize_and_write()?;
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::postgres::storage::buffer::BufferManager;
+    use pgrx::prelude::*;
+    use std::io::Write;
+    use std::path::Path;
+
+    #[pg_test]
+    #[should_panic(expected = "no unpinned buffers available")]
+    fn writer_does_not_double_panic() {
+        Spi::run("DROP TABLE IF EXISTS segment_component_drop_guard;").unwrap();
+        Spi::run("CREATE TABLE segment_component_drop_guard (id SERIAL PRIMARY KEY, body TEXT);")
+            .unwrap();
+        Spi::run(
+            "CREATE INDEX segment_component_drop_guard_idx ON segment_component_drop_guard USING bm25(id, body) WITH (key_field = 'id');",
+        )
+        .unwrap();
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 'segment_component_drop_guard_idx' AND relkind = 'i';",
+        )
+        .unwrap()
+        .expect("index oid should exist");
+
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let mut writer = unsafe {
+            SegmentComponentWriter::new(
+                &indexrel,
+                Path::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.idx"),
+            )
+        };
+        writer
+            .write_all(&vec![7u8; 16 * 1024])
+            .expect("seed write should succeed");
+
+        // Pin newly extended pages while releasing their locks; this targets "no unpinned buffers available"
+        let mut bman = BufferManager::new(&indexrel);
+        let mut pinned = Vec::new();
+        loop {
+            pinned.push(bman.new_buffer().into_immutable_page());
+        }
     }
 }

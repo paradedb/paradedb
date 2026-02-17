@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771360264931,
+  "lastUpdate": 1771360269999,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2904,6 +2904,138 @@ window.BENCHMARK_DATA = {
             "value": 55.296875,
             "unit": "median mem",
             "extra": "avg mem: 54.559063304667525, max mem: 68.03515625, count: 55147"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771360266044,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.104057343985163, max cpu: 27.87996, count: 55173"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.58020418445163, max mem: 73.7265625, count: 55173"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.65334518962783, max cpu: 9.648242, count: 55173"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.56050648358345, max mem: 37.37109375, count: 55173"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.578744639496677, max cpu: 9.266409, count: 55173"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.429817134853096, max mem: 71.828125, count: 55173"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.662460109115927, max cpu: 9.458128, count: 110346"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 48.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 48.58586482377023, max mem: 59.38671875, count: 110346"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.314772642473371, max cpu: 14.501511, count: 55173"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.50078234032045, max mem: 72.5703125, count: 55173"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1758,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1756.618925923912, max block_count: 3097.0, count: 55173"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.760390045855763, max segment_count: 29.0, count: 55173"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3321222327205815, max cpu: 15.047021, count: 55173"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 61.28913216722854, max mem: 72.33984375, count: 55173"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613997813018761, max cpu: 4.7856426, count: 55173"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.43426535907509, max mem: 62.0625, count: 55173"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.81665981896418, max cpu: 4.729064, count: 55173"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.00778233918765, max mem: 65.98828125, count: 55173"
           }
         ]
       }

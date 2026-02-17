@@ -53,6 +53,7 @@ use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::physical_plan::explain::ExplainExec;
 use datafusion::physical_plan::filter::FilterExec;
+use datafusion::physical_plan::joins::{CrossJoinExec, HashJoinExec, NestedLoopJoinExec};
 use datafusion::physical_plan::limit::{GlobalLimitExec, LocalLimitExec};
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
@@ -292,38 +293,56 @@ fn enforce_sanitization_recursive(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dy
         plan.with_new_children(new_children)?
     };
 
-    // 2. Check if THIS node is Unsafe (needs sanitized inputs)
+    // 2. Special handling for Joins that only buffer Left side
+    //
+    // TODO: SortMergeJoinExec could potentially be optimized to only sanitize one side
+    // depending on the JoinType, but for safety (and due to complexity of key duplication buffering),
+    // we currently treat it as unsafe and sanitize both inputs.
+    if plan.as_any().is::<HashJoinExec>()
+        || plan.as_any().is::<CrossJoinExec>()
+        || plan.as_any().is::<NestedLoopJoinExec>()
+    {
+        let children = plan.children();
+        // Left (0) is Build/Buffered -> Sanitize
+        let left = sanitize_input(children[0].clone())?;
+        // Right (1) is Probe/Streaming -> Safe (don't sanitize)
+        let right = children[1].clone();
+        return plan.with_new_children(vec![left, right]);
+    }
+
+    // 3. Default Unsafe Check (needs sanitized inputs)
     if is_unsafe_node(plan.as_ref()) {
         let mut new_inputs = Vec::new();
         for child in plan.children() {
-            // Check if child is DsmExchangeExec. If so, modify it in place.
-            if let Some(exchange) = child.as_any().downcast_ref::<DsmExchangeExec>() {
-                // Optimization: Instead of inserting DsmSanitizeExec, tell DsmExchangeExec to sanitize.
-                let mut new_config = exchange.config.clone();
-                new_config.sanitized = true;
-
-                let new_exchange = DsmExchangeExec::try_new(
-                    exchange.input.clone(),
-                    exchange.producer_partitioning.clone(),
-                    exchange.properties().output_partitioning().clone(),
-                    new_config,
-                )?;
-                new_inputs.push(Arc::new(new_exchange) as Arc<dyn ExecutionPlan>);
-            }
-            // Otherwise, inject DsmSanitizeExec if it comes from DSM and isn't already sanitized.
-            else if subtree_contains_dsm(child.as_ref())
-                && !child.as_any().is::<DsmSanitizeExec>()
-            {
-                new_inputs
-                    .push(Arc::new(DsmSanitizeExec::new(child.clone())) as Arc<dyn ExecutionPlan>);
-            } else {
-                new_inputs.push(child.clone());
-            }
+            new_inputs.push(sanitize_input(child.clone())?);
         }
         return plan.with_new_children(new_inputs);
     }
 
     Ok(plan)
+}
+
+fn sanitize_input(child: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
+    // Check if child is DsmExchangeExec. If so, modify it in place.
+    if let Some(exchange) = child.as_any().downcast_ref::<DsmExchangeExec>() {
+        // Optimization: Instead of inserting DsmSanitizeExec, tell DsmExchangeExec to sanitize.
+        let mut new_config = exchange.config.clone();
+        new_config.sanitized = true;
+
+        let new_exchange = DsmExchangeExec::try_new(
+            exchange.input.clone(),
+            exchange.producer_partitioning.clone(),
+            exchange.properties().output_partitioning().clone(),
+            new_config,
+        )?;
+        Ok(Arc::new(new_exchange) as Arc<dyn ExecutionPlan>)
+    }
+    // Otherwise, inject DsmSanitizeExec if it comes from DSM and isn't already sanitized.
+    else if subtree_contains_dsm(child.as_ref()) && !child.as_any().is::<DsmSanitizeExec>() {
+        Ok(Arc::new(DsmSanitizeExec::new(child.clone())) as Arc<dyn ExecutionPlan>)
+    } else {
+        Ok(child)
+    }
 }
 
 /// Returns true if the node is "Safe" (Streaming), false otherwise.

@@ -52,8 +52,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.name @@@ 'Wireless'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -70,16 +70,17 @@ LIMIT 10;
            :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
            :     DsmExchangeExec(stream_id=2, producer_partitioning=UnknownPartitioning(3), sanitized=true)
            :       SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :           DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :           DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+           :         DsmSanitizeExec
+           :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+           :             DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
+           :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :             DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=false)
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -103,8 +104,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE s.name @@@ 'TechCorp'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -121,16 +122,17 @@ LIMIT 10;
            :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
            :     DsmExchangeExec(stream_id=2, producer_partitioning=UnknownPartitioning(3), sanitized=true)
            :       SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :           DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}}
-           :           DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(25 rows)
+           :         DsmSanitizeExec
+           :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+           :             DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
+           :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}}
+           :             DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=false)
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=2, query="all"
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -154,8 +156,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.name @@@ 'Wireless' AND s.name @@@ 'TechCorp'
 ORDER BY p.id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                   
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
@@ -172,16 +174,17 @@ LIMIT 10;
            :   SortPreservingMergeExec: [id@2 ASC NULLS LAST], fetch=10
            :     DsmExchangeExec(stream_id=2, producer_partitioning=UnknownPartitioning(3), sanitized=true)
            :       SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[true]
-           :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
-           :           DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}}
-           :           DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=true)
-           :             ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :               CooperativeExec
-           :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+           :         DsmSanitizeExec
+           :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4]
+           :             DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
+           :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"TechCorp","lenient":null,"conjunction_mode":null}}}}
+           :             DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 1 }], 3), sanitized=false)
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :                 CooperativeExec
+           :                   PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+(26 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -205,8 +208,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.name @@@ 'Wireless'
 ORDER BY paradedb.score(p.id) DESC, p.id
 LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, s.name, (paradedb.score(p.id))
    ->  Result
@@ -225,16 +228,17 @@ LIMIT 10;
                  :   SortPreservingMergeExec: [score@1 DESC, id@3 ASC NULLS LAST], fetch=10
                  :     DsmExchangeExec(stream_id=2, producer_partitioning=UnknownPartitioning(3), sanitized=true)
                  :       SortExec: TopK(fetch=10), expr=[score@1 DESC, id@3 ASC NULLS LAST], preserve_partitioning=[true]
-                 :         HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
-                 :           DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
-                 :             ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, query="all"
-                 :           DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 2 }], 3), sanitized=true)
-                 :             ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
-(27 rows)
+                 :         DsmSanitizeExec
+                 :           HashJoinExec: mode=Partitioned, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_2@0, score@2, ctid_1@3, id@5]
+                 :             DsmExchangeExec(stream_id=0, producer_partitioning=Hash([Column { name: "id", index: 1 }], 3), sanitized=true)
+                 :               ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
+                 :                 CooperativeExec
+                 :                   PgSearchScan: segments=1, query="all"
+                 :             DsmExchangeExec(stream_id=1, producer_partitioning=Hash([Column { name: "supplier_id", index: 2 }], 3), sanitized=false)
+                 :               ProjectionExec: expr=[pdb.score()@0 as score, ctid@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id]
+                 :                 CooperativeExec
+                 :                   PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}
+(28 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name, paradedb.score(p.id)
 FROM products p

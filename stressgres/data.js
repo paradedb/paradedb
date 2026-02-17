@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771363477713,
+  "lastUpdate": 1771364011868,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10630,6 +10630,54 @@ window.BENCHMARK_DATA = {
             "value": 525.481661448436,
             "unit": "median tps",
             "extra": "avg tps: 496.1203723492174, max tps: 753.6318570771886, count: 107706"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9",
+          "message": "fix: Double panic during `CREATE INDEX` (#4185)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn low memory conditions, it is possible for all buffers in the buffer\ncache to be pinned. This causes Postgres to error, which gets translated\ninto a Rust panic, which can double panic if Tantivy panics when\nunwinding the stack.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:28-05:00",
+          "tree_id": "c38c5115851d7ad6f8e706fc08e67c158e986298",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8ab37db48e4bce6d3e11aa6ed2a317e6f0dc9"
+        },
+        "date": 1771364007825,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 572.1269614242128,
+            "unit": "median tps",
+            "extra": "avg tps: 576.3315107758731, max tps: 706.5050236311438, count: 53899"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 641.4294676431372,
+            "unit": "median tps",
+            "extra": "avg tps: 647.3750234070211, max tps: 866.5647861578078, count: 53899"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.75935766140753,
+            "unit": "median tps",
+            "extra": "avg tps: 84.99492825590818, max tps: 92.46506748144847, count: 53899"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 535.9221998005869,
+            "unit": "median tps",
+            "extra": "avg tps: 495.3973110885705, max tps: 710.2512221526839, count: 107798"
           }
         ]
       }

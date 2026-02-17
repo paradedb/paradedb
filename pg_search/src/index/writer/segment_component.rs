@@ -138,6 +138,8 @@ impl<W: Write> Write for PanicSafeBufWriter<W> {
     }
 }
 
+/// We are intentionally not using impl_safe_drop! here because
+/// we want to skip the `Drop` of the writer entirely on panic
 impl<W: Write> Drop for PanicSafeBufWriter<W> {
     fn drop(&mut self) {
         if std::thread::panicking() {

@@ -957,12 +957,17 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let posix_time = val.to_posix_time();
-        let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
-            .map_err(|err| TantivyValueError::DateOutOfRange(val, err.to_string()))?;
-        let tantivy_date =
-            tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
-        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+        let posix_secs = val.to_posix_time();
+        let nanos = posix_secs.checked_mul(1_000_000_000).ok_or_else(|| {
+            TantivyValueError::DateOutOfRange(
+                val,
+                "date is outside Tantivy DateTime nanosecond range (~year 1678 to ~year 2262)"
+                    .to_string(),
+            )
+        })?;
+        Ok(TantivyValue(OwnedValue::Date(
+            tantivy::DateTime::from_timestamp_nanos(nanos),
+        )))
     }
 }
 
@@ -1022,11 +1027,13 @@ impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
 
     #[allow(static_mut_refs)]
     fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
+        use crate::postgres::datetime::micros_to_tantivy_datetime;
         static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
         let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
-        let dt = chrono::DateTime::from_timestamp_micros(val.into_inner() - *epoch_ts)
-            .expect("postgres Timestamp should be valid DateTime");
-        let tantivy_date = tantivy::DateTime::from_timestamp_micros(dt.timestamp_micros());
+        let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
+            TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
+        )?;
+        let tantivy_date = micros_to_tantivy_datetime(micros)?;
 
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }

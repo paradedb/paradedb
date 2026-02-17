@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771364017007,
+  "lastUpdate": 1771364171586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10678,6 +10678,54 @@ window.BENCHMARK_DATA = {
             "value": 535.9221998005869,
             "unit": "median tps",
             "extra": "avg tps: 495.3973110885705, max tps: 710.2512221526839, count: 107798"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8208003e39fa852eb620d7d2165c65377749a882",
+          "message": "fix: unit test flake (#4187)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSometimes our `parallel_build_large` test creates 1 extra segment and\nthat's fine\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-17T15:11:40-05:00",
+          "tree_id": "c8571230dc18809896363e68b9c93e2af143f079",
+          "url": "https://github.com/paradedb/paradedb/commit/8208003e39fa852eb620d7d2165c65377749a882"
+        },
+        "date": 1771364167645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 604.0703777880296,
+            "unit": "median tps",
+            "extra": "avg tps: 603.388409899161, max tps: 715.7607599797063, count: 53866"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 628.8781145519488,
+            "unit": "median tps",
+            "extra": "avg tps: 629.5668120651922, max tps: 847.3655736391257, count: 53866"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.3270501343484,
+            "unit": "median tps",
+            "extra": "avg tps: 88.2521148555473, max tps: 88.53572064657146, count: 53866"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 529.7699671314482,
+            "unit": "median tps",
+            "extra": "avg tps: 498.2463864285825, max tps: 710.6925223588543, count: 107732"
           }
         ]
       }

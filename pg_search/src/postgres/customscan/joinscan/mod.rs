@@ -180,6 +180,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchExtensionCodec;
+use datafusion::execution::config::SessionConfig;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
@@ -993,9 +994,13 @@ impl CustomScan for JoinScan {
 
                 let memory_pool =
                     Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));
+                // Use a small batch_size so SortMergeJoinExec flushes output
+                // frequently. This allows TopK to update its
+                // DynamicFilterPhysicalExpr between batches, enabling
+                // pre-materialization pruning in downstream PgSearchScan nodes.
                 let task_ctx = Arc::new(
                     TaskContext::default()
-                        .with_session_config(ctx.state().config().clone())
+                        .with_session_config(SessionConfig::new().with_batch_size(256))
                         .with_runtime(Arc::new(
                             RuntimeEnvBuilder::new()
                                 .with_memory_pool(memory_pool)

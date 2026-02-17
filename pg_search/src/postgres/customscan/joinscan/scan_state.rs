@@ -149,9 +149,7 @@ impl CustomScanState for JoinScanState {
 /// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
 /// in a compatible way.
 pub fn create_session_context() -> SessionContext {
-    let mut config = SessionConfig::new()
-        .with_target_partitions(1)
-        .with_batch_size(256);
+    let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer

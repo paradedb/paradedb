@@ -446,6 +446,16 @@ pub fn launch_join_workers(
         16384
     ) {
         pgrx::warning!("launch_join_workers: Parallel process launched");
+
+        if launched.launched_workers() != nworkers {
+            pgrx::warning!(
+                "JoinScan: Requested {} workers, but got {}. Falling back to serial execution.",
+                nworkers,
+                launched.launched_workers()
+            );
+            return None;
+        }
+
         let nlaunched = launched.launched_workers() + 1;
 
         // Signal readiness and wait for workers

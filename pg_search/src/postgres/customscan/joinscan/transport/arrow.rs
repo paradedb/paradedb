@@ -22,48 +22,39 @@
 //!
 //! It builds upon the generic DSM stream abstraction provided by `shmem`.
 
-use std::io::Write;
-use std::sync::Arc;
-
 use arrow_array::RecordBatch;
 use arrow_buffer::Buffer;
 use arrow_ipc::reader::StreamDecoder;
-use arrow_ipc::writer::StreamWriter;
+use arrow_ipc::writer::{
+    CompressionContext, DictionaryTracker, IpcDataGenerator, IpcWriteOptions, StreamWriter,
+};
 use arrow_schema::SchemaRef;
 use async_stream::try_stream;
 use datafusion::common::Result;
 use datafusion::execution::SendableRecordBatchStream;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use parking_lot::Mutex;
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 // Use types from shmem
 use super::shmem::{
-    DsmStreamWriterAdapter, LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter,
-    ParticipantId, PhysicalStreamId,
+    LogicalStreamId, MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, PhysicalStreamId,
 };
 
 /// A writer for a single logical stream within a multiplexed DSM region.
 ///
 /// This writer handles the serialization of Arrow `RecordBatch`es into the Shared Memory Ring Buffer.
-/// It uses a "double-buffering" strategy via `DsmStreamWriterAdapter` to safely handle non-blocking writes
-/// (retries on `WouldBlock`) required by the synchronous `arrow-ipc` API.
-///
-/// # Challenges with Zero-Copy IPC
-///
-/// TODO(perf): Ideally, we would write directly to the ring buffer slots to avoid the memory copy
-/// in `DsmStreamWriterAdapter`. However, this is difficult because:
-/// 1. The `arrow-ipc` `StreamWriter` API is synchronous and blocking (`std::io::Write`).
-/// 2. The Ring Buffer wraps around, requiring split writes (two `memcpy`s) for contiguous data.
-/// 3. We cannot safely yield/await from within `std::io::Write` if the ring buffer is full.
-///
-/// The current approach serializes the entire batch to a `Vec<u8>` first. If the ring buffer
-/// is full, we keep the `Vec<u8>` and retry later, ensuring atomicity and preventing partial
-/// writes that could corrupt the stream if interrupted.
+/// It uses a "1-copy" strategy where batches are serialized into a local `Vec<u8>` (Copy 1)
+/// and then written directly to the Ring Buffer (Copy 2) when space permits.
 pub struct DsmWriter {
-    writer: StreamWriter<DsmStreamWriterAdapter>,
-    /// Tracks whether the *current* batch has been serialized into the adapter's buffer but not yet flushed.
-    /// This prevents duplicating the batch in the buffer if `write_batch` is retried after a `WouldBlock`.
-    current_batch_buffered: bool,
+    multiplexer: Arc<Mutex<MultiplexedDsmWriter>>,
+    stream_id: PhysicalStreamId,
+    generator: IpcDataGenerator,
+    tracker: DictionaryTracker,
+    options: IpcWriteOptions,
+    compression_context: CompressionContext,
+    pending_messages: VecDeque<Vec<u8>>,
 }
 
 unsafe impl Send for DsmWriter {}
@@ -77,75 +68,135 @@ impl DsmWriter {
     ) -> Self {
         // Construct a unique Physical Stream ID for this writer/channel pair.
         let physical_stream_id = PhysicalStreamId::new(logical_stream_id, sender_id);
+        let options = IpcWriteOptions::default();
+        let generator = IpcDataGenerator::default();
+        let tracker = DictionaryTracker::new(false);
+        let compression_context = CompressionContext::default();
+        let mut pending_messages = VecDeque::new();
 
-        let adapter = DsmStreamWriterAdapter::new(multiplexer, physical_stream_id);
-        // This will immediately write the Arrow schema to the ring buffer via the multiplexer.
-        let writer = StreamWriter::try_new(adapter, &schema)
-            .expect("Failed to create Arrow IPC StreamWriter");
-        // Do NOT flush here. The ring buffer might be full (e.g. shared with other streams).
-        // The schema is buffered in the adapter and will be flushed on the first write_batch or finish.
-        // writer.get_mut().flush().unwrap();
+        // Generate Schema message
+        // We use a temporary writer to generate the schema message correctly wrapped
+        let mut schema_buffer = Vec::new();
+        let _writer = StreamWriter::try_new(&mut schema_buffer, &schema)
+            .expect("Failed to create Arrow IPC StreamWriter for schema generation");
+
+        pending_messages.push_back(schema_buffer);
 
         Self {
-            writer,
-            current_batch_buffered: false,
+            multiplexer,
+            stream_id: physical_stream_id,
+            generator,
+            tracker,
+            options,
+            compression_context,
+            pending_messages,
         }
     }
 
     /// Writes a `RecordBatch` to the multiplexed stream.
-    ///
-    /// This method serializes the batch into the logical stream's internal buffer,
-    /// which is then flushed as a framed message into the physical DSM ring buffer.
-    /// If the physical buffer is full, it returns `ErrorKind::WouldBlock`.
-    ///
-    /// # Retry Logic
-    ///
-    /// If this method returns `WouldBlock`, the internal buffer retains the serialized batch (and potentially
-    /// the Schema, if this is the first write). The caller **must retry** calling this method with the
-    /// **same batch**. The `current_batch_buffered` flag ensures that the batch is not re-serialized
-    /// (duplicated) during the retry.
     pub fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        if !self.current_batch_buffered {
-            self.writer.write(batch).map_err(|e| match e {
-                arrow_schema::ArrowError::IoError(_, io_err) => {
-                    datafusion::common::DataFusionError::IoError(io_err)
-                }
-                _ => datafusion::common::DataFusionError::Internal(format!(
-                    "Failed to write batch to IPC: {e}"
-                )),
-            })?;
-            self.current_batch_buffered = true;
+        // 1. Flush any pending messages from previous attempts
+        if let Err(e) = self.flush_pending() {
+            if e.kind() == std::io::ErrorKind::WouldBlock {
+                return Err(datafusion::common::DataFusionError::IoError(e));
+            }
+            return Err(datafusion::common::DataFusionError::IoError(e));
         }
 
-        // Flush after each batch to ensure it's available for reading.
-        self.writer
-            .get_mut()
-            .flush()
-            .map_err(datafusion::common::DataFusionError::IoError)?;
+        // 2. Encode the new batch
+        let (dictionaries, encoded_batch) = self
+            .generator
+            .encode(
+                batch,
+                &mut self.tracker,
+                &self.options,
+                &mut self.compression_context,
+            )
+            .map_err(|e| {
+                datafusion::common::DataFusionError::Internal(format!(
+                    "Failed to encode batch: {e}"
+                ))
+            })?;
 
-        // Flush successful, reset flag for next batch
-        self.current_batch_buffered = false;
+        // 3. Queue dictionary batches
+        for dict_batch in dictionaries {
+            let msg = Self::serialize_message(dict_batch, &self.options);
+            self.pending_messages.push_back(msg);
+        }
+
+        // 4. Queue the record batch
+        let msg = Self::serialize_message(encoded_batch, &self.options);
+        self.pending_messages.push_back(msg);
+
+        // 5. Try to flush immediately
+        self.flush_pending()
+            .map_err(datafusion::common::DataFusionError::IoError)
+    }
+
+    pub fn finish(mut self) -> Result<()> {
+        // Queue Arrow IPC Stream EOS footer
+        const EOS_FOOTER: [u8; 8] = [0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0];
+        self.pending_messages.push_back(EOS_FOOTER.to_vec());
+
+        // Ensure everything is flushed
+        loop {
+            match self.flush_pending() {
+                Ok(_) => {
+                    // If queue is empty, we are done
+                    if self.pending_messages.is_empty() {
+                        break;
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    // In a sync finish, we must spin/wait?
+                    // But DsmWriter is usually driven by an async loop or sync test.
+                    // Ideally we return error and let caller retry, but `finish` signature consumes self.
+                    // For now, let's assume if we are calling finish, we should be able to block or fail.
+                    // Given the existing code didn't handle WouldBlock on finish well (except via flush error),
+                    // we will return the error.
+                    return Err(datafusion::common::DataFusionError::IoError(e));
+                }
+                Err(e) => return Err(datafusion::common::DataFusionError::IoError(e)),
+            }
+        }
+
+        // Send EOS signal
+        self.multiplexer
+            .lock()
+            .close_stream(self.stream_id)
+            .map_err(|e| {
+                datafusion::common::DataFusionError::Internal(format!(
+                    "Failed to close stream: {e}"
+                ))
+            })?;
 
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<()> {
-        self.writer.finish().map_err(|e| {
-            datafusion::common::DataFusionError::Internal(format!(
-                "Failed to finish IPC stream: {e}"
-            ))
-        })?;
-        self.writer.get_mut().flush().map_err(|e| {
-            datafusion::common::DataFusionError::Internal(format!("Failed to flush IPC: {e}"))
-        })?;
-
-        // Send EOS signal (len=0 frame)
-        let inner = self.writer.get_mut();
-        inner.close_stream().map_err(|e| {
-            datafusion::common::DataFusionError::Internal(format!("Failed to close stream: {e}"))
-        })?;
-
+    fn flush_pending(&mut self) -> std::io::Result<()> {
+        let mut mux = self.multiplexer.lock();
+        while let Some(msg) = self.pending_messages.front() {
+            match mux.write_message(self.stream_id, msg) {
+                Ok(_) => {
+                    self.pending_messages.pop_front();
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Err(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
         Ok(())
+    }
+
+    fn serialize_message(
+        encoded: arrow_ipc::writer::EncodedData,
+        options: &IpcWriteOptions,
+    ) -> Vec<u8> {
+        let mut buf = Vec::new();
+        // This helper from arrow_ipc writes: [continuation:4][len:4][flatbuffer][body]
+        arrow_ipc::writer::write_message(&mut buf, encoded, options).unwrap();
+        buf
     }
 }
 

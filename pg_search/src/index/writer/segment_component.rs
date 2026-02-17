@@ -104,7 +104,50 @@ impl TerminatingWrite for SegmentComponentWriter {
 struct InnerSegmentComponentWriter {
     header_blockno: pg_sys::BlockNumber,
     total_bytes: Arc<AtomicUsize>,
-    buffer: Option<BufWriter<LinkedBytesListWriter>>,
+    buffer: Option<PanicSafeBufWriter<LinkedBytesListWriter>>,
+}
+
+/// Wrapper around [`BufWriter`] that skips flush-on-drop while unwinding.
+///
+/// During unwind (e.g. PostgreSQL ERROR translated to Rust panic), dropping `BufWriter`
+/// may flush buffered bytes and re-enter PostgreSQL buffer APIs, causing a second panic
+/// in cleanup.
+struct PanicSafeBufWriter<W: Write> {
+    inner: Option<BufWriter<W>>,
+}
+
+impl<W: Write> PanicSafeBufWriter<W> {
+    fn new(writer: W) -> Self {
+        Self {
+            inner: Some(BufWriter::new(writer)),
+        }
+    }
+
+    fn into_inner(mut self) -> Result<W> {
+        Ok(self.inner.take().unwrap().into_inner()?)
+    }
+}
+
+impl<W: Write> Write for PanicSafeBufWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.inner.as_mut().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        self.inner.as_mut().unwrap().flush()
+    }
+}
+
+/// We are intentionally not using impl_safe_drop! here because
+/// we want to skip the `Drop` of the writer entirely on panic
+impl<W: Write> Drop for PanicSafeBufWriter<W> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            if let Some(buffer) = self.inner.take() {
+                std::mem::forget(buffer);
+            }
+        }
+    }
 }
 
 impl InnerSegmentComponentWriter {
@@ -114,7 +157,7 @@ impl InnerSegmentComponentWriter {
         Self {
             header_blockno: segment_component.header_blockno,
             total_bytes: Default::default(),
-            buffer: Some(BufWriter::new(segment_component.writer())),
+            buffer: Some(PanicSafeBufWriter::new(segment_component.writer())),
         }
     }
 
@@ -150,5 +193,54 @@ impl TerminatingWrite for InnerSegmentComponentWriter {
         buffer.flush()?;
         buffer.into_inner()?.finalize_and_write()?;
         Ok(())
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::postgres::storage::buffer::BufferManager;
+    use pgrx::prelude::*;
+    use std::io::Write;
+    use std::path::Path;
+
+    #[pg_test]
+    #[should_panic(expected = "no unpinned buffers available")]
+    #[ignore = "must be run in isolation because it intentionally starves the buffer cache"]
+    fn writer_does_not_double_panic() {
+        Spi::run("DROP TABLE IF EXISTS segment_component_drop_guard;").unwrap();
+        Spi::run("CREATE TABLE segment_component_drop_guard (id SERIAL PRIMARY KEY, body TEXT);")
+            .unwrap();
+        Spi::run(
+            "CREATE INDEX segment_component_drop_guard_idx ON segment_component_drop_guard USING bm25(id, body) WITH (key_field = 'id');",
+        )
+        .unwrap();
+
+        let index_oid = Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 'segment_component_drop_guard_idx' AND relkind = 'i';",
+        )
+        .unwrap()
+        .expect("index oid should exist");
+
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let mut writer = unsafe {
+            SegmentComponentWriter::new(
+                &indexrel,
+                Path::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.idx"),
+            )
+        };
+        writer
+            .write_all(&vec![7u8; 16 * 1024])
+            .expect("seed write should succeed");
+
+        // Pin newly extended pages while releasing their locks; this targets "no unpinned buffers available"
+        let mut bman = BufferManager::new(&indexrel);
+        let mut pinned = Vec::new();
+        loop {
+            pinned.push(bman.new_buffer().into_immutable_page());
+        }
     }
 }

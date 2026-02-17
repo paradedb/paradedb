@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771363472686,
+  "lastUpdate": 1771363477713,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3312,6 +3312,138 @@ window.BENCHMARK_DATA = {
             "value": 53.78515625,
             "unit": "median mem",
             "extra": "avg mem: 52.764490541024806, max mem: 66.25390625, count: 55113"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "santoshakil@users.noreply.github.com",
+            "name": "Santo Shakil",
+            "username": "santoshakil"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4718d76c584014e1002ffe5affe762ed96dd4bf5",
+          "message": "fix: prevent silent date/timestamp overflow in Tantivy DateTime conversion (#4156)\n\n## Summary\n\nFixes #3544.\n\nTantivy stores DateTime as i64 nanoseconds, limiting the representable\nrange to approximately year 1678–2262. Dates outside this range caused:\n\n- **Silent data corruption** (e.g. year 0001): row indexed with garbage\nnanos via `as i64` truncation from i128, appears to succeed but returns\n0 search results\n- **Cryptic error** (e.g. year 57439): `time` crate rejects the value\nwith an opaque `ComponentRange` error\n\nThree overflow paths existed:\n1. **Date path** (`types.rs`):\n`time::OffsetDateTime::unix_timestamp_nanos()` returns i128, cast to i64\nwith `as` silently truncates\n2. **Timestamp path** (`types.rs`): Tantivy's `from_timestamp_micros()`\ndoes unchecked `micros * 1_000` internally\n3. **Query path** (`utils.rs`): All 5 date/time branches in\n`convert_pg_date_string` used unchecked `from_timestamp_micros()`\n\n### Changes\n\n- Add `micros_to_tantivy_datetime()` helper in `datetime.rs` using\n`checked_mul(1_000)` to detect overflow\n- Date path: replace `time::OffsetDateTime` intermediary with direct\n`checked_mul(1_000_000_000)` on POSIX seconds (faster — removes i128\nroundtrip)\n- Timestamp path: replace `chrono::DateTime` roundtrip with direct\n`micros_to_tantivy_datetime()` (faster — removes chrono dependency in\nhot path)\n- Query path: update all 5 branches in `convert_pg_date_string` to use\nthe checked helper\n- Out-of-range dates now fail early with clear error messages\n\n## Test plan\n\n- [x] 3 existing datetime tests pass (microsecond, millisecond, second\nprecision)\n- [x] New: wide-range dates (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: wide-range timestamps (1700, 1980, 2200) index and search\ncorrectly\n- [x] New: year 57439 date reports clear overflow error at index\ncreation\n- [x] New: year 0001 date reports clear overflow error at index creation\n(was silently corrupted before)\n- [x] New: year 57439 timestamp reports clear overflow error\n- [x] New: year 0001 timestamp reports clear overflow error\n- [x] Before/after live testing confirms year 0001 was silently\ncorrupted (indexed but 0 search results) — now fails with clear error",
+          "timestamp": "2026-02-17T13:13:29-08:00",
+          "tree_id": "376e0254a8b019fc2e74560a1b4a8b3b775618e8",
+          "url": "https://github.com/paradedb/paradedb/commit/4718d76c584014e1002ffe5affe762ed96dd4bf5"
+        },
+        "date": 1771363473722,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.87470718232078, max cpu: 18.532818, count: 2749"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 50.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.923750682066206, max mem: 52.1171875, count: 2749"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.371253971662278, max cpu: 4.7244096, count: 2749"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 31.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 31.369887345398325, max mem: 32.80078125, count: 2749"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.161683752200858, max cpu: 4.6511626, count: 2749"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 47.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 46.88928360312841, max mem: 48.5390625, count: 2749"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.446058725354621, max cpu: 4.660194, count: 5498"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 36.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.69721518052019, max mem: 38.09765625, count: 5498"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.034132594216075, max cpu: 13.859479, count: 2749"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 49.1875,
+            "unit": "median mem",
+            "extra": "avg mem: 48.93028430793016, max mem: 51.22265625, count: 2749"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 493,
+            "unit": "median block_count",
+            "extra": "avg block_count: 484.1382320843943, max block_count: 558.0, count: 2749"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 3.7631866133139322, max segment_count: 6.0, count: 2749"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.133161632047975, max cpu: 11.338583, count: 2749"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 49.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.108356163604945, max mem: 51.30859375, count: 2749"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.630531378755843, max cpu: 4.6511626, count: 2749"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 35.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.23702084849036, max mem: 37.421875, count: 2749"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 2749"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 39.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.632532568661333, max mem: 40.70703125, count: 2749"
           }
         ]
       }

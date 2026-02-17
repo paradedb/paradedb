@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771367799365,
+  "lastUpdate": 1771367804723,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10872,6 +10872,114 @@ window.BENCHMARK_DATA = {
             "value": 170.2734375,
             "unit": "median mem",
             "extra": "avg mem: 167.1806589688525, max mem: 171.828125, count: 55791"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac8fc9e4d126ead2994434a4a3283d5bc0c38ca7",
+          "message": "perf: heuristic selectivity for expensive search queries (#4172)\n\n# Ticket(s) Closed\n\n- Closes #2724\n\n## What\n\nShort-circuit selectivity estimation for query types where constructing\na Tantivy `Scorer` is expensive (fuzzy term, regex). Instead of opening\nthe index and building a full scorer, return a cheap heuristic\nselectivity based on query type and parameters.\n\n## Why\n\n`estimate_selectivity` is called during Postgres planning. For fuzzy and\nregex queries it needs to build DFAs/automata and scan the term\ndictionary just to produce a row-count estimate. On large indexes this\nmakes planning itself slow, which defeats the purpose of having an\nindex.\n\n## How\n\n- Added `is_expensive_to_estimate()` and `selectivity_heuristic()` on\nboth `SearchQueryInput` and `pdb::Query`. These recursively walk\nboolean/wrapper queries to detect expensive leaves (fuzzy term, regex,\nregex phrase, parse-with-field w/ fuzzy, more-like-this) and return a\ntype-appropriate constant (e.g. 0.01 for fuzzy distance ≤ 1, 0.05 for\ndistance ≥ 2, 0.01 for regex).\n- `estimate_selectivity` checks the new GUC\n`paradedb.enable_heuristic_selectivity` (default `true`) and, when the\nquery is expensive, returns the heuristic immediately—no index I/O.\n- Range queries and match-with-distance are intentionally **not**\nclassified as expensive: range queries on numeric fast fields are cheap\nto score, and their selectivity is too data-dependent for a fixed\nheuristic. Including them caused plan regressions (wrong join\nstrategies, wrong append methods) in existing tests.\n\n## Tests\n\n- `expensive_estimate.sql` — verifies plans and result correctness for\nfuzzy term (distance 1 & 2), regex, etc.\n\n<details>\n<summary>Benchmark (not included in PR — run manually)\n\n10k-row table, 200 EXPLAIN plans (100 × fuzzy + 100 × regex):\n\n| Mode | Time |\n|------|------|\n| Heuristic ON  | ~81 ms |\n| Heuristic OFF | ~417 ms |\n\n**~5× planning speedup** for fuzzy/regex queries.\n</summary>\n\n\n\n```sql\n-- bench_heuristic_selectivity.sql\n-- Benchmark: heuristic selectivity vs full scorer estimation.\n-- Compares planning time for expensive queries (fuzzy, regex)\n-- with and without the heuristic short-circuit.\n\n\\i common/common_setup.sql\n\nCREATE TABLE bench_items (\n    id SERIAL PRIMARY KEY,\n    description TEXT NOT NULL,\n    rating INT NOT NULL,\n    created_at TIMESTAMP NOT NULL\n);\n\nINSERT INTO bench_items (description, rating, created_at)\nSELECT\n    CASE (i % 10)\n        WHEN 0 THEN 'comfortable running shoes for athletes'\n        WHEN 1 THEN 'premium leather hiking boots on sale'\n        WHEN 2 THEN 'lightweight canvas sneakers for summer'\n        WHEN 3 THEN 'waterproof winter boots with insulation'\n        WHEN 4 THEN 'elegant dress shoes for formal occasions'\n        WHEN 5 THEN 'durable steel toe work boots'\n        WHEN 6 THEN 'classic oxford shoes in black'\n        WHEN 7 THEN 'breathable mesh running shoes'\n        WHEN 8 THEN 'handcrafted Italian loafers'\n        WHEN 9 THEN 'vintage retro sneakers collection'\n    END,\n    (i % 5) + 1,\n    '2023-01-01'::timestamp + (i || ' minutes')::interval\nFROM generate_series(1, 10000) AS s(i);\n\nCREATE INDEX idx_bench ON bench_items\n    USING bm25 (id, description, rating, created_at)\n    WITH (key_field='id');\n\nANALYZE bench_items;\n\n-- Heuristic ON (default)\nSET paradedb.enable_heuristic_selectivity = ON;\n\nDO $$\nDECLARE\n    t_start timestamptz; t_end timestamptz;\n    elapsed_ms double precision; dummy text;\nBEGIN\n    t_start := clock_timestamp();\n    FOR i IN 1..100 LOOP\n        EXECUTE 'EXPLAIN SELECT * FROM bench_items WHERE description @@@ paradedb.fuzzy_term(field => ''description'', value => ''sheos'', distance => 2::integer)' INTO dummy;\n        EXECUTE 'EXPLAIN SELECT * FROM bench_items WHERE description @@@ paradedb.regex(field => ''description'', pattern => ''sh.*es'')' INTO dummy;\n    END LOOP;\n    t_end := clock_timestamp();\n    elapsed_ms := extract(epoch FROM t_end - t_start) * 1000;\n    RAISE WARNING 'heuristic ON:  200 EXPLAIN plans in % ms', round(elapsed_ms::numeric, 1);\nEND;\n$$;\n\n-- Heuristic OFF\nSET paradedb.enable_heuristic_selectivity = OFF;\n\nDO $$\nDECLARE\n    t_start timestamptz; t_end timestamptz;\n    elapsed_ms double precision; dummy text;\nBEGIN\n    t_start := clock_timestamp();\n    FOR i IN 1..100 LOOP\n        EXECUTE 'EXPLAIN SELECT * FROM bench_items WHERE description @@@ paradedb.fuzzy_term(field => ''description'', value => ''sheos'', distance => 2::integer)' INTO dummy;\n        EXECUTE 'EXPLAIN SELECT * FROM bench_items WHERE description @@@ paradedb.regex(field => ''description'', pattern => ''sh.*es'')' INTO dummy;\n    END LOOP;\n    t_end := clock_timestamp();\n    elapsed_ms := extract(epoch FROM t_end - t_start) * 1000;\n    RAISE WARNING 'heuristic OFF: 200 EXPLAIN plans in % ms', round(elapsed_ms::numeric, 1);\nEND;\n$$;\n\nRESET paradedb.enable_heuristic_selectivity;\nDROP TABLE bench_items CASCADE;\n```\n\n</details>",
+          "timestamp": "2026-02-17T13:30:21-08:00",
+          "tree_id": "96bd0d3377295773d373d31b23025bee80555253",
+          "url": "https://github.com/paradedb/paradedb/commit/ac8fc9e4d126ead2994434a4a3283d5bc0c38ca7"
+        },
+        "date": 1771367800817,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.83893890158031, max cpu: 42.519684, count: 55587"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 174.16246084403727, max mem: 176.6796875, count: 55587"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6936569224914235, max cpu: 33.908947, count: 55587"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.16167638960098, max mem: 120.6015625, count: 55587"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.818748981279366, max cpu: 9.448819, count: 55587"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 120.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.30019911074082, max mem: 159.22265625, count: 55587"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13507,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13701.734704157447, max block_count: 24391.0, count: 55587"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.316419103636233, max cpu: 4.673807, count: 55587"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 94.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.85876025419613, max mem: 132.97265625, count: 55587"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.68978358249231, max segment_count: 35.0, count: 55587"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.618764463798492, max cpu: 30.164963, count: 111174"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 154.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.92069905620917, max mem: 164.2109375, count: 111174"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.9265,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.4841363556757, max cpu: 32.43243, count: 55587"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.77573281803748, max mem: 171.6796875, count: 55587"
           }
         ]
       }

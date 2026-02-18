@@ -4866,7 +4866,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5804,7 +5804,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -7207,7 +7207,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7262,7 +7262,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "bitpacking",
 ]
@@ -7270,7 +7270,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7285,7 +7285,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7318,7 +7318,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7330,7 +7330,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7343,7 +7343,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7380,7 +7380,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=e4a008758321cb6b5f19e69c442fb7d7c90e3290#e4a008758321cb6b5f19e69c442fb7d7c90e3290"
+source = "git+https://github.com/paradedb/tantivy.git?rev=9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca#9d704eb4a3e8e8f99200fb1f2b628ffe8602f8ca"
 dependencies = [
  "serde",
 ]

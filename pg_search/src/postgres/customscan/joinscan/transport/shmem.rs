@@ -609,8 +609,6 @@ impl std::io::Write for DsmWriteAdapter {
     }
 }
 
-pub type ControlFrames = Vec<(u8, Vec<u8>)>;
-
 /// A multiplexer for writing multiple logical streams into a single DSM ring buffer.
 ///
 /// Framing: `[stream_id: u32][len: u32][payload: len bytes]`
@@ -677,6 +675,8 @@ impl std::fmt::Display for LogicalStreamId {
     }
 }
 
+pub type ControlFrame = (u8, Vec<u8>);
+
 impl MultiplexedDsmWriter {
     /// Creates a new multiplexed writer.
     ///
@@ -741,59 +741,48 @@ impl MultiplexedDsmWriter {
         }
     }
 
-    /// Reads pending control frames from the reverse channel.
-    /// Returns a vector of (message_type, payload).
-    pub fn read_control_frames(&mut self) -> ControlFrames {
-        let mut frames = Vec::new();
-        if let Some(adapter) = &mut self.control_reader {
-            let mut reader = adapter.as_peekable();
-            while let Some(type_cow) = reader.try_read_slice(1) {
-                let msg_type = type_cow[0];
+    /// Reads the next pending control frame from the reverse channel.
+    /// Returns `Some((message_type, payload))` if a complete message is available, `None` otherwise.
+    pub fn read_control_frame(&mut self) -> Option<ControlFrame> {
+        let adapter = self.control_reader.as_mut()?;
+        let mut reader = adapter.as_peekable();
 
-                // 2. Determine Payload Length
-                let payload_len = if msg_type >= 128 {
-                    // Variable Frame: [len: u32]
-                    let len_cow = match reader.try_read_slice(4) {
-                        Some(cow) => cow,
-                        None => break,
-                    };
-                    u32::from_le_bytes(len_cow.as_ref().try_into().unwrap()) as usize
-                } else {
-                    4 // Fixed size for legacy messages
-                };
+        let type_cow = reader.try_read_slice(1)?;
+        let msg_type = type_cow[0];
 
-                // 3. Try peek Payload
-                let payload_cow = match reader.try_read_slice(payload_len) {
-                    Some(cow) => cow,
-                    None => break,
-                };
+        // 2. Determine Payload Length
+        let payload_len = if msg_type >= 128 {
+            // Variable Frame: [len: u32]
+            let len_cow = reader.try_read_slice(4)?;
+            u32::from_le_bytes(len_cow.as_ref().try_into().unwrap()) as usize
+        } else {
+            4 // Fixed size for legacy messages
+        };
 
-                // 4. Success!
-                // We clone to owning Vec here because the frame needs to outlive the reader transaction/lock.
-                frames.push((msg_type, payload_cow.into_owned()));
-                reader.checkpoint();
-            }
-            reader.commit();
-        }
-        frames
+        // 3. Try peek Payload
+        let payload_cow = reader.try_read_slice(payload_len)?;
+
+        // 4. Success!
+        // Mark this point as a valid commit boundary.
+        reader.checkpoint();
+        reader.commit();
+        Some((msg_type, payload_cow.into_owned()))
     }
 
-    /// Async version of `read_control_frames` that registers the current task's waker
+    /// Async version of `read_control_frame` that registers the current task's waker
     /// with the bridge if data is not yet available.
-    pub fn poll_read_control_frames(
+    pub fn poll_read_control_frame(
         &mut self,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<ControlFrames>> {
+    ) -> std::task::Poll<ControlFrame> {
         // Register waker FIRST to avoid race condition where data arrives
         // between read attempt and registration.
         self.bridge
             .register_waker(cx.waker().clone(), Some(self.remote_id));
 
-        let frames = self.read_control_frames();
-        if !frames.is_empty() {
-            std::task::Poll::Ready(Ok(frames))
-        } else {
-            std::task::Poll::Pending
+        match self.read_control_frame() {
+            Some(frame) => std::task::Poll::Ready(frame),
+            None => std::task::Poll::Pending,
         }
     }
 
@@ -1897,10 +1886,11 @@ mod tests {
             .send_control_message_variable(128, &payload)
             .unwrap();
 
-        let frames = writer_mux.lock().read_control_frames();
-        assert_eq!(frames.len(), 1);
-        assert_eq!(frames[0].0, 128);
-        assert_eq!(frames[0].1, payload);
+        let frame = writer_mux.lock().read_control_frame();
+        assert!(frame.is_some());
+        let (msg_type, payload_out) = frame.unwrap();
+        assert_eq!(msg_type, 128);
+        assert_eq!(payload_out, payload);
     }
 
     use crate::launch_parallel_process;

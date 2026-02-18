@@ -273,24 +273,21 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
 
                 for mux in &mux_writers {
                     let mut guard = mux.lock();
-                    let frames = guard.read_control_frames();
-                    if !frames.is_empty() {
+                    while let Some((msg_type, payload)) = guard.read_control_frame() {
                         work_done = true;
-                        for (msg_type, payload) in frames {
-                            if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
-                                match msg {
-                                    ControlMessage::StartStream(id) => {
-                                        trigger_stream(id, task_ctx.clone());
-                                    }
-                                    ControlMessage::CancelStream(id) => {
-                                        // Mark stream as cancelled in the transport layer
-                                        guard.mark_stream_cancelled(id);
-                                        // Cancel the execution task
-                                        cancel_triggered_stream(id);
-                                    }
-                                    ControlMessage::BroadcastPlan(_) => {
-                                        panic!("Received unexpected BroadcastPlan message during execution");
-                                    }
+                        if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
+                            match msg {
+                                ControlMessage::StartStream(id) => {
+                                    trigger_stream(id, task_ctx.clone());
+                                }
+                                ControlMessage::CancelStream(id) => {
+                                    // Mark stream as cancelled in the transport layer
+                                    guard.mark_stream_cancelled(id);
+                                    // Cancel the execution task
+                                    cancel_triggered_stream(id);
+                                }
+                                ControlMessage::BroadcastPlan(_) => {
+                                    panic!("Received unexpected BroadcastPlan message during execution");
                                 }
                             }
                         }

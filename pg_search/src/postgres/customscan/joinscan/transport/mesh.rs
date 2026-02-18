@@ -129,22 +129,21 @@ impl TransportMesh {
         futures::future::poll_fn(|cx| {
             for mux in &self.mux_writers {
                 let mut guard = mux.lock();
-                match guard.poll_read_control_frames(cx) {
-                    std::task::Poll::Ready(Ok(frames)) => {
-                        if let Some((msg_type, payload)) = frames.into_iter().next() {
-                            if let Some(ControlMessage::BroadcastPlan(bytes)) =
-                                ControlMessage::try_from_frame(msg_type, &payload)
-                            {
-                                return std::task::Poll::Ready(bytes);
-                            } else {
-                                panic!(
-                                    "Received unexpected control message before BroadcastPlan: type {}",
-                                    msg_type
-                                );
-                            }
+                match guard.poll_read_control_frame(cx) {
+                    std::task::Poll::Ready((msg_type, payload)) => {
+                        if let Some(ControlMessage::BroadcastPlan(bytes)) =
+                            ControlMessage::try_from_frame(msg_type, &payload)
+                        {
+                            // Return the plan. Any subsequent messages remain in the ring buffer
+                            // and will be consumed by the Control Service.
+                            return std::task::Poll::Ready(bytes);
+                        } else {
+                            panic!(
+                                "Received unexpected control message before BroadcastPlan: type {}",
+                                msg_type
+                            );
                         }
                     }
-                    std::task::Poll::Ready(Err(e)) => panic!("Error reading control frames: {}", e),
                     std::task::Poll::Pending => {} // Continue checking other muxes
                 }
             }

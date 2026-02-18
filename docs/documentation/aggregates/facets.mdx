@@ -13,6 +13,7 @@ query uses less CPU and disk I/O.
 
 For example, this query returns the top 3 search results alongside the total number of results found.
 
+<CodeGroup dropdown>
 ```sql
 SELECT
   id, description, rating,
@@ -22,6 +23,19 @@ WHERE category === 'electronics'
 ORDER BY rating DESC
 LIMIT 3;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Term
+
+# Returns (rows, facets) — facets contains {"value": 5.0}
+rows, facets = (
+    MockItem.objects.filter(category=ParadeDB(Term('electronics')))
+    .order_by('-rating')[:3]
+    .facets(agg='{"value_count": {"field": "id"}}')
+)
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |         description         | rating |      agg
@@ -44,6 +58,7 @@ On every query, ParadeDB runs checks to ensure that deleted or updated-away rows
 If your table is not frequently updated or you can tolerate an approximate result, the performance of faceted queries can be improved by disabling these visibility checks.
 To do so, set the second argument of `pdb.agg` to `false`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT
      description, rating, category,
@@ -53,5 +68,18 @@ WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+# Returns (rows, facets) — facets contains the total count
+rows, facets = (
+    MockItem.objects.filter(description=ParadeDB(PQ('running') | PQ('shoes')))
+    .order_by('rating')[:5]
+    .facets(agg='{"value_count": {"field": "id"}}')
+)
+```
+
+</CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).

@@ -7,10 +7,22 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/percentile
 The percentiles aggregation computes the values below which a given percentage of the data falls.
 In this example, the aggregation will return the 50th and 95th percentiles for `rating`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                                  agg

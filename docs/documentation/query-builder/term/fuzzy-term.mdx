@@ -12,12 +12,23 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/fuzzy-term
 
 `fuzzy_term` finds results that approximately match the query term, allowing for minor typos in the input.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.fuzzy_term('shoez')
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import Fuzzy, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Fuzzy('shoez'))
+).values('description', 'rating', 'category')[:5]
+```
+
+</CodeGroup>
 
 <div className="mt-8" />
 

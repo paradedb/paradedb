@@ -9,11 +9,22 @@ queries, with positions and ordering of tokens enforced.
 
 For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
 ```
+
+```python Django
+from paradedb.search import ParadeDB, RegexPhrase
+
+MockItem.objects.filter(
+    description=ParadeDB(RegexPhrase('ru.*', 'shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 <div className="mt-8" />
 

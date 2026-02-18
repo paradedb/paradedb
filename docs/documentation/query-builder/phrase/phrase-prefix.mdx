@@ -6,11 +6,22 @@ canonical: https://docs.paradedb.com/documentation/query-builder/phrase/phrase-p
 
 Phrase prefix identifies documents containing a phrase followed by a term prefix.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PhrasePrefix
+
+MockItem.objects.filter(
+    description=ParadeDB(PhrasePrefix('running', 'sh'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 <div className="mt-8" />
 

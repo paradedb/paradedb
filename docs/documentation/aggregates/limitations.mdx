@@ -8,16 +8,30 @@ canonical: https://docs.paradedb.com/documentation/aggregates/limitations
 
 In order for ParadeDB to push down an aggregate, a ParadeDB text search operator must be present in the query.
 
+<CodeGroup dropdown>
 ```sql
 -- Not pushed down
 SELECT COUNT(*) FROM mock_items
 WHERE rating = 5;
 
 -- Pushed down
-SELECT COUNT(*) FROM mock_items
+SELECT COUNT(\*) FROM mock_items
 WHERE rating = 5
 AND id @@@ pdb.all();
-```
+
+````
+
+```python Django
+from paradedb.search import All, ParadeDB
+
+# Not pushed down — no ParadeDB operator
+MockItem.objects.filter(rating=5).count()
+
+# Pushed down — ParadeDB operator triggers aggregate pushdown
+MockItem.objects.filter(rating=5, id=ParadeDB(All())).count()
+````
+
+</CodeGroup>
 
 If your query does not contain a ParadeDB operator, a way to "force" aggregate pushdown is to append the [all query](/documentation/query-builder/compound/all) to the query's
 `WHERE` clause.

@@ -6,11 +6,23 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/range
 
 The range aggregation counts the number of occurrences over user-defined buckets. The buckets must be continuous and cannot overlap.
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3.0 }, {"from": 3.0, "to": 6.0} ]}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"range": {"field": "rating", "ranges": [{"to": 3.0}, {"from": 3.0, "to": 6.0}]}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                                                                               agg

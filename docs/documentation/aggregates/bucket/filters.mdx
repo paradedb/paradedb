@@ -8,6 +8,7 @@ The filters aggregation allows a single query to return aggregations for multipl
 To use this aggregation, pass `pdb.agg` to the left-hand side of `FILTER` and a search query to the right-hand side.
 For example:
 
+<CodeGroup dropdown>
 ```sql
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}')
@@ -16,6 +17,21 @@ SELECT
     FILTER (WHERE category === 'footwear') AS footwear_count
 FROM mock_items;
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import ParadeDB, Term
+
+electronics_count = MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+
+footwear_count = MockItem.objects.filter(
+    category=ParadeDB(Term('footwear'))
+).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  electronics_count | footwear_count

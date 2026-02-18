@@ -11,6 +11,7 @@ The first is boosting, which increases or decreases the impact of a specific que
 
 To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, pdb.score(id), description, category
 FROM mock_items
@@ -19,10 +20,25 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```python Django
+from django.db.models import Q
+from paradedb.functions import Score
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    Q(description=ParadeDB('shoes', boost=2)) | Q(category=ParadeDB('footwear'))
+).annotate(
+    score=Score()
+).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+</CodeGroup>
+
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
 
 [Query builder functions](/documentation/query-builder/overview) can also be boosted:
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, category, pdb.score(id)
 FROM mock_items
@@ -31,8 +47,22 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```python Django
+from paradedb.functions import Score
+from paradedb.search import ParadeDB, Regex
+
+MockItem.objects.filter(
+    description=ParadeDB(Regex('key.*', boost=2))
+).annotate(
+    score=Score()
+).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+</CodeGroup>
+
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, description, category, pdb.score(id)
 FROM mock_items
@@ -41,6 +71,19 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```python Django
+from paradedb.functions import Score
+from paradedb.search import Fuzzy, ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB(Fuzzy('shose', distance=2, boost=2))
+).annotate(
+    score=Score()
+).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+</CodeGroup>
+
 ## Constant Scoring
 
 Constant scoring assigns the same score to all documents that match a query. To apply a constant score, cast the query to the `const` type with a
@@ -48,6 +91,7 @@ numeric value.
 
 For instance, the following query assigns a score of `1` to all documents matching the query `shoes`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT id, pdb.score(id), description, category
 FROM mock_items
@@ -55,3 +99,16 @@ WHERE description ||| 'shoes'::pdb.const(1)
 ORDER BY score DESC
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.functions import Score
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('shoes', const=1)
+).annotate(
+    score=Score()
+).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+</CodeGroup>

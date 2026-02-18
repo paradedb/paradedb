@@ -6,11 +6,23 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/datehistogr
 
 The date histogram aggregation constructs a histogram for date fields.
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
 

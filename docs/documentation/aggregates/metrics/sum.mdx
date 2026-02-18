@@ -6,10 +6,22 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/sum
 
 The sum aggregation computes the sum of a field.
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"sum": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"sum": {"field": "rating"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
        agg
@@ -30,14 +42,39 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 
 With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
+<CodeGroup dropdown>
 ```sql
 SELECT SUM(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django
+from django.db.models import Sum
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(total=Sum('rating'))
+```
+
+</CodeGroup>
+
 By default, `SUM` ignores null values. Use `COALESCE` to include them in the final sum:
 
+<CodeGroup dropdown>
 ```sql
 SELECT SUM(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from django.db.models import Sum, Value
+from django.db.models.functions import Coalesce
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(total=Sum(Coalesce('rating', Value(0))))
+```
+
+</CodeGroup>

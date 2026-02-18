@@ -64,6 +64,7 @@ WITH (key_field='id');
 
 We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -71,6 +72,17 @@ WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes')),
+    rating__gt=2
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category
@@ -116,6 +128,7 @@ MockItem.objects.filter(
 
 Next, let's add [BM25 scoring](/documentation/sorting/score) to the results, which sorts matches by relevance. To do this, we'll use `pdb.score`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, pdb.score(id)
 FROM mock_items
@@ -123,6 +136,20 @@ WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.functions import Score
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes')),
+    rating__gt=2
+).annotate(
+    score=Score()
+).values('description', 'score').order_by('-score')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     |   score
@@ -138,6 +165,7 @@ LIMIT 5;
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `pdb.snippet`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, pdb.snippet(description), pdb.score(id)
 FROM mock_items
@@ -145,6 +173,21 @@ WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.functions import Score, Snippet
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes')),
+    rating__gt=2
+).annotate(
+    snippet=Snippet('description'),
+    score=Score()
+).values('description', 'snippet', 'score').order_by('-score')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     |              snippet              |   score
@@ -159,6 +202,7 @@ LIMIT 5;
 
 ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -166,6 +210,16 @@ WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes'))
+).values('description', 'rating', 'category').order_by('rating')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category
@@ -183,6 +237,7 @@ which is more CPU-efficient than issuing two separate queries.
 
 For example, the following query returns the top 3 results as well as the total number of results matched.
 
+<CodeGroup dropdown>
 ```sql
 SELECT
      description, rating, category,
@@ -192,6 +247,20 @@ WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+rows, facets = (
+    MockItem.objects
+    .filter(description=ParadeDB(PQ('running') | PQ('shoes')))
+    .order_by('rating')
+    .values('description', 'rating', 'category')[:5]
+    .facets(agg='{"value_count": {"field": "id"}}')
+)
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      description     | rating | category |      agg

@@ -13,11 +13,22 @@ Match disjunction uses the `|||` operator and means "find all documents that con
 
 To understand what this looks like in practice, let's consider the following query:
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes';
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 This query returns:
 

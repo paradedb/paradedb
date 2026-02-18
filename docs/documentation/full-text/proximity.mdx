@@ -10,11 +10,22 @@ Proximity queries are used to match documents containing tokens that are within 
 
 The following query finds all documents where the token `sleek` is at most `1` token away from `shoes`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Proximity
+
+MockItem.objects.filter(
+    description=ParadeDB(Proximity('sleek shoes', distance=1))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 <Note>
   Like the [term](/documentation/full-text/term) query, the query string in a
@@ -24,11 +35,22 @@ WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 `##` does not care about order -- the term on the left-hand side may appear before or after the term on the right-hand side.
 To ensure that the left-hand term appears before the right-hand term, use `##>`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Proximity
+
+MockItem.objects.filter(
+    description=ParadeDB(Proximity('sleek shoes', distance=1, ordered=True))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Proximity Regex
 
@@ -37,15 +59,27 @@ In addition to exact tokens, proximity queries can also match against regex expr
 The following query finds all documents where any token matching the regex query `sl.*` is at most `1` token away
 from the token `shoes`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
+```python Django
+from paradedb.search import ParadeDB, ProximityRegex
+
+MockItem.objects.filter(
+    description=ParadeDB(ProximityRegex(left_term='shoes', pattern='sl.*', distance=1))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
+
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
 by providing a second argument:
 
+<CodeGroup dropdown>
 ```sql
 -- Expand up to 100 regex matches
 SELECT description, rating, category
@@ -53,16 +87,37 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
 ```
 
+```python Django
+from paradedb.search import ParadeDB, ProximityRegex
+
+MockItem.objects.filter(
+    description=ParadeDB(ProximityRegex(left_term='shoes', pattern='sl.*', distance=1, max_expansions=100))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
+
 ## Proximity Array
 
 `pdb.prox_array` matches against an array of tokens instead of a single token. For example, the following query finds all
 documents where any of the tokens `sleek` or `white` is within `1` token of `shoes`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 ```
+
+```python Django
+from paradedb.search import ParadeDB, ProximityArray
+
+MockItem.objects.filter(
+    description=ParadeDB(ProximityArray('sleek', 'white', right_term='shoes', distance=1))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 `pdb.prox_array` can also take regex:
 

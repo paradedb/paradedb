@@ -46,9 +46,18 @@ class ArrayDemo(models.Model):
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
 match if **any** of its entries is a match.
 
+<CodeGroup dropdown>
 ```sql
 SELECT * FROM array_demo WHERE categories === 'food';
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Term
+
+ArrayDemo.objects.filter(categories=ParadeDB(Term('food')))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  id |           categories

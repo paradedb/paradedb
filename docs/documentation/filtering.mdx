@@ -7,11 +7,23 @@ canonical: https://docs.paradedb.com/documentation/filtering
 Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
 For instance, the following query filters out results that do not meet `rating > 2`.
 
+<CodeGroup dropdown>
 ```sql
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, PQ
+
+MockItem.objects.filter(
+    description=ParadeDB(PQ('running') | PQ('shoes')),
+    rating__gt=2
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Filter Pushdown
 

@@ -621,6 +621,53 @@ impl pdb::Query {
 
         Ok(query)
     }
+
+    /// Returns `true` if constructing a Tantivy Scorer for this query type is expensive.
+    /// Fuzzy term and regex queries require building DFAs/automata and scanning the term
+    /// dictionary during scorer construction, which can be too costly for planner selectivity
+    /// estimation.
+    ///
+    /// Range queries and Match-with-distance are intentionally excluded: range queries on
+    /// numeric fast fields are cheap to score, and their selectivity is highly data-dependent
+    /// making heuristics unreliable. Inaccurate heuristics for these types cause plan
+    /// regressions (e.g. wrong join strategies, wrong append methods).
+    pub fn is_expensive_to_estimate(&self) -> bool {
+        match self {
+            pdb::Query::FuzzyTerm { .. }
+            | pdb::Query::Regex { .. }
+            | pdb::Query::RegexPhrase { .. } => true,
+
+            pdb::Query::ParseWithField { fuzzy_data, .. } => fuzzy_data.is_some(),
+
+            pdb::Query::ScoreAdjusted { query, .. } => query.is_expensive_to_estimate(),
+
+            _ => false,
+        }
+    }
+
+    /// Returns a heuristic selectivity for this query type, avoiding expensive scorer construction.
+    pub fn selectivity_heuristic(&self) -> f64 {
+        use crate::{FUZZY_HIGH_SELECTIVITY, FUZZY_LOW_SELECTIVITY, REGEX_SELECTIVITY};
+
+        match self {
+            pdb::Query::FuzzyTerm { distance, .. } => {
+                let dist = distance.unwrap_or(1);
+                if dist <= 1 {
+                    FUZZY_LOW_SELECTIVITY
+                } else {
+                    FUZZY_HIGH_SELECTIVITY
+                }
+            }
+
+            pdb::Query::ParseWithField { .. } => FUZZY_LOW_SELECTIVITY,
+
+            pdb::Query::Regex { .. } | pdb::Query::RegexPhrase { .. } => REGEX_SELECTIVITY,
+
+            pdb::Query::ScoreAdjusted { query, .. } => query.selectivity_heuristic(),
+
+            _ => crate::UNKNOWN_SELECTIVITY,
+        }
+    }
 }
 
 impl InOutFuncs for pdb::Query {

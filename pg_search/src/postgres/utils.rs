@@ -774,6 +774,8 @@ fn convert_pgrx_seconds_to_chrono(orig: f64) -> Result<(u32, u32, u32)> {
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::DateTime {
+    use crate::postgres::datetime::micros_to_tantivy_datetime;
+
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
@@ -784,7 +786,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                 .expect("must be able to set date default time")
                 .and_utc()
                 .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("date exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
             // Since [`pgrx::Timestamp`]s are tied to the Postgres instance's timezone,
@@ -804,7 +807,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse timestamp format")
                     .and_utc()
                     .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timestamp exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
@@ -819,7 +823,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse timestamp with timezone")
                     .and_utc()
                     .timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timestamptz exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =
@@ -830,7 +835,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("time exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
             let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
@@ -842,7 +848,8 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time with time zone");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            tantivy::DateTime::from_timestamp_micros(micros)
+            micros_to_tantivy_datetime(micros)
+                .expect("timetz exceeds Tantivy DateTime nanosecond range")
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }

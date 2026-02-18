@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771411858459,
+  "lastUpdate": 1771411863614,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11484,6 +11484,114 @@ window.BENCHMARK_DATA = {
             "value": 170.8515625,
             "unit": "median mem",
             "extra": "avg mem: 167.77573281803748, max mem: 171.6796875, count: 55587"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e44fd633095d1c7d265438a21ef90c6addc69956",
+          "message": "fix: bump tantivy for sort key precision fix (#4189)\n\n## Summary\n- Bump tantivy dependency to paradedb/tantivy#105 which fixes native\ntyped comparison for numeric sort keys in `ColumnarWriter::sort_order()`\n- The sort key was computed as `f64::coerce(nv) as f32`, causing wrong\ndocument ordering for values above 2^24 and treating NULL as zero\n- Add integration tests for NULL vs zero interleaving and f32 precision\nloss on sorted indexes\n\n## Tantivy PR\nhttps://github.com/paradedb/tantivy/pull/105\n\n## Test plan\n- Added `index_sort_by_null_and_zero_interleaving` -- verifies NULLs\nsort separately from zero\n- Added `index_sort_by_f32_precision_above_2_24` -- verifies BIGINT\nvalues above 2^24 sort correctly\n- All 21 index_sorting tests pass",
+          "timestamp": "2026-02-18T15:19:29+05:30",
+          "tree_id": "60242f0da1b90fd6f74d7cd2c4b1838cff4a5cde",
+          "url": "https://github.com/paradedb/paradedb/commit/e44fd633095d1c7d265438a21ef90c6addc69956"
+        },
+        "date": 1771411859578,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.767536388272795, max cpu: 46.10951, count: 55524"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.4522880871335, max mem: 176.890625, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.715860965063982, max cpu: 30.212433, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.35525065737339, max mem: 120.69921875, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8279711793742175, max cpu: 13.753581, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 117.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 112.49545628635815, max mem: 159.21875, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13503,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13544.583909660687, max block_count: 24207.0, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.505938172212222, max cpu: 4.660194, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 91.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 88.19362903597994, max mem: 131.609375, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.4603234637274, max segment_count: 37.0, count: 55524"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.733648806270448, max cpu: 37.5881, count: 111048"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.48702718222074, max mem: 164.41015625, count: 111048"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.030454772357427, max cpu: 28.015566, count: 55524"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 168.54682096931057, max mem: 173.05859375, count: 55524"
           }
         ]
       }

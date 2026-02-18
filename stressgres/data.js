@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771411863614,
+  "lastUpdate": 1771412776109,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12454,6 +12454,54 @@ window.BENCHMARK_DATA = {
             "value": 525.4169844707469,
             "unit": "median tps",
             "extra": "avg tps: 490.8234340758547, max tps: 752.4703871549722, count: 107730"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e44fd633095d1c7d265438a21ef90c6addc69956",
+          "message": "fix: bump tantivy for sort key precision fix (#4189)\n\n## Summary\n- Bump tantivy dependency to paradedb/tantivy#105 which fixes native\ntyped comparison for numeric sort keys in `ColumnarWriter::sort_order()`\n- The sort key was computed as `f64::coerce(nv) as f32`, causing wrong\ndocument ordering for values above 2^24 and treating NULL as zero\n- Add integration tests for NULL vs zero interleaving and f32 precision\nloss on sorted indexes\n\n## Tantivy PR\nhttps://github.com/paradedb/tantivy/pull/105\n\n## Test plan\n- Added `index_sort_by_null_and_zero_interleaving` -- verifies NULLs\nsort separately from zero\n- Added `index_sort_by_f32_precision_above_2_24` -- verifies BIGINT\nvalues above 2^24 sort correctly\n- All 21 index_sorting tests pass",
+          "timestamp": "2026-02-18T15:19:29+05:30",
+          "tree_id": "60242f0da1b90fd6f74d7cd2c4b1838cff4a5cde",
+          "url": "https://github.com/paradedb/paradedb/commit/e44fd633095d1c7d265438a21ef90c6addc69956"
+        },
+        "date": 1771412772132,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 599.7008134969143,
+            "unit": "median tps",
+            "extra": "avg tps: 598.9450128839168, max tps: 781.0356021553991, count: 53861"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 665.8078358092105,
+            "unit": "median tps",
+            "extra": "avg tps: 665.095765457653, max tps: 841.699284672151, count: 53861"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.51324137751047,
+            "unit": "median tps",
+            "extra": "avg tps: 84.58508138154247, max tps: 95.40060562689466, count: 53861"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 572.0194388153094,
+            "unit": "median tps",
+            "extra": "avg tps: 515.6177804167928, max tps: 738.8167783190561, count: 107722"
           }
         ]
       }

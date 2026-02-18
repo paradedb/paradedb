@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771409955848,
+  "lastUpdate": 1771410915814,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6534,6 +6534,54 @@ window.BENCHMARK_DATA = {
             "value": 5.397888973505529,
             "unit": "median tps",
             "extra": "avg tps: 5.408668145758156, max tps: 6.718958630751887, count: 55291"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e44fd633095d1c7d265438a21ef90c6addc69956",
+          "message": "fix: bump tantivy for sort key precision fix (#4189)\n\n## Summary\n- Bump tantivy dependency to paradedb/tantivy#105 which fixes native\ntyped comparison for numeric sort keys in `ColumnarWriter::sort_order()`\n- The sort key was computed as `f64::coerce(nv) as f32`, causing wrong\ndocument ordering for values above 2^24 and treating NULL as zero\n- Add integration tests for NULL vs zero interleaving and f32 precision\nloss on sorted indexes\n\n## Tantivy PR\nhttps://github.com/paradedb/tantivy/pull/105\n\n## Test plan\n- Added `index_sort_by_null_and_zero_interleaving` -- verifies NULLs\nsort separately from zero\n- Added `index_sort_by_f32_precision_above_2_24` -- verifies BIGINT\nvalues above 2^24 sort correctly\n- All 21 index_sorting tests pass",
+          "timestamp": "2026-02-18T15:19:29+05:30",
+          "tree_id": "60242f0da1b90fd6f74d7cd2c4b1838cff4a5cde",
+          "url": "https://github.com/paradedb/paradedb/commit/e44fd633095d1c7d265438a21ef90c6addc69956"
+        },
+        "date": 1771410911954,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1095.4284399435069,
+            "unit": "median tps",
+            "extra": "avg tps: 1099.5527544026204, max tps: 1146.877408847475, count: 55352"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1193.89521875811,
+            "unit": "median tps",
+            "extra": "avg tps: 1194.9946847240797, max tps: 1214.091750165201, count: 55352"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1907.8194095317904,
+            "unit": "median tps",
+            "extra": "avg tps: 1883.115864169982, max tps: 2062.3113431238858, count: 55352"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.582354629419032,
+            "unit": "median tps",
+            "extra": "avg tps: 5.5642291211286175, max tps: 6.609925763956795, count: 55352"
           }
         ]
       }

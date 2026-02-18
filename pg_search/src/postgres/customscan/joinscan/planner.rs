@@ -25,6 +25,7 @@ use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::joins::utils::JoinFilter;
 use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
@@ -149,11 +150,15 @@ impl SortMergeJoinEnforcer {
                 if left_opts == right_opts {
                     let null_equality = hash_join.null_equality();
 
+                    // SortMergeJoinExec's filter evaluation (get_filter_column) assumes
+                    // column_indices are ordered Left-first, Right-second. Reorder if needed.
+                    let filter = hash_join.filter().map(normalize_join_filter_ordering);
+
                     let exec = SortMergeJoinExec::try_new(
                         new_left,
                         new_right,
                         on.to_vec(),
-                        hash_join.filter().cloned(),
+                        filter,
                         *hash_join.join_type(),
                         left_opts, // sort options match
                         null_equality,
@@ -265,4 +270,96 @@ fn check_ordering(
     }
 
     None
+}
+
+/// Reorders a `JoinFilter`'s column_indices to place Left-side columns before Right-side
+/// columns, which is required by `SortMergeJoinExec`'s `get_filter_column` implementation.
+///
+/// DataFusion's `SortMergeJoinExec` filter evaluation builds the intermediate filter batch
+/// by collecting all Left columns first, then all Right columns. However, the filter's
+/// schema and expression reference columns by their original position in `column_indices`.
+/// If `column_indices` has Right entries interleaved before Left entries, the filter batch
+/// columns won't match the schema, causing type mismatch errors.
+///
+/// This function normalizes the ordering by:
+/// 1. Grouping column_indices into Left-first, Right-second order
+/// 2. Remapping column references in the expression to the new positions
+/// 3. Rebuilding the schema to match the new column order
+fn normalize_join_filter_ordering(filter: &JoinFilter) -> JoinFilter {
+    use datafusion::common::JoinSide;
+
+    let column_indices = filter.column_indices();
+
+    // Check if already in Left-first, Right-second order (fast path)
+    let mut seen_right = false;
+    let mut needs_reorder = false;
+    for ci in column_indices {
+        match ci.side {
+            JoinSide::Right => seen_right = true,
+            JoinSide::Left if seen_right => {
+                needs_reorder = true;
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    if !needs_reorder {
+        return filter.clone();
+    }
+
+    // Build the reordered column_indices: Left entries first, then Right entries,
+    // preserving relative order within each group.
+    let mut left_old_positions = Vec::new();
+    let mut right_old_positions = Vec::new();
+    for (old_idx, ci) in column_indices.iter().enumerate() {
+        match ci.side {
+            JoinSide::Left => left_old_positions.push(old_idx),
+            JoinSide::Right => right_old_positions.push(old_idx),
+            _ => left_old_positions.push(old_idx),
+        }
+    }
+
+    // Build mapping: old_index -> new_index
+    let mut old_to_new = vec![0usize; column_indices.len()];
+    let mut new_column_indices = Vec::with_capacity(column_indices.len());
+
+    for (new_idx, &old_idx) in left_old_positions
+        .iter()
+        .chain(right_old_positions.iter())
+        .enumerate()
+    {
+        old_to_new[old_idx] = new_idx;
+        new_column_indices.push(column_indices[old_idx].clone());
+    }
+
+    // Build new schema in the reordered column order
+    let old_schema = filter.schema();
+    let new_fields: Vec<arrow_schema::Field> = left_old_positions
+        .iter()
+        .chain(right_old_positions.iter())
+        .map(|&old_idx| old_schema.field(old_idx).clone())
+        .collect();
+    let new_schema = Arc::new(arrow_schema::Schema::new(new_fields));
+
+    // Remap Column references in the expression to use new indices
+    let new_expression = filter
+        .expression()
+        .clone()
+        .transform_up(|expr| {
+            if let Some(col) = expr.as_any().downcast_ref::<Column>() {
+                let new_index = old_to_new[col.index()];
+                if new_index != col.index() {
+                    return Ok(Transformed::yes(Arc::new(Column::new(
+                        col.name(),
+                        new_index,
+                    ))));
+                }
+            }
+            Ok(Transformed::no(expr))
+        })
+        .expect("filter expression rewrite should not fail")
+        .data;
+
+    JoinFilter::new(new_expression, new_column_indices, new_schema)
 }

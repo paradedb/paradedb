@@ -26,6 +26,9 @@ struct MessageQueueHandle {
 
 crate::impl_safe_drop!(MessageQueueHandle, |self| {
     unsafe {
+        // Only detach if we are still in parallel mode.
+        // If the context is already destroyed, this might be unsafe,
+        // but Postgres' shm_mq_detach is generally robust.
         if pg_sys::IsInParallelMode() {
             pg_sys::shm_mq_detach(self.handle.as_ptr());
         }

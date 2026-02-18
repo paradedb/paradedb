@@ -17,117 +17,42 @@
 
 //! JoinScan: Custom scan operator for optimizing joins with BM25 full-text search.
 //!
-//! JoinScan intercepts PostgreSQL join operations and executes them using Tantivy's
-//! search capabilities combined with a join algorithm, providing significant
-//! performance improvements for queries that combine full-text search with joins.
+//! JoinScan intercepts PostgreSQL join operations and executes them using a high-performance
+//! parallel execution engine powered by DataFusion and Tantivy. It enables efficient
+//! full-text search joins by leveraging columnar fast fields and late materialization.
 //!
 //! # Activation Conditions
 //!
-//! JoinScan is proposed by the planner when **all** of the following conditions are met.
-//! These restrictions ensure that we can execute the join efficiently using Tantivy's
-//! columnar storage (fast fields) and minimize expensive heap access.
+//! JoinScan is proposed when **all** of the following are met:
 //!
-//! The core strategy is **late materialization**:
-//! 1. Execute the search and join using ONLY the index (fast fields).
-//! 2. Apply sorting and limits on the joined index data.
-//! 3. Only access the PostgreSQL heap (materialize) for the final result rows (top N).
-//!
-//! This strategy requires that all data needed for the join, filter, and sort phases
-//! resides in fast fields, and that the result set size is small enough (via LIMIT)
-//! that the random heap access cost doesn't outweigh the join benefit.
-//!
-//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
-//!
-//! 2. **Join type**: Only `INNER JOIN` is currently supported
-//!    - LEFT, RIGHT, FULL, SEMI, and ANTI joins are planned for future work
-//!
-//! 3. **LIMIT clause**: Query must have a LIMIT clause
-//!    - This ensures we only pay the cost of "late materialization" (random heap access)
-//!      for a small number of rows. Without LIMIT, scanning the entire index and fetching
-//!      all rows from the heap is often slower than PostgreSQL's native execution.
-//!    - Future work will allow no-limit joins when both sides have search predicates.
-//!
-//! 4. **Search predicate**: At least one side must have:
-//!    - A BM25 index on the table
-//!    - A `@@@` search predicate in the WHERE clause
-//!
-//! 5. **Multi-level Joins**: JoinScan supports multi-level joins (e.g., `(A JOIN B) JOIN C`).
-//!    It achieves this by reconstructing the join tree from PostgreSQL's plan or by nesting
-//!    multiple JoinScan operators.
-//!
-//! 6. **Fast-field columns**: All columns used in the join must be fast fields in their
-//!    respective BM25 indexes. This allows the join to be executed entirely within the index:
-//!    - Equi-join keys (e.g., `a.id = b.id`) must be fast fields for join execution
-//!    - Multi-table predicates (e.g., `a.price > b.min_price`) must reference fast fields
-//!    - ORDER BY columns must be fast fields for efficient sorting
-//!    - If any required column is not a fast field, we would need to access the heap
-//!      during the join, breaking the late materialization strategy.
-//!
-//! 7. **Equi-join keys required**: At least one equi-join key (e.g., `a.id = b.id`) is
-//!    required. Cross joins (cartesian products) fall back to PostgreSQL
-//!
-//! # Example Queries
-//!
-//! ```sql
-//! -- JoinScan IS proposed (has LIMIT, has @@@ predicate)
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless'
-//! LIMIT 10;
-//!
-//! -- JoinScan is NOT proposed (no LIMIT)
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless';
-//!
-//! -- JoinScan is NOT proposed (LEFT JOIN not supported)
-//! SELECT p.name, s.name
-//! FROM products p
-//! LEFT JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless'
-//! LIMIT 10;
-//!
-//! -- JoinScan IS proposed if price/min_price are fast fields in BM25 indexes
-//! SELECT p.name, s.name
-//! FROM products p
-//! JOIN suppliers s ON p.supplier_id = s.id
-//! WHERE p.description @@@ 'wireless' AND p.price > s.min_price
-//! LIMIT 10;
-//!
-//! -- JoinScan is NOT proposed if price is NOT a fast field
-//! -- (falls back to PostgreSQL's native join)
-//! ```
+//! 1.  **GUC enabled**: `paradedb.enable_join_custom_scan = on`.
+//! 2.  **Inner Join**: Only `INNER JOIN` is currently supported.
+//! 3.  **LIMIT clause**: Required to ensure late materialization benefits.
+//! 4.  **Search Predicate**: At least one joined table must have a `@@@` predicate.
+//! 5.  **Fast Fields**: All columns used in the join (keys, predicates, sort) must be
+//!     fast fields in the BM25 index.
+//! 6.  **Equi-Join**: At least one equality condition (e.g., `a.id = b.id`) is required.
 //!
 //! # Architecture
 //!
-//! ```text
-//! ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-//! │   PostgreSQL    │     │    JoinScan      │     │     DataFusion      │
-//! │   Planner       │────▶│   Custom Scan    │────▶│   Execution Plan    │
-//! │   (hook)        │     │   (planning +    │     │                     │
-//! │                 │     │    execution)    │     │                     │
-//! └─────────────────┘     └──────────────────┘     └─────────────────────┘
-//!                                                             │
-//!                                                             ▼
-//!                                                  ┌─────────────────────┐
-//!                                                  │      Tantivy        │
-//!                                                  │    (Scan + Search)  │
-//!                                                  └─────────────────────┘
-//! ```
+//! ## Logical Execution Flow
 //!
-//! ## Execution Strategy
+//! 1.  **Planning**: `JoinScan` hooks into PostgreSQL's planner, identifying search joins
+//!     and building a `JoinCSClause`.
+//! 2.  **Execution**: A DataFusion logical plan is constructed, defining the join, filters,
+//!     sorts, and limits.
+//! 3.  **DataFusion**: The plan is executed by DataFusion, which chooses the optimal join algorithm.
+//! 4.  **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
 //!
-//! 1. **Planning**: During PostgreSQL planning, `JoinScan` hooks into the join path list.
-//!    It identifies potential search joins (including reconstructing multi-level joins from
-//!    PostgreSQL's optimal paths), extracts predicates, and builds a `JoinCSClause`.
-//! 2. **Execution**: A DataFusion logical plan is constructed from the `JoinCSClause`.
-//!    This plan defines the join, filters, sorts, and limits.
-//! 3. **DataFusion**: The plan is executed by DataFusion, which chooses the best join algorithm.
-//!    - **Ordering side**: Streams results from Tantivy (search results).
-//!    - **Non-ordering side**: Scans the other relation (or search results).
-//! 4. **Result**: Joined tuples are returned to PostgreSQL via the Custom Scan interface.
+//! ## Parallel Execution (MPP)
+//!
+//! JoinScan uses a **"Lazy Request"** / **"RPC-Server"** model for parallel execution across
+//! PostgreSQL processes:
+//!
+//! 1.  **Leader as Scheduler**: The leader creates and broadcasts the physical plan to workers.
+//! 2.  **Worker as RPC Server**: Workers register sub-plans (`DsmExchangeExec`) and wait for requests.
+//! 3.  **Lazy Execution**: Execution starts only when a consumer sends a `StartStream` control message.
+//! 4.  **Data Transport**: Data is streamed via shared memory ring buffers using Arrow IPC.
 //!
 //! # Submodules
 //!
@@ -138,19 +63,25 @@
 //! - [`translator`]: Maps PostgreSQL expressions/columns to DataFusion expressions.
 //! - [`privdat`]: Private data serialization between planning and execution.
 //! - [`explain`]: EXPLAIN output formatting.
+//! - [`transport`]: Low-level data transport (Shared Memory) and signaling.
 
 mod build;
+pub mod exchange;
 mod explain;
 mod memory;
+mod parallel;
 mod planning;
 mod predicate;
 mod privdat;
+pub mod sanitize;
 mod scan_state;
 mod translator;
+pub mod transport;
+
+use transport::TransportMesh;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
-use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
     collect_join_sources, collect_required_fields, ensure_score_bubbling,
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
@@ -164,123 +95,30 @@ use self::scan_state::{
     JoinScanState,
 };
 use crate::api::OrderByFeature;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchExtensionCodec;
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use datafusion_proto::bytes::{
     logical_plan_from_bytes_with_extension_codec, logical_plan_to_bytes_with_extension_codec,
+    physical_plan_from_bytes_with_extension_codec, physical_plan_to_bytes_with_extension_codec,
 };
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList};
-use std::ffi::{c_void, CStr};
-use std::sync::Arc;
+use std::ffi::CStr;
 
 #[derive(Default)]
 pub struct JoinScan;
-
-impl ParallelQueryCapable for JoinScan {
-    fn estimate_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-    ) -> pg_sys::Size {
-        // We only partition the largest source
-        let join_clause = &state.custom_state().join_clause;
-        let source = join_clause.partitioning_source();
-        let segment_count = source
-            .scan_info
-            .segment_count
-            .expect("Segment count missing for partitioning source");
-
-        // JoinScan doesn't currently support aggregates in the scan
-        ParallelScanState::size_of(segment_count, &[], false)
-    }
-
-    fn initialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        // Initialize shared state with segments from the largest source
-        let join_clause = &state.custom_state().join_clause;
-        let source = join_clause.partitioning_source();
-        let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
-        let query = source.scan_info.query.clone();
-
-        let index_rel = PgSearchRelation::open(index_relid);
-        let reader = SearchIndexReader::open_with_context(
-            &index_rel,
-            query.unwrap_or(crate::query::SearchQueryInput::All),
-            false,
-            MvccSatisfies::Snapshot,
-            None,
-            None,
-        )
-        .expect("Failed to open reader for DSM initialization");
-
-        let args = crate::postgres::ParallelScanArgs {
-            segment_readers: reader.segment_readers(),
-            query: vec![], // We don't need to pass query bytes for JoinScan (handled by plan)
-            with_aggregates: false,
-        };
-
-        unsafe {
-            (*pscan_state).create_and_populate(args);
-            state.custom_state_mut().parallel_state = Some(pscan_state);
-        }
-    }
-
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-        unsafe {
-            (*pscan_state).reset();
-        }
-    }
-
-    fn initialize_worker_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
-        state.custom_state_mut().parallel_state = Some(pscan_state);
-
-        // Workers must wait for the leader to finish populating the segment pool.
-        unsafe {
-            (*pscan_state).wait_for_initialization();
-        }
-
-        // We don't need to deserialize query from parallel state for JoinScan
-        // because the full plan (including query) is serialized in PrivateData
-        // and available to the worker via the plan.
-    }
-}
 
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
@@ -297,18 +135,10 @@ impl CustomScan for JoinScan {
             ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
-            ),
-            InitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
-            ),
-            ReInitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
-            ),
-            InitializeWorkerCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
-            ),
+            EstimateDSMCustomScan: None,
+            InitializeDSMCustomScan: None,
+            ReInitializeDSMCustomScan: None,
+            InitializeWorkerCustomScan: None,
             ShutdownCustomScan: Some(
                 crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
             ),
@@ -362,11 +192,11 @@ impl CustomScan for JoinScan {
 
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
-            // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
-            // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
-            // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
-            // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
+            // - LEFT JOIN: Return NULL for non-matching rows from the right side.
+            // - RIGHT JOIN: Swap sides if possible, or implement Right Join logic.
+            // - FULL OUTER JOIN: Track unmatched rows on both sides.
+            // - SEMI JOIN: Stop after first match (benefits EXISTS queries).
+            // - ANTI JOIN: Return only rows with no matches (benefits NOT EXISTS).
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
@@ -464,9 +294,9 @@ impl CustomScan for JoinScan {
             // Add current level keys
             join_clause.join_keys.extend(join_conditions.equi_keys);
 
-            // Determine ordering side index
-            let ordering_idx = join_clause.ordering_side_index();
-            let score_pathkey = if let Some(side) = join_clause.ordering_side() {
+            // Determine which side provides the score for ordering (if any)
+            let score_provider_idx = join_clause.score_provider_index();
+            let score_pathkey = if let Some(side) = join_clause.score_provider() {
                 extract_score_pathkey(root, side)
             } else {
                 None
@@ -475,14 +305,11 @@ impl CustomScan for JoinScan {
             for (i, source) in join_clause.sources.iter_mut().enumerate() {
                 // Check if paradedb.score() is used anywhere in the query for each side.
                 // This includes ORDER BY, SELECT list, or any other expression.
-                // We need to check ALL sides because:
-                // - Ordering side: scores come from the streaming executor
-                // - Non-ordering side: scores come from the pre-materialized search results
                 let score_in_tlist =
                     expr_uses_scores_from_source((*root).processed_tlist.cast(), source);
 
-                let score_needed = if let Some(ord_idx) = ordering_idx {
-                    (i == ord_idx && score_pathkey.is_some()) || score_in_tlist
+                let score_needed = if let Some(provider_idx) = score_provider_idx {
+                    (i == provider_idx && score_pathkey.is_some()) || score_in_tlist
                 } else {
                     score_in_tlist
                 };
@@ -537,7 +364,7 @@ impl CustomScan for JoinScan {
             // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Extract ORDER BY info for DataFusion execution
-            let order_by = extract_orderby(root, &join_clause.sources, ordering_idx);
+            let order_by = extract_orderby(root, &join_clause.sources, score_provider_idx);
             join_clause = join_clause.with_order_by(order_by);
 
             // Use simple fixed costs since we force the path anyway.
@@ -546,24 +373,28 @@ impl CustomScan for JoinScan {
             let total_cost = startup_cost + 1.0;
             let mut result_rows = limit.map(|l| l as f64).unwrap_or(1000.0);
 
-            // Calculate parallel workers based on the largest source, which we will partition.
+            // Calculate parallel workers based on the largest source.
             let (segment_count, row_estimate) = {
-                let largest_source = join_clause.partitioning_source();
+                let largest_source = join_clause
+                    .sources
+                    .iter()
+                    .max_by(|a, b| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+                    .expect("JoinScan requires at least one source");
 
                 let segment_count = largest_source
                     .scan_info
                     .segment_count
-                    .expect("Segment count missing for partitioning source");
+                    .expect("Segment count missing for largest source");
 
                 let row_estimate = largest_source
                     .scan_info
                     .estimate
-                    .expect("Estimate missing for partitioning source");
+                    .expect("Estimate missing for largest source");
 
                 (segment_count, row_estimate)
             };
 
-            let nworkers = if (*outerrel).consider_parallel {
+            let mut nworkers = if (*outerrel).consider_parallel {
                 // JoinScan always has a limit (required).
                 // It declares sorted output if there is an ORDER BY clause.
                 let declares_sorted_output = !join_clause.order_by.is_empty();
@@ -583,6 +414,16 @@ impl CustomScan for JoinScan {
                 0
             };
 
+            #[cfg(not(feature = "pg15"))]
+            if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
+                nworkers = 1;
+            }
+
+            // Store the planned number of workers in the join clause.
+            // We do NOT call builder.set_parallel(nworkers) because we manage our own
+            // background workers explicitly via launch_parallel_process! at execution time.
+            join_clause = join_clause.with_planned_workers(nworkers);
+
             // Force the path to be chosen when we have a valid join opportunity.
             // TODO: Once cost model is well-tuned, consider removing Flags::Force
             // to let PostgreSQL make cost-based decisions.
@@ -592,17 +433,8 @@ impl CustomScan for JoinScan {
                 .set_total_cost(total_cost);
 
             if nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
                 // Adjust result rows per worker for better costing
-                let processes = std::cmp::max(
-                    1,
-                    nworkers
-                        + if pg_sys::parallel_leader_participation {
-                            1
-                        } else {
-                            0
-                        },
-                );
+                let processes = std::cmp::max(1, scan_state::compute_total_participants(nworkers));
                 result_rows /= processes as f64;
             }
 
@@ -878,6 +710,10 @@ impl CustomScan for JoinScan {
             );
         }
 
+        if join_clause.planned_workers > 0 {
+            explainer.add_text("Planned Workers", join_clause.planned_workers.to_string());
+        }
+
         if explainer.is_analyze() {
             // For EXPLAIN ANALYZE, render the plan with metrics inline.
             // VERBOSE includes timing; without VERBOSE, timing is stripped for stable output.
@@ -895,8 +731,14 @@ impl CustomScan for JoinScan {
                 }
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
-            let ctx = create_session_context();
+            let nworkers = join_clause.planned_workers;
+            let total_participants = scan_state::compute_total_participants(nworkers);
+            let max_mem = if state.custom_state().max_memory > 0 {
+                state.custom_state().max_memory
+            } else {
+                1024 * 1024 * 1024
+            };
+            let ctx = create_session_context(0, total_participants, max_mem);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -936,10 +778,13 @@ impl CustomScan for JoinScan {
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         unsafe {
-            if state.custom_state().datafusion_stream.is_none() {
+            if state.custom_state().unified_stream.is_none() {
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
+                let local_set = tokio::task::LocalSet::new();
+
                 let join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
@@ -970,59 +815,177 @@ impl CustomScan for JoinScan {
                 let plan_bytes = state
                     .custom_state()
                     .logical_plan
-                    .as_ref()
+                    .clone()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
-                let ctx = create_session_context();
-                let codec = PgSearchExtensionCodec {
-                    parallel_state: state.custom_state().parallel_state,
-                };
-                let logical_plan = logical_plan_from_bytes_with_extension_codec(
-                    plan_bytes,
-                    &ctx.task_ctx(),
-                    &codec,
-                )
-                .expect("Failed to deserialize logical plan");
+                let nworkers = join_clause.planned_workers;
+                let total_participants = scan_state::compute_total_participants(nworkers);
+                let ctx =
+                    create_session_context(0, total_participants, state.custom_state().max_memory);
 
-                // Convert logical plan to physical plan
-                let plan = runtime
-                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-                    .expect("Failed to create execution plan");
+                if nworkers > 0 {
+                    if let Some((
+                        process,
+                        _, // leader_plan is None
+                        mux_writers,
+                        mux_readers,
+                        _session_id,
+                        bridge,
+                        nlaunched,
+                    )) = parallel::launch_join_workers(
+                        &runtime,
+                        nworkers,
+                        state.custom_state().max_memory,
+                        pg_sys::parallel_leader_participation,
+                    ) {
+                        // DEFERRED PHYSICAL PLANNING
+                        // Now that workers are launched, we know the exact number of participants.
+                        // We build the physical plan targeting this topology.
 
-                let memory_pool =
-                    Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));
-                let task_ctx = Arc::new(
-                    TaskContext::default().with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
-                );
-                let stream = {
-                    let _guard = runtime.enter();
-                    plan.execute(0, task_ctx)
-                        .expect("Failed to execute DataFusion plan")
-                };
+                        let total_participants = nlaunched;
 
-                // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
-                state.custom_state_mut().physical_plan = Some(plan.clone());
+                        // Re-create context with actual participant count
+                        let ctx = create_session_context(
+                            0,
+                            total_participants,
+                            state.custom_state().max_memory,
+                        );
 
-                let schema = plan.schema();
-                for (i, field) in schema.fields().iter().enumerate() {
-                    if let Some(stripped) = field.name().strip_prefix("ctid_") {
-                        if let Ok(rti) = stripped.parse::<pg_sys::Index>() {
+                        let leader_logical_plan = logical_plan_from_bytes_with_extension_codec(
+                            &plan_bytes,
+                            &ctx.task_ctx(),
+                            &PgSearchExtensionCodec::default(),
+                        )
+                        .expect("Failed to deserialize leader logical plan");
+
+                        // Build the physical plan
+                        let plan = runtime
+                            .block_on(build_joinscan_physical_plan(&ctx, leader_logical_plan))
+                            .expect("Failed to create execution plan");
+
+                        // Serialize plan for broadcast
+                        let codec = PgSearchExtensionCodec::default();
+                        let plan_bytes =
+                            physical_plan_to_bytes_with_extension_codec(plan.clone(), &codec)
+                                .expect("Failed to serialize physical plan on leader");
+
+                        // BROADCAST PLAN TO WORKERS
+                        // Iterate over all readers (which correspond to connections FROM workers)
+                        // and use their control channel to send the plan TO the worker.
+                        // Note: Reader[i] connects to Participant i.
+                        for (i, reader_mutex) in mux_readers.iter().enumerate() {
+                            if i == 0 {
+                                continue;
+                            } // Skip self (Leader)
+
+                            let mut reader = reader_mutex.lock();
+                            // Send BroadcastPlan (Type 128)
+                            reader
+                                .send_control_message_variable(128, &plan_bytes)
+                                .expect("Failed to broadcast plan to worker");
+                        }
+
+                        // Register the DSM mesh for the leader process.
+                        let transport = TransportMesh {
+                            mux_writers,
+                            mux_readers,
+                            bridge,
+                        };
+                        let mesh = exchange::DsmMesh {
+                            transport,
+                            registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
+                        };
+                        exchange::register_dsm_mesh(mesh);
+
+                        // SERIALIZATION ROUNDTRIP: Serialize and deserialize the plan on the leader
+                        // NOW that the mesh is registered. This ensures that the leader's stream
+                        // sources are registered in the registry exactly like the workers' sources.
+                        let plan_bytes = physical_plan_to_bytes_with_extension_codec(plan, &codec)
+                            .expect("Failed to serialize physical plan on leader");
+                        let plan = physical_plan_from_bytes_with_extension_codec(
+                            &plan_bytes,
+                            &ctx.task_ctx(),
+                            &codec,
+                        )
+                        .expect("Failed to deserialize physical plan on leader");
+
+                        let custom_state = state.custom_state_mut();
+                        custom_state.parallel_process = Some(process);
+
+                        // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                        custom_state.physical_plan = Some(plan.clone());
+                        let task_ctx = ctx.task_ctx();
+
+                        // Start the control service to listen for stream requests
+                        exchange::spawn_control_service(&local_set, task_ctx.clone());
+
+                        let (stream, ctid_col_mapping) =
+                            runtime.block_on(local_set.run_until(async {
+                                let stream = plan
+                                    .execute(0, task_ctx)
+                                    .expect("Failed to execute DataFusion plan");
+
+                                // Setup CTID column mapping
+                                let mut mapping = Vec::new();
+                                let schema = plan.schema();
+                                for (i, field) in schema.fields().iter().enumerate() {
+                                    if let Some(stripped) = field.name().strip_prefix("ctid_") {
+                                        if let Ok(rti) = stripped.parse::<pg_sys::Index>() {
+                                            mapping.push((rti, i));
+                                        }
+                                    }
+                                }
+                                (stream, mapping)
+                            }));
+
+                        for (rti, i) in ctid_col_mapping {
                             if let Some(rel_state) =
                                 state.custom_state_mut().relations.get_mut(&rti)
                             {
                                 rel_state.ctid_col_idx = Some(i);
                             }
                         }
+                        state.custom_state_mut().unified_stream = Some(Box::pin(stream));
                     }
+                } else {
+                    // Serial mode
+                    let logical_plan = logical_plan_from_bytes_with_extension_codec(
+                        &plan_bytes,
+                        &ctx.task_ctx(),
+                        &PgSearchExtensionCodec::default(),
+                    )
+                    .expect("Failed to deserialize logical plan");
+
+                    // Convert logical plan to physical plan
+                    let plan = runtime
+                        .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                        .expect("Failed to create execution plan");
+
+                    // Retain the executed plan so EXPLAIN ANALYZE can extract metrics.
+                    state.custom_state_mut().physical_plan = Some(plan.clone());
+
+                    let stream = {
+                        let _guard = runtime.enter();
+                        plan.execute(0, ctx.task_ctx())
+                            .expect("Failed to execute DataFusion plan")
+                    };
+
+                    let schema = plan.schema();
+                    for (i, field) in schema.fields().iter().enumerate() {
+                        if let Some(stripped) = field.name().strip_prefix("ctid_") {
+                            if let Ok(rti) = stripped.parse::<pg_sys::Index>() {
+                                if let Some(rel_state) =
+                                    state.custom_state_mut().relations.get_mut(&rti)
+                                {
+                                    rel_state.ctid_col_idx = Some(i);
+                                }
+                            }
+                        }
+                    }
+                    state.custom_state_mut().unified_stream = Some(Box::pin(stream));
                 }
                 state.custom_state_mut().runtime = Some(runtime);
-                state.custom_state_mut().datafusion_stream = Some(stream);
+                state.custom_state_mut().local_set = Some(local_set);
             }
 
             loop {
@@ -1040,14 +1003,14 @@ impl CustomScan for JoinScan {
 
                 let next_batch = {
                     let custom_state = state.custom_state_mut();
-                    custom_state.runtime.as_mut().unwrap().block_on(async {
-                        custom_state
-                            .datafusion_stream
-                            .as_mut()
-                            .unwrap()
-                            .next()
-                            .await
-                    })
+                    let local_set = custom_state.local_set.as_ref().unwrap();
+                    custom_state
+                        .runtime
+                        .as_mut()
+                        .unwrap()
+                        .block_on(local_set.run_until(async {
+                            custom_state.unified_stream.as_mut().unwrap().next().await
+                        }))
                 };
 
                 match next_batch {
@@ -1056,7 +1019,9 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().batch_index = 0;
                     }
                     Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
-                    None => return std::ptr::null_mut(),
+                    None => {
+                        return std::ptr::null_mut();
+                    }
                 }
             }
         }
@@ -1074,6 +1039,16 @@ impl CustomScan for JoinScan {
         // Clean up resources
         state.custom_state_mut().relations.clear();
         state.custom_state_mut().result_slot = None;
+
+        // Drop the stream and runtime resources FIRST.
+        // This ensures that `DsmStream`s (which send cancellation signals on Drop)
+        // are dropped while the parallel process infrastructure (DSM, SignalBridge)
+        // is still valid and operational.
+        state.custom_state_mut().unified_stream = None;
+        state.custom_state_mut().local_set = None;
+        state.custom_state_mut().runtime = None;
+
+        state.custom_state_mut().parallel_process = None;
     }
 }
 

@@ -103,11 +103,9 @@ impl ParallelProcessBuilder {
 
                 let nbytes = entry.size_of();
                 let state_address = pg_sys::shm_toc_allocate((*pcxt.as_ptr()).toc, nbytes);
-                std::ptr::copy_nonoverlapping(
-                    entry.as_bytes().as_ptr().cast(),
-                    state_address,
-                    nbytes,
-                );
+                // SAFETY: `state_address` points to `nbytes` bytes of valid memory
+                // allocated by `shm_toc_allocate`, which matches `entry.size_of()`.
+                entry.initialize(state_address.cast());
                 pg_sys::shm_toc_insert((*pcxt.as_ptr()).toc, idx + i as u64 + 1, state_address);
             }
 
@@ -138,6 +136,15 @@ pub struct ParallelProcessLauncher {
     pcxt: NonNull<pg_sys::ParallelContext>,
     state_manager: ParallelStateManager,
     mq_handles: Vec<MessageQueueReceiver>,
+}
+
+impl Drop for ParallelProcessLauncher {
+    fn drop(&mut self) {
+        unsafe {
+            pg_sys::DestroyParallelContext(self.pcxt.as_ptr());
+            pg_sys::ExitParallelMode();
+        }
+    }
 }
 
 impl ParallelProcessLauncher {
@@ -257,11 +264,8 @@ impl ParallelProcessFinish {
             let pcxt = self.launcher.pcxt.as_ptr();
 
             let messages = self.recv().unwrap_or_default();
-            drop(self.launcher);
 
             pg_sys::WaitForParallelWorkersToFinish(pcxt);
-            pg_sys::DestroyParallelContext(pcxt);
-            pg_sys::ExitParallelMode();
 
             messages
         }
@@ -301,6 +305,9 @@ impl Iterator for ParallelProcessMessageQueue {
                 Some(batch) => {
                     self.batch = batch;
                 }
+            }
+            if self.batch.is_empty() {
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
     }

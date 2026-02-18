@@ -89,8 +89,15 @@ pub trait ParallelState {
         1
     }
 
-    /// Return a byte slice pointing to the raw bytes of this instance in memory
-    fn as_bytes(&self) -> &[u8];
+    /// Initialize the state at the given memory location.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `dest` is valid for writes of at least `self.size_of()` bytes
+    /// and is properly aligned.
+    ///
+    /// The implementation must ensure it does not write more than `self.size_of()` bytes.
+    unsafe fn initialize(&self, dest: *mut u8);
 }
 
 impl ParallelStateType for u8 {}
@@ -109,8 +116,8 @@ impl ParallelStateType for bool {}
 impl ParallelStateType for () {}
 
 impl<T: ParallelStateType> ParallelState for T {
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self as *const _ as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        std::ptr::copy_nonoverlapping(self as *const _ as *const u8, dest, self.size_of())
     }
 }
 
@@ -124,8 +131,8 @@ impl<T: ParallelStateType> ParallelState for Vec<T> {
     fn array_len(&self) -> usize {
         self.len()
     }
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.as_ptr() as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        std::ptr::copy_nonoverlapping(self.as_ptr() as *const u8, dest, self.size_of())
     }
 }
 
@@ -133,12 +140,32 @@ pub trait ParallelProcess {
     fn state_values(&self) -> Vec<&dyn ParallelState>;
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ParallelWorkerNumber(pub i32);
+
+impl ParallelWorkerNumber {
+    pub fn to_participant_index(self, leader_participation: bool) -> usize {
+        if leader_participation {
+            (self.0 + 1) as usize
+        } else {
+            self.0 as usize
+        }
+    }
+}
+
 pub trait ParallelWorker {
-    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self
+    fn new_parallel_worker(
+        state_manager: ParallelStateManager,
+        worker_number: ParallelWorkerNumber,
+    ) -> Self
     where
         Self: Sized;
 
-    fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()>;
+    fn run(
+        self,
+        mq_sender: &MessageQueueSender,
+        worker_number: ParallelWorkerNumber,
+    ) -> anyhow::Result<()>;
 }
 
 #[derive(Copy, Clone)]
@@ -176,6 +203,14 @@ impl ParallelStateManager {
                 len,
             }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     unsafe fn decode_info<T: ParallelStateType>(
@@ -389,8 +424,11 @@ macro_rules! launch_parallel_process {
                         $mq_size as usize,
                     );
 
-                <$parallel_worker_type>::new_parallel_worker(state_manager)
-                    .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
+                let worker_number = $crate::parallel_worker::ParallelWorkerNumber(unsafe {
+                    pgrx::pg_sys::ParallelWorkerNumber
+                });
+                <$parallel_worker_type>::new_parallel_worker(state_manager, worker_number)
+                    .run(&mq_sender, worker_number)
                     .unwrap_or_else(|e| panic!("{e}"));
             }
         }
@@ -483,7 +521,7 @@ mod tests {
     use crate::parallel_worker::mqueue::MessageQueueSender;
     use crate::parallel_worker::{
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
-        WorkerStyle,
+        ParallelWorkerNumber, WorkerStyle,
     };
     use pgrx::pg_test;
 
@@ -503,7 +541,10 @@ mod tests {
         }
 
         impl ParallelWorker for MyWorker<'_> {
-            fn new_parallel_worker(state_manager: ParallelStateManager) -> Self {
+            fn new_parallel_worker(
+                state_manager: ParallelStateManager,
+                _worker_number: ParallelWorkerNumber,
+            ) -> Self {
                 Self {
                     state: state_manager
                         .object(0)
@@ -512,9 +553,13 @@ mod tests {
                 }
             }
 
-            fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+            fn run(
+                self,
+                mq_sender: &MessageQueueSender,
+                worker_number: ParallelWorkerNumber,
+            ) -> anyhow::Result<()> {
                 assert_eq!(self.state.junk, 42);
-                Ok(mq_sender.send(worker_number.to_ne_bytes())?)
+                Ok(mq_sender.send(worker_number.0.to_ne_bytes())?)
             }
         }
 
@@ -588,19 +633,15 @@ pub fn chunk_range(n: usize, m: usize, i: usize) -> (usize, usize) {
 #[derive(Debug, Copy, Clone)]
 pub enum QueryWorkerStyle {
     ParallelLeader,
-    ParallelWorker(i32),
+    ParallelWorker(ParallelWorkerNumber),
     NonParallel,
 }
 
 impl QueryWorkerStyle {
-    pub fn worker_number(&self) -> i32 {
+    pub fn participant_index(&self) -> usize {
         match self {
             QueryWorkerStyle::ParallelWorker(worker_number) => {
-                if unsafe { pg_sys::parallel_leader_participation } {
-                    *worker_number + 1
-                } else {
-                    *worker_number
-                }
+                worker_number.to_participant_index(unsafe { pg_sys::parallel_leader_participation })
             }
             QueryWorkerStyle::ParallelLeader => 0,
             QueryWorkerStyle::NonParallel => 0,

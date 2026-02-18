@@ -33,7 +33,7 @@ use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan};
+use crate::scan::execution_plan::{create_sorted_scan_internal, PgSearchScanPlan};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -561,7 +561,7 @@ impl MixedFastFieldExecState {
 
         // Create sorted scan plan with SortPreservingMergeExec
         // Returns Error if the sort field is not in the schema
-        let plan = create_sorted_scan(
+        let plan = create_sorted_scan_internal(
             pre_opened,
             schema,
             // TODO: Switch to an Arc in the scan state.

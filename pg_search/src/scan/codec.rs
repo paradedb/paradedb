@@ -17,6 +17,16 @@
 
 use std::sync::Arc;
 
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::postgres::customscan::joinscan::exchange::{
+    get_mpp_config, register_stream_source, DsmExchangeConfig, DsmExchangeExec, StreamSource,
+};
+use crate::postgres::customscan::joinscan::sanitize::DsmSanitizeExec;
+use crate::postgres::customscan::joinscan::transport::ParticipantId;
+use crate::query::SearchQueryInput;
+use crate::scan::execution_plan::MultiSegmentPlan;
+use crate::scan::info::ScanInfo;
+use crate::scan::table_provider::MppParticipantConfig;
 use arrow_schema::SchemaRef;
 use datafusion::catalog::TableProvider;
 use datafusion::common::TableReference;
@@ -24,18 +34,37 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
+use datafusion_proto::physical_plan::PhysicalExtensionCodec;
+use serde::{Deserialize, Serialize};
 
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
+use datafusion_proto::physical_plan::from_proto::parse_protobuf_partitioning;
+use datafusion_proto::physical_plan::to_proto::serialize_partitioning;
+use datafusion_proto::protobuf;
+use prost::Message;
+
+#[derive(Serialize, Deserialize)]
+enum PhysicalNode {
+    DsmExchange {
+        config: DsmExchangeConfig,
+        producer_partitioning_bytes: Vec<u8>,
+        output_partitioning_bytes: Vec<u8>,
+    },
+    DsmSanitize,
+    MultiSegment {
+        scan_info: Box<ScanInfo>,
+        fields: Vec<WhichFastField>,
+        query_for_display: Box<SearchQueryInput>,
+        target_partitioning_bytes: Vec<u8>,
+    },
+}
 
 /// Datafusion `LogicalPlan`s are serialized/deserialized with protobuf.
 /// Any custom nodes (e.g. UDFs, table providers) must use this codec to instruct
 /// DataFusion how to serialize/deserialize them.
 #[derive(Debug, Default)]
-pub struct PgSearchExtensionCodec {
-    /// Shared state for parallel scans, containing the list of segments to be processed.
-    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-}
+pub struct PgSearchExtensionCodec {}
 
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
@@ -102,6 +131,236 @@ macro_rules! encode_udfs {
     };
 }
 
+impl PhysicalExtensionCodec for PgSearchExtensionCodec {
+    fn try_decode(
+        &self,
+        buf: &[u8],
+        inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        ctx: &TaskContext,
+    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        let node: PhysicalNode = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("Failed to deserialize PhysicalNode: {e}"))
+        })?;
+
+        match node {
+            PhysicalNode::DsmExchange {
+                config,
+                producer_partitioning_bytes,
+                output_partitioning_bytes,
+            } => {
+                let producer_proto = protobuf::Partitioning::decode(
+                    &producer_partitioning_bytes[..],
+                )
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to decode Producer Partitioning: {e}"
+                    ))
+                })?;
+                let output_proto = protobuf::Partitioning::decode(&output_partitioning_bytes[..])
+                    .map_err(|e| {
+                    DataFusionError::Internal(format!("Failed to decode Output Partitioning: {e}"))
+                })?;
+                let schema = inputs[0].schema();
+                let producer_partitioning =
+                    parse_protobuf_partitioning(Some(&producer_proto), ctx, &schema, self)?
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "Failed to parse producer partitioning".to_string(),
+                            )
+                        })?;
+                let output_partitioning =
+                    parse_protobuf_partitioning(Some(&output_proto), ctx, &schema, self)?
+                        .ok_or_else(|| {
+                            DataFusionError::Internal(
+                                "Failed to parse output partitioning".to_string(),
+                            )
+                        })?;
+
+                // Register this exchange as a procedure available on this node (Producer Side)
+                let (participant_index, _) = get_mpp_config(ctx);
+                register_stream_source(
+                    StreamSource {
+                        input: inputs[0].clone(),
+                        partitioning: producer_partitioning.clone(),
+                        config: config.clone(),
+                    },
+                    ParticipantId(participant_index as u16),
+                );
+
+                Ok(Arc::new(DsmExchangeExec::try_new(
+                    inputs[0].clone(),
+                    producer_partitioning,
+                    output_partitioning,
+                    config,
+                )?))
+            }
+            PhysicalNode::DsmSanitize => Ok(Arc::new(DsmSanitizeExec::new(inputs[0].clone()))),
+            PhysicalNode::MultiSegment {
+                scan_info,
+                fields,
+                query_for_display,
+                target_partitioning_bytes,
+            } => {
+                let schema = Arc::new(arrow_schema::Schema::new(
+                    fields
+                        .iter()
+                        .map(|f| arrow_schema::Field::new(f.name(), f.arrow_data_type(), true))
+                        .collect::<Vec<_>>(),
+                ));
+
+                let proto = protobuf::Partitioning::decode(&target_partitioning_bytes[..])
+                    .map_err(|e| {
+                        DataFusionError::Internal(format!("Failed to decode Partitioning: {e}"))
+                    })?;
+                let partitioning = parse_protobuf_partitioning(Some(&proto), ctx, &schema, self)?
+                    .ok_or_else(|| {
+                    DataFusionError::Internal("Failed to parse partitioning".to_string())
+                })?;
+
+                // Reconstruct MultiSegmentPlan by opening segments on this worker
+                let mpp_config = ctx
+                    .session_config()
+                    .options()
+                    .extensions
+                    .get::<MppParticipantConfig>();
+                let participant_index = mpp_config.as_ref().map(|c| c.index).unwrap_or(0);
+                let total_participants = mpp_config
+                    .as_ref()
+                    .map(|c| c.total_participants)
+                    .unwrap_or(1);
+
+                let heaprelid = scan_info
+                    .heaprelid
+                    .ok_or_else(|| DataFusionError::Internal("Missing heaprelid".into()))?;
+                let index_relid = scan_info
+                    .indexrelid
+                    .ok_or_else(|| DataFusionError::Internal("Missing indexrelid".into()))?;
+
+                let heap_rel = crate::postgres::rel::PgSearchRelation::open(heaprelid);
+                let index_rel = crate::postgres::rel::PgSearchRelation::open(index_relid);
+
+                let reader = crate::index::reader::index::SearchIndexReader::open_with_context(
+                    &index_rel,
+                    scan_info.query.clone().unwrap_or(SearchQueryInput::All),
+                    scan_info.score_needed,
+                    crate::index::mvcc::MvccSatisfies::Snapshot,
+                    None,
+                    None,
+                )
+                .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
+
+                let ffhelper =
+                    crate::index::fast_fields_helper::FFHelper::with_fields(&reader, &fields);
+                let snapshot = unsafe { pgrx::pg_sys::GetActiveSnapshot() };
+                let visibility = crate::postgres::heap::VisibilityChecker::with_rel_and_snap(
+                    &heap_rel, snapshot,
+                );
+                let sort_order = scan_info.sort_order.clone();
+
+                let ffhelper = Arc::new(ffhelper);
+                let segment_readers = reader.segment_readers();
+                let segments: Vec<crate::scan::execution_plan::ScanState> = segment_readers
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| {
+                        if total_participants > 1 {
+                            let (start, length) = crate::parallel_worker::chunk_range(
+                                segment_readers.len(),
+                                total_participants,
+                                participant_index,
+                            );
+                            *i >= start && *i < start + length
+                        } else {
+                            true
+                        }
+                    })
+                    .map(|(_, r)| {
+                        let search_results =
+                            reader.search_segments(std::iter::once(r.segment_id()));
+                        let scanner = crate::scan::Scanner::new(
+                            search_results,
+                            None,
+                            fields.clone(),
+                            heaprelid.into(),
+                        );
+                        (
+                            scanner,
+                            Arc::clone(&ffhelper),
+                            Box::new(visibility.clone()) as Box<dyn crate::scan::VisibilityChecker>,
+                        )
+                    })
+                    .collect();
+
+                Ok(Arc::new(MultiSegmentPlan::new_with_partitioning(
+                    segments,
+                    schema,
+                    *query_for_display,
+                    sort_order.as_ref(),
+                    Some(partitioning),
+                    *scan_info,
+                    fields,
+                )))
+            }
+        }
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        if let Some(exchange) = node.as_any().downcast_ref::<DsmExchangeExec>() {
+            let producer_partitioning = &exchange.producer_partitioning;
+            let output_partitioning = exchange.properties.output_partitioning();
+
+            let producer_proto = serialize_partitioning(producer_partitioning, self)?;
+            let output_proto = serialize_partitioning(output_partitioning, self)?;
+
+            let physical_node = PhysicalNode::DsmExchange {
+                config: exchange.config.clone(),
+                producer_partitioning_bytes: producer_proto.encode_to_vec(),
+                output_partitioning_bytes: output_proto.encode_to_vec(),
+            };
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmExchangeExec: {e}"))
+            })?;
+            Ok(())
+        } else if node.as_any().is::<DsmSanitizeExec>() {
+            let physical_node = PhysicalNode::DsmSanitize;
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize DsmSanitizeExec: {e}"))
+            })?;
+            Ok(())
+        } else if let Some(ms) = node.as_any().downcast_ref::<MultiSegmentPlan>() {
+            let partitioning = &ms.target_partitioning;
+            let proto = serialize_partitioning(partitioning, self)?;
+            let physical_node = PhysicalNode::MultiSegment {
+                scan_info: Box::new(ms.scan_info.clone()),
+                fields: ms.fields.clone(),
+                query_for_display: Box::new(ms.query_for_display.clone()),
+                target_partitioning_bytes: proto.encode_to_vec(),
+            };
+            serde_json::to_writer(buf, &physical_node).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to serialize MultiSegmentPlan: {e}"))
+            })?;
+            Ok(())
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "Unknown physical node: {}",
+                node.name()
+            )))
+        }
+    }
+
+    decode_udfs! {
+        "pdb_search_predicate" => SearchPredicateUDF,
+    }
+
+    encode_udfs! {
+        "pdb_search_predicate" => SearchPredicateUDF,
+    }
+}
+
 impl LogicalExtensionCodec for PgSearchExtensionCodec {
     fn try_decode(
         &self,
@@ -127,15 +386,9 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         _schema: SchemaRef,
         _ctx: &TaskContext,
     ) -> Result<Arc<dyn TableProvider>> {
-        let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
+        let provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        // Only inject parallel state if this provider is explicitly marked as parallel.
-        // In a JoinScan, only the first source is marked parallel and dynamicially claims
-        // segments from `parallel_state`, while subsequent sources are fully replicated.
-        if provider.is_parallel() {
-            provider.set_parallel_state(self.parallel_state);
-        }
         Ok(Arc::new(provider))
     }
 

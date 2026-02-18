@@ -180,4 +180,9 @@ impl ScanInfo {
     pub fn is_sorted(&self) -> bool {
         self.sort_order.is_some()
     }
+
+    /// Check if this scan info matches the given RTI.
+    pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        self.heap_rti == Some(rti)
+    }
 }

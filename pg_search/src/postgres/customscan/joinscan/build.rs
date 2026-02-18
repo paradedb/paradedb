@@ -305,11 +305,18 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// Number of parallel workers planned for this join.
+    pub planned_workers: usize,
 }
 
 impl JoinCSClause {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_planned_workers(mut self, nworkers: usize) -> Self {
+        self.planned_workers = nworkers;
+        self
     }
 
     pub fn add_source(mut self, source: JoinSource) -> Self {
@@ -405,31 +412,15 @@ impl JoinCSClause {
         self
     }
 
-    /// Returns the index of the ordering side (the source with a search predicate).
-    /// If multiple have it, returns the first one.
-    pub fn ordering_side_index(&self) -> Option<usize> {
+    /// Returns the index of the source that provides the score for ranking (if any).
+    /// If multiple sources have search predicates, returns the first one.
+    pub fn score_provider_index(&self) -> Option<usize> {
         self.sources.iter().position(|s| s.has_search_predicate())
     }
 
-    /// Get the ordering side source (side with search predicate).
-    pub fn ordering_side(&self) -> Option<&JoinSource> {
-        self.ordering_side_index().map(|i| &self.sources[i])
-    }
-
-    /// Returns the source that should be partitioned for parallel execution.
-    /// This is the source with the largest row estimate.
-    pub fn partitioning_source(&self) -> &JoinSource {
-        &self.sources[self.partitioning_source_index()]
-    }
-
-    /// Returns the index of the source that should be partitioned for parallel execution.
-    pub fn partitioning_source_index(&self) -> usize {
-        self.sources
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
-            .map(|(i, _)| i)
-            .expect("JoinScan requires at least one source")
+    /// Get the source that provides the score (side with search predicate).
+    pub fn score_provider(&self) -> Option<&JoinSource> {
+        self.score_provider_index().map(|i| &self.sources[i])
     }
 
     /// Recursively collect all base relations in this join tree.

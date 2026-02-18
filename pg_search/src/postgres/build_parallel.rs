@@ -24,7 +24,7 @@ use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
-    ParallelWorker, WorkerStyle,
+    ParallelWorker, ParallelWorkerNumber, WorkerStyle,
 };
 use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::locks::Spinlock;
@@ -110,8 +110,11 @@ impl ParallelState for ScanDesc {
         self.0
     }
 
-    fn as_bytes(&self) -> &[u8] {
-        unsafe { std::slice::from_raw_parts(self.1 as *const _ as *const u8, self.size_of()) }
+    unsafe fn initialize(&self, dest: *mut u8) {
+        // SAFETY: `self.1` points to valid initialized `ParallelTableScanDescData`.
+        // `self.0` (size) was calculated during allocation.
+        // `dest` is guaranteed by the caller to be valid for `self.size_of()` bytes.
+        std::ptr::copy_nonoverlapping(self.1 as *const _ as *const u8, dest, self.size_of());
     }
 }
 
@@ -166,7 +169,10 @@ struct BuildWorker<'a> {
 }
 
 impl ParallelWorker for BuildWorker<'_> {
-    fn new_parallel_worker(state_manager: ParallelStateManager) -> Self
+    fn new_parallel_worker(
+        state_manager: ParallelStateManager,
+        _worker_number: ParallelWorkerNumber,
+    ) -> Self
     where
         Self: Sized,
     {
@@ -208,7 +214,11 @@ impl ParallelWorker for BuildWorker<'_> {
         }
     }
 
-    fn run(mut self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()> {
+    fn run(
+        mut self,
+        mq_sender: &MessageQueueSender,
+        worker_number: ParallelWorkerNumber,
+    ) -> anyhow::Result<()> {
         // wait for the leader to tell us how many total workers have been launched
         while self.coordination.nlaunched() == 0 {
             check_for_interrupts!();
@@ -218,7 +228,7 @@ impl ParallelWorker for BuildWorker<'_> {
         // communicate to the group that we've started
         self.coordination.inc_nstarted();
 
-        let (reltuples, nmerges) = self.do_build(worker_number)?;
+        let (reltuples, nmerges) = self.do_build(worker_number.0)?;
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
 }
@@ -618,7 +628,10 @@ pub(super) fn build_index(
                 }
 
                 // directly instantiate a worker for the leader and have it do its build
-                let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+                let mut worker = BuildWorker::new_parallel_worker(
+                    *process.state_manager(),
+                    ParallelWorkerNumber(-1),
+                );
                 worker.do_build(nlaunched_plus_leader as i32)?
             } else {
                 pgrx::debug1!("build_index: leader is not participating");

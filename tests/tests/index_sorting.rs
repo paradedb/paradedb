@@ -1083,6 +1083,138 @@ fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
     );
 }
 
+/// Regression test for tantivy merger NULL ordering (PR #106).
+///
+/// Splits NULLs and zeros across 3 segments so the merger must correctly
+/// preserve ASC NULLS FIRST ordering after a cross-segment merge.
+#[rstest]
+fn index_sort_by_null_and_zero_multi_segment_asc(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero_ms_asc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_ms_asc_idx ON test_null_zero_ms_asc
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Segment 1: [NULL, 0]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item A', NULL),
+        ('Item B', 0);
+    "#
+    .execute(&mut conn);
+
+    // Segment 2: [NULL, 0]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item C', NULL),
+        ('Item D', 0);
+    "#
+    .execute(&mut conn);
+
+    // Segment 3: [NULL, 1]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item E', NULL),
+        ('Item F', 1);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero_ms_asc
+        WHERE content @@@ 'Item'
+        ORDER BY score ASC NULLS FIRST
+    "#
+    .fetch(&mut conn);
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    assert_eq!(
+        scores,
+        vec![None, None, None, Some(0), Some(0), Some(1)],
+        "ASC NULLS FIRST across segments: NULLs first, then 0s, then positive"
+    );
+}
+
+/// Regression test for tantivy merger NULL ordering (PR #106).
+///
+/// Splits NULLs and zeros across 3 segments so the merger must correctly
+/// preserve DESC NULLS LAST ordering after a cross-segment merge.
+#[rstest]
+fn index_sort_by_null_and_zero_multi_segment_desc(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero_ms_desc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_ms_desc_idx ON test_null_zero_ms_desc
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score DESC NULLS LAST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Segment 1: [1, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item A', 1),
+        ('Item B', NULL);
+    "#
+    .execute(&mut conn);
+
+    // Segment 2: [0, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item C', 0),
+        ('Item D', NULL);
+    "#
+    .execute(&mut conn);
+
+    // Segment 3: [0, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item E', 0),
+        ('Item F', NULL);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero_ms_desc
+        WHERE content @@@ 'Item'
+        ORDER BY score DESC NULLS LAST
+    "#
+    .fetch(&mut conn);
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    assert_eq!(
+        scores,
+        vec![Some(1), Some(0), Some(0), None, None, None],
+        "DESC NULLS LAST across segments: positive first, then 0s, then NULLs"
+    );
+}
+
 /// Verify that BIGINT values above 2^24 sort correctly on a sorted index.
 /// 16,777,216 and 16,777,217 are identical as f32.
 #[rstest]

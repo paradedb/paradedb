@@ -6,10 +6,22 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/count
 
 The following query counts the number of values in a field:
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"value_count": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"value_count": {"field": "rating"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
        agg
@@ -30,14 +42,35 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 
 With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
+<CodeGroup dropdown>
 ```sql
 SELECT COUNT(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django
+from django.db.models import Count
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(count=Count('rating'))
+```
+
+</CodeGroup>
+
 To count all rows, including rows with null values, use `COUNT(*)`:
 
+<CodeGroup dropdown>
 ```sql
 SELECT COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(id=ParadeDB(All())).count()
+```
+
+</CodeGroup>

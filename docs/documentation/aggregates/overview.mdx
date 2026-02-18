@@ -9,11 +9,23 @@ The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query 
 
 For example, the following query counts the total number of results for a search query.
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
 WHERE category === 'electronics';
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
+```
+
+</CodeGroup>
 
 ```ini Expected Response
       agg
@@ -24,6 +36,7 @@ WHERE category === 'electronics';
 
 This query counts the number of results for every distinct group:
 
+<CodeGroup dropdown>
 ```sql
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
@@ -32,6 +45,19 @@ GROUP BY rating
 ORDER BY rating
 LIMIT 5;
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).values('rating').annotate(
+    agg=Agg('{"value_count": {"field": "id"}}')
+).order_by('rating')[:5]
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  rating |      agg
@@ -46,6 +72,7 @@ LIMIT 5;
 
 To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
 
+<CodeGroup dropdown>
 ```sql
 SELECT
   pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
@@ -53,6 +80,20 @@ SELECT
 FROM mock_items
 WHERE category === 'electronics';
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import ParadeDB, Term
+
+MockItem.objects.filter(
+    category=ParadeDB(Term('electronics'))
+).aggregate(
+    avg_rating=Agg('{"avg": {"field": "rating"}}'),
+    count=Agg('{"value_count": {"field": "id"}}'),
+)
+```
+
+</CodeGroup>
 
 ```ini Expected Response
    avg_rating   |     count
@@ -65,11 +106,23 @@ WHERE category === 'electronics';
 
 If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
 
+<CodeGroup dropdown>
 ```sql
 SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"terms": {"field": "metadata.color"}}'))
+```
+
+</CodeGroup>
 
 <Note>
 If a text or JSON field is used inside `pdb.agg`, it must use the [literal](/documentation/tokenizers/available-tokenizers/literal) or

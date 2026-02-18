@@ -17,6 +17,24 @@ SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django Min
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
+```
+
+```python Django Max
+from paradedb.functions import Agg
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
 </CodeGroup>
 
 <CodeGroup>
@@ -59,11 +77,42 @@ SELECT MAX(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```python Django Min
+from django.db.models import Min
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(min_rating=Min('rating'))
+```
+
+```python Django Max
+from django.db.models import Max
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(max_rating=Max('rating'))
+```
+
 </CodeGroup>
 
 By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:
 
+<CodeGroup dropdown>
 ```sql
 SELECT MIN(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
+
+```python Django
+from django.db.models import Min, Value
+from django.db.models.functions import Coalesce
+from paradedb.search import All, ParadeDB
+
+MockItem.objects.filter(
+    id=ParadeDB(All())
+).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
+```
+
+</CodeGroup>

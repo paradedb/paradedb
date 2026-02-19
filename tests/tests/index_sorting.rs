@@ -1149,3 +1149,132 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
         priorities[0]
     );
 }
+
+/// Verify that NULLS FIRST ordering keeps NULLs separate from zero values.
+#[rstest]
+fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_idx ON test_null_zero
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Insert data with NULLs and 0 values — the problematic combination.
+    // If tantivy assigns missing docs sort key 0, NULLs and Some(0)
+    // will have the same sort key and may interleave.
+    r#"
+        INSERT INTO test_null_zero (content, score) VALUES
+        ('Item A', NULL),
+        ('Item B', 0),
+        ('Item C', NULL),
+        ('Item D', 0),
+        ('Item E', 1),
+        ('Item F', NULL),
+        ('Item G', 5);
+    "#
+    .execute(&mut conn);
+
+    // ASC NULLS FIRST: expect all NULLs first, then 0s, then positive values
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero
+        WHERE content @@@ 'Item'
+        ORDER BY score ASC NULLS FIRST
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(results.len(), 7, "Should return all 7 results");
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    // Find where NULLs end
+    let first_non_null_idx = scores.iter().position(|s| s.is_some());
+    if let Some(idx) = first_non_null_idx {
+        // All values before first non-NULL should be NULL
+        assert!(
+            scores[..idx].iter().all(|s| s.is_none()),
+            "All values before first non-NULL should be NULL (NULLS FIRST). Got: {:?}",
+            scores
+        );
+
+        // All values from first non-NULL onwards should be non-NULL and sorted ASC
+        let non_null_scores: Vec<i32> = scores[idx..].iter().filter_map(|s| *s).collect();
+        assert_eq!(
+            non_null_scores.len(),
+            scores.len() - idx,
+            "No NULLs should appear after non-NULL values. Full order: {:?}",
+            scores
+        );
+        assert!(
+            is_sorted_asc(&non_null_scores),
+            "Non-null scores should be sorted ASC. Got: {:?}",
+            non_null_scores
+        );
+    }
+
+    // Verify exact expected order: [NULL, NULL, NULL, 0, 0, 1, 5]
+    assert_eq!(
+        scores,
+        vec![None, None, None, Some(0), Some(0), Some(1), Some(5)],
+        "Expected NULLs first, then 0s, then ascending values"
+    );
+}
+
+/// Verify that BIGINT values above 2^24 sort correctly on a sorted index.
+/// 16,777,216 and 16,777,217 are identical as f32.
+#[rstest]
+fn index_sort_by_f32_precision_above_2_24(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_f32_precision (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            val BIGINT
+        );
+
+        CREATE INDEX test_f32_precision_idx ON test_f32_precision
+        USING bm25 (id, content, val)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"val": {"fast": true}}',
+            sort_by = 'val ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_f32_precision (content, val) VALUES
+        ('item', 16777217),
+        ('item', 16777216);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, i64)> = r#"
+        SELECT id, val FROM test_f32_precision
+        WHERE content @@@ 'item'
+        ORDER BY val ASC
+    "#
+    .fetch(&mut conn);
+
+    let vals: Vec<i64> = results.iter().map(|(_, v)| *v).collect();
+    assert_eq!(
+        vals,
+        vec![16_777_216, 16_777_217],
+        "Values above 2^24 must sort correctly"
+    );
+}

@@ -43,6 +43,18 @@ const PARAMETERIZED_SELECTIVITY: f64 = 0.10;
 /// The selectivity value indicating the entire relation will be returned
 const FULL_RELATION_SELECTIVITY: f64 = 1.0;
 
+/// Heuristic selectivity for fuzzy queries with distance <= 1
+const FUZZY_LOW_SELECTIVITY: f64 = 0.01;
+
+/// Heuristic selectivity for fuzzy queries with distance >= 2
+const FUZZY_HIGH_SELECTIVITY: f64 = 0.05;
+
+/// Heuristic selectivity for regex queries
+const REGEX_SELECTIVITY: f64 = 0.01;
+
+/// Heuristic selectivity for more-like-this queries
+const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
+
 /// An arbitrary value for what it costs for a plan with one of our operators (@@@) to do whatever
 /// initial work it needs to do (open tantivy index, start the query, etc).  The value is largely
 /// meaningless but we should be honest that do _something_.

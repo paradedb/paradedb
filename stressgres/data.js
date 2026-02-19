@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771543311462,
+  "lastUpdate": 1771543689502,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7086,6 +7086,54 @@ window.BENCHMARK_DATA = {
             "value": 5.582354629419032,
             "unit": "median tps",
             "extra": "avg tps: 5.5642291211286175, max tps: 6.609925763956795, count: 55352"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae862867e38496aafb797e30e34ed31f6a561309",
+          "message": "fix: bump tantivy for merger NULL ordering fix (#4191)\n\n## Summary\n- Adds multi-segment regression tests that split NULLs and zeros across\n3 segments, exercising the cross-segment merger path for both ASC NULLS\nFIRST and DESC NULLS LAST\n\n## Test plan\n`cargo test --test index_sorting -- null_and_zero_multi_segment` passes\nlocally (2 new tests)\n\nRef: paradedb/tantivy#106",
+          "timestamp": "2026-02-20T04:03:22+05:30",
+          "tree_id": "7220106b66ad4bff4b0160bab9bef6d5d647ee3a",
+          "url": "https://github.com/paradedb/paradedb/commit/ae862867e38496aafb797e30e34ed31f6a561309"
+        },
+        "date": 1771543685652,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1094.298878959749,
+            "unit": "median tps",
+            "extra": "avg tps: 1095.9015573207191, max tps: 1131.6768878148944, count: 56116"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1276.6735161393874,
+            "unit": "median tps",
+            "extra": "avg tps: 1270.9071783230465, max tps: 1290.717334133036, count: 56116"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1878.696727425979,
+            "unit": "median tps",
+            "extra": "avg tps: 1855.007204574132, max tps: 2025.7912071582734, count: 56116"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.462595783652704,
+            "unit": "median tps",
+            "extra": "avg tps: 5.460968060380904, max tps: 6.9057245742771, count: 56116"
           }
         ]
       }

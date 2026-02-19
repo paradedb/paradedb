@@ -23,7 +23,8 @@ WITH (
         "parents": {
             "tokenizer": {"type": "default"}, "fast": true
         }
-    }'
+    }',
+    target_segment_count = 48
 );
 
 CREATE INDEX files_index ON files
@@ -51,7 +52,8 @@ WITH (
         "parents": {
             "tokenizer": {"type": "default"}, "fast": true
         }
-    }'
+    }',
+    target_segment_count = 48
 );
 
 CREATE INDEX documents_index ON documents
@@ -74,7 +76,8 @@ WITH (
         "parents": {
             "tokenizer": {"type": "default"}, "fast": true
         }
-    }'
+    }',
+    target_segment_count = 48
 );
 
 CREATE INDEX documents_inner_join_files_inner_join_pages_bm25 ON documents_inner_join_files_inner_join_pages

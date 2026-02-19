@@ -17,11 +17,85 @@
 
 //! Pre-materialization dynamic filter support.
 //!
-//! Dynamic filters (from TopK thresholds, HashJoin key bounds, etc.) are pushed down
-//! into [`PgSearchScanPlan`] as `PhysicalExpr`s. At scan time they are decomposed into
-//! [`PreFilter`]s and applied inside [`Scanner::next()`](super::batch_scanner::Scanner::next)
-//! *before* column materialization — at the term-ordinal level for strings and direct
-//! fast-field comparisons for numerics.
+//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
+//! thresholds into scan nodes so that rows failing the threshold are pruned *before*
+//! column materialization — at the term-ordinal level for strings and direct
+//! fast-field comparisons for numerics. This is critical for `ORDER BY … LIMIT`
+//! queries over joins: without it, the scan must materialize every row even though
+//! only the top-K are needed.
+//!
+//! # Data Flow
+//!
+//! ```text
+//! SortExec(TopK)
+//!   creates DynamicFilterPhysicalExpr ("val < current_threshold")
+//!        │
+//!        │  FilterPushdown pass
+//!        ▼
+//! FilterPassthroughJoinExec          ← routes filter to correct join side
+//!   (wraps SortMergeJoinExec)          using FilterDescription::from_children
+//!        │
+//!        ▼
+//! PgSearchScanPlan                   ← handle_child_pushdown_result stores
+//!   .dynamic_filters                   the DynamicFilterPhysicalExpr and caps
+//!                                      the scanner's batch_size
+//!        │
+//!        │  at poll time
+//!        ▼
+//! ScanStream::collect_pre_filters    ← calls DynamicFilterPhysicalExpr::current()
+//!   → collect_filters()                to get the latest threshold, decomposes
+//!   → Vec<PreFilter>                   it into PreFilter(s)
+//!        │
+//!        ▼
+//! Scanner::next()                    ← applies PreFilters via apply_pre_filter()
+//!   prunes doc IDs in-place            before materializing Arrow columns
+//! ```
+//!
+//! # SortMergeJoin Propagation
+//!
+//! DataFusion's `SortMergeJoinExec` blocks filter pushdown by default (its
+//! `gather_filters_for_pushdown` marks all parent filters as unsupported).
+//! `FilterPassthroughJoinExec` (in `joinscan::planner`) wraps it and overrides the
+//! two filter-pushdown methods to route filters through.
+//!
+//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
+//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
+//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
+//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
+//! pass (registered in `joinscan::scan_state::create_session_context`) wires the
+//! new filter to the scan.
+//!
+//! # Batch-Size Capping
+//!
+//! The scanner's default batch size can be large enough to consume an entire segment
+//! in one batch. When that happens, TopK receives all rows at once and has no chance
+//! to tighten its threshold for subsequent batches — so `rows_pruned` stays zero.
+//! When dynamic filters are accepted, `PgSearchScanPlan::handle_child_pushdown_result`
+//! caps the scanner's batch size to DataFusion's `execution.batch_size` (typically
+//! 8192), forcing multiple batches per segment and enabling incremental pruning.
+//!
+//! # NULL Handling (`nulls_pass`)
+//!
+//! TopK on a nullable column emits `col IS NULL OR col < threshold`. Without special
+//! handling, the `OR` expression would be skipped entirely (no pre-filter created) or,
+//! if naively decomposed, NULLs would be incorrectly pruned. [`try_or_is_null_pattern`]
+//! detects this pattern, extracts the comparison, and produces a [`PreFilter`] with
+//! `nulls_pass = true`. The apply functions ([`filter_by_ordinals`], [`filter_by_values`])
+//! check this flag and let NULL rows through instead of discarding them.
+//!
+//! # Column Resolution
+//!
+//! Dynamic filters from parent operators reference columns by the *parent's* schema
+//! indices, which may differ from the scan's field order (e.g. after projections or
+//! joins). [`collect_filters`] resolves columns by **name** against the scan's schema
+//! so that the correct fast-field index is used regardless of plan-level reordering.
+//!
+//! # Observability
+//!
+//! `EXPLAIN (ANALYZE)` on a `PgSearchScan` node shows `rows_pruned` and
+//! `rows_scanned` metrics when dynamic filters are active. `rows_pruned > 0`
+//! confirms that pre-filtering is working. The `dynamic_filters=N` annotation
+//! in the non-ANALYZE plan shows how many filters were pushed down.
 
 use std::ops::Bound;
 use std::sync::Arc;

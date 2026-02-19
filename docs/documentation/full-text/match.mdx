@@ -21,10 +21,10 @@ WHERE description ||| 'running shoes';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
+    description=ParadeDB('running shoes', operator='OR')
 ).values('description', 'rating', 'category')
 ```
 

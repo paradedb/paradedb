@@ -11,8 +11,8 @@ This guide will walk you through a few queries to give you a feel for ParadeDB.
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
 you get started. Run the following command to create this table.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
@@ -37,7 +37,7 @@ with connection.cursor() as cursor:
 
 Then inspect the first 3 rows:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items
@@ -60,8 +60,8 @@ MockItem.objects.values('description', 'rating', 'category')[:3]
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
@@ -97,8 +97,8 @@ with connection.cursor() as cursor:
 
 We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -131,8 +131,8 @@ MockItem.objects.filter(
 
 If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes' AND rating > 2
@@ -161,8 +161,8 @@ MockItem.objects.filter(
 
 Next, let's add [BM25 scoring](/documentation/sorting/score) to the results, which sorts matches by relevance. To do this, we'll use `pdb.score`.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -198,8 +198,8 @@ MockItem.objects.filter(
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `pdb.snippet`.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, pdb.snippet(description), pdb.score(id)
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
@@ -235,8 +235,8 @@ MockItem.objects.filter(
 
 ParadeDB is highly optimized for quickly returning the [Top N](/documentation/sorting/topn) results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'
@@ -270,8 +270,8 @@ which is more CPU-efficient than issuing two separate queries.
 
 For example, the following query returns the top 3 results as well as the total number of results matched.
 
-<CodeGroup dropdown>
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
      description, rating, category,
      pdb.agg('{"value_count": {"field": "id"}}') OVER ()

@@ -11,11 +11,11 @@ In order for ParadeDB to push down an aggregate, a ParadeDB text search operator
 <CodeGroup dropdown>
 ```sql
 -- Not pushed down
-SELECT COUNT(*) FROM mock_items
+SELECT COUNT(id) FROM mock_items
 WHERE rating = 5;
 
 -- Pushed down
-SELECT COUNT(\*) FROM mock_items
+SELECT COUNT(id) FROM mock_items
 WHERE rating = 5
 AND id @@@ pdb.all();
 

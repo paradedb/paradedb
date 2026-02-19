@@ -15,13 +15,15 @@ To use it, pass the [key field](/documentation/indexing/create-index#choosing-a-
 <CodeGroup dropdown>
 ```sql
 -- Top N executed by standard Postgres
-SELECT * FROM mock_items
+SELECT id, description, rating, category
+FROM mock_items
 WHERE rating IS NOT NULL
 ORDER BY rating
 LIMIT 5;
 
 -- Top N executed by ParadeDB
-SELECT \* FROM mock_items
+SELECT id, description, rating, category
+FROM mock_items
 WHERE rating IS NOT NULL AND id @@@ pdb.all()
 ORDER BY rating
 LIMIT 5;

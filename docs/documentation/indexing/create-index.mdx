@@ -18,6 +18,7 @@ WITH (key_field='id');
 from django.db import models
 from paradedb.indexes import BM25Index
 
+# 1. Define the index on your model.
 class MockItem(models.Model):
     description = models.TextField()
     category = models.TextField()
@@ -34,16 +35,13 @@ class MockItem(models.Model):
                 name='search_idx',
             ),
         ]
+
+# 2. Generate and apply the migration.
+# python manage.py makemigrations
+# python manage.py migrate
 ```
 
 </CodeGroup>
-
-Then apply the index migration:
-
-```bash
-python manage.py makemigrations
-python manage.py migrate
-```
 
 By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
 Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)

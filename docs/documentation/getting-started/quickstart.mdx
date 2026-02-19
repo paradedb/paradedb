@@ -9,14 +9,31 @@ This guide will walk you through a few queries to give you a feel for ParadeDB.
 ## Create Example Table
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
-you get started. Once connected with `psql`, run the following command to create this table.
+you get started. Run the following command to create this table.
 
+<CodeGroup dropdown>
 ```sql
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items'
 );
 ```
+
+```python Django
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute(
+        """
+        CALL paradedb.create_bm25_test_table(
+          schema_name => 'public',
+          table_name => 'mock_items'
+        );
+        """
+    )
+```
+
+</CodeGroup>
 
 Then inspect the first 3 rows:
 
@@ -43,11 +60,27 @@ MockItem.objects.values('description', 'rating', 'category')[:3]
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
 
+<CodeGroup dropdown>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
+
+```python Django
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute(
+        """
+        CREATE INDEX search_idx ON mock_items
+        USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+        WITH (key_field='id');
+        """
+    )
+```
+
+</CodeGroup>
 
 <Note>
   As a general rule of thumb, any columns that you want to filter, `GROUP BY`,

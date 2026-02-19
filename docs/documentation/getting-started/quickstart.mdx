@@ -74,10 +74,10 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
+    description=ParadeDB('running shoes', operator='OR'),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -139,10 +139,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Score
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
+    description=ParadeDB('running shoes', operator='OR'),
     rating__gt=2
 ).annotate(
     score=Score()
@@ -176,10 +176,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Score, Snippet
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes')),
+    description=ParadeDB('running shoes', operator='OR'),
     rating__gt=2
 ).annotate(
     snippet=Snippet('description'),
@@ -212,10 +212,10 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
+    description=ParadeDB('running shoes', operator='OR')
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
@@ -249,11 +249,11 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import ParadeDB
 
 rows, facets = (
     MockItem.objects
-    .filter(description=ParadeDB(PQ('running') | PQ('shoes')))
+    .filter(description=ParadeDB('running shoes', operator='OR'))
     .order_by('rating')
     .values('description', 'rating', 'category')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')

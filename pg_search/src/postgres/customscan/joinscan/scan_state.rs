@@ -64,8 +64,6 @@ use pgrx::pg_sys;
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
-use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -75,7 +73,6 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
-use datafusion::execution::session_state::SessionStateBuilder;
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
@@ -141,28 +138,17 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
+/// Creates a DataFusion SessionContext with parallelization disabled.
 ///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
-/// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
-/// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
-/// in a compatible way.
+/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
+/// across machines with different CPU counts.
 pub fn create_session_context() -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
-
-    let mut builder = SessionStateBuilder::new().with_config(config);
-
-    if crate::gucs::is_mixed_fast_field_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-    }
-
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    SessionContext::new_with_config(config)
 }
 
 /// Build the DataFusion logical plan for the join.

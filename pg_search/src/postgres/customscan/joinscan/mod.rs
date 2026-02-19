@@ -142,7 +142,6 @@
 mod build;
 mod explain;
 mod memory;
-mod planner;
 mod planning;
 mod predicate;
 mod privdat;

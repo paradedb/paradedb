@@ -28,6 +28,44 @@ USING bm25 (id, (description::pdb.lindera(japanese)))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+# Chinese Lindera
+class MockItem(models.Model):
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={'id': {}, 'description': {'tokenizer': 'lindera', 'args': ['chinese']}},
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+
+# Korean Lindera
+class MockItem(models.Model):
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={'id': {}, 'description': {'tokenizer': 'lindera', 'args': ['korean']}},
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+
+# Japanese Lindera
+class MockItem(models.Model):
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={'id': {}, 'description': {'tokenizer': 'lindera', 'args': ['japanese']}},
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
 </CodeGroup>
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:

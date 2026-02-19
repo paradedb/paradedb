@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771544256441,
+  "lastUpdate": 1771544261500,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6212,6 +6212,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.97863618994685, max segment_count: 131.0, count: 57574"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5104ec8f5da26b8f5075fa64d3095bdb3eefb35",
+          "message": "feat: add `sort_by` to `docs` benchmark + `sort_by` tests (TEXT/UUID/NUMERIC) (#4140)\n\n## Summary\n\nThis PR implements issue #4088 by:\n\n- Declaring the docs dataset BM25 indexes as sorted on the join keys.\n- Adding integration tests for `sort_by` on TEXT, UUID, and NUMERIC(30)\n(NumericBytes).\n- Extending pg_regress `sorted_index_scan` with UUID + NUMERIC sorting\ncoverage.\n\n## Changes\n\n- **Benchmarks:** added `sort_by` to docs indexes.\n- **Tests:** new Rust integration tests for TEXT/UUID/NUMERIC(30)\n`sort_by`; numeric order uses `ORDER BY table.amount` to avoid\nlexicographic sort.\n- **pg_regress:** added UUID + NUMERIC sorting blocks in\n`sorted_index_scan.sql` with updated expected output.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-02-19T15:00:00-08:00",
+          "tree_id": "883bbd6613f01ca22733c164c9ac50e00cf12986",
+          "url": "https://github.com/paradedb/paradedb/commit/b5104ec8f5da26b8f5075fa64d3095bdb3eefb35"
+        },
+        "date": 1771544257490,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.87985658303542, max cpu: 42.899704, count: 57808"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.16891274239725, max mem: 236.734375, count: 57808"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.454154515688995, max cpu: 33.300297, count: 57808"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 174.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.80915250970887, max mem: 175.69921875, count: 57808"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34347,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33607.1876210905, max block_count: 36102.0, count: 57808"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.26563797398283, max segment_count: 128.0, count: 57808"
           }
         ]
       }

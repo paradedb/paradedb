@@ -1,0 +1,62 @@
+---
+title: Migrating from Elasticsearch
+description: Guides for migrating your search workloads from Elasticsearch to ParadeDB
+canonical: https://docs.paradedb.com/documentation/migration/overview
+---
+
+This section is for developers who are evaluating or actively migrating from Elasticsearch (or OpenSearch) to ParadeDB.
+ParadeDB delivers Elastic-quality full-text search as a Postgres extension, so your data, queries, and infrastructure
+all live inside Postgres — no ETL pipelines, no separate cluster to manage.
+
+## What You'll Find Here
+
+<CardGroup cols={2}>
+  <Card
+    title="Query Syntax Mapping"
+    icon="code"
+    href="/documentation/migration/elasticsearch-query-mapping"
+  >
+    Side-by-side reference translating Elasticsearch DSL queries to ParadeDB
+    SQL.
+  </Card>
+  <Card
+    title="Feature Comparison"
+    icon="table"
+    href="/documentation/migration/elasticsearch-feature-comparison"
+  >
+    Feature matrix showing what ParadeDB supports, what it doesn't, and
+    recommended alternatives.
+  </Card>
+</CardGroup>
+
+## Key Differences
+
+Before diving into the detailed guides, here are the most important conceptual differences:
+
+|                     | Elasticsearch                                | ParadeDB                                       |
+| ------------------- | -------------------------------------------- | ---------------------------------------------- |
+| **Query language**  | JSON DSL                                     | Standard SQL with search operators             |
+| **Data model**      | Denormalized documents                       | Normalized relational tables with JOINs        |
+| **Transactions**    | Per-document atomicity, eventual consistency | Full ACID transactions                         |
+| **Index storage**   | Separate cluster                             | Inside Postgres (same database)                |
+| **Schema changes**  | Dynamic mapping or reindex                   | Defined at index creation; `REINDEX` to change |
+| **Updates/deletes** | Expensive (reindex internally)               | Native Postgres operations                     |
+
+## Migration Tips
+
+<Note>
+  ParadeDB's `pdb.agg()` function accepts **Elasticsearch-compatible JSON** for
+  aggregations, so many of your existing aggregation queries can be reused with
+  minimal changes. See the [aggregation
+  section](/documentation/migration/elasticsearch-query-mapping#aggregations) of
+  the query mapping guide.
+</Note>
+
+- **Start with your most common queries.** Map your highest-traffic Elasticsearch queries first using the
+  [query syntax mapping](/documentation/migration/elasticsearch-query-mapping) guide.
+- **Use SQL JOINs instead of denormalization.** Elasticsearch requires denormalized documents, but ParadeDB supports
+  full SQL JOINs. You can normalize your schema and simplify your data model.
+- **Leverage Postgres tooling.** Backups, replication, monitoring, and CI/CD integrate with standard Postgres tools
+  you may already use.
+- **Check the feature comparison for gaps.** Review the [feature comparison](/documentation/migration/elasticsearch-feature-comparison)
+  to identify any Elasticsearch features your application depends on that ParadeDB does not yet support.

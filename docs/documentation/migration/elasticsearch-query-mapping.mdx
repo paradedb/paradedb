@@ -1,0 +1,831 @@
+---
+title: Elasticsearch Query Mapping
+description: Side-by-side reference translating Elasticsearch DSL queries to ParadeDB SQL
+canonical: https://docs.paradedb.com/documentation/migration/elasticsearch-query-mapping
+---
+
+This guide provides a comprehensive mapping from Elasticsearch Query DSL to ParadeDB SQL. Each section includes
+side-by-side examples showing the Elasticsearch JSON and the equivalent ParadeDB SQL.
+
+All examples assume a table and BM25 index created as follows:
+
+```sql
+CREATE TABLE products (
+  id SERIAL PRIMARY KEY,
+  description TEXT,
+  category TEXT,
+  rating INT,
+  price NUMERIC,
+  created_at TIMESTAMP
+);
+
+CREATE INDEX search_idx ON products
+USING bm25 (id, description, (category::pdb.literal), rating, price, created_at)
+WITH (key_field = 'id');
+```
+
+## Full-Text Queries
+
+### match
+
+The Elasticsearch `match` query tokenizes the input and searches for any matching token. The `operator` parameter
+controls whether tokens are combined with OR (default) or AND.
+
+**OR (default)**
+
+```json Elasticsearch
+{
+  "query": {
+    "match": {
+      "description": {
+        "query": "running shoes"
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ||| 'running shoes';
+```
+
+The [`|||` operator](/documentation/full-text/match) performs a match disjunction — it matches documents containing **any** of the query tokens.
+
+**AND**
+
+```json Elasticsearch
+{
+  "query": {
+    "match": {
+      "description": {
+        "query": "running shoes",
+        "operator": "and"
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description &&& 'running shoes';
+```
+
+The [`&&&` operator](/documentation/full-text/match) performs a match conjunction — it matches documents containing **all** of the query tokens.
+
+### match with fuzziness
+
+```json Elasticsearch
+{
+  "query": {
+    "match": {
+      "description": {
+        "query": "runing shose",
+        "fuzziness": 2
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ||| 'runing shose'::pdb.fuzzy(2);
+```
+
+See [Fuzzy](/documentation/full-text/fuzzy) for details on edit distance and prefix matching.
+
+### match_phrase
+
+```json Elasticsearch
+{
+  "query": {
+    "match_phrase": {
+      "description": "running shoes"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ### 'running shoes';
+```
+
+The [`###` operator](/documentation/full-text/phrase) matches documents where the tokens appear in the exact order specified.
+
+### match_phrase_prefix
+
+```json Elasticsearch
+{
+  "query": {
+    "match_phrase_prefix": {
+      "description": "running sh"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
+```
+
+See [Phrase Prefix](/documentation/query-builder/phrase/phrase-prefix) for additional options like `max_expansions`.
+
+### multi_match
+
+```json Elasticsearch
+{
+  "query": {
+    "multi_match": {
+      "query": "running shoes",
+      "fields": ["description", "category"]
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ||| 'running shoes' OR category ||| 'running shoes';
+```
+
+For `type: "best_fields"` with a tie breaker, use [`paradedb.disjunction_max`](/documentation/query-builder/overview):
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.disjunction_max(
+  disjuncts => ARRAY[
+    description ||| 'running shoes',
+    category ||| 'running shoes'
+  ],
+  tie_breaker => 0.3
+);
+```
+
+### query_string
+
+```json Elasticsearch
+{
+  "query": {
+    "query_string": {
+      "query": "running AND shoes",
+      "default_field": "description"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description @@@ pdb.parse('running AND shoes');
+```
+
+The [`pdb.parse`](/documentation/query-builder/compound/query-parser) function supports Lucene-style query syntax including `AND`, `OR`, `NOT`, field references, and grouping.
+
+## Term-Level Queries
+
+### term
+
+```json Elasticsearch
+{
+  "query": {
+    "term": {
+      "category": "electronics"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE category === 'electronics';
+```
+
+The [`===` operator](/documentation/full-text/term) performs an exact token match without tokenization of the query string.
+
+### terms
+
+```json Elasticsearch
+{
+  "query": {
+    "terms": {
+      "category": ["electronics", "footwear"]
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE category === 'electronics' OR category === 'footwear';
+```
+
+### range
+
+```json Elasticsearch
+{
+  "query": {
+    "range": {
+      "price": {
+        "gte": 10,
+        "lte": 100
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+-- Standard SQL (works with or without BM25 index)
+SELECT * FROM products
+WHERE price >= 10 AND price <= 100;
+
+-- Or using range_term for index-accelerated range queries
+SELECT * FROM products
+WHERE price @@@ pdb.range_term('[10, 100]'::int4range);
+```
+
+See [Range Term](/documentation/query-builder/term/range-term) for supported range types.
+
+### exists
+
+```json Elasticsearch
+{
+  "query": {
+    "exists": {
+      "field": "description"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description @@@ pdb.exists();
+```
+
+See [Exists](/documentation/query-builder/term/exists).
+
+### fuzzy
+
+```json Elasticsearch
+{
+  "query": {
+    "fuzzy": {
+      "description": {
+        "value": "shose",
+        "fuzziness": 2
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description === 'shose'::pdb.fuzzy(2);
+```
+
+See [Fuzzy](/documentation/full-text/fuzzy) for details on edit distance, prefix matching, and transposition cost.
+
+### prefix
+
+```json Elasticsearch
+{
+  "query": {
+    "prefix": {
+      "description": "runn"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description === 'runn'::pdb.fuzzy(0, t);
+```
+
+Setting `fuzzy(0, t)` enables prefix matching with zero edit distance. See [Fuzzy Prefix](/documentation/full-text/fuzzy#fuzzy-prefix).
+
+### regexp
+
+```json Elasticsearch
+{
+  "query": {
+    "regexp": {
+      "description": "run.*ing"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description @@@ pdb.regex('run.*ing');
+```
+
+See [Regex](/documentation/query-builder/term/regex).
+
+### wildcard
+
+```json Elasticsearch
+{
+  "query": {
+    "wildcard": {
+      "description": "run*"
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description @@@ pdb.regex('run.*');
+```
+
+<Note>
+  Elasticsearch wildcard patterns use `*` (any characters) and `?` (single
+  character). Translate these to regex: `*` becomes `.*` and `?` becomes `.`.
+</Note>
+
+### ids
+
+```json Elasticsearch
+{
+  "query": {
+    "ids": {
+      "values": [1, 2, 3]
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id IN (1, 2, 3);
+```
+
+## Compound Queries
+
+### bool
+
+The Elasticsearch `bool` query maps directly to SQL boolean logic.
+
+```json Elasticsearch
+{
+  "query": {
+    "bool": {
+      "must": [{ "match": { "description": "shoes" } }],
+      "should": [{ "term": { "category": "footwear" } }],
+      "must_not": [{ "range": { "price": { "gte": 100 } } }],
+      "filter": [{ "term": { "rating": 5 } }]
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ||| 'shoes'            -- must
+  AND (category === 'footwear' OR TRUE)   -- should (at least one should match)
+  AND NOT (price >= 100)                  -- must_not
+  AND rating = 5;                         -- filter
+```
+
+For full control over `must`, `should`, and `must_not` clauses with proper scoring behavior, use [`paradedb.boolean`](/documentation/query-builder/overview):
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[description ||| 'shoes'],
+  should => ARRAY[category === 'footwear'],
+  must_not => ARRAY[price @@@ pdb.range_term('[100,)'::int4range)]
+)
+AND rating = 5;
+```
+
+| `bool` clause | ParadeDB equivalent                              | Scoring                                                     |
+| ------------- | ------------------------------------------------ | ----------------------------------------------------------- |
+| `must`        | `AND` or `paradedb.boolean(must => ...)`         | Contributes to score                                        |
+| `should`      | `OR` or `paradedb.boolean(should => ...)`        | Contributes to score                                        |
+| `must_not`    | `AND NOT` or `paradedb.boolean(must_not => ...)` | No score contribution                                       |
+| `filter`      | `AND` with non-text conditions                   | No score contribution (use SQL `WHERE` for filter pushdown) |
+
+### boosting
+
+```json Elasticsearch
+{
+  "query": {
+    "boosting": {
+      "positive": { "match": { "description": "shoes" } },
+      "negative": { "match": { "description": "cheap" } },
+      "negative_boost": 0.5
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.boolean(
+  must => ARRAY[description ||| 'shoes'],
+  should => ARRAY[description ||| 'cheap'::pdb.boost(-0.5)]
+);
+```
+
+See [Boost](/documentation/sorting/boost) for details on the `pdb.boost()` type cast.
+
+### constant_score
+
+```json Elasticsearch
+{
+  "query": {
+    "constant_score": {
+      "filter": { "term": { "category": "electronics" } },
+      "boost": 1.5
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.const_score(1.5, category === 'electronics');
+```
+
+### dis_max
+
+```json Elasticsearch
+{
+  "query": {
+    "dis_max": {
+      "queries": [
+        { "match": { "description": "shoes" } },
+        { "match": { "category": "footwear" } }
+      ],
+      "tie_breaker": 0.5
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.disjunction_max(
+  disjuncts => ARRAY[
+    description ||| 'shoes',
+    category ||| 'footwear'
+  ],
+  tie_breaker => 0.5
+);
+```
+
+## Specialized Queries
+
+### more_like_this
+
+```json Elasticsearch
+{
+  "query": {
+    "more_like_this": {
+      "fields": ["description"],
+      "like": [{ "_id": "1" }],
+      "min_term_freq": 1,
+      "min_doc_freq": 1
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ paradedb.more_like_this(
+  fields => ARRAY['description'],
+  key_value => 1
+);
+```
+
+See [More Like This](/documentation/query-builder/specialized/more-like-this).
+
+### Proximity (span_near)
+
+```json Elasticsearch
+{
+  "query": {
+    "span_near": {
+      "clauses": [
+        { "span_term": { "description": "running" } },
+        { "span_term": { "description": "shoes" } }
+      ],
+      "slop": 3,
+      "in_order": false
+    }
+  }
+}
+```
+
+```sql ParadeDB
+-- Unordered proximity (terms within 3 tokens of each other)
+SELECT * FROM products
+WHERE description @@@ ('running' ##3## 'shoes');
+```
+
+For ordered proximity (`in_order: true`):
+
+```sql ParadeDB
+-- Ordered proximity (terms must appear in order, within 3 tokens)
+SELECT * FROM products
+WHERE description @@@ ('running' ##> 3 ##> 'shoes');
+```
+
+See [Proximity](/documentation/full-text/proximity).
+
+### match_all
+
+```json Elasticsearch
+{
+  "query": { "match_all": {} }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ pdb.all();
+```
+
+See [All](/documentation/query-builder/compound/all).
+
+### match_none
+
+```json Elasticsearch
+{
+  "query": { "match_none": {} }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE id @@@ pdb.empty();
+```
+
+## Not Supported Queries
+
+The following Elasticsearch query types do not have a direct equivalent in ParadeDB:
+
+| ES Query                                       | Status        | Alternative                                                                                            |
+| ---------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ |
+| `nested` / `has_child` / `has_parent`          | Not supported | Use SQL `JOIN`s to query across related tables                                                         |
+| `percolator`                                   | Not supported | No equivalent — consider application-level matching                                                    |
+| `geo_*` (geo_distance, geo_bounding_box, etc.) | Not supported | Use [PostGIS](https://postgis.net/) alongside ParadeDB for geospatial queries                          |
+| `script_score` / `function_score`              | Not supported | Use [`pdb.boost()`](/documentation/sorting/boost) and `paradedb.const_score()` as partial alternatives |
+| `span_or` / `span_containing` / `span_within`  | Not supported | Only proximity queries (`##` operator) are supported; other span queries are not                       |
+
+## Scoring and Relevance
+
+| ES Feature          | ParadeDB SQL                                                                             | Reference                             |
+| ------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |
+| `_score`            | `pdb.score(key_field)`                                                                   | [Score](/documentation/sorting/score) |
+| `boost` (per-query) | `'query'::pdb.boost(2.0)`                                                                | [Boost](/documentation/sorting/boost) |
+| `constant_score`    | `paradedb.const_score(1.0, ...)`                                                         |                                       |
+| `explain`           | `EXPLAIN (FORMAT TEXT, COSTS OFF)`                                                       |                                       |
+| `function_score`    | **Not supported** — use `pdb.boost()` / `paradedb.const_score()` as partial alternatives |                                       |
+
+**Retrieving scores:**
+
+```json Elasticsearch
+{
+  "query": { "match": { "description": "shoes" } }
+}
+// Response includes "_score" for each hit
+```
+
+```sql ParadeDB
+SELECT id, description, pdb.score(id)
+FROM products
+WHERE description ||| 'shoes'
+ORDER BY pdb.score(id) DESC;
+```
+
+**Boosting a query:**
+
+```json Elasticsearch
+{
+  "query": {
+    "match": {
+      "description": {
+        "query": "shoes",
+        "boost": 2.0
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT * FROM products
+WHERE description ||| 'shoes'::pdb.boost(2.0)
+ORDER BY pdb.score(id) DESC;
+```
+
+## Highlighting
+
+| ES Feature               | ParadeDB SQL                                                   | Reference                                                                 |
+| ------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `highlight`              | `pdb.snippet(column)`                                          | [Highlighting](/documentation/full-text/highlight)                        |
+| Multiple highlights      | `pdb.snippets(column)`                                         | [Multiple Snippets](/documentation/full-text/highlight#multiple-snippets) |
+| `pre_tags` / `post_tags` | `pdb.snippet(column, start_tag => '<em>', end_tag => '</em>')` |                                                                           |
+| Byte offsets             | `pdb.snippet_positions(column)`                                | [Byte Offsets](/documentation/full-text/highlight#byte-offsets)           |
+
+```json Elasticsearch
+{
+  "query": { "match": { "description": "shoes" } },
+  "highlight": {
+    "fields": { "description": {} },
+    "pre_tags": ["<em>"],
+    "post_tags": ["</em>"]
+  }
+}
+```
+
+```sql ParadeDB
+SELECT id, pdb.snippet(description, start_tag => '<em>', end_tag => '</em>')
+FROM products
+WHERE description ||| 'shoes'
+LIMIT 10;
+```
+
+<Warning>Highlighting is not supported for fuzzy search.</Warning>
+
+## Aggregations
+
+<Note>
+  ParadeDB's `pdb.agg()` function accepts **Elasticsearch-compatible JSON**, so
+  many of your existing aggregation queries can be reused with minimal changes.
+  This is one of the biggest migration wins.
+</Note>
+
+### Bucket Aggregations
+
+**terms**
+
+```json Elasticsearch
+{
+  "aggs": {
+    "categories": {
+      "terms": { "field": "category" }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT pdb.agg('{"terms": {"field": "category"}}')
+FROM products
+WHERE id @@@ pdb.all();
+```
+
+**histogram**
+
+```json Elasticsearch
+{
+  "aggs": {
+    "price_ranges": {
+      "histogram": { "field": "price", "interval": 10 }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT pdb.agg('{"histogram": {"field": "price", "interval": 10}}')
+FROM products
+WHERE id @@@ pdb.all();
+```
+
+**date_histogram**
+
+```json Elasticsearch
+{
+  "aggs": {
+    "monthly": {
+      "date_histogram": {
+        "field": "created_at",
+        "calendar_interval": "month"
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT pdb.agg('{"date_histogram": {"field": "created_at", "calendar_interval": "month"}}')
+FROM products
+WHERE id @@@ pdb.all();
+```
+
+See [Date Histogram](/documentation/aggregates/bucket/datehistogram).
+
+**range**
+
+```json Elasticsearch
+{
+  "aggs": {
+    "price_buckets": {
+      "range": {
+        "field": "price",
+        "ranges": [{ "to": 50 }, { "from": 50, "to": 100 }, { "from": 100 }]
+      }
+    }
+  }
+}
+```
+
+```sql ParadeDB
+SELECT pdb.agg('{"range": {"field": "price", "ranges": [{"to": 50}, {"from": 50, "to": 100}, {"from": 100}]}}')
+FROM products
+WHERE id @@@ pdb.all();
+```
+
+See [Range](/documentation/aggregates/bucket/range).
+
+### Metric Aggregations
+
+| ES Aggregation | ParadeDB SQL                                        |
+| -------------- | --------------------------------------------------- |
+| `avg`          | `pdb.agg('{"avg": {"field": "rating"}}')`           |
+| `sum`          | `pdb.agg('{"sum": {"field": "price"}}')`            |
+| `min` / `max`  | `pdb.agg('{"min": {"field": "price"}}')`            |
+| `value_count`  | `pdb.agg('{"value_count": {"field": "id"}}')`       |
+| `stats`        | `pdb.agg('{"stats": {"field": "rating"}}')`         |
+| `percentiles`  | `pdb.agg('{"percentiles": {"field": "rating"}}')`   |
+| `cardinality`  | `pdb.agg('{"cardinality": {"field": "category"}}')` |
+| `top_hits`     | `pdb.agg('{"top_hits": {"size": 3}}')`              |
+
+See [Aggregates](/documentation/aggregates/overview) for the full reference.
+
+### Not Supported Aggregations
+
+| ES Aggregation                                               | Status                                                   |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| Pipeline aggregations (`derivative`, `cumulative_sum`, etc.) | Use SQL window functions (`SUM() OVER()`, `LAG()`, etc.) |
+| Nested aggregations (sub-aggregations within bucket aggs)    | Use `pdb.agg()` with SQL `GROUP BY`                      |
+
+<Note>
+  As an alternative to aggregations, you can always use standard SQL `GROUP BY`
+  with Postgres aggregate functions (`AVG`, `SUM`, `COUNT`, etc.) alongside
+  ParadeDB search queries.
+</Note>
+
+## Text Analysis and Tokenizers
+
+| ES Analyzer                | ParadeDB Tokenizer                      | Reference                                                                                                                                              |
+| -------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `standard`                 | `pdb.unicode` (default)                 | [Unicode](/documentation/tokenizers/available-tokenizers/unicode)                                                                                      |
+| `simple`                   | `pdb.simple`                            | [Simple](/documentation/tokenizers/available-tokenizers/simple)                                                                                        |
+| `whitespace`               | `pdb.whitespace`                        | [Whitespace](/documentation/tokenizers/available-tokenizers/whitespace)                                                                                |
+| `keyword`                  | `pdb.literal`                           | [Literal](/documentation/tokenizers/available-tokenizers/literal)                                                                                      |
+| `pattern`                  | `pdb.regex`                             | [Regex](/documentation/tokenizers/available-tokenizers/regex)                                                                                          |
+| `ngram` / `edge_ngram`     | `pdb.ngram`                             | [N-grams](/documentation/tokenizers/available-tokenizers/ngrams)                                                                                       |
+| ICU analyzer               | `pdb.icu`                               | [ICU](/documentation/tokenizers/available-tokenizers/icu)                                                                                              |
+| Chinese analyzer           | `pdb.jieba` or `pdb.chinese_compatible` | [Jieba](/documentation/tokenizers/available-tokenizers/jieba), [Chinese Compatible](/documentation/tokenizers/available-tokenizers/chinese-compatible) |
+| Japanese / Korean analyzer | `pdb.lindera`                           | [Lindera](/documentation/tokenizers/available-tokenizers/lindera)                                                                                      |
+
+Tokenizers are configured at index creation time by casting columns:
+
+```sql
+CREATE INDEX search_idx ON products
+USING bm25 (id, (description::pdb.ngram(3, 3)), (category::pdb.literal))
+WITH (key_field = 'id');
+```
+
+To use a different tokenizer at search time, see [search_tokenizer](/documentation/tokenizers/search-tokenizer) or [Multiple Tokenizers Per Field](/documentation/tokenizers/multiple-per-field).
+
+## Token Filters
+
+| ES Token Filter                                                | ParadeDB Token Filter      | Reference                                                   |
+| -------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------- |
+| `lowercase`                                                    | `lowercase`                | [Lowercase](/documentation/token-filters/lowercase)         |
+| `stemmer`                                                      | `stemmer` (19 languages)   | [Stemming](/documentation/token-filters/stemming)           |
+| `stop`                                                         | `stopwords` (29 languages) | [Stopwords](/documentation/token-filters/stopwords)         |
+| `asciifolding`                                                 | `ascii_folding`            | [ASCII Folding](/documentation/token-filters/ascii-folding) |
+| `length`                                                       | `token_length`             | [Token Length](/documentation/token-filters/token-length)   |
+| `trim`                                                         | `trim`                     | [Trim](/documentation/token-filters/trim)                   |
+| `alphanumeric`                                                 | `alpha_num_only`           | [Alphanumeric](/documentation/token-filters/alphanumeric)   |
+| `synonym`                                                      | **Coming soon**            |                                                             |
+| `synonym_graph`                                                | **Coming soon**            |                                                             |
+| `word_delimiter`                                               | **Not supported**          |                                                             |
+| Character filters (`html_strip`, `mapping`, `pattern_replace`) | **Not supported**          |                                                             |
+
+## Pagination
+
+| ES Feature      | ParadeDB SQL                      | Notes                                      |
+| --------------- | --------------------------------- | ------------------------------------------ |
+| `from` / `size` | `LIMIT` / `OFFSET`                | Standard SQL pagination                    |
+| `scroll` API    | SQL cursors (`DECLARE` / `FETCH`) | Use Postgres cursors for large result sets |
+| `search_after`  | Keyset pagination                 | `WHERE id > last_id ORDER BY id LIMIT n`   |
+
+ParadeDB also supports a [TopN optimization](/documentation/sorting/topn) via the `paradedb.limit_fetch_multiplier`
+GUC setting, which can significantly accelerate queries with `ORDER BY pdb.score(id) LIMIT n`.

@@ -252,6 +252,23 @@ impl TypmodSchema {
                     ])
                 ),
                 rule!("columnar", ValueConstraint::Boolean),
+                rule!(
+                    "search_tokenizer",
+                    ValueConstraint::StringChoice(vec![
+                        "simple",
+                        "lindera",
+                        "icu",
+                        "jieba",
+                        "ngram",
+                        "whitespace",
+                        "literal",
+                        "literal_normalized",
+                        "chinese_compatible",
+                        "source_code",
+                        "unicode_words",
+                        "unicode",
+                    ])
+                ),
             ]
         });
 

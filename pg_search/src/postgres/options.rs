@@ -1103,6 +1103,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             // configuration as the `SearchTokenizer::Keyword` tokenizer.
             #[allow(deprecated)]
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
+            search_tokenizer: None,
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
@@ -1121,6 +1122,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             expand_dots: false,
             #[allow(deprecated)]
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            search_tokenizer: None,
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,

@@ -1522,7 +1522,12 @@ fn tokenized_phrase(
         .with_positions()?;
 
     let field_type = search_field.field_entry().field_type();
-    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut tokenizer = match search_field.field_config().search_tokenizer() {
+        Some(st) => st
+            .to_tantivy_tokenizer()
+            .expect("search_tokenizer should be a valid tantivy tokenizer"),
+        None => searcher.index().tokenizer_for_field(search_field.field())?,
+    };
     let mut stream = tokenizer.token_stream(phrase);
     let path = field.path();
 
@@ -1595,7 +1600,12 @@ fn phrase(
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
-    let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut analyzer = match search_field.field_config().search_tokenizer() {
+        Some(st) => st
+            .to_tantivy_tokenizer()
+            .expect("search_tokenizer should be a valid tantivy tokenizer"),
+        None => searcher.index().tokenizer_for_field(search_field.field())?,
+    };
     let mut should_warn = false;
 
     for phrase in phrases.into_iter() {
@@ -1799,7 +1809,12 @@ fn match_query(
         Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
             .to_tantivy_tokenizer()
             .expect("tantivy should support tokenizer {tokenizer:?}"),
-        None => searcher.index().tokenizer_for_field(search_field.field())?,
+        None => match search_field.field_config().search_tokenizer() {
+            Some(st) => st
+                .to_tantivy_tokenizer()
+                .expect("search_tokenizer should be a valid tantivy tokenizer"),
+            None => searcher.index().tokenizer_for_field(search_field.field())?,
+        },
     };
     let mut stream = analyzer.token_stream(value);
     let mut terms = Vec::new();

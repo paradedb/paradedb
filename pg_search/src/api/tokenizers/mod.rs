@@ -77,19 +77,8 @@ pub fn try_get_alias(oid: pg_sys::Oid, typmod: Typmod) -> Option<String> {
     }
 }
 
-pub fn search_field_config_from_type(
-    oid: pg_sys::Oid,
-    typmod: Typmod,
-    inner_typoid: pg_sys::Oid,
-) -> Option<SearchFieldConfig> {
-    let type_name = lookup_type_name(oid)?;
-
-    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
-        return None;
-    }
-
-    let mut tokenizer = match type_name.as_str() {
-        "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
+fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
+    Some(match name {
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         "lindera" => SearchTokenizer::Lindera(
             LinderaLanguage::default(),
@@ -120,12 +109,30 @@ pub fn search_field_config_from_type(
             filters: Default::default(),
         },
         "source_code" => SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
-        "unicode_words" => SearchTokenizer::UnicodeWords {
+        "unicode_words" | "unicode" => SearchTokenizer::UnicodeWords {
             remove_emojis: false,
             filters: SearchTokenizerFilters::default(),
         },
         _ => return None,
-    };
+    })
+}
+
+pub fn search_field_config_from_type(
+    oid: pg_sys::Oid,
+    typmod: Typmod,
+    inner_typoid: pg_sys::Oid,
+) -> Option<SearchFieldConfig> {
+    let type_name = lookup_type_name(oid)?;
+
+    if type_name.as_str() == "alias" && !type_can_be_tokenized(oid) {
+        return None;
+    }
+
+    if type_name.as_str() == "alias" {
+        panic!("`pdb.alias` is not allowed in index definitions");
+    }
+
+    let mut tokenizer = tokenizer_from_name(type_name.as_str())?;
 
     apply_typmod(&mut tokenizer, typmod);
 
@@ -156,12 +163,20 @@ pub fn search_field_config_from_type(
         (fast, fieldnorms, IndexRecordOption::WithFreqsAndPositions)
     };
 
+    let search_tokenizer = parsed_typmod
+        .get("search_tokenizer")
+        .and_then(|p| p.as_str())
+        .map(|name| {
+            tokenizer_from_name(name).unwrap_or_else(|| panic!("unknown search_tokenizer: {name}"))
+        });
+
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
             indexed: true,
             fast,
             fieldnorms,
             tokenizer,
+            search_tokenizer,
             record,
             normalizer,
             column: None,
@@ -173,6 +188,7 @@ pub fn search_field_config_from_type(
             fast,
             fieldnorms,
             tokenizer,
+            search_tokenizer,
             record,
             normalizer,
             column: None,

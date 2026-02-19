@@ -353,9 +353,9 @@ SELECT 'Running Shoes.  olé'::pdb.literal_normalized('lowercase=false', 'stemme
 
 -- Invalid configurations
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmmer=english')::text[];
-ERROR:  Invalid option: 'stemmmer'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'stemmmer'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.simple('min=english')::text[];
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=foo')::text[];
 ERROR:  Cannot parse value of 'ascii_folding=foo'
 SELECT 'Running Shoes.  olé'::pdb.simple('ascii_folding=f')::text[];

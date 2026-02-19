@@ -24,6 +24,20 @@ USING bm25 (id, description, (category::pdb.literal), rating, price, created_at)
 WITH (key_field = 'id');
 ```
 
+<Accordion title="Sample data">
+  ```sql INSERT INTO products (description, category, rating, price, created_at)
+  VALUES ('Sleek running shoes for athletes', 'footwear', 5, 89.99,
+  '2025-01-15'), ('Cheap running shoes on sale', 'footwear', 3, 29.99,
+  '2025-02-20'), ('Premium leather boots', 'footwear', 4, 149.99, '2025-03-10'),
+  ('Wireless bluetooth headphones', 'electronics', 4, 59.99, '2025-04-05'),
+  ('Ergonomic mechanical keyboard', 'electronics', 5, 129.99, '2025-05-12'),
+  ('Cotton running shorts', 'apparel', 4, 34.99, '2025-06-01'), ('Waterproof
+  hiking jacket', 'apparel', 5, 199.99, '2025-07-18'), ('Stainless steel water
+  bottle', 'accessories', 4, 24.99, '2025-08-22'), ('Yoga mat with carrying
+  strap', 'fitness', 3, 39.99, '2025-09-30'), ('Digital fitness tracker watch',
+  'electronics', 4, 79.99, '2025-10-14'); ```
+</Accordion>
+
 ## Full-Text Queries
 
 ### match
@@ -50,6 +64,15 @@ SELECT * FROM products
 WHERE description ||| 'running shoes';
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
+
 The [`|||` operator](/documentation/full-text/match) performs a match disjunction — it matches documents containing **any** of the query tokens.
 
 **AND**
@@ -71,6 +94,14 @@ The [`|||` operator](/documentation/full-text/match) performs a match disjunctio
 SELECT * FROM products
 WHERE description &&& 'running shoes';
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
 
 The [`&&&` operator](/documentation/full-text/match) performs a match conjunction — it matches documents containing **all** of the query tokens.
 
@@ -94,6 +125,15 @@ SELECT * FROM products
 WHERE description ||| 'runing shose'::pdb.fuzzy(2);
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
+
 See [Fuzzy](/documentation/full-text/fuzzy) for details on edit distance and prefix matching.
 
 ### match_phrase
@@ -113,6 +153,14 @@ SELECT * FROM products
 WHERE description ### 'running shoes';
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
+
 The [`###` operator](/documentation/full-text/phrase) matches documents where the tokens appear in the exact order specified.
 
 ### match_phrase_prefix
@@ -131,6 +179,15 @@ The [`###` operator](/documentation/full-text/phrase) matches documents where th
 SELECT * FROM products
 WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
 
 See [Phrase Prefix](/documentation/query-builder/phrase/phrase-prefix) for additional options like `max_expansions`.
 
@@ -152,18 +209,36 @@ SELECT * FROM products
 WHERE description ||| 'running shoes' OR category ||| 'running shoes';
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
+
 For `type: "best_fields"` with a tie breaker, use [`paradedb.disjunction_max`](/documentation/query-builder/overview):
 
 ```sql ParadeDB
 SELECT * FROM products
 WHERE id @@@ paradedb.disjunction_max(
   disjuncts => ARRAY[
-    description ||| 'running shoes',
-    category ||| 'running shoes'
+    paradedb.match('description', 'running shoes'),
+    paradedb.match('category', 'running shoes')
   ],
   tie_breaker => 0.3
 );
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
 
 ### query_string
 
@@ -182,6 +257,14 @@ WHERE id @@@ paradedb.disjunction_max(
 SELECT * FROM products
 WHERE description @@@ pdb.parse('running AND shoes');
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
 
 The [`pdb.parse`](/documentation/query-builder/compound/query-parser) function supports Lucene-style query syntax including `AND`, `OR`, `NOT`, field references, and grouping.
 
@@ -204,6 +287,15 @@ SELECT * FROM products
 WHERE category === 'electronics';
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+-------------------------------+-------------+--------+--------+--------------------------
+  4 | Wireless bluetooth headphones | electronics | 4 | 59.99 | Sat Apr 05
+  00:00:00 2025 5 | Ergonomic mechanical keyboard | electronics | 5 | 129.99 |
+  Mon May 12 00:00:00 2025 10 | Digital fitness tracker watch | electronics | 4
+  | 79.99 | Tue Oct 14 00:00:00 2025 (3 rows) ```
+</Accordion>
+
 The [`===` operator](/documentation/full-text/term) performs an exact token match without tokenization of the query string.
 
 ### terms
@@ -223,6 +315,18 @@ SELECT * FROM products
 WHERE category === 'electronics' OR category === 'footwear';
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+-------------+--------+--------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 3 | Premium leather boots | footwear | 4 | 149.99 | Mon Mar
+  10 00:00:00 2025 4 | Wireless bluetooth headphones | electronics | 4 | 59.99 |
+  Sat Apr 05 00:00:00 2025 5 | Ergonomic mechanical keyboard | electronics | 5 |
+  129.99 | Mon May 12 00:00:00 2025 10 | Digital fitness tracker watch |
+  electronics | 4 | 79.99 | Tue Oct 14 00:00:00 2025 (6 rows) ```
+</Accordion>
+
 ### range
 
 ```json Elasticsearch
@@ -239,16 +343,32 @@ WHERE category === 'electronics' OR category === 'footwear';
 ```
 
 ```sql ParadeDB
--- Standard SQL (works with or without BM25 index)
 SELECT * FROM products
 WHERE price >= 10 AND price <= 100;
-
--- Or using range_term for index-accelerated range queries
-SELECT * FROM products
-WHERE price @@@ pdb.range_term('[10, 100]'::int4range);
 ```
 
-See [Range Term](/documentation/query-builder/term/range-term) for supported range types.
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+-------------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 4 | Wireless bluetooth headphones | electronics | 4 | 59.99 |
+  Sat Apr 05 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun
+  Jun 01 00:00:00 2025 8 | Stainless steel water bottle | accessories | 4 |
+  24.99 | Fri Aug 22 00:00:00 2025 9 | Yoga mat with carrying strap | fitness |
+  3 | 39.99 | Tue Sep 30 00:00:00 2025 10 | Digital fitness tracker watch |
+  electronics | 4 | 79.99 | Tue Oct 14 00:00:00 2025 (7 rows) ```
+</Accordion>
+
+When `price` is part of the BM25 index, this filter is automatically pushed down into the index scan. See [Filtering](/documentation/filtering) for details.
+
+<Note>
+  If your table uses Postgres [range
+  types](https://www.postgresql.org/docs/current/rangetypes.html) (e.g.,
+  `int4range`), you can use
+  [`pdb.range_term`](/documentation/query-builder/term/range-term) for
+  index-accelerated range containment, overlap, and intersection queries.
+</Note>
 
 ### exists
 
@@ -263,11 +383,39 @@ See [Range Term](/documentation/query-builder/term/range-term) for supported ran
 ```
 
 ```sql ParadeDB
+-- For non-text fields or text fields with the literal tokenizer
 SELECT * FROM products
-WHERE description @@@ pdb.exists();
+WHERE rating @@@ pdb.exists();
+
+-- For text fields with the default tokenizer, use SQL instead
+SELECT * FROM products
+WHERE description IS NOT NULL;
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+-------------+--------+--------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 3 | Premium leather boots | footwear | 4 | 149.99 | Mon Mar
+  10 00:00:00 2025 4 | Wireless bluetooth headphones | electronics | 4 | 59.99 |
+  Sat Apr 05 00:00:00 2025 5 | Ergonomic mechanical keyboard | electronics | 5 |
+  129.99 | Mon May 12 00:00:00 2025 6 | Cotton running shorts | apparel | 4 |
+  34.99 | Sun Jun 01 00:00:00 2025 7 | Waterproof hiking jacket | apparel | 5 |
+  199.99 | Fri Jul 18 00:00:00 2025 8 | Stainless steel water bottle |
+  accessories | 4 | 24.99 | Fri Aug 22 00:00:00 2025 9 | Yoga mat with carrying
+  strap | fitness | 3 | 39.99 | Tue Sep 30 00:00:00 2025 10 | Digital fitness
+  tracker watch | electronics | 4 | 79.99 | Tue Oct 14 00:00:00 2025 (10 rows)
+  ```
+</Accordion>
+
 See [Exists](/documentation/query-builder/term/exists).
+
+<Note>
+  `pdb.exists()` requires text fields to use the
+  [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer.
+  For text fields with other tokenizers, use `IS NOT NULL` instead.
+</Note>
 
 ### fuzzy
 
@@ -289,6 +437,14 @@ SELECT * FROM products
 WHERE description === 'shose'::pdb.fuzzy(2);
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
+
 See [Fuzzy](/documentation/full-text/fuzzy) for details on edit distance, prefix matching, and transposition cost.
 
 ### prefix
@@ -307,6 +463,15 @@ See [Fuzzy](/documentation/full-text/fuzzy) for details on edit distance, prefix
 SELECT * FROM products
 WHERE description === 'runn'::pdb.fuzzy(0, t);
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
 
 Setting `fuzzy(0, t)` enables prefix matching with zero edit distance. See [Fuzzy Prefix](/documentation/full-text/fuzzy#fuzzy-prefix).
 
@@ -327,6 +492,15 @@ SELECT * FROM products
 WHERE description @@@ pdb.regex('run.*ing');
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
+
 See [Regex](/documentation/query-builder/term/regex).
 
 ### wildcard
@@ -345,6 +519,15 @@ See [Regex](/documentation/query-builder/term/regex).
 SELECT * FROM products
 WHERE description @@@ pdb.regex('run.*');
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
 
 <Note>
   Elasticsearch wildcard patterns use `*` (any characters) and `?` (single
@@ -367,6 +550,15 @@ WHERE description @@@ pdb.regex('run.*');
 SELECT * FROM products
 WHERE id IN (1, 2, 3);
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+--------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 3 | Premium leather boots | footwear | 4 | 149.99 | Mon Mar
+  10 00:00:00 2025 (3 rows) ```
+</Accordion>
 
 ## Compound Queries
 
@@ -395,17 +587,31 @@ WHERE description ||| 'shoes'            -- must
   AND rating = 5;                         -- filter
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 (1 row) ```
+</Accordion>
+
 For full control over `must`, `should`, and `must_not` clauses with proper scoring behavior, use [`paradedb.boolean`](/documentation/query-builder/overview):
 
 ```sql ParadeDB
 SELECT * FROM products
 WHERE id @@@ paradedb.boolean(
-  must => ARRAY[description ||| 'shoes'],
-  should => ARRAY[category === 'footwear'],
-  must_not => ARRAY[price @@@ pdb.range_term('[100,)'::int4range)]
+  must => ARRAY[paradedb.match('description', 'shoes')],
+  should => ARRAY[paradedb.term('category', 'footwear')]
 )
+AND NOT (price >= 100)
 AND rating = 5;
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 (1 row) ```
+</Accordion>
 
 | `bool` clause | ParadeDB equivalent                              | Scoring                                                     |
 | ------------- | ------------------------------------------------ | ----------------------------------------------------------- |
@@ -431,10 +637,18 @@ AND rating = 5;
 ```sql ParadeDB
 SELECT * FROM products
 WHERE id @@@ paradedb.boolean(
-  must => ARRAY[description ||| 'shoes'],
-  should => ARRAY[description ||| 'cheap'::pdb.boost(-0.5)]
+  must => ARRAY[paradedb.match('description', 'shoes')],
+  should => ARRAY[paradedb.boost(-0.5, paradedb.match('description', 'cheap'))]
 );
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
 
 See [Boost](/documentation/sorting/boost) for details on the `pdb.boost()` type cast.
 
@@ -453,8 +667,20 @@ See [Boost](/documentation/sorting/boost) for details on the `pdb.boost()` type 
 
 ```sql ParadeDB
 SELECT * FROM products
-WHERE id @@@ paradedb.const_score(1.5, category === 'electronics');
+WHERE id @@@ paradedb.const_score(
+  score => 1.5,
+  query => paradedb.term('category', 'electronics')
+);
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+-------------------------------+-------------+--------+--------+--------------------------
+  4 | Wireless bluetooth headphones | electronics | 4 | 59.99 | Sat Apr 05
+  00:00:00 2025 5 | Ergonomic mechanical keyboard | electronics | 5 | 129.99 |
+  Mon May 12 00:00:00 2025 10 | Digital fitness tracker watch | electronics | 4
+  | 79.99 | Tue Oct 14 00:00:00 2025 (3 rows) ```
+</Accordion>
 
 ### dis_max
 
@@ -476,12 +702,21 @@ WHERE id @@@ paradedb.const_score(1.5, category === 'electronics');
 SELECT * FROM products
 WHERE id @@@ paradedb.disjunction_max(
   disjuncts => ARRAY[
-    description ||| 'shoes',
-    category ||| 'footwear'
+    paradedb.match('description', 'shoes'),
+    paradedb.term('category', 'footwear')
   ],
   tie_breaker => 0.5
 );
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+--------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 3 | Premium leather boots | footwear | 4 | 149.99 | Mon Mar
+  10 00:00:00 2025 (3 rows) ```
+</Accordion>
 
 ## Specialized Queries
 
@@ -502,11 +737,17 @@ WHERE id @@@ paradedb.disjunction_max(
 
 ```sql ParadeDB
 SELECT * FROM products
-WHERE id @@@ paradedb.more_like_this(
-  fields => ARRAY['description'],
-  key_value => 1
-);
+WHERE id @@@ pdb.more_like_this(1, ARRAY['description']);
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 6 | Cotton running shorts | apparel | 4 | 34.99 | Sun Jun 01
+  00:00:00 2025 (3 rows) ```
+</Accordion>
 
 See [More Like This](/documentation/query-builder/specialized/more-like-this).
 
@@ -533,6 +774,14 @@ SELECT * FROM products
 WHERE description @@@ ('running' ##3## 'shoes');
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
+
 For ordered proximity (`in_order: true`):
 
 ```sql ParadeDB
@@ -540,6 +789,14 @@ For ordered proximity (`in_order: true`):
 SELECT * FROM products
 WHERE description @@@ ('running' ##> 3 ##> 'shoes');
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+----------+--------+-------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 (2 rows) ```
+</Accordion>
 
 See [Proximity](/documentation/full-text/proximity).
 
@@ -556,6 +813,23 @@ SELECT * FROM products
 WHERE id @@@ pdb.all();
 ```
 
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+----------------------------------+-------------+--------+--------+--------------------------
+  1 | Sleek running shoes for athletes | footwear | 5 | 89.99 | Wed Jan 15
+  00:00:00 2025 2 | Cheap running shoes on sale | footwear | 3 | 29.99 | Thu Feb
+  20 00:00:00 2025 3 | Premium leather boots | footwear | 4 | 149.99 | Mon Mar
+  10 00:00:00 2025 4 | Wireless bluetooth headphones | electronics | 4 | 59.99 |
+  Sat Apr 05 00:00:00 2025 5 | Ergonomic mechanical keyboard | electronics | 5 |
+  129.99 | Mon May 12 00:00:00 2025 6 | Cotton running shorts | apparel | 4 |
+  34.99 | Sun Jun 01 00:00:00 2025 7 | Waterproof hiking jacket | apparel | 5 |
+  199.99 | Fri Jul 18 00:00:00 2025 8 | Stainless steel water bottle |
+  accessories | 4 | 24.99 | Fri Aug 22 00:00:00 2025 9 | Yoga mat with carrying
+  strap | fitness | 3 | 39.99 | Tue Sep 30 00:00:00 2025 10 | Digital fitness
+  tracker watch | electronics | 4 | 79.99 | Tue Oct 14 00:00:00 2025 (10 rows)
+  ```
+</Accordion>
+
 See [All](/documentation/query-builder/compound/all).
 
 ### match_none
@@ -570,6 +844,11 @@ See [All](/documentation/query-builder/compound/all).
 SELECT * FROM products
 WHERE id @@@ pdb.empty();
 ```
+
+<Accordion title="Result">
+  ``` id | description | category | rating | price | created_at
+  ----+-------------+----------+--------+-------+------------ (0 rows) ```
+</Accordion>
 
 ## Not Supported Queries
 
@@ -609,6 +888,12 @@ WHERE description ||| 'shoes'
 ORDER BY pdb.score(id) DESC;
 ```
 
+<Accordion title="Result">
+  ``` id | description | score
+  ----+----------------------------------+---------- 1 | Sleek running shoes for
+  athletes | 1.312099 2 | Cheap running shoes on sale | 1.312099 (2 rows) ```
+</Accordion>
+
 **Boosting a query:**
 
 ```json Elasticsearch
@@ -629,6 +914,11 @@ SELECT * FROM products
 WHERE description ||| 'shoes'::pdb.boost(2.0)
 ORDER BY pdb.score(id) DESC;
 ```
+
+<Accordion title="Result">
+  ``` id | description ----+---------------------------------- 1 | Sleek running
+  shoes for athletes 2 | Cheap running shoes on sale (2 rows) ```
+</Accordion>
 
 ## Highlighting
 
@@ -656,6 +946,12 @@ FROM products
 WHERE description ||| 'shoes'
 LIMIT 10;
 ```
+
+<Accordion title="Result">
+  ``` id | snippet ----+------------------------------------------- 1 | Sleek
+  running <em>shoes</em> for athletes 2 | Cheap running <em>shoes</em> on sale
+  (2 rows) ```
+</Accordion>
 
 <Warning>Highlighting is not supported for fuzzy search.</Warning>
 
@@ -687,23 +983,51 @@ FROM products
 WHERE id @@@ pdb.all();
 ```
 
+<Accordion title="Result">
+```json
+{
+  "buckets": [
+    {"key": "electronics", "doc_count": 3},
+    {"key": "footwear", "doc_count": 3},
+    {"key": "apparel", "doc_count": 2},
+    {"key": "fitness", "doc_count": 1},
+    {"key": "accessories", "doc_count": 1}
+  ],
+  "sum_other_doc_count": 0,
+  "doc_count_error_upper_bound": 0
+}
+```
+</Accordion>
+
 **histogram**
 
 ```json Elasticsearch
 {
   "aggs": {
-    "price_ranges": {
-      "histogram": { "field": "price", "interval": 10 }
+    "rating_buckets": {
+      "histogram": { "field": "rating", "interval": 1 }
     }
   }
 }
 ```
 
 ```sql ParadeDB
-SELECT pdb.agg('{"histogram": {"field": "price", "interval": 10}}')
+SELECT pdb.agg('{"histogram": {"field": "rating", "interval": 1}}')
 FROM products
 WHERE id @@@ pdb.all();
 ```
+
+<Accordion title="Result">
+```json
+{
+  "buckets": [
+    {"key": 3.0, "doc_count": 2},
+    {"key": 4.0, "doc_count": 5},
+    {"key": 5.0, "doc_count": 3}
+  ]
+}
+```
+</Accordion>
 
 **date_histogram**
 
@@ -721,10 +1045,28 @@ WHERE id @@@ pdb.all();
 ```
 
 ```sql ParadeDB
-SELECT pdb.agg('{"date_histogram": {"field": "created_at", "calendar_interval": "month"}}')
+SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
 FROM products
 WHERE id @@@ pdb.all();
 ```
+
+<Accordion title="Result">
+```json
+{
+  "buckets": [
+    {"key": 1736640000000.0, "doc_count": 1, "key_as_string": "2025-01-12T00:00:00Z"},
+    {"key": 1739232000000.0, "doc_count": 2, "key_as_string": "2025-02-11T00:00:00Z"},
+    {"key": 1741824000000.0, "doc_count": 1, "key_as_string": "2025-03-13T00:00:00Z"},
+    ...
+  ]
+}
+```
+</Accordion>
+
+<Note>
+  ParadeDB supports `fixed_interval` (e.g., `"30d"`, `"1h"`) but not
+  `calendar_interval`.
+</Note>
 
 See [Date Histogram](/documentation/aggregates/bucket/datehistogram).
 
@@ -733,10 +1075,10 @@ See [Date Histogram](/documentation/aggregates/bucket/datehistogram).
 ```json Elasticsearch
 {
   "aggs": {
-    "price_buckets": {
+    "rating_buckets": {
       "range": {
-        "field": "price",
-        "ranges": [{ "to": 50 }, { "from": 50, "to": 100 }, { "from": 100 }]
+        "field": "rating",
+        "ranges": [{ "to": 3 }, { "from": 3, "to": 5 }, { "from": 5 }]
       }
     }
   }
@@ -744,25 +1086,37 @@ See [Date Histogram](/documentation/aggregates/bucket/datehistogram).
 ```
 
 ```sql ParadeDB
-SELECT pdb.agg('{"range": {"field": "price", "ranges": [{"to": 50}, {"from": 50, "to": 100}, {"from": 100}]}}')
+SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3}, {"from": 3, "to": 5}, {"from": 5}]}}')
 FROM products
 WHERE id @@@ pdb.all();
 ```
+
+<Accordion title="Result">
+```json
+{
+  "buckets": [
+    {"to": 3.0, "key": "*-3", "doc_count": 0},
+    {"to": 5.0, "key": "3-5", "from": 3.0, "doc_count": 7},
+    {"key": "5-*", "from": 5.0, "doc_count": 3}
+  ]
+}
+```
+</Accordion>
 
 See [Range](/documentation/aggregates/bucket/range).
 
 ### Metric Aggregations
 
-| ES Aggregation | ParadeDB SQL                                        |
-| -------------- | --------------------------------------------------- |
-| `avg`          | `pdb.agg('{"avg": {"field": "rating"}}')`           |
-| `sum`          | `pdb.agg('{"sum": {"field": "price"}}')`            |
-| `min` / `max`  | `pdb.agg('{"min": {"field": "price"}}')`            |
-| `value_count`  | `pdb.agg('{"value_count": {"field": "id"}}')`       |
-| `stats`        | `pdb.agg('{"stats": {"field": "rating"}}')`         |
-| `percentiles`  | `pdb.agg('{"percentiles": {"field": "rating"}}')`   |
-| `cardinality`  | `pdb.agg('{"cardinality": {"field": "category"}}')` |
-| `top_hits`     | `pdb.agg('{"top_hits": {"size": 3}}')`              |
+| ES Aggregation | ParadeDB SQL                                                                                        |
+| -------------- | --------------------------------------------------------------------------------------------------- |
+| `avg`          | `pdb.agg('{"avg": {"field": "rating"}}')`                                                           |
+| `sum`          | `pdb.agg('{"sum": {"field": "rating"}}')`                                                           |
+| `min` / `max`  | `pdb.agg('{"min": {"field": "rating"}}')`                                                           |
+| `value_count`  | `pdb.agg('{"value_count": {"field": "id"}}')`                                                       |
+| `stats`        | `pdb.agg('{"stats": {"field": "rating"}}')`                                                         |
+| `percentiles`  | `pdb.agg('{"percentiles": {"field": "rating"}}')`                                                   |
+| `cardinality`  | `pdb.agg('{"cardinality": {"field": "category"}}')`                                                 |
+| `top_hits`     | `pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id"]}}')` |
 
 See [Aggregates](/documentation/aggregates/overview) for the full reference.
 

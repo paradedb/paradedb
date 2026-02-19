@@ -15,21 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::any::Any;
+use std::fmt::{self, Formatter};
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::Result;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::equivalence::EquivalenceProperties;
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{LexOrdering, PhysicalExpr, PhysicalSortExpr};
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::filter_pushdown::{
+    ChildPushdownResult, FilterDescription, FilterPushdownPhase, FilterPushdownPropagation,
+};
 use datafusion::physical_plan::joins::utils::JoinFilter;
 use datafusion::physical_plan::joins::{HashJoinExec, SortMergeJoinExec};
+use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
+};
 
 /// A DataFusion physical optimizer rule that replaces `HashJoinExec` with `SortMergeJoinExec`
 /// when the inputs are already sorted by the join keys.
@@ -164,7 +174,8 @@ impl SortMergeJoinEnforcer {
                         null_equality,
                     )?;
 
-                    let exec = Arc::new(exec) as Arc<dyn ExecutionPlan>;
+                    let exec = Arc::new(FilterPassthroughJoinExec::new(Arc::new(exec)))
+                        as Arc<dyn ExecutionPlan>;
 
                     // HashJoinExec might have an internal projection (pruning columns).
                     // SortMergeJoinExec outputs all columns from both sides.
@@ -270,6 +281,98 @@ fn check_ordering(
     }
 
     None
+}
+
+/// Thin wrapper around `SortMergeJoinExec` that enables dynamic-filter pushdown.
+///
+/// DataFusion's `SortMergeJoinExec` uses the default `gather_filters_for_pushdown` which
+/// marks all parent filters as unsupported. This blocks `DynamicFilterPhysicalExpr` (from
+/// `SortExec(TopK)`) from reaching scan nodes below the join.
+///
+/// This wrapper overrides two methods to allow filters through:
+/// - `gather_filters_for_pushdown`: uses `FilterDescription::from_children` for column-based
+///   routing — a filter on `val` is routed only to the child whose schema contains `val`.
+/// - `handle_child_pushdown_result`: uses `if_any` (matching `HashJoinExec`'s behavior) since
+///   a filter can only apply to the join side that owns the referenced column.
+#[derive(Debug)]
+struct FilterPassthroughJoinExec {
+    inner: Arc<dyn ExecutionPlan>,
+}
+
+impl FilterPassthroughJoinExec {
+    fn new(inner: Arc<dyn ExecutionPlan>) -> Self {
+        Self { inner }
+    }
+}
+
+impl DisplayAs for FilterPassthroughJoinExec {
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> fmt::Result {
+        self.inner.fmt_as(t, f)
+    }
+}
+
+impl ExecutionPlan for FilterPassthroughJoinExec {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.inner.schema()
+    }
+
+    fn properties(&self) -> &PlanProperties {
+        self.inner.properties()
+    }
+
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
+        self.inner.children()
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let new_inner = Arc::clone(&self.inner).with_new_children(children)?;
+        Ok(Arc::new(FilterPassthroughJoinExec::new(new_inner)))
+    }
+
+    fn execute(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        self.inner.execute(partition, context)
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        self.inner.metrics()
+    }
+
+    fn maintains_input_order(&self) -> Vec<bool> {
+        self.inner.maintains_input_order()
+    }
+
+    fn gather_filters_for_pushdown(
+        &self,
+        _phase: FilterPushdownPhase,
+        parent_filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &ConfigOptions,
+    ) -> Result<FilterDescription> {
+        FilterDescription::from_children(parent_filters, &self.children())
+    }
+
+    fn handle_child_pushdown_result(
+        &self,
+        _phase: FilterPushdownPhase,
+        child_pushdown_result: ChildPushdownResult,
+        _config: &ConfigOptions,
+    ) -> Result<FilterPushdownPropagation<Arc<dyn ExecutionPlan>>> {
+        Ok(FilterPushdownPropagation::if_any(child_pushdown_result))
+    }
 }
 
 /// Reorders a `JoinFilter`'s column_indices to place Left-side columns before Right-side

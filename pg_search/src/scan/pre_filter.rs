@@ -26,9 +26,10 @@
 use std::ops::Bound;
 use std::sync::Arc;
 
+use arrow_schema::SchemaRef;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Operator;
-use datafusion::physical_expr::expressions::{BinaryExpr, Column, Literal};
+use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Literal};
 use datafusion::physical_expr::PhysicalExpr;
 use tantivy::columnar::BytesColumn;
 use tantivy::fastfield::Column as FFColumn;
@@ -51,6 +52,10 @@ pub struct PreFilter {
     pub lower: Bound<PreFilterValue>,
     /// Upper bound of the accepted range.
     pub upper: Bound<PreFilterValue>,
+    /// When true, rows with NULL values for this column pass the filter.
+    /// This is needed for TopK dynamic filters which produce
+    /// `col IS NULL OR col < threshold`.
+    pub nulls_pass: bool,
 }
 
 /// A typed threshold value for pre-materialization filtering.
@@ -104,43 +109,124 @@ impl PreFilterValue {
 /// Handles:
 /// - `BinaryExpr(Column, Lt/LtEq/Gt/GtEq, Literal)` and the reversed form
 /// - `BinaryExpr(left, And, right)` — recurses into both children
+/// - `BinaryExpr(IsNull(col), Or, comparison)` — TopK dynamic filter pattern
 /// - Anything else (including `Literal(true)`) is silently skipped.
-pub fn collect_filters(expr: &dyn PhysicalExpr, out: &mut Vec<PreFilter>) {
+///
+/// The `schema` parameter is used for column name resolution. Dynamic filters
+/// from parent operators (e.g. TopK above a SortMergeJoin) reference columns
+/// by the parent's schema indices, which may differ from the scan's schema.
+/// Name-based lookup ensures the correct fast field index is used.
+pub fn collect_filters(expr: &dyn PhysicalExpr, schema: &SchemaRef, out: &mut Vec<PreFilter>) {
     if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
         let op = binary.op();
 
         // Handle AND: recurse into both children.
         if matches!(op, Operator::And) {
-            collect_filters(binary.left().as_ref(), out);
-            collect_filters(binary.right().as_ref(), out);
+            collect_filters(binary.left().as_ref(), schema, out);
+            collect_filters(binary.right().as_ref(), schema, out);
             return;
         }
 
+        // Handle OR with IS NULL — TopK dynamic filters produce
+        // `col IS NULL OR col < threshold`. Extract the comparison
+        // and set nulls_pass=true so NULLs are not incorrectly pruned.
+        if matches!(op, Operator::Or) {
+            if let Some(pf) = try_or_is_null_pattern(binary, schema) {
+                out.push(pf);
+                return;
+            }
+        }
+
         // Try Column op Literal
-        if let Some(pf) = try_column_op_literal(binary.left(), op, binary.right()) {
+        if let Some(pf) = try_column_op_literal(binary.left(), op, binary.right(), schema, false) {
             out.push(pf);
             return;
         }
 
         // Try Literal op Column (reversed)
         if let Some(reversed_op) = flip_operator(op) {
-            if let Some(pf) = try_column_op_literal(binary.right(), &reversed_op, binary.left()) {
+            if let Some(pf) =
+                try_column_op_literal(binary.right(), &reversed_op, binary.left(), schema, false)
+            {
                 out.push(pf);
             }
         }
     }
 }
 
+/// Try to match the TopK pattern `IsNull(col) OR col op Literal`.
+/// Returns a PreFilter with `nulls_pass=true` if matched.
+fn try_or_is_null_pattern(binary: &BinaryExpr, schema: &SchemaRef) -> Option<PreFilter> {
+    let (is_null_side, comparison_side) = if binary
+        .left()
+        .as_any()
+        .downcast_ref::<IsNullExpr>()
+        .is_some()
+    {
+        (binary.left(), binary.right())
+    } else if binary
+        .right()
+        .as_any()
+        .downcast_ref::<IsNullExpr>()
+        .is_some()
+    {
+        (binary.right(), binary.left())
+    } else {
+        return None;
+    };
+
+    let is_null = is_null_side.as_any().downcast_ref::<IsNullExpr>()?;
+    let is_null_col = is_null.arg().as_any().downcast_ref::<Column>()?;
+
+    // The comparison side must be a simple BinaryExpr(Column op Literal).
+    let cmp = comparison_side.as_any().downcast_ref::<BinaryExpr>()?;
+    let op = cmp.op();
+
+    // Extract the comparison column and verify it matches the IS NULL column.
+    let cmp_col = cmp
+        .left()
+        .as_any()
+        .downcast_ref::<Column>()
+        .or_else(|| cmp.right().as_any().downcast_ref::<Column>())?;
+    if is_null_col.name() != cmp_col.name() {
+        return None;
+    }
+
+    // Try Column op Literal
+    if let Some(pf) = try_column_op_literal(cmp.left(), op, cmp.right(), schema, true) {
+        return Some(pf);
+    }
+
+    // Try Literal op Column (reversed)
+    if let Some(reversed_op) = flip_operator(op) {
+        if let Some(pf) = try_column_op_literal(cmp.right(), &reversed_op, cmp.left(), schema, true)
+        {
+            return Some(pf);
+        }
+    }
+
+    None
+}
+
 /// Try to build a `PreFilter` from `Column op Literal`.
+///
+/// Uses `schema` for name-based column resolution so that filters from parent
+/// operators (whose column indices differ from the scan's) are correctly mapped.
 fn try_column_op_literal(
     left: &Arc<dyn PhysicalExpr>,
     op: &Operator,
     right: &Arc<dyn PhysicalExpr>,
+    schema: &SchemaRef,
+    nulls_pass: bool,
 ) -> Option<PreFilter> {
     let col = left.as_any().downcast_ref::<Column>()?;
     let lit = right.as_any().downcast_ref::<Literal>()?;
     let value = scalar_to_pre_filter_value(lit.value())?;
-    let ff_index = col.index();
+
+    // Resolve the column index using the scan's schema by name.
+    // This handles cross-plan filters where the column index in the expression
+    // (from a parent operator's schema) doesn't match the scan's field order.
+    let ff_index = schema.column_with_name(col.name())?.0;
 
     let (lower, upper) = match op {
         Operator::Lt => (Bound::Unbounded, Bound::Excluded(value)),
@@ -154,6 +240,7 @@ fn try_column_op_literal(
         ff_index,
         lower,
         upper,
+        nulls_pass,
     })
 }
 
@@ -203,6 +290,7 @@ pub fn apply_pre_filter(
     scores: &mut Vec<f32>,
 ) {
     let col = ffhelper.column(segment_ord, filter.ff_index);
+    let nulls_pass = filter.nulls_pass;
     match col {
         FFType::Text(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
         FFType::Bytes(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
@@ -213,7 +301,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_i64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
         }
         FFType::F64(col) => {
             let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_f64) else {
@@ -222,7 +310,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_f64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
         }
         FFType::U64(col) => {
             let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_u64) else {
@@ -231,7 +319,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_u64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
         }
         // TODO: Support Bool and Date column types here as well.
         _ => {}
@@ -309,12 +397,13 @@ fn filter_by_ordinals(
         return;
     };
 
+    let nulls_pass = filter.nulls_pass;
     let mut ords = vec![None; ids.len()];
     col.ords().first_vals(ids, &mut ords);
 
     compact_parallel(ids, ctids, scores, |i| match ords[i] {
         Some(ord) => in_bound(ord, &lo_ord, &hi_ord),
-        None => false,
+        None => nulls_pass,
     });
 }
 
@@ -325,6 +414,7 @@ fn filter_by_values<T: PartialOrd + Copy + std::fmt::Debug + Send + Sync + 'stat
     col: &FFColumn<T>,
     lower: Bound<T>,
     upper: Bound<T>,
+    nulls_pass: bool,
     ids: &mut Vec<u32>,
     ctids: &mut Vec<u64>,
     scores: &mut Vec<f32>,
@@ -334,6 +424,6 @@ fn filter_by_values<T: PartialOrd + Copy + std::fmt::Debug + Send + Sync + 'stat
 
     compact_parallel(ids, ctids, scores, |i| match vals[i] {
         Some(v) => in_bound(v, &lower, &upper),
-        None => false,
+        None => nulls_pass,
     });
 }

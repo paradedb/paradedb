@@ -1498,15 +1498,9 @@ unsafe fn try_enable_range_partitioning(join_clause: &mut JoinCSClause, processe
     // Sort all samples
     all_samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Reverse if DESC
-    if target_direction == crate::postgres::options::SortByDirection::Desc {
-        all_samples.reverse();
-    }
-
     // Compute split points
     let num_partitions = processes * 2;
     let split_points = compute_range_split_points(&all_samples, num_partitions);
-
     if split_points.is_empty() {
         return;
     }

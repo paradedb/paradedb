@@ -343,7 +343,7 @@ fn scalar_to_pre_filter_value(scalar: &ScalarValue) -> Option<PreFilterValue> {
 // Applying PreFilters during scanning
 // ============================================================================
 
-/// Apply a single pre-materialization filter, pruning `ids`/`ctids`/`scores` in-place.
+/// Apply a single pre-materialization filter, pruning `ids`/`scores` in-place.
 ///
 /// For string columns this converts the threshold to a term ordinal and compares ordinals
 /// (skipping the expensive dictionary walk for pruned docs). For numeric columns the fast
@@ -353,14 +353,13 @@ pub fn apply_pre_filter(
     segment_ord: SegmentOrdinal,
     filter: &PreFilter,
     ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
     scores: &mut Vec<f32>,
 ) {
     let col = ffhelper.column(segment_ord, filter.ff_index);
     let nulls_pass = filter.nulls_pass;
     match col {
-        FFType::Text(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
-        FFType::Bytes(col) => filter_by_ordinals(col, filter, ids, ctids, scores),
+        FFType::Text(col) => filter_by_ordinals(col, filter, ids, scores),
+        FFType::Bytes(col) => filter_by_ordinals(col, filter, ids, scores),
         FFType::I64(col) => {
             let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_i64) else {
                 return;
@@ -368,7 +367,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_i64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
         }
         FFType::F64(col) => {
             let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_f64) else {
@@ -377,7 +376,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_f64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
         }
         FFType::U64(col) => {
             let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_u64) else {
@@ -386,7 +385,7 @@ pub fn apply_pre_filter(
             let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_u64) else {
                 return;
             };
-            filter_by_values(col, lo, hi, nulls_pass, ids, ctids, scores);
+            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
         }
         // TODO: Support Bool and Date column types here as well.
         _ => {}
@@ -408,27 +407,20 @@ fn in_bound<T: PartialOrd>(val: T, lower: &Bound<T>, upper: &Bound<T>) -> bool {
     lower_ok && upper_ok
 }
 
-/// Compact `ids`, `ctids`, and `scores` in-place, keeping only elements
+/// Compact `ids`, and `scores` in-place, keeping only elements
 /// where `keep(index)` returns true.
-fn compact_parallel(
-    ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
-    scores: &mut Vec<f32>,
-    keep: impl Fn(usize) -> bool,
-) {
+fn compact_parallel(ids: &mut Vec<u32>, scores: &mut Vec<f32>, keep: impl Fn(usize) -> bool) {
     let mut write_idx = 0;
     for read_idx in 0..ids.len() {
         if keep(read_idx) {
             if read_idx != write_idx {
                 ids[write_idx] = ids[read_idx];
-                ctids[write_idx] = ctids[read_idx];
                 scores[write_idx] = scores[read_idx];
             }
             write_idx += 1;
         }
     }
     ids.truncate(write_idx);
-    ctids.truncate(write_idx);
     scores.truncate(write_idx);
 }
 
@@ -451,7 +443,6 @@ fn filter_by_ordinals(
     col: &BytesColumn,
     filter: &PreFilter,
     ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
     scores: &mut Vec<f32>,
 ) {
     let Some(lower) = try_map_bound(&filter.lower, PreFilterValue::as_bytes) else {
@@ -468,7 +459,7 @@ fn filter_by_ordinals(
     let mut ords = vec![None; ids.len()];
     col.ords().first_vals(ids, &mut ords);
 
-    compact_parallel(ids, ctids, scores, |i| match ords[i] {
+    compact_parallel(ids, scores, |i| match ords[i] {
         Some(ord) => in_bound(ord, &lo_ord, &hi_ord),
         None => nulls_pass,
     });
@@ -483,13 +474,12 @@ fn filter_by_values<T: PartialOrd + Copy + std::fmt::Debug + Send + Sync + 'stat
     upper: Bound<T>,
     nulls_pass: bool,
     ids: &mut Vec<u32>,
-    ctids: &mut Vec<u64>,
     scores: &mut Vec<f32>,
 ) {
     let mut vals = vec![None; ids.len()];
     col.first_vals(ids, &mut vals);
 
-    compact_parallel(ids, ctids, scores, |i| match vals[i] {
+    compact_parallel(ids, scores, |i| match vals[i] {
         Some(v) => in_bound(v, &lower, &upper),
         None => nulls_pass,
     });

@@ -4866,7 +4866,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -7207,7 +7207,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7262,7 +7262,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "bitpacking",
 ]
@@ -7270,7 +7270,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7285,7 +7285,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7318,7 +7318,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7330,7 +7330,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7343,7 +7343,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7380,7 +7380,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=863598f69092e56b842eee41ce6e5004ef939206#863598f69092e56b842eee41ce6e5004ef939206"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e441e6ee155f5aa2c61f2efb419e6938756cede2#e441e6ee155f5aa2c61f2efb419e6938756cede2"
 dependencies = [
  "serde",
 ]

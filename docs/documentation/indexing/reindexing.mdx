@@ -24,29 +24,18 @@ WITH (key_field = 'id');
 ```
 
 ```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
+from django.db import connection
 
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {},
-                    'category': {},
-                },
-                key_field='id',
-                name='search_idx_v2',
-            ),
-        ]
-
-# Then run:
-# python manage.py makemigrations
-# python manage.py migrate
+# 1. Build the new index concurrently.
+# Use raw SQL for this zero-downtime operation.
+with connection.cursor() as cursor:
+    cursor.execute(
+        """
+        CREATE INDEX CONCURRENTLY search_idx_v2
+        ON mock_items USING bm25 (id, description, category)
+        WITH (key_field = 'id');
+        """
+    )
 ```
 
 </CodeGroup>
@@ -58,7 +47,7 @@ class MockItem(models.Model):
 
 From another session, you can use `pg_stat_progress_create_index` to [track the progress](/documentation/indexing/create-index#track-create-index-progress) of the new index.
 
-Once the new index is done building, confirm that it is valid:
+2. Once the new index is done building, confirm that it is valid:
 
 ```sql
 SELECT ix.indisvalid, ix.indisready, ix.indislive
@@ -82,9 +71,11 @@ DROP INDEX search_idx;
 ```
 
 ```python Django
-# Keep only `search_idx_v2` in `Meta.indexes`, then run:
-# python manage.py makemigrations
-# python manage.py migrate
+from django.db import connection
+
+# 3. Drop the old index after validating search_idx_v2.
+with connection.cursor() as cursor:
+    cursor.execute("DROP INDEX search_idx;")
 ```
 
 </CodeGroup>
@@ -94,22 +85,40 @@ DROP INDEX search_idx;
 `REINDEX` is used to rebuild an index without changing the schema.
 The basic syntax for `REINDEX` is:
 
+<CodeGroup dropdown>
 ```sql
 REINDEX INDEX search_idx;
 ```
+
+```python Django
+from django.db import connection
+
+# Django does not provide a model-level REINDEX API.
+# Run raw SQL with a cursor, a non-atomic RunSQL migration, or manage.py dbshell.
+with connection.cursor() as cursor:
+    cursor.execute("REINDEX INDEX search_idx;")
+```
+
+</CodeGroup>
 
 This operation takes an exclusive lock on the table, which blocks incoming writes (but not reads) while the new index is being built.
 
 To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
+<CodeGroup dropdown>
 ```sql
 REINDEX INDEX CONCURRENTLY search_idx;
 ```
 
-<Note>
-  Django does not provide a model-level API for `REINDEX`; run `REINDEX` as an
-  operational SQL command (for example via `psql` or `manage.py dbshell`).
-</Note>
+```python Django
+from django.db import connection
+
+# REINDEX CONCURRENTLY is also executed as raw SQL in Django workflows.
+with connection.cursor() as cursor:
+    cursor.execute("REINDEX INDEX CONCURRENTLY search_idx;")
+```
+
+</CodeGroup>
 
 The tradeoff is that `REINDEX CONCURRENTLY` is slower than a plain `REINDEX`. Generally speaking, `REINDEX CONCURRENTLY` is recommended for
 production systems that cannot tolerate temporarily blocked writes.

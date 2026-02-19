@@ -139,6 +139,10 @@ pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<Se
     (*pscan_state).checkout_segment()
 }
 
+pub unsafe fn checkout_range_index(pscan_state: *mut ParallelScanState) -> Option<usize> {
+    (*pscan_state).checkout_range_index()
+}
+
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {
     (*pscan_state).segments().into_keys().collect()
 }

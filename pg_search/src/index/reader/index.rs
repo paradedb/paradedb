@@ -458,7 +458,7 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    fn make_query(
+    pub fn make_query(
         &self,
         search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
@@ -590,12 +590,21 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> MultiSegmentSearchResults {
+        self.search_segments_with_query(segment_ids, self.query().box_clone())
+    }
+
+    /// Search specific index segments for matching documents with a custom query.
+    pub fn search_segments_with_query(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        query: Box<dyn Query>,
+    ) -> MultiSegmentSearchResults {
         let iterators = self
             .segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
                 ScorerIter::new(
                     DeferredScorer::new(
-                        self.query().box_clone(),
+                        query.box_clone(),
                         self.need_scores,
                         segment_reader.clone(),
                         self.searcher.clone(),

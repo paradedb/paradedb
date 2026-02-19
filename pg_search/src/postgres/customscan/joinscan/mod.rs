@@ -173,11 +173,14 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::joinscan::build::PartitioningStrategy;
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
+use crate::scan::partitioning::compute_range_split_points;
+use crate::scan::table_provider::clear_worker_range_cache;
 use crate::scan::PgSearchExtensionCodec;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
@@ -200,8 +203,14 @@ impl ParallelQueryCapable for JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        // We only partition the largest source
         let join_clause = &state.custom_state().join_clause;
+
+        if join_clause.partitioning_strategy == PartitioningStrategy::Range {
+            let range_count = join_clause.range_split_points.len() + 1;
+            return ParallelScanState::size_of(range_count, &[], false);
+        }
+
+        // We only partition the largest source
         let source = join_clause.partitioning_source();
         let segment_count = source
             .scan_info
@@ -220,8 +229,18 @@ impl ParallelQueryCapable for JoinScan {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
 
-        // Initialize shared state with segments from the largest source
         let join_clause = &state.custom_state().join_clause;
+
+        if join_clause.partitioning_strategy == PartitioningStrategy::Range {
+            let range_count = join_clause.range_split_points.len() + 1;
+            unsafe {
+                (*pscan_state).create_and_populate_ranges(range_count);
+                state.custom_state_mut().parallel_state = Some(pscan_state);
+            }
+            return;
+        }
+
+        // Initialize shared state with segments from the largest source
         let source = join_clause.partitioning_source();
         let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
         let query = source.scan_info.query.clone();
@@ -604,6 +623,9 @@ impl CustomScan for JoinScan {
                         },
                 );
                 result_rows /= processes as f64;
+
+                // Try to enable range partitioning since we are running in parallel
+                try_enable_range_partitioning(&mut join_clause, processes);
             }
 
             builder = builder.set_rows(result_rows);
@@ -937,6 +959,9 @@ impl CustomScan for JoinScan {
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
+                // Clear the worker range cache at the start of execution
+                clear_worker_range_cache();
+
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
@@ -1239,4 +1264,255 @@ fn render_plan_with_metrics(
     for child in plan.children() {
         render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
     }
+}
+
+// Try to enable range partitioning if applicable.
+//
+// Range partitioning requires:
+// 1. At least 2 sources in the join that are physically sorted by their join keys.
+// 2. The sort directions must match.
+// 3. We successfully sample the values and compute split points.
+//
+// If successful, updates the `join_clause` with `PartitioningStrategy::Range`,
+// `range_split_points`, and `partitioned_source_indices`.
+unsafe fn try_enable_range_partitioning(join_clause: &mut JoinCSClause, processes: usize) {
+    if processes < 2 {
+        return;
+    }
+
+    let mut candidates = Vec::new();
+
+    // Identify candidates: sources sorted by a join key
+    for (i, source) in join_clause.sources.iter().enumerate() {
+        if let Some(sort_order) = &source.scan_info.sort_order {
+            if let Some(heaprelid) = source.scan_info.heaprelid {
+                // Check if any join key for this source matches the sort field
+                for jk in &join_clause.join_keys {
+                    let attno = if source.contains_rti(jk.outer_rti) {
+                        Some(jk.outer_attno)
+                    } else if source.contains_rti(jk.inner_rti) {
+                        Some(jk.inner_attno)
+                    } else {
+                        None
+                    };
+
+                    if let Some(attno) = attno {
+                        // Check if attno matches sort_order.field_name
+
+                        // Compare with sort_order.field_name
+                        // Note: get_attname_safe returns "table.column" if alias provided?
+                        // Actually get_attname_safe implementation:
+                        // "Use get_attname to get the column name... if fails return ?"
+                        // Wait, get_attname returns just the column name.
+                        // But scan_state.rs uses get_attname_safe.
+                        // Let's assume get_attname_safe returns the column name or similar.
+                        // SortByField.field_name is just the field name (no table prefix).
+                        // But wait, get_attname_safe takes alias as argument?
+                        // Let's look at `explain.rs`. It's not visible here.
+                        // But `get_attname` (postgres function) returns column name.
+                        // `get_attname_safe` probably wraps it.
+                        // Let's use `PgSearchRelation` to be sure.
+                        let rel = PgSearchRelation::open(heaprelid);
+                        let tupdesc = rel.tuple_desc();
+                        if let Some(att) = tupdesc.get(attno as usize - 1) {
+                            if att.name() == sort_order.field_name.as_ref() {
+                                candidates.push((i, sort_order.clone()));
+                                break; // Found one matching key, sufficient for this source
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if candidates.len() < 2 {
+        return;
+    }
+
+    // Now group candidates by sort direction and field name?
+    // Actually field names can be different (e.g. t1.a = t2.b).
+    // But they must be joined!
+    // And directions must match.
+    // And we need to find a connected component of at least 2 tables.
+    // For simplicity, we just check if ALL candidates have the same direction
+    // and form a valid group. Or just pick the largest group with same direction.
+
+    // Let's just pick the group with the most common direction?
+    // Or just require all to match the direction of the first candidate?
+    // And we must verify they are actually joined on those keys.
+    // The loop above confirmed that `source` is sorted by `key` AND `key` is used in the join.
+    // But we didn't check if they are joined TO EACH OTHER on those keys.
+    // E.g. A sorted by x, B sorted by y. Join A.x = B.y.
+    // Then they are compatible.
+    // If A sorted by x, B sorted by z. Join A.x = B.y.
+    // Then B is NOT sorted by its join key (y). So B wouldn't be in candidates.
+    // So candidates list only contains sources sorted by *a* join key.
+    // We need to verify connectivity.
+
+    // Let's build an adjacency list of candidates connected by their sort keys
+    let mut connected_indices = std::collections::HashSet::new();
+    let mut direction = None;
+
+    // Start with the partitioning source if it is a candidate
+    let start_node = join_clause.partitioning_source_index();
+    if let Some((_, dir)) = candidates.iter().find(|(i, _)| *i == start_node) {
+        direction = Some(dir.direction);
+        connected_indices.insert(start_node);
+    } else {
+        // If partitioning source is not a candidate, pick the first candidate
+        if let Some((i, dir)) = candidates.first() {
+            direction = Some(dir.direction);
+            connected_indices.insert(*i);
+        }
+    }
+
+    let target_direction = direction.expect("Should have at least one candidate");
+
+    // Iteratively add connected candidates
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for jk in &join_clause.join_keys {
+            let outer_idx = join_clause
+                .sources
+                .iter()
+                .position(|s| s.contains_rti(jk.outer_rti));
+            let inner_idx = join_clause
+                .sources
+                .iter()
+                .position(|s| s.contains_rti(jk.inner_rti));
+
+            if let (Some(o_idx), Some(i_idx)) = (outer_idx, inner_idx) {
+                let o_in = connected_indices.contains(&o_idx);
+                let i_in = connected_indices.contains(&i_idx);
+
+                if o_in && !i_in {
+                    // Check if inner is a compatible candidate
+                    if let Some((_, dir)) = candidates.iter().find(|(i, _)| *i == i_idx) {
+                        if dir.direction == target_direction {
+                            // Verify that the join key matches the sort key for BOTH
+                            // We already checked this when building candidates?
+                            // No, candidates just says "sorted by SOME join key".
+                            // We need "sorted by THIS join key".
+                            let inner_source = &join_clause.sources[i_idx];
+                            let rel =
+                                PgSearchRelation::open(inner_source.scan_info.heaprelid.unwrap());
+                            let tupdesc = rel.tuple_desc();
+                            let att = tupdesc.get(jk.inner_attno as usize - 1).unwrap();
+                            if att.name() == dir.field_name.as_ref() {
+                                // Also check outer side?
+                                // If o_idx is in connected_indices, it means it is sorted by *some* key that connected it.
+                                // Does it need to be sorted by THIS key?
+                                // Not necessarily? A table can be sorted by only ONE key.
+                                // If A is sorted by X. Join A.X = B.X.
+                                // Then B must be sorted by X.
+                                // So yes, the join key MUST be the sort key for both.
+                                let outer_source = &join_clause.sources[o_idx];
+                                let rel_o = PgSearchRelation::open(
+                                    outer_source.scan_info.heaprelid.unwrap(),
+                                );
+                                let tupdesc_o = rel_o.tuple_desc();
+                                let att_o = tupdesc_o.get(jk.outer_attno as usize - 1).unwrap();
+                                // We need outer source's sort field name.
+                                // We know o_idx is in connected_indices, so it is in candidates.
+                                let (_, dir_o) =
+                                    candidates.iter().find(|(i, _)| *i == o_idx).unwrap();
+
+                                if att_o.name() == dir_o.field_name.as_ref() {
+                                    connected_indices.insert(i_idx);
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                } else if !o_in && i_in {
+                    // Symmetric check for outer
+                    if let Some((_, dir)) = candidates.iter().find(|(i, _)| *i == o_idx) {
+                        if dir.direction == target_direction {
+                            let outer_source = &join_clause.sources[o_idx];
+                            let rel =
+                                PgSearchRelation::open(outer_source.scan_info.heaprelid.unwrap());
+                            let tupdesc = rel.tuple_desc();
+                            let att = tupdesc.get(jk.outer_attno as usize - 1).unwrap();
+                            if att.name() == dir.field_name.as_ref() {
+                                // Check inner side match
+                                let inner_source = &join_clause.sources[i_idx];
+                                let rel_i = PgSearchRelation::open(
+                                    inner_source.scan_info.heaprelid.unwrap(),
+                                );
+                                let tupdesc_i = rel_i.tuple_desc();
+                                let att_i = tupdesc_i.get(jk.inner_attno as usize - 1).unwrap();
+                                let (_, dir_i) =
+                                    candidates.iter().find(|(i, _)| *i == i_idx).unwrap();
+
+                                if att_i.name() == dir_i.field_name.as_ref() {
+                                    connected_indices.insert(o_idx);
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if connected_indices.len() < 2 {
+        return;
+    }
+
+    // Collect all samples from connected sources
+    let mut all_samples = Vec::new();
+    let num_samples = 1000; // Sample size per table
+
+    for idx in &connected_indices {
+        let source = &join_clause.sources[*idx];
+        let (_, sort_field) = candidates.iter().find(|(i, _)| i == idx).unwrap();
+
+        let index_rel = PgSearchRelation::open(source.scan_info.indexrelid.unwrap());
+        // We open reader just for sampling.
+        // MvccSatisfies::Snapshot is fine for sampling?
+        // Or LargestSegment? sample_fast_field implementation uses "largest segment".
+        // Let's use LargestSegment for efficiency.
+        if let Ok(reader) = SearchIndexReader::open_with_context(
+            &index_rel,
+            crate::query::SearchQueryInput::All,
+            false,
+            MvccSatisfies::LargestSegment,
+            None,
+            None,
+        ) {
+            if let Ok(mut samples) =
+                reader.sample_fast_field(sort_field.field_name.as_ref(), num_samples)
+            {
+                all_samples.append(&mut samples);
+            }
+        }
+    }
+
+    if all_samples.is_empty() {
+        return;
+    }
+
+    // Sort all samples
+    all_samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Reverse if DESC
+    if target_direction == crate::postgres::options::SortByDirection::Desc {
+        all_samples.reverse();
+    }
+
+    // Compute split points
+    let num_partitions = processes * 2;
+    let split_points = compute_range_split_points(&all_samples, num_partitions);
+
+    if split_points.is_empty() {
+        return;
+    }
+
+    // Enable Range Partitioning
+    join_clause.partitioning_strategy = PartitioningStrategy::Range;
+    join_clause.range_split_points = split_points;
+    join_clause.partitioned_source_indices = connected_indices.into_iter().collect();
 }

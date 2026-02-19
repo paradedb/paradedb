@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771412781188,
+  "lastUpdate": 1771541705136,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1358,6 +1358,78 @@ window.BENCHMARK_DATA = {
             "value": 224.05767029337989,
             "unit": "median tps",
             "extra": "avg tps: 247.48588391071726, max tps: 765.1314304514658, count: 6499"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae862867e38496aafb797e30e34ed31f6a561309",
+          "message": "fix: bump tantivy for merger NULL ordering fix (#4191)\n\n## Summary\n- Adds multi-segment regression tests that split NULLs and zeros across\n3 segments, exercising the cross-segment merger path for both ASC NULLS\nFIRST and DESC NULLS LAST\n\n## Test plan\n`cargo test --test index_sorting -- null_and_zero_multi_segment` passes\nlocally (2 new tests)\n\nRef: paradedb/tantivy#106",
+          "timestamp": "2026-02-20T04:03:22+05:30",
+          "tree_id": "7220106b66ad4bff4b0160bab9bef6d5d647ee3a",
+          "url": "https://github.com/paradedb/paradedb/commit/ae862867e38496aafb797e30e34ed31f6a561309"
+        },
+        "date": 1771541701157,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.42070934018852,
+            "unit": "median tps",
+            "extra": "avg tps: 124.21779440722196, max tps: 140.25607343774342, count: 55036"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2990.868983267035,
+            "unit": "median tps",
+            "extra": "avg tps: 2973.8328552436874, max tps: 3029.1381709897414, count: 55036"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 475.7439432580391,
+            "unit": "median tps",
+            "extra": "avg tps: 474.10301928781075, max tps: 546.1790768262772, count: 55036"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3052.2804361093163,
+            "unit": "median tps",
+            "extra": "avg tps: 3043.4073230472695, max tps: 3091.8366812628087, count: 110072"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 525.4746357453256,
+            "unit": "median tps",
+            "extra": "avg tps: 523.4926121450476, max tps: 633.9103407487764, count: 55036"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 537.2820347211923,
+            "unit": "median tps",
+            "extra": "avg tps: 534.4256373964482, max tps: 686.0304218213859, count: 55036"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1927.0609132147144,
+            "unit": "median tps",
+            "extra": "avg tps: 1917.1998969073427, max tps: 1931.5397653363825, count: 55036"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 111.44841267561117,
+            "unit": "median tps",
+            "extra": "avg tps: 108.50662333052324, max tps: 761.6094025250399, count: 55036"
           }
         ]
       }

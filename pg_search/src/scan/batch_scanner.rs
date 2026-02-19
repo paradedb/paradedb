@@ -217,6 +217,20 @@ impl Scanner {
         pgrx::check_for_interrupts!();
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
+        // Apply pre-materialization filters before visibility checks (which require the ctid), and
+        // before dictionary lookups.
+        if !pre_filters.is_empty() {
+            let before = ids.len();
+            for pre_filter in pre_filters {
+                if ids.is_empty() {
+                    break;
+                }
+                apply_pre_filter(ffhelper, segment_ord, pre_filter, &mut ids, &mut scores);
+            }
+            self.pre_filter_rows_scanned += before;
+            self.pre_filter_rows_pruned += before - ids.len();
+        }
+
         // Batch lookup the ctids.
         self.maybe_ctids.resize(ids.len(), None);
         ffhelper
@@ -241,26 +255,6 @@ impl Scanner {
         }
         ids.truncate(write_idx);
         scores.truncate(write_idx);
-
-        // Apply pre-materialization filters (before expensive dictionary lookups).
-        if !pre_filters.is_empty() {
-            let before = ids.len();
-            for pre_filter in pre_filters {
-                if ids.is_empty() {
-                    break;
-                }
-                apply_pre_filter(
-                    ffhelper,
-                    segment_ord,
-                    pre_filter,
-                    &mut ids,
-                    &mut ctids,
-                    &mut scores,
-                );
-            }
-            self.pre_filter_rows_scanned += before;
-            self.pre_filter_rows_pruned += before - ids.len();
-        }
 
         // Execute batch lookups of the fast-field values, and construct the batch.
         let fields = self

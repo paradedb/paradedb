@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771542685705,
+  "lastUpdate": 1771543305969,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1430,6 +1430,78 @@ window.BENCHMARK_DATA = {
             "value": 111.44841267561117,
             "unit": "median tps",
             "extra": "avg tps: 108.50662333052324, max tps: 761.6094025250399, count: 55036"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5104ec8f5da26b8f5075fa64d3095bdb3eefb35",
+          "message": "feat: add `sort_by` to `docs` benchmark + `sort_by` tests (TEXT/UUID/NUMERIC) (#4140)\n\n## Summary\n\nThis PR implements issue #4088 by:\n\n- Declaring the docs dataset BM25 indexes as sorted on the join keys.\n- Adding integration tests for `sort_by` on TEXT, UUID, and NUMERIC(30)\n(NumericBytes).\n- Extending pg_regress `sorted_index_scan` with UUID + NUMERIC sorting\ncoverage.\n\n## Changes\n\n- **Benchmarks:** added `sort_by` to docs indexes.\n- **Tests:** new Rust integration tests for TEXT/UUID/NUMERIC(30)\n`sort_by`; numeric order uses `ORDER BY table.amount` to avoid\nlexicographic sort.\n- **pg_regress:** added UUID + NUMERIC sorting blocks in\n`sorted_index_scan.sql` with updated expected output.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-02-19T15:00:00-08:00",
+          "tree_id": "883bbd6613f01ca22733c164c9ac50e00cf12986",
+          "url": "https://github.com/paradedb/paradedb/commit/b5104ec8f5da26b8f5075fa64d3095bdb3eefb35"
+        },
+        "date": 1771543302000,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.39980062256635,
+            "unit": "median tps",
+            "extra": "avg tps: 125.53297561685959, max tps: 137.56110473825328, count: 55187"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3088.6437720983645,
+            "unit": "median tps",
+            "extra": "avg tps: 3070.6608810831303, max tps: 3098.2468537335353, count: 55187"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 485.797105176733,
+            "unit": "median tps",
+            "extra": "avg tps: 486.1712168652448, max tps: 617.5614175857672, count: 55187"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3035.40319258764,
+            "unit": "median tps",
+            "extra": "avg tps: 3021.9020788852768, max tps: 3045.326094470235, count: 110374"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 512.5048807030639,
+            "unit": "median tps",
+            "extra": "avg tps: 511.45525065366985, max tps: 667.3203784759959, count: 55187"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 535.152239554779,
+            "unit": "median tps",
+            "extra": "avg tps: 533.2631313161819, max tps: 616.7792507475561, count: 55187"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1940.4099887310012,
+            "unit": "median tps",
+            "extra": "avg tps: 1928.2095844288783, max tps: 1947.0001671565144, count: 55187"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 61.125568628125315,
+            "unit": "median tps",
+            "extra": "avg tps: 73.57365490919908, max tps: 856.9119805720915, count: 55187"
           }
         ]
       }

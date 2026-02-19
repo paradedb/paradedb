@@ -22,19 +22,20 @@ use arrow_array::builder::{
     BinaryViewBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder,
     TimestampNanosecondBuilder, UInt64Builder,
 };
-use arrow_array::{ArrayRef, Float32Array, RecordBatch, UInt64Array};
+use arrow_array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
 use arrow_schema::SchemaRef;
+use datafusion::arrow::compute;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, SegmentOrdinal};
+use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
-use super::pre_filter::{apply_pre_filter, PreFilter};
+use super::pre_filter::PreFilter;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -68,6 +69,39 @@ macro_rules! fetch_ff_column {
             x => panic!("Unhandled column type {x:?}"),
         }
     };
+}
+
+/// Compact `ids` and `scores` in-place based on a boolean mask.
+fn compact_with_mask(
+    ids: &mut Vec<DocId>,
+    scores: &mut Vec<Score>,
+    memoized_columns: &mut Vec<Option<ArrayRef>>,
+    mask: &BooleanArray,
+) {
+    if mask.false_count() == 0 {
+        return;
+    }
+
+    // Compact ids and scores.
+    let mut write_idx = 0;
+    for (read_idx, valid) in mask.iter().enumerate() {
+        if valid.expect("Predicate mask contained NULLs") {
+            if read_idx != write_idx {
+                ids[write_idx] = ids[read_idx];
+                scores[write_idx] = scores[read_idx];
+            }
+            write_idx += 1;
+        }
+    }
+    ids.truncate(write_idx);
+    scores.truncate(write_idx);
+
+    // Compact memoized columns
+    for opt_col in memoized_columns {
+        if let Some(col) = opt_col {
+            *opt_col = Some(compute::filter(col, mask).expect("Filter failed"));
+        }
+    }
 }
 
 /// A batch of visible tuples and their fast field values.
@@ -168,7 +202,56 @@ impl Scanner {
         self.search_results.estimated_doc_count()
     }
 
-    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
+    fn fetch_column(
+        ffhelper: &FFHelper,
+        segment_ord: SegmentOrdinal,
+        ff_index: usize,
+        ids: &[u32],
+    ) -> ArrayRef {
+        match ffhelper.column(segment_ord, ff_index) {
+            FFType::Text(col) => {
+                let mut term_ords = Vec::with_capacity(ids.len());
+                term_ords.resize(ids.len(), None);
+                col.ords().first_vals(ids, &mut term_ords);
+                let mut builder = UInt64Builder::with_capacity(ids.len());
+                for maybe_ord in term_ords {
+                    if let Some(ord) = maybe_ord {
+                        builder.append_value(ord);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            FFType::Bytes(col) => {
+                let mut term_ords = Vec::with_capacity(ids.len());
+                term_ords.resize(ids.len(), None);
+                col.ords().first_vals(ids, &mut term_ords);
+                let mut builder = UInt64Builder::with_capacity(ids.len());
+                for maybe_ord in term_ords {
+                    if let Some(ord) = maybe_ord {
+                        builder.append_value(ord);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            FFType::Junk => Arc::new(arrow_array::new_null_array(
+                &arrow_schema::DataType::Null,
+                ids.len(),
+            )),
+            numeric_column => fetch_ff_column!(numeric_column, ids,
+                I64  => identity => Int64Builder,
+                F64  => identity => Float64Builder,
+                U64  => identity => UInt64Builder,
+                Bool => identity => BooleanBuilder,
+                Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
+            ),
+        }
+    }
+
+    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
         // Collect a batch of ids for a single segment.
         loop {
             let scorer_iter = self.search_results.current_segment()?;
@@ -217,6 +300,15 @@ impl Scanner {
         pgrx::check_for_interrupts!();
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
+        // Memoize fetched columns to avoid redundant fetches.
+        // - Numeric columns: stores the values directly.
+        // - Text/Bytes columns: stores the term ordinals (UInt64Array).
+        // This allows pre-filters to operate on the ordinals cheaply, and we only materialize
+        // the string/bytes values at the end when constructing the Batch.
+        // We must compact these arrays whenever we filter rows (pre-filtering or visibility)
+        // to keep them aligned with `ids`.
+        let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
+
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
         if !pre_filters.is_empty() {
@@ -225,38 +317,64 @@ impl Scanner {
                 if ids.is_empty() {
                     break;
                 }
-                apply_pre_filter(ffhelper, segment_ord, pre_filter, &mut ids, &mut scores);
+
+                // Fetch column if needed
+                if memoized_columns[pre_filter.ff_index].is_none() {
+                    memoized_columns[pre_filter.ff_index] = Some(Self::fetch_column(
+                        ffhelper,
+                        segment_ord,
+                        pre_filter.ff_index,
+                        &ids,
+                    ));
+                }
+
+                let col_array = memoized_columns[pre_filter.ff_index].as_ref().unwrap();
+
+                // Apply filter
+                let mask = pre_filter
+                    .apply_arrow(ffhelper, segment_ord, col_array)
+                    .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
+
+                // Compact state
+                compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
             }
             self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();
         }
 
-        // Batch lookup the ctids.
-        self.maybe_ctids.resize(ids.len(), None);
-        ffhelper
-            .ctid(segment_ord)
-            .as_u64s(&ids, &mut self.maybe_ctids);
+        // Batch lookup the ctids and visibility check them.
+        let ctids: Vec<u64> = {
+            self.maybe_ctids.resize(ids.len(), None);
+            ffhelper
+                .ctid(segment_ord)
+                .as_u64s(&ids, &mut self.maybe_ctids);
 
-        // Filter out invisible rows.
-        self.visibility_results.resize(ids.len(), None);
-        visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
+            // Filter out invisible rows.
+            self.visibility_results.resize(ids.len(), None);
+            visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
 
-        let mut ctids = Vec::with_capacity(ids.len());
-        let mut write_idx = 0;
-        for (read_idx, maybe_visible_ctid) in self.visibility_results.iter().enumerate() {
-            if let Some(visible_ctid) = maybe_visible_ctid {
-                ctids.push(*visible_ctid);
-                if read_idx != write_idx {
-                    ids[write_idx] = ids[read_idx];
-                    scores[write_idx] = scores[read_idx];
+            let mut ctids = Vec::with_capacity(ids.len());
+            let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
+            for maybe_visible_ctid in self.visibility_results.drain(..) {
+                if let Some(visible_ctid) = maybe_visible_ctid {
+                    visibility_mask_builder.append_value(true);
+                    ctids.push(visible_ctid);
+                } else {
+                    visibility_mask_builder.append_value(false);
                 }
-                write_idx += 1;
             }
-        }
-        ids.truncate(write_idx);
-        scores.truncate(write_idx);
+            // Then filter the remaining columns using the mask.
+            compact_with_mask(
+                &mut ids,
+                &mut scores,
+                &mut memoized_columns,
+                &visibility_mask_builder.finish(),
+            );
+            ctids
+        };
 
-        // Execute batch lookups of the fast-field values, and construct the batch.
+        // Execute batch lookups of the fast-field values, fetch term content from the dictionaries,
+        // and construct the batch.
         let fields = self
             .which_fast_fields
             .iter()
@@ -276,40 +394,32 @@ impl Scanner {
                     Some(Arc::new(builder.finish()) as ArrayRef)
                 }
                 WhichFastField::Junk(_) => None,
-                WhichFastField::Named(_, _) => match ffhelper.column(segment_ord, ff_index) {
-                    FFType::Text(str_column) => {
-                        // Get the term ordinals.
-                        let mut term_ords = Vec::with_capacity(ids.len());
-                        term_ords.resize(ids.len(), None);
-                        str_column.ords().first_vals(&ids, &mut term_ords);
-                        Some(ords_to_string_array(
-                            str_column.clone(),
-                            term_ords
-                                .into_iter()
-                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
-                        ))
+                WhichFastField::Named(_, _) => {
+                    // Check if memoized
+                    let col_array = if let Some(col_array) = &memoized_columns[ff_index] {
+                        col_array.clone()
+                    } else {
+                        Self::fetch_column(ffhelper, segment_ord, ff_index, &ids)
+                    };
+
+                    match ffhelper.column(segment_ord, ff_index) {
+                        FFType::Text(str_column) => {
+                            let ords_array = col_array
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for Text ordinals");
+                            Some(ords_to_string_array(str_column.clone(), ords_array))
+                        }
+                        FFType::Bytes(bytes_column) => {
+                            let ords_array = col_array
+                                .as_any()
+                                .downcast_ref::<UInt64Array>()
+                                .expect("Expected UInt64Array for Bytes ordinals");
+                            Some(ords_to_bytes_array(bytes_column.clone(), ords_array))
+                        }
+                        _ => Some(col_array),
                     }
-                    FFType::Bytes(bytes_column) => {
-                        // Get the term ordinals for bytes columns.
-                        let mut term_ords = Vec::with_capacity(ids.len());
-                        term_ords.resize(ids.len(), None);
-                        bytes_column.ords().first_vals(&ids, &mut term_ords);
-                        Some(ords_to_bytes_array(
-                            bytes_column.clone(),
-                            term_ords
-                                .into_iter()
-                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
-                        ))
-                    }
-                    FFType::Junk => None,
-                    numeric_column => Some(fetch_ff_column!(numeric_column, ids,
-                        I64  => identity => Int64Builder,
-                        F64  => identity => Float64Builder,
-                        U64  => identity => UInt64Builder,
-                        Bool => identity => BooleanBuilder,
-                        Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
-                    )),
-                },
+                }
             })
             .collect();
 
@@ -357,12 +467,13 @@ impl Scanner {
 /// details and just consume the array as if it were an array of strings.
 ///
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-fn ords_to_string_array(
-    str_ff: StrColumn,
-    term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> ArrayRef {
+fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -> ArrayRef {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
-    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    let mut term_ords = term_ords
+        .iter()
+        .enumerate()
+        .map(|(i, maybe_ord)| (i, maybe_ord.unwrap_or(NULL_TERM_ORDINAL)))
+        .collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
     // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
@@ -467,12 +578,13 @@ fn ords_to_string_array(
 /// This is identical to `ords_to_string_array` but uses `BinaryViewBuilder` for binary data.
 ///
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-fn ords_to_bytes_array(
-    bytes_ff: BytesColumn,
-    term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> ArrayRef {
+fn ords_to_bytes_array(bytes_ff: BytesColumn, term_ords: &UInt64Array) -> ArrayRef {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
-    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    let mut term_ords = term_ords
+        .iter()
+        .enumerate()
+        .map(|(i, maybe_ord)| (i, maybe_ord.unwrap_or(NULL_TERM_ORDINAL)))
+        .collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
     // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the

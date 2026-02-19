@@ -174,7 +174,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=0]
-           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1]
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]
 (18 rows)

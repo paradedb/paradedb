@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771545224876,
+  "lastUpdate": 1771545229818,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9316,6 +9316,108 @@ window.BENCHMARK_DATA = {
             "value": 162.28125,
             "unit": "median mem",
             "extra": "avg mem: 180.91883205658814, max mem: 222.7578125, count: 56116"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5104ec8f5da26b8f5075fa64d3095bdb3eefb35",
+          "message": "feat: add `sort_by` to `docs` benchmark + `sort_by` tests (TEXT/UUID/NUMERIC) (#4140)\n\n## Summary\n\nThis PR implements issue #4088 by:\n\n- Declaring the docs dataset BM25 indexes as sorted on the join keys.\n- Adding integration tests for `sort_by` on TEXT, UUID, and NUMERIC(30)\n(NumericBytes).\n- Extending pg_regress `sorted_index_scan` with UUID + NUMERIC sorting\ncoverage.\n\n## Changes\n\n- **Benchmarks:** added `sort_by` to docs indexes.\n- **Tests:** new Rust integration tests for TEXT/UUID/NUMERIC(30)\n`sort_by`; numeric order uses `ORDER BY table.amount` to avoid\nlexicographic sort.\n- **pg_regress:** added UUID + NUMERIC sorting blocks in\n`sorted_index_scan.sql` with updated expected output.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-02-19T15:00:00-08:00",
+          "tree_id": "883bbd6613f01ca22733c164c9ac50e00cf12986",
+          "url": "https://github.com/paradedb/paradedb/commit/b5104ec8f5da26b8f5075fa64d3095bdb3eefb35"
+        },
+        "date": 1771545225908,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0799886187825654, max background_merging: 2.0, count: 56233"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.656135745092929, max cpu: 9.667674, count: 56233"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.061089921065033, max mem: 26.078125, count: 56233"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.935400504945787, max cpu: 11.641067, count: 56233"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.42618505259367, max mem: 168.859375, count: 56233"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53789,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53650.08203368129, max block_count: 53789.0, count: 56233"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.533921362900784, max segment_count: 58.0, count: 56233"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6573952359679405, max cpu: 9.648242, count: 56233"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 118.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 108.59860591200896, max mem: 134.5234375, count: 56233"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.725756431090251, max cpu: 9.825998, count: 56233"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.11420632124376, max mem: 168.5546875, count: 56233"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.76830126311934, max cpu: 33.870968, count: 56233"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 180.4398502936443, max mem: 222.8515625, count: 56233"
           }
         ]
       }

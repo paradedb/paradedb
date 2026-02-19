@@ -94,19 +94,19 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
+use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
+use datafusion::arrow::compute::is_null;
+use datafusion::arrow::compute::kernels::boolean;
+use datafusion::arrow::compute::kernels::cmp;
+use datafusion::arrow::compute::kernels::zip;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Literal};
 use datafusion::physical_expr::PhysicalExpr;
 use tantivy::columnar::BytesColumn;
-use tantivy::fastfield::Column as FFColumn;
 use tantivy::SegmentOrdinal;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType};
-
-// ============================================================================
-// Types
-// ============================================================================
 
 /// A pre-materialization filter applied inside [`Scanner::next()`](super::batch_scanner::Scanner::next)
 /// between visibility checks and column materialization. By filtering at the
@@ -164,6 +164,149 @@ impl PreFilterValue {
             Self::U64(v) => Some(*v),
             _ => None,
         }
+    }
+}
+
+impl PreFilter {
+    /// Apply the filter to an Arrow array, returning a boolean mask.
+    ///
+    /// This method does *not* filter the array in-place. Instead, it returns a
+    /// `BooleanArray` mask where `true` indicates values that satisfy the filter
+    /// and `false` indicates values that should be pruned.
+    pub fn apply_arrow(
+        &self,
+        ffhelper: &FFHelper,
+        segment_ord: SegmentOrdinal,
+        array: &ArrayRef,
+    ) -> Result<BooleanArray, String> {
+        let col = ffhelper.column(segment_ord, self.ff_index);
+        match col {
+            FFType::Text(col) => self.apply_arrow_ordinals(col, array),
+            FFType::Bytes(col) => self.apply_arrow_ordinals(col, array),
+            FFType::I64(_) => {
+                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
+                    v.as_i64().map(|v| ScalarValue::Int64(Some(v)))
+                })
+                .ok_or("Failed to map lower bound for I64")?;
+                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
+                    v.as_i64().map(|v| ScalarValue::Int64(Some(v)))
+                })
+                .ok_or("Failed to map upper bound for I64")?;
+                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
+            }
+            FFType::F64(_) => {
+                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
+                    v.as_f64().map(|v| ScalarValue::Float64(Some(v)))
+                })
+                .ok_or("Failed to map lower bound for F64")?;
+                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
+                    v.as_f64().map(|v| ScalarValue::Float64(Some(v)))
+                })
+                .ok_or("Failed to map upper bound for F64")?;
+                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
+            }
+            FFType::U64(_) => {
+                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
+                    v.as_u64().map(|v| ScalarValue::UInt64(Some(v)))
+                })
+                .ok_or("Failed to map lower bound for U64")?;
+                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
+                    v.as_u64().map(|v| ScalarValue::UInt64(Some(v)))
+                })
+                .ok_or("Failed to map upper bound for U64")?;
+                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
+            }
+            // TODO: Support Bool and Date column types here as well.
+            _ => Ok(BooleanArray::from(vec![true; array.len()])),
+        }
+    }
+
+    fn apply_arrow_ordinals(
+        &self,
+        col: &BytesColumn,
+        array: &ArrayRef,
+    ) -> Result<BooleanArray, String> {
+        let lower = map_bound(&self.lower, PreFilterValue::as_bytes)
+            .ok_or("Failed to map lower bound for Bytes")?;
+        let upper = map_bound(&self.upper, PreFilterValue::as_bytes)
+            .ok_or("Failed to map upper bound for Bytes")?;
+
+        let (lo_ord, hi_ord) = col
+            .dictionary()
+            .term_bounds_to_ord(lower, upper)
+            .map_err(|e| format!("Failed to lookup term bounds: {e}"))?;
+
+        let lo_scalar = match lo_ord {
+            Bound::Included(v) => Bound::Included(ScalarValue::UInt64(Some(v))),
+            Bound::Excluded(v) => Bound::Excluded(ScalarValue::UInt64(Some(v))),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+        let hi_scalar = match hi_ord {
+            Bound::Included(v) => Bound::Included(ScalarValue::UInt64(Some(v))),
+            Bound::Excluded(v) => Bound::Excluded(ScalarValue::UInt64(Some(v))),
+            Bound::Unbounded => Bound::Unbounded,
+        };
+
+        apply_arrow_bounds(array, lo_scalar, hi_scalar, self.nulls_pass)
+    }
+}
+
+/// Apply bounds to an Arrow array using compute kernels.
+fn apply_arrow_bounds(
+    array: &ArrayRef,
+    lower: Bound<ScalarValue>,
+    upper: Bound<ScalarValue>,
+    nulls_pass: bool,
+) -> Result<BooleanArray, String> {
+    let lower_mask = match lower {
+        Bound::Included(val) => cmp::gt_eq(array, &val.to_scalar().map_err(|e| e.to_string())?),
+        Bound::Excluded(val) => cmp::gt(array, &val.to_scalar().map_err(|e| e.to_string())?),
+        Bound::Unbounded => Ok(BooleanArray::from(vec![true; array.len()])),
+    }
+    .map_err(|e| format!("Failed to apply lower bound: {e}"))?;
+
+    let upper_mask = match upper {
+        Bound::Included(val) => cmp::lt_eq(array, &val.to_scalar().map_err(|e| e.to_string())?),
+        Bound::Excluded(val) => cmp::lt(array, &val.to_scalar().map_err(|e| e.to_string())?),
+        Bound::Unbounded => Ok(BooleanArray::from(vec![true; array.len()])),
+    }
+    .map_err(|e| format!("Failed to apply upper bound: {e}"))?;
+
+    let mask = boolean::and(&lower_mask, &upper_mask)
+        .map_err(|e| format!("Failed to combine bounds: {e}"))?;
+    if mask.null_count() == 0 {
+        return Ok(mask);
+    }
+
+    // Handle NULLs: replace them with `nulls_pass` (true or false) so the result is fully valid.
+    let null_mask = is_null(array).map_err(|e| format!("Failed to check nulls: {e}"))?;
+    let replacement = ScalarValue::Boolean(Some(nulls_pass))
+        .to_array_of_size(array.len())
+        .map_err(|e| format!("Failed to create replacement array: {e}"))?;
+
+    // If input is NULL (null_mask is true), use replacement (nulls_pass).
+    // Otherwise use the comparison result.
+    let result = zip::zip(&null_mask, &replacement, &mask)
+        .map_err(|e| format!("Failed to zip nulls: {e}"))?;
+
+    let result_bool = result
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .ok_or_else(|| "Failed to downcast zip result to BooleanArray".to_string())?
+        .clone();
+
+    Ok(result_bool)
+}
+
+/// Map the inner value of a `Bound`.
+fn map_bound<'a, T, U>(
+    bound: &'a Bound<T>,
+    f: impl FnOnce(&'a T) -> Option<U>,
+) -> Option<Bound<U>> {
+    match bound {
+        Bound::Included(v) => f(v).map(Bound::Included),
+        Bound::Excluded(v) => f(v).map(Bound::Excluded),
+        Bound::Unbounded => Some(Bound::Unbounded),
     }
 }
 
@@ -337,150 +480,4 @@ fn scalar_to_pre_filter_value(scalar: &ScalarValue) -> Option<PreFilterValue> {
         ScalarValue::UInt32(Some(v)) => Some(PreFilterValue::U64(*v as u64)),
         _ => None,
     }
-}
-
-// ============================================================================
-// Applying PreFilters during scanning
-// ============================================================================
-
-/// Apply a single pre-materialization filter, pruning `ids`/`scores` in-place.
-///
-/// For string columns this converts the threshold to a term ordinal and compares ordinals
-/// (skipping the expensive dictionary walk for pruned docs). For numeric columns the fast
-/// field values are compared directly.
-pub fn apply_pre_filter(
-    ffhelper: &FFHelper,
-    segment_ord: SegmentOrdinal,
-    filter: &PreFilter,
-    ids: &mut Vec<u32>,
-    scores: &mut Vec<f32>,
-) {
-    let col = ffhelper.column(segment_ord, filter.ff_index);
-    let nulls_pass = filter.nulls_pass;
-    match col {
-        FFType::Text(col) => filter_by_ordinals(col, filter, ids, scores),
-        FFType::Bytes(col) => filter_by_ordinals(col, filter, ids, scores),
-        FFType::I64(col) => {
-            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_i64) else {
-                return;
-            };
-            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_i64) else {
-                return;
-            };
-            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
-        }
-        FFType::F64(col) => {
-            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_f64) else {
-                return;
-            };
-            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_f64) else {
-                return;
-            };
-            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
-        }
-        FFType::U64(col) => {
-            let Some(lo) = try_map_bound(&filter.lower, PreFilterValue::as_u64) else {
-                return;
-            };
-            let Some(hi) = try_map_bound(&filter.upper, PreFilterValue::as_u64) else {
-                return;
-            };
-            filter_by_values(col, lo, hi, nulls_pass, ids, scores);
-        }
-        // TODO: Support Bool and Date column types here as well.
-        _ => {}
-    }
-}
-
-/// Check whether `val` falls within the given bounds.
-fn in_bound<T: PartialOrd>(val: T, lower: &Bound<T>, upper: &Bound<T>) -> bool {
-    let lower_ok = match lower {
-        Bound::Included(l) => val >= *l,
-        Bound::Excluded(l) => val > *l,
-        Bound::Unbounded => true,
-    };
-    let upper_ok = match upper {
-        Bound::Included(u) => val <= *u,
-        Bound::Excluded(u) => val < *u,
-        Bound::Unbounded => true,
-    };
-    lower_ok && upper_ok
-}
-
-/// Compact `ids`, and `scores` in-place, keeping only elements
-/// where `keep(index)` returns true.
-fn compact_parallel(ids: &mut Vec<u32>, scores: &mut Vec<f32>, keep: impl Fn(usize) -> bool) {
-    let mut write_idx = 0;
-    for read_idx in 0..ids.len() {
-        if keep(read_idx) {
-            if read_idx != write_idx {
-                ids[write_idx] = ids[read_idx];
-                scores[write_idx] = scores[read_idx];
-            }
-            write_idx += 1;
-        }
-    }
-    ids.truncate(write_idx);
-    scores.truncate(write_idx);
-}
-
-/// Map the inner value of a `Bound`, returning `None` if the mapping fails.
-fn try_map_bound<'a, T, U>(
-    bound: &'a Bound<T>,
-    f: impl FnOnce(&'a T) -> Option<U>,
-) -> Option<Bound<U>> {
-    match bound {
-        Bound::Included(v) => f(v).map(Bound::Included),
-        Bound::Excluded(v) => f(v).map(Bound::Excluded),
-        Bound::Unbounded => Some(Bound::Unbounded),
-    }
-}
-
-/// Filter by dictionary-encoded column: convert bounds to term ordinals, load ordinals,
-/// then compact. Works for both `StrColumn` (which derefs to `BytesColumn`) and
-/// `BytesColumn` directly.
-fn filter_by_ordinals(
-    col: &BytesColumn,
-    filter: &PreFilter,
-    ids: &mut Vec<u32>,
-    scores: &mut Vec<f32>,
-) {
-    let Some(lower) = try_map_bound(&filter.lower, PreFilterValue::as_bytes) else {
-        return;
-    };
-    let Some(upper) = try_map_bound(&filter.upper, PreFilterValue::as_bytes) else {
-        return;
-    };
-    let Ok((lo_ord, hi_ord)) = col.dictionary().term_bounds_to_ord(lower, upper) else {
-        return;
-    };
-
-    let nulls_pass = filter.nulls_pass;
-    let mut ords = vec![None; ids.len()];
-    col.ords().first_vals(ids, &mut ords);
-
-    compact_parallel(ids, scores, |i| match ords[i] {
-        Some(ord) => in_bound(ord, &lo_ord, &hi_ord),
-        None => nulls_pass,
-    });
-}
-
-/// Filter by numeric fast-field column: extract typed bounds, load values, then compact.
-// TODO: Get Arrow arrays directly from `first_vals` so we can use Arrow compute kernels
-// for filtering instead of the manual `compact_parallel` loop.
-fn filter_by_values<T: PartialOrd + Copy + std::fmt::Debug + Send + Sync + 'static>(
-    col: &FFColumn<T>,
-    lower: Bound<T>,
-    upper: Bound<T>,
-    nulls_pass: bool,
-    ids: &mut Vec<u32>,
-    scores: &mut Vec<f32>,
-) {
-    let mut vals = vec![None; ids.len()];
-    col.first_vals(ids, &mut vals);
-
-    compact_parallel(ids, scores, |i| match vals[i] {
-        Some(v) => in_bound(v, &lower, &upper),
-        None => nulls_pass,
-    });
 }

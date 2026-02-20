@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771559957877,
+  "lastUpdate": 1771559962929,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9766,6 +9766,108 @@ window.BENCHMARK_DATA = {
             "value": 162.37109375,
             "unit": "median mem",
             "extra": "avg mem: 180.4398502936443, max mem: 222.8515625, count: 56233"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d577fea31ef682612c9c84714e95e4ba19c183e1",
+          "message": "perf: Batch visibility filtering (#4086)\n\n## What\n\nBegin batching visibility checks for both aggregates and fast field\nscans.\n\n## Why\n\nAs [discovered in\n#4140](https://github.com/paradedb/paradedb/pull/4140#pullrequestreview-3828967639),\nour benchmark suite was getting a significant advantage from how it was\nbeing set up: `CREATE INDEX` was implicitly creating the index almost\nperfectly sorted by `ctid`.\n\nThat made visibility checks cheaper, but _only_ in our benchmarks! In\nthe real world, segment merging patterns from real sequences of\n`INSERT`s would lead to sawtooth sort patterns within segments, likely\nmatching the size of your insert batches.\n\n## How\n\nReplaced `VisibilityChecker::check` with a `check_batch` method which\nsorts the ctids in order to acquire locks the minimum number of times\nwhile checking a batch. Used it in all callers.\n\nAdditionally, added buffering to the `MVCCFilterCollector` which is used\nin aggregate scans, in order to allow for larger batch lookups of\n`ctids` using `check_batch`.\n\n## Tests\n\nCovered by existing tests.\n\nRegains most of the performance lost in #4140 for the `docs` dataset,\nand improves the performance of aggregates on the `logs` dataset by a\nfew percentage points. No regressions.\n\nMore importantly: this will likely have a larger positive impact on real\nworld `INSERT` patterns.",
+          "timestamp": "2026-02-19T19:16:28-08:00",
+          "tree_id": "50e7b9b1c46080259267cc68038ac1d5a21733cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d577fea31ef682612c9c84714e95e4ba19c183e1"
+        },
+        "date": 1771559958875,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08086205361118533, max background_merging: 2.0, count: 56145"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7055718063250165, max cpu: 9.687184, count: 56145"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.631683378417492, max mem: 26.64453125, count: 56145"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.97864668967172, max cpu: 14.076246, count: 56145"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 166.92140759974174, max mem: 168.4921875, count: 56145"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 50812,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50669.60404310268, max block_count: 50812.0, count: 56145"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.773372517588385, max segment_count: 62.0, count: 56145"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.635902925038968, max cpu: 9.467456, count: 56145"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 126.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.28707051774424, max mem: 140.00390625, count: 56145"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.793562158210819, max cpu: 9.648242, count: 56145"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.8125884985306, max mem: 168.21484375, count: 56145"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.892615778334726, max cpu: 33.768845, count: 56145"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.27464127482412, max mem: 222.99609375, count: 56145"
           }
         ]
       }

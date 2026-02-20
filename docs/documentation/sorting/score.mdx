@@ -11,7 +11,7 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 The `pdb.score(<key_field>)` function produces a BM25 score and can be added to any query where any of the ParadeDB operators are present.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'shoes'
@@ -36,7 +36,7 @@ In order for a field to be factored into the BM25 score, it must be present in t
 consider this query:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.score(id)
 FROM mock_items
 WHERE description ||| 'keyboard' OR rating < 2

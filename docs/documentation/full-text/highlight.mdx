@@ -21,7 +21,7 @@ search query.
 The following query generates highlighted snippets against the `description` field.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippet(description)
 FROM mock_items
 WHERE description ||| 'shoes'
@@ -55,7 +55,7 @@ MockItem.objects.filter(
 By default, `<b></b>` encloses the snippet. This can be configured with `start_tag` and `end_tag`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
 FROM mock_items
 WHERE description ||| 'shoes'
@@ -80,7 +80,7 @@ MockItem.objects.filter(
 `pdb.snippets(<column>)` returns an array of snippets, allowing you to retrieve multiple highlighted matches from a document. This is particularly useful when a document has several relevant matches spread throughout its content.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15)
 FROM mock_items
 WHERE description ||| 'artistic vase'
@@ -137,7 +137,7 @@ You can control the number and order of snippets returned using the `limit`, `of
 For example, to get only the first snippet:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1)
 FROM mock_items
 WHERE description ||| 'running'
@@ -160,7 +160,7 @@ MockItem.objects.filter(
 To get the second snippet (by skipping the first one):
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset" => 1)
 FROM mock_items
 WHERE description ||| 'running'
@@ -187,7 +187,7 @@ Snippets can be sorted either by their relevance score (`'score'`) or their posi
 To sort snippets by their appearance in the document:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
 FROM mock_items
 WHERE description ||| 'artistic vase'

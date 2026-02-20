@@ -8,7 +8,7 @@ Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE
 For instance, the following query filters out results that do not meet `rating > 2`.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2;
@@ -100,7 +100,7 @@ Filter pushdown is currently supported for the following combinations of types a
 Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category = 'Footwear';
@@ -128,7 +128,7 @@ WITH (key_field = 'id');
 Pushdown of set filters over text fields also requires the literal tokenizer:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');

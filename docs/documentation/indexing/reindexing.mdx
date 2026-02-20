@@ -17,7 +17,7 @@ Let's assume the existing index is called `search_idx`, and we want to create a 
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
@@ -66,7 +66,7 @@ WHERE i.relname = 'search_idx_v2';
 If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
 
 <CodeGroup>
-```sql
+```sql SQL
 DROP INDEX search_idx;
 ```
 
@@ -86,7 +86,7 @@ with connection.cursor() as cursor:
 The basic syntax for `REINDEX` is:
 
 <CodeGroup>
-```sql
+```sql SQL
 REINDEX INDEX search_idx;
 ```
 
@@ -106,7 +106,7 @@ This operation takes an exclusive lock on the table, which blocks incoming write
 To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
 <CodeGroup>
-```sql
+```sql SQL
 REINDEX INDEX CONCURRENTLY search_idx;
 ```
 

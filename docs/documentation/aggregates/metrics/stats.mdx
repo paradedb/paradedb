@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/stats
 The stats aggregation returns the count, sum, min, max, and average all at once.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT pdb.agg('{"stats": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```

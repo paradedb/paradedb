@@ -60,7 +60,7 @@ See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregati
 
 SQL's `MIN`/`MAX` syntax is supported in beta. To enable it, first run
 
-```sql
+```sql SQL
 SET paradedb.enable_aggregate_custom_scan TO on;
 ```
 
@@ -100,7 +100,7 @@ MockItem.objects.filter(
 By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT MIN(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```

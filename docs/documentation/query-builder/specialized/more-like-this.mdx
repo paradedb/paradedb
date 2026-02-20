@@ -11,7 +11,7 @@ to `pdb.more_like_this`.
 For instance, the following query finds documents that are "like" a document with an `id` of `3`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3)
@@ -51,7 +51,7 @@ This is because, by default, all fields present in the index are considered for 
 To find only documents that match on specific fields, provide an array of field names as the second argument:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, ARRAY['description'])
@@ -98,7 +98,7 @@ In addition to providing a key field value, a custom document can also be provid
 The JSON keys are field names and must correspond to field names in the index.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this('{"description": "Sleek running shoes", "category": "footwear"}')
@@ -126,7 +126,7 @@ based on term frequency.
 For instance, the following query returns no results because no term appears twice in the input document.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, min_term_frequency => 2)
@@ -150,7 +150,7 @@ while `max_doc_frequency` excludes terms that appear in more than that many docu
 based on document frequency.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, min_doc_frequency => 3)
@@ -176,7 +176,7 @@ score the highest.
 This can be configured with `max_query_terms`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, max_query_terms => 10)
@@ -199,7 +199,7 @@ MockItem.objects.filter(
 are excluded based on length.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, min_word_length => 5)
@@ -221,7 +221,7 @@ MockItem.objects.filter(
 To exclude terms from being considered, provide a text array to `stopwords`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, stopwords => ARRAY['the', 'a'])

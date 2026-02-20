@@ -14,7 +14,7 @@ query uses less CPU and disk I/O.
 For example, this query returns the top 3 search results alongside the total number of results found.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT
   id, description, rating,
   pdb.agg('{"value_count": {"field": "id"}}') OVER ()
@@ -59,7 +59,7 @@ If your table is not frequently updated or you can tolerate an approximate resul
 To do so, set the second argument of `pdb.agg` to `false`.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT
      description, rating, category,
      pdb.agg('{"value_count": {"field": "id"}}', false) OVER ()

@@ -13,7 +13,7 @@ right-hand side. It means "find all rows where the column matches the given quer
 For example:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex('key.*rd');

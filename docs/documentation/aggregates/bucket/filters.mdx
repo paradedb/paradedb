@@ -9,7 +9,7 @@ To use this aggregation, pass `pdb.agg` to the left-hand side of `FILTER` and a 
 For example:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}')
     FILTER (WHERE category === 'electronics') AS electronics_count,

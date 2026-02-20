@@ -12,7 +12,7 @@ By default we recommend using the [phrase operator](/documentation/full-text/ter
 Searches for documents containing a phrase.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
@@ -46,7 +46,7 @@ Setting slop equal to `n` allows `n` terms to come in between the terms in the p
 as term transpositions.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes'], 1);

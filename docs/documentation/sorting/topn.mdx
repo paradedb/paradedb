@@ -23,6 +23,14 @@ MockItem.objects.filter(
 ).order_by('rating').values('description', 'rating', 'category')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running", "shoes")
+        .order(:rating)
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
 </CodeGroup>
 
 In order for a Top N query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
@@ -83,6 +91,14 @@ MockItem.objects.filter(
 ).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running", "shoes")
+        .order(:rating, :id)
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
 </CodeGroup>
 
 <Note>
@@ -109,6 +125,17 @@ WITH (key_field='id');
 # Coming soon
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.fields = {
+    id: {},
+    "lower(description)" => { tokenizer: :literal, alias: "description_lower" }
+  }
+end
+```
+
 </CodeGroup>
 
 This allows sorting by lowercase to be optimized.
@@ -129,6 +156,14 @@ from paradedb.search import ParadeDB, PQ
 MockItem.objects.filter(
     description=ParadeDB(PQ('sleek') | PQ('running') | PQ('shoes'))
 ).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("sleek", "running", "shoes")
+        .order("LOWER(description)")
+        .select(:description, :rating, :category)
+        .limit(5)
 ```
 
 </CodeGroup>

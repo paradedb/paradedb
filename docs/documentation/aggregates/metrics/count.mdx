@@ -21,6 +21,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(count: ParadeDB::Aggregations.value_count(:rating))
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -57,6 +63,10 @@ MockItem.objects.filter(
 ).aggregate(count=Count('rating'))
 ```
 
+```ruby Rails
+MockItem.search(:id).match_all.count(:rating)
+```
+
 </CodeGroup>
 
 To count all rows, including rows with null values, use `COUNT(*)`:
@@ -71,6 +81,10 @@ WHERE id @@@ pdb.all();
 from paradedb.search import All, ParadeDB
 
 MockItem.objects.filter(id=ParadeDB(All())).count()
+```
+
+```ruby Rails
+MockItem.search(:id).match_all.count
 ```
 
 </CodeGroup>

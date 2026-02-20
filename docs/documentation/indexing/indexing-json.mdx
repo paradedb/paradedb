@@ -34,6 +34,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    metadata: {}
+  }
+end
+```
+
 </CodeGroup>
 
 A single `metadata` JSON may look like:
@@ -73,6 +85,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    metadata: { tokenizer: :ngram, args: [2, 3] }
+  }
+end
+```
+
 </CodeGroup>
 
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
@@ -107,6 +131,18 @@ class MockItem(models.Model):
                 name='search_idx',
             ),
         ]
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    "metadata->>'color'" => { tokenizer: :ngram, args: [2, 3], alias: "metadata_color" }
+  }
+end
 ```
 
 </CodeGroup>

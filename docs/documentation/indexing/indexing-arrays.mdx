@@ -51,10 +51,18 @@ match if **any** of its entries is a match.
 SELECT * FROM array_demo WHERE categories === 'food';
 ```
 
+```ruby Rails
+ArrayDemo.search(:categories).term("food")
+```
+
 ```python Django
 from paradedb.search import ParadeDB, Term
 
 ArrayDemo.objects.filter(categories=ParadeDB(Term('food')))
+```
+
+```ruby Rails
+ArrayDemo.search(:categories).term("food")
 ```
 
 </CodeGroup>
@@ -94,6 +102,18 @@ class ArrayDemo(models.Model):
                 name='array_demo_search_idx',
             ),
         ]
+```
+
+```ruby Rails
+class ArrayDemoIndex < ParadeDB::Index
+  self.table_name = :array_demo
+  self.key_field = :id
+  self.index_name = :array_demo_search_idx
+  self.fields = {
+    id: {},
+    categories: { tokenizer: :literal }
+  }
+end
 ```
 
 </CodeGroup>

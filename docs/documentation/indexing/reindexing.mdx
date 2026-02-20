@@ -38,6 +38,14 @@ with connection.cursor() as cursor:
     )
 ```
 
+```ruby Rails
+ActiveRecord::Base.connection.execute(<<~SQL)
+  CREATE INDEX CONCURRENTLY search_idx_v2
+  ON mock_items USING bm25 (id, description, category)
+  WITH (key_field = 'id');
+SQL
+```
+
 </CodeGroup>
 
 <Note>
@@ -78,6 +86,10 @@ with connection.cursor() as cursor:
     cursor.execute("DROP INDEX search_idx;")
 ```
 
+```ruby Rails
+ActiveRecord::Base.connection.execute("DROP INDEX search_idx;")
+```
+
 </CodeGroup>
 
 ## Rebuilding the Index
@@ -99,6 +111,10 @@ with connection.cursor() as cursor:
     cursor.execute("REINDEX INDEX search_idx;")
 ```
 
+```ruby Rails
+ActiveRecord::Base.connection.execute("REINDEX INDEX search_idx;")
+```
+
 </CodeGroup>
 
 This operation takes an exclusive lock on the table, which blocks incoming writes (but not reads) while the new index is being built.
@@ -116,6 +132,10 @@ from django.db import connection
 # REINDEX CONCURRENTLY is also executed as raw SQL in Django workflows.
 with connection.cursor() as cursor:
     cursor.execute("REINDEX INDEX CONCURRENTLY search_idx;")
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.execute("REINDEX INDEX CONCURRENTLY search_idx;")
 ```
 
 </CodeGroup>

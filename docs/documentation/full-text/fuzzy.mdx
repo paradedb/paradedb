@@ -61,6 +61,16 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+# Fuzzy term
+MockItem.search(:description)
+        .fuzzy("shose", distance: 2)
+        .select(:id, :description)
+        .limit(5)
+
+# coming soon: fuzzy match disjunction/conjunction wrappers
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -101,6 +111,13 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .fuzzy("rann", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
+```
+
 </CodeGroup>
 
 <Note>
@@ -126,6 +143,15 @@ MockItem.objects.filter(
 ).values('id', 'description')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .fuzzy("slee", distance: 1, prefix: true)
+        .select(:id, :description)
+        .limit(5)
+
+# coming soon: multi-term fuzzy conjunction wrapper
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -147,6 +173,15 @@ from paradedb.search import Fuzzy, ParadeDB
 MockItem.objects.filter(
     description=ParadeDB(Fuzzy('shose', distance=1, transposition_cost_one=True, operator='TERM'))
 ).values('id', 'description')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .fuzzy("shose", distance: 1, prefix: false)
+        .select(:id, :description)
+        .limit(5)
+
+# coming soon: transposition_cost_one toggle is not exposed directly
 ```
 
 </CodeGroup>

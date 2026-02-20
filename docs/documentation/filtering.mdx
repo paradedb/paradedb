@@ -23,6 +23,13 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running", "shoes")
+        .where("rating > ?", 2)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ## Filter Pushdown
@@ -59,6 +66,19 @@ class MockItem(models.Model):
                 name='search_idx',
             ),
         ]
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.fields = {
+    id: {},
+    description: {},
+    rating: {},
+    created_at: {}
+  }
+end
 ```
 
 </CodeGroup>
@@ -137,6 +157,13 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("shoes")
+        .where(category: "Footwear")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
@@ -170,6 +197,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.fields = {
+    id: {},
+    description: {},
+    category: { tokenizer: :literal }
+  }
+end
+```
+
 </CodeGroup>
 
 Pushdown of set filters over text fields also requires the literal tokenizer:
@@ -188,6 +227,13 @@ MockItem.objects.filter(
     description=ParadeDB('shoes'),
     category__in=['Footwear', 'Apparel']
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("shoes")
+        .where(category: ["Footwear", "Apparel"])
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

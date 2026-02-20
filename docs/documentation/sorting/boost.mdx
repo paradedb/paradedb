@@ -32,6 +32,16 @@ MockItem.objects.filter(
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("shoes", boost: 2)
+        .or(MockItem.search(:category).matching_all("footwear"))
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -58,6 +68,15 @@ MockItem.objects.filter(
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .regex("key.*", boost: 2)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
+```
+
 </CodeGroup>
 
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
@@ -80,6 +99,15 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .fuzzy("shose", distance: 2, boost: 2)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -109,6 +137,15 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("shoes", constant_score: 1)
+        .with_score
+        .select(:id, :description, :category)
+        .order(search_score: :desc)
+        .limit(5)
 ```
 
 </CodeGroup>

@@ -27,6 +27,13 @@ MockItem.objects.bulk_create([
 ])
 ```
 
+```ruby Rails
+MockItem.insert_all([
+  { description: "running sleek shoes", rating: 5, category: "Footwear" },
+  { description: "shoes running", rating: 5, category: "Footwear" }
+])
+```
+
 </CodeGroup>
 
 <CodeGroup>
@@ -42,6 +49,12 @@ from paradedb.search import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -106,6 +119,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .phrase("shoes running", slop: 2)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -125,6 +144,12 @@ from paradedb.search import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -151,6 +176,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .phrase("shoes running", slop: 2)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 Adding slop is supported:
@@ -168,6 +199,12 @@ from paradedb.search import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("shoes running", slop: 2)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

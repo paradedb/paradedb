@@ -38,6 +38,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :ngram, args: [3, 3] }
+  }
+end
+```
+
 </CodeGroup>
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
@@ -49,6 +61,10 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query("SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];")
 ```
 
 </CodeGroup>
@@ -71,6 +87,12 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];"
+)
 ```
 
 </CodeGroup>
@@ -98,6 +120,12 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];"
+)
 ```
 
 </CodeGroup>
@@ -175,4 +203,8 @@ a phrase query from the resulting tokens:
 
 ```json
 { "tokenized_phrase": { "field": "titles", "phrase": "Dragon Hatchling" } }
+```
+
+```ruby Rails
+# coming soon
 ```

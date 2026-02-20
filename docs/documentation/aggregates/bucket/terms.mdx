@@ -32,6 +32,14 @@ MockItem.objects.filter(
 )[:10]
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          ratings: ParadeDB::Aggregations.terms(:rating, size: 10)
+        )
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -65,6 +73,14 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"value_count": {"field": "id"}}')
 ).order_by('rating')[:10]
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          ratings: ParadeDB::Aggregations.terms(:rating, size: 10, order: :key_asc)
+        )
 ```
 
 </CodeGroup>

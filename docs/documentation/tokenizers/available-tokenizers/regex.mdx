@@ -34,6 +34,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :regex_pattern, args: ["(?i)\\bh\\w*"] }
+  }
+end
+```
+
 </CodeGroup>
 
 The regex tokenizer uses the Rust [regex](https://docs.rs/regex/latest/regex/) crate, which supports all regex constructs with the following
@@ -51,6 +63,12 @@ SELECT 'Hello world!'::pdb.regex_pattern('(?i)\bh\w*')::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Hello world!'::pdb.regex_pattern('(?i)\\bh\\w*')::text[];"
+)
 ```
 
 </CodeGroup>

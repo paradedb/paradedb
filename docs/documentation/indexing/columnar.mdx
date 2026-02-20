@@ -38,6 +38,19 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: {},
+    rating: {}
+  }
+end
+```
+
 </CodeGroup>
 
 To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
@@ -72,6 +85,22 @@ class MockItem(models.Model):
                 name='search_idx',
             ),
         ]
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: {
+      tokenizer: :unicode_words,
+      named_args: { columnar: true }
+    },
+    rating: {}
+  }
+end
 ```
 
 </CodeGroup>

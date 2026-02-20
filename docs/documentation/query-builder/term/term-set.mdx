@@ -32,6 +32,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .term_set("shoes", "keyboard")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 `pdb.term_set` is equivalent to `OR`ing together multiple `pdb.term` queries.

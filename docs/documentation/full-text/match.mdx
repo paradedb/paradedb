@@ -28,6 +28,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running", "shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 This query returns:
@@ -85,6 +91,12 @@ from paradedb.search import ParadeDB
 MockItem.objects.filter(
     description=ParadeDB('running shoes')
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running", "shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -156,6 +168,10 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+# coming soon
+```
+
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -176,6 +192,12 @@ from paradedb.search import ParadeDB
 MockItem.objects.filter(
     description=ParadeDB('running', 'shoes')
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running", "shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

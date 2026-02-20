@@ -45,6 +45,22 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.fields = {
+    id: {},
+    description: {
+      tokenizers: [
+        { tokenizer: :literal },
+        { tokenizer: :simple, alias: "description_simple" }
+      ]
+    }
+  }
+end
+```
+
 </CodeGroup>
 
 Under the hood, two distinct fields are created in the index: a field called `description`, which uses the literal tokenizer,
@@ -77,6 +93,14 @@ MockItem.objects.filter(
 # Query against `description`
 MockItem.objects.filter(RawSQL("description ||| %s", ['Sleek running shoes']))
 ````
+
+```ruby Rails
+# Query against `description_simple`
+MockItem.search(:description).parse("description_simple:(Sleek OR running OR shoes)")
+
+# Query against `description`
+MockItem.search(:description).matching_any("Sleek", "running", "shoes")
+```
 
 </CodeGroup>
 
@@ -131,6 +155,13 @@ MockItem.objects.filter(
     description=ParadeDB(Parse('shoes'))
 ).order_by('description')[:5]
 ````
+
+```ruby Rails
+MockItem.search(:description)
+        .parse("description:shoes")
+        .order(:description)
+        .limit(5)
+```
 
 </CodeGroup>
 

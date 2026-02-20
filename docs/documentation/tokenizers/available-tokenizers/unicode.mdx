@@ -56,6 +56,29 @@ class MockItem(models.Model):
         ]
 ````
 
+```ruby Rails
+# The following two configurations are equivalent
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: {}
+  }
+end
+
+class MockItemUnicodeIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :unicode_words }
+  }
+end
+```
+
 </CodeGroup>
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
@@ -63,6 +86,10 @@ To get a feel for this tokenizer, run the following command and replace the text
 <CodeGroup>
 ```sql SQL
 SELECT 'Tokenize me!'::pdb.unicode_words::text[];
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query("SELECT 'Tokenize me!'::pdb.unicode_words::text[];")
 ```
 
 ```python Django
@@ -89,6 +116,12 @@ SELECT 'Tokenize me! 😊'::pdb.unicode_words('remove_emojis=true')::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Tokenize me! 😊'::pdb.unicode_words('remove_emojis=true')::text[];"
+)
 ```
 
 </CodeGroup>

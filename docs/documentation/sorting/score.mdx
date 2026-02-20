@@ -30,6 +30,15 @@ MockItem.objects.filter(
 ).values('id', 'score').order_by('score')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_score
+        .select(:id)
+        .order(search_score: :asc)
+        .limit(5)
+```
+
 </CodeGroup>
 
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
@@ -54,6 +63,13 @@ MockItem.objects.filter(
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('score')[:5]
+```
+
+```ruby Rails
+MockItem.select("id, pdb.score(id) AS score")
+        .where("description ||| 'keyboard' OR rating < 2")
+        .order("score ASC")
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -111,6 +127,27 @@ class Order(models.Model):
         ]
 ````
 
+```ruby Rails
+class Order < ApplicationRecord
+  include ParadeDB::Model
+  self.table_name = :orders
+  self.primary_key = :order_id
+end
+
+class OrderIndex < ParadeDB::Index
+  self.table_name = :orders
+  self.key_field = :order_id
+  self.index_name = :orders_idx
+  self.fields = {
+    order_id: {},
+    product_id: {},
+    order_quantity: {},
+    order_total: {},
+    customer_name: {}
+  }
+end
+```
+
 </CodeGroup>
 
 Next, let's compute a "combined BM25 score" over a join across both tables.
@@ -127,6 +164,17 @@ LIMIT 5;
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT o.order_id, o.customer_name, m.description, pdb.score(o.order_id) + pdb.score(m.id) AS score
+  FROM orders o
+  JOIN mock_items m ON o.product_id = m.id
+  WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'
+  ORDER BY score DESC, o.order_id
+  LIMIT 5;
+SQL
 ```
 
 </CodeGroup>

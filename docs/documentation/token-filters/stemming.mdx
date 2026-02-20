@@ -36,6 +36,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :simple, stemmer: :english }
+  }
+end
+```
+
 </CodeGroup>
 
 Valid languages are `arabic`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`.
@@ -51,6 +63,14 @@ SELECT
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT
+    'I am running'::pdb.simple::text[],
+    'I am running'::pdb.simple('stemmer=english')::text[];
+SQL
 ```
 
 </CodeGroup>

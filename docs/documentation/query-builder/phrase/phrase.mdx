@@ -26,6 +26,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 <div className="mt-8" />
@@ -58,6 +64,12 @@ from paradedb.search import ParadeDB, Phrase
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', slop=1))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .phrase("running shoes", slop: 1)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

@@ -22,6 +22,14 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          p: ParadeDB::Aggregations.percentiles(:rating, percents: [50, 95])
+        )
+```
+
 </CodeGroup>
 
 ```ini Expected Response

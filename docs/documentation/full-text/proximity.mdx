@@ -121,8 +121,15 @@ MockItem.objects.filter(
 
 `pdb.prox_array` can also take regex:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>

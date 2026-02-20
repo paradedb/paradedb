@@ -11,17 +11,47 @@ the minimum and maximum gram size, inclusive. For example, `pdb.ngram(2,5)` will
 
 To generate grams of a single fixed length, set the minimum and maximum gram size equal to each other.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.ngram(3,3)))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'ngram', 'args': [3, 3]},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
                       text
@@ -34,9 +64,16 @@ SELECT 'Tokenize me!'::pdb.ngram(3,3)::text[];
 
 The generate ngram tokens for only the first `n` characters in the text, set `prefix_only` to `true`.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Tokenize me!'::pdb.ngram(3,3,'prefix_only=true')::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
  text
@@ -54,9 +91,16 @@ fields.
 An exception is if the min gram size equals the max gram size, which guarantees unique token positions. In this case, setting
 `positions=true` enables these queries.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Tokenize me!'::pdb.ngram(3,3,'positions=true')::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ### Exact Substring Matching with Phrase Queries
 
@@ -68,7 +112,8 @@ intersection instead.
 The tradeoff is that phrase queries are stricter: they require tokens at consecutive positions within a single field value,
 while match conjunction only requires all tokens to appear somewhere in the document.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE TABLE books (id SERIAL PRIMARY KEY, titles TEXT[]);
 INSERT INTO books (titles) VALUES
     (ARRAY['The Dragon Hatchling', 'Wings of Gold']),
@@ -79,14 +124,50 @@ USING bm25 (id, (titles::pdb.ngram(4,4,'positions=true')))
 WITH (key_field='id');
 
 -- Phrase: matches exact substring "Dragon Hatchling" — only row 1
-SELECT * FROM books WHERE titles ### 'Dragon Hatchling';
+SELECT \* FROM books WHERE titles ### 'Dragon Hatchling';
 
 -- Match conjunction: matches all ngrams anywhere — also only row 1 here,
 -- but on larger datasets could match rows where the ngrams are scattered
-SELECT * FROM books WHERE titles ||| 'Dragon Hatchling';
+SELECT \* FROM books WHERE titles ||| 'Dragon Hatchling';
 
 DROP TABLE books;
-```
+
+````
+
+```python Django
+from django.contrib.postgres.fields import ArrayField
+from django.db import models
+from paradedb.indexes import BM25Index
+from paradedb.search import ParadeDB, Phrase
+
+class Book(models.Model):
+    titles = ArrayField(models.TextField())
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'titles': {
+                        'tokenizer': 'ngram',
+                        'args': [4, 4],
+                        'named_args': {'positions': True},
+                    },
+                },
+                key_field='id',
+                name='book_search_idx',
+            ),
+        ]
+
+# Phrase: matches exact substring "Dragon Hatchling" — only row 1
+Book.objects.filter(titles=ParadeDB(Phrase('Dragon Hatchling')))
+
+# Match conjunction — also only row 1 here,
+# but on larger datasets could match rows where the ngrams are scattered
+Book.objects.filter(titles=ParadeDB('Dragon', 'Hatchling'))
+````
+
+</CodeGroup>
 
 When constructing queries as [JSON](/documentation/query-builder/json), use `tokenized_phrase` to achieve the same
 result as the `###` operator. It tokenizes the input string with the field's tokenizer and builds

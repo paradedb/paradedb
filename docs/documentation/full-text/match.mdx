@@ -141,11 +141,22 @@ WHERE description &&& 'shoes';
 By default, the match query automatically tokenizes the query string with the same tokenizer used by the field it's being searched against.
 This behavior can be overridden by explicitly casting the query to a different tokenizer.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
+
+```python Django
+from paradedb.search import ParadeDB
+
+MockItem.objects.filter(
+    description=ParadeDB('running shoes', operator='OR', tokenizer='whitespace')
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Using Pretokenized Text
 

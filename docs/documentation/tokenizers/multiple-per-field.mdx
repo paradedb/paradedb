@@ -85,7 +85,8 @@ If a text field uses multiple tokenizers and one of them is [literal](/documenta
 the other tokenizers and leaving the literal tokenizer un-aliased. This is so queries that `GROUP BY`, `ORDER BY`, or aggregate the
 text field can reference the field directly:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
@@ -98,6 +99,39 @@ FROM mock_items
 WHERE description @@@ 'shoes'
 ORDER BY description
 LIMIT 5;
-```
+
+````
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+from paradedb.search import ParadeDB, Parse
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {
+                        'tokenizers': [
+                            {'tokenizer': 'literal'},
+                            {'tokenizer': 'simple', 'alias': 'description_simple'},
+                        ],
+                    },
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+
+MockItem.objects.filter(
+    description=ParadeDB(Parse('shoes'))
+).order_by('description')[:5]
+````
+
+</CodeGroup>
 
 </Note>

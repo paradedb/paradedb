@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771610211295,
+  "lastUpdate": 1771610216494,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7112,6 +7112,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.06810478193607, max segment_count: 127.0, count: 57529"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d5c7a1a8e9dc0322da4091a1c4c5ac37270deb5",
+          "message": "feat: bump tantivy for sorted range query optimization (#4203)\n\n## Summary\n- Fixes https://github.com/paradedb/paradedb/issues/4169\n\n## Test plan\n- `cargo check` passes\n- Tantivy-side tests in paradedb/tantivy#107\n\nRef: paradedb/tantivy#107",
+          "timestamp": "2026-02-20T22:48:58+05:30",
+          "tree_id": "9c42a6ed85bf56421ce51405df8f64fd7c3bc555",
+          "url": "https://github.com/paradedb/paradedb/commit/0d5c7a1a8e9dc0322da4091a1c4c5ac37270deb5"
+        },
+        "date": 1771610212372,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.843340103376192, max cpu: 42.772278, count: 57908"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.36694209457244, max mem: 236.953125, count: 57908"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.5158308498224, max cpu: 33.136093, count: 57908"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.91556130791514, max mem: 175.77734375, count: 57908"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34127,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33591.91914761346, max block_count: 36379.0, count: 57908"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.43871313117359, max segment_count: 130.0, count: 57908"
           }
         ]
       }

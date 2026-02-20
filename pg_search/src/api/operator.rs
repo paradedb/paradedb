@@ -273,6 +273,37 @@ unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
     typoid
 }
 
+/// Wraps a pdb.boost, pdb.fuzzy, or pdb.slop expression in a FuncExpr that casts it to pdb.query.
+/// This is used in exec_rewrite to convert typed parameters to pdb.query before calling *_query functions.
+unsafe fn coerce_to_pdb_query(
+    rhs: *mut pg_sys::Node,
+    cast_signature: &std::ffi::CStr,
+) -> *mut pg_sys::Node {
+    let funcid =
+        direct_function_call::<pg_sys::Oid>(pg_sys::regprocedurein, &[cast_signature.into_datum()])
+            .expect("cast function should exist");
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(rhs);
+
+    pg_sys::FuncExpr {
+        xpr: pg_sys::Expr {
+            type_: pg_sys::NodeTag::T_FuncExpr,
+        },
+        funcid,
+        funcresulttype: pdb_query_typoid(),
+        funcretset: false,
+        funcvariadic: false,
+        funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        funccollid: pg_sys::Oid::INVALID,
+        inputcollid: pg_sys::Oid::INVALID,
+        args: args.into_pg(),
+        location: -1,
+    }
+    .palloc()
+    .cast()
+}
+
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.

@@ -8,4 +8,4 @@ WHERE
     )
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY contact_first_name ASC NULLS LAST, contact_id ASC
-LIMIT 25 OFFSET 0;
+LIMIT 25;

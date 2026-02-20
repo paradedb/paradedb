@@ -308,8 +308,8 @@ WITH (
     }',
     numeric_fields = '{
         "company_id": {"fast": true, "indexed": true},
-        "employee_rank": {"indexed": true},
-        "revenue_rank": {"indexed": true}
+        "employee_rank": {"fast": true, "indexed": true},
+        "revenue_rank": {"fast": true, "indexed": true}
     }',
     json_fields = '{
         "company_emp_rev_details": {"fast": true, "indexed": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}},

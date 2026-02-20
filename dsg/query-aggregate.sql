@@ -1,9 +1,9 @@
+-- Original Query: Top-K aggregation by `doc_count` descending.
+-- Converted to Top-K: Flattened to return individual rows, ordering by `revenue_rank` (fast field) descending, limited to 10.
+
 SET max_parallel_workers to 0;
 
-SELECT
-    contact_last_name,
-    count(*) AS doc_count,
-    count(DISTINCT company_id) AS company_count
+SELECT *
 FROM contacts_companies_combined_full
 WHERE contact_id IN (
     SELECT ldf_id
@@ -29,7 +29,5 @@ AND contact_id @@@ paradedb.boolean(
         paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
     ]
 )
-AND contact_last_name IS NOT NULL
-GROUP BY contact_last_name
-ORDER BY doc_count DESC
+ORDER BY revenue_rank DESC, contact_id ASC
 LIMIT 10;

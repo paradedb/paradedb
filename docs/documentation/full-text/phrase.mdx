@@ -13,11 +13,21 @@ that the query specifies.
 
 Enter the `###` phrase operator:
 
-```sql
+<CodeGroup>
+```sql SQL
 INSERT INTO mock_items (description, rating, category) VALUES
 ('running sleek shoes', 5, 'Footwear'),
 ('shoes running', 5, 'Footwear');
 ```
+
+```python Django
+MockItem.objects.bulk_create([
+    MockItem(description='running sleek shoes', rating=5, category='Footwear'),
+    MockItem(description='shoes running', rating=5, category='Footwear'),
+])
+```
+
+</CodeGroup>
 
 <CodeGroup>
 ```sql SQL
@@ -102,11 +112,22 @@ MockItem.objects.filter(
 
 The phrase query supports custom query tokenization.
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
 ```
+
+```python Django
+from paradedb.search import ParadeDB, Phrase
+
+MockItem.objects.filter(
+    description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
+).values('description', 'rating', 'category')
+```
+
+</CodeGroup>
 
 ## Using Pretokenized Text
 

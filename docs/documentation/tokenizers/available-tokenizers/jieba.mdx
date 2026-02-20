@@ -8,17 +8,47 @@ The Jieba tokenizer is a tokenizer for Chinese text that leverages both a dictio
 compared to the [Chinese Lindera](/documentation/tokenizers/available-tokenizers/lindera) and [Chinese compatible](/documentation/tokenizers/available-tokenizers/chinese-compatible) tokenizers, but
 the tradeoff is that it is slower.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.jieba))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'jieba'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Hello world! 你好!'::pdb.jieba::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
               text

@@ -70,9 +70,16 @@ class MockItem(models.Model):
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Hello world! 你好!'::pdb.lindera(chinese)::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
               text

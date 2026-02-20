@@ -7,17 +7,47 @@ canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenize
 The simple tokenizer splits on any non-alphanumeric character (e.g. whitespace, punctuation, symbols). All characters are
 [lowercased](/documentation/token-filters/lowercase) by default.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'simple'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Tokenize me!'::pdb.simple::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
      text

@@ -10,21 +10,51 @@ in ParadeDB are based on stemming algorithms obtained from the official [Snowbal
 
 To set a stemmer, append `stemmer=<language>` to the tokenizer's arguments.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'simple', 'stemmer': 'english'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 Valid languages are `arabic`, `danish`, `dutch`, `english`, `finnish`, `french`, `german`, `greek`, `hungarian`, `italian`, `norwegian`, `polish`, `portuguese`, `romanian`, `russian`, `spanish`, `swedish`, `tamil`, and `turkish`.
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
   'I am running'::pdb.simple::text[],
   'I am running'::pdb.simple('stemmer=english')::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
       text      |    text

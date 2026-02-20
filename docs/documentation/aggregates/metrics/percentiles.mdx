@@ -8,7 +8,7 @@ The percentiles aggregation computes the values below which a given percentage o
 In this example, the aggregation will return the 50th and 95th percentiles for `rating`.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT pdb.agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```

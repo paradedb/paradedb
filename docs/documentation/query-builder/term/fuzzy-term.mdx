@@ -13,7 +13,7 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/fuzzy-term
 `fuzzy_term` finds results that approximately match the query term, allowing for minor typos in the input.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.fuzzy_term('shoez')

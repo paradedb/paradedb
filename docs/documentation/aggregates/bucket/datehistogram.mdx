@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/datehistogr
 The date histogram aggregation constructs a histogram for date fields.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();

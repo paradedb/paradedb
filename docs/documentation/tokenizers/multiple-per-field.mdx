@@ -11,7 +11,7 @@ To tokenize a field in more than one way, append an `alias=<alias_name>` argumen
 The alias name can be any string you like. For instance, the following statement tokenizes `description` using both the simple and literal tokenizers.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
@@ -53,7 +53,7 @@ and an aliased field called `description_simple`, which uses the simple tokenize
 To query against the aliased field, cast it to `pdb.alias('alias_name')`:
 
 <CodeGroup>
-```sql
+```sql SQL
 -- Query against `description_simple`
 SELECT description, rating, category
 FROM mock_items

@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/cardinalit
 The cardinality aggregation estimates the number of distinct values in a field.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT pdb.agg('{"cardinality": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```

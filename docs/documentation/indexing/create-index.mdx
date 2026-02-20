@@ -8,7 +8,7 @@ Before a table can be searched, it must be indexed. ParadeDB uses a custom index
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id');
@@ -50,7 +50,7 @@ to find the most suitable one before running `CREATE INDEX`.
 For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
@@ -84,7 +84,7 @@ Only one BM25 index can exist per table. We recommend indexing all columns in a 
 including columns used for sorting, grouping, filtering, and aggregations.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
@@ -156,7 +156,7 @@ After tokens are created, [token filters](/documentation/token-filters/overview)
 For example, the following code block adds English stemming to `description`:
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
@@ -192,7 +192,7 @@ A single field can be indexed with multiple tokenizers by using a `tokenizers` l
 Each tokenizer entry supports `tokenizer`, `args`, `named_args`, and `alias`.
 
 <CodeGroup>
-```sql
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,

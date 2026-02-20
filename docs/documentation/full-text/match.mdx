@@ -14,7 +14,7 @@ Match disjunction uses the `|||` operator and means "find all documents that con
 To understand what this looks like in practice, let's consider the following query:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description ||| 'running shoes';
@@ -73,7 +73,7 @@ Suppose we want to find rows that contain both `running` **and** `shoes`. This i
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& 'running shoes';
@@ -153,7 +153,7 @@ The match operators also accept text arrays. If a text array is provided, each e
 which means that no further processing is done.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description &&& ARRAY['running', 'shoes'];

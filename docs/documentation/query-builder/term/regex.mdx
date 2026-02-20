@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/query-builder/term/regex
 Regex queries search for terms that follow a pattern. For example, the wildcard pattern `key.*` finds all terms that start with `key`.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.regex('key.*');

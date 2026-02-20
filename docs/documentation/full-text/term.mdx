@@ -13,7 +13,7 @@ string as a **finalized token**. This means that the query string is taken as-is
 Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
 <CodeGroup>
-```sql
+```sql SQL
 -- Term query 1
 SELECT description, rating, category
 FROM mock_items
@@ -91,7 +91,7 @@ These examples assume that index uses the default tokenizer and token filters, a
 Passing a text array to the right-hand side of `===` means "find all documents containing any one of these tokens."
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description === ARRAY['shoes', 'running'];

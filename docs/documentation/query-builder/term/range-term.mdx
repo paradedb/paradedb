@@ -13,7 +13,7 @@ In this example, `weight_range` is an `int4range` type.
 The following query finds all rows where `weight_range` contains `1`:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term(1);
 ```
@@ -34,7 +34,7 @@ The following query finds all ranges that share at least one common
 point with the query range:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects');
 ```
@@ -54,7 +54,7 @@ MockItem.objects.filter(
 The following query finds all ranges that are contained by the query range:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(3, 9]'::int4range, 'Contains');
 ```
@@ -74,7 +74,7 @@ MockItem.objects.filter(
 The following query finds all ranges that contain the query range:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Within');
 ```

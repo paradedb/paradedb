@@ -18,7 +18,7 @@ Under the hood, the [match](/documentation/full-text/match) conjunction and disj
 This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.match('running shoes');

@@ -14,7 +14,7 @@ A terms aggregation counts the number of occurrences for every unique value in a
 groups the `mock_items` table by `rating`, and calculates the number of items for each unique `rating`.
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating
@@ -48,7 +48,7 @@ MockItem.objects.filter(
 Ordering by the bucketing field is supported:
 
 <CodeGroup>
-```sql
+```sql SQL
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771571194336,
+  "lastUpdate": 1771571199494,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6812,6 +6812,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.41516352135683, max segment_count: 129.0, count: 57546"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a07e8d138979d521d1d6ab50beb2a2954291332d",
+          "message": "perf: enable dynamic filter pushdown through SortMergeJoin (#4193)\n\n## What\n\nTopK dynamic filters now propagate through `SortMergeJoinExec` to\n`PgSearchScan` nodes, enabling pre-materialization pruning during join\nqueries with `ORDER BY ... LIMIT`. NULL values in the sort column are\ncorrectly preserved when they belong in the top-K result.\n\n## Why\n\n`SortMergeJoinExec` blocks dynamic filter pushdown by default, so TopK's\nthreshold filters never reached scan nodes — every row was materialized\neven when only a handful were needed. This made `ORDER BY ... LIMIT` on\njoined BM25 tables unnecessarily expensive. You can see the output diff\nof `join_custom_scan.sql` in\n[a628675](https://github.com/paradedb/paradedb/pull/4193/commits/a628675595e6f9f436c06dcc32991374b201bff4).\n\n## How\n\n- **`FilterPassthroughJoinExec`** — thin wrapper around\n`SortMergeJoinExec` that overrides `gather_filters_for_pushdown` /\n`handle_child_pushdown_result` to route filters to the correct join side\nby column name.\n- **Post-optimization `FilterPushdown` pass** — the enforcer's\n`transform_up` recreates ancestor nodes (including `SortExec`),\nproducing new `DynamicFilterPhysicalExpr` instances that haven't been\nconnected yet. A second `FilterPushdown::new_post_optimization()` pass\nwires them up.\n- **Scanner batch-size cap** — when dynamic filters are present, the\nscanner's batch size is capped to DataFusion's `execution.batch_size`\n(8192) so TopK can tighten its threshold between batches and the\npre-filter can prune later batches.\n- **`nulls_pass` in `PreFilter`** — TopK on nullable columns emits `col\nIS NULL OR col < threshold`. A new `try_or_is_null_pattern` helper\ndecomposes this into a `PreFilter` with `nulls_pass=true`, preventing\nincorrect pruning of NULLs that belong in the result.\n- **Name-based column resolution** — `collect_filters` now resolves\ncolumn indices via the scan's schema by name, handling cross-plan\nfilters where the parent's column index doesn't match the scan's field\norder.\n- **`SessionConfig` propagated to `TaskContext`** — ensures DataFusion's\nconfig (including `execution.batch_size`) is available during filter\npushdown.\n\n## Tests\n\n- **TEST 39**: 20K-row join with `ORDER BY ... LIMIT 10`. EXPLAIN\nANALYZE shows `rows_pruned=1.81 K` (was 0 before), confirming filters\npropagate and prune.\n- **TEST 39b**: 20K rows with 10 NULLs at high IDs, `ORDER BY val DESC\nNULLS FIRST LIMIT 25`. EXPLAIN ANALYZE shows `rows_pruned=3.38 K` with\nall 10 NULLs correctly present in the result — proves `nulls_pass`\nworks. Without the IS NULL OR decomposition, `rows_pruned` would be 0.\n- **TEST 36b**: OFFSET + LIMIT on sorted join keys, verifying correct\nfetch propagation.",
+          "timestamp": "2026-02-19T22:30:40-08:00",
+          "tree_id": "23cb9d4c271690121376d1537115302fbef912b6",
+          "url": "https://github.com/paradedb/paradedb/commit/a07e8d138979d521d1d6ab50beb2a2954291332d"
+        },
+        "date": 1771571195426,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.043103264776484, max cpu: 42.64561, count: 57529"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.6061413727207, max mem: 237.25390625, count: 57529"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.407787564724963, max cpu: 33.20158, count: 57529"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.04039830726677, max mem: 175.4375, count: 57529"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 33819,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33336.13043856142, max block_count: 35993.0, count: 57529"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.06810478193607, max segment_count: 127.0, count: 57529"
           }
         ]
       }

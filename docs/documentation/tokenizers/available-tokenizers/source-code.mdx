@@ -8,17 +8,47 @@ The source code tokenizer is intended for tokenizing code. In addition to splitt
 punctuation, and symbols, it also splits on common casing conventions like camel case and snake case. For instance, text like
 `my_variable` or `myVariable` would get split into `my` and `variable`.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.source_code))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'source_code'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'let my_variable = 2;'::pdb.source_code::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
         text

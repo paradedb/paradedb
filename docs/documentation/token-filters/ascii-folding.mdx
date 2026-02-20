@@ -9,19 +9,49 @@ It is supported for all tokenizers besides the [literal](/documentation/tokenize
 
 To enable, append `ascii_folding=true` to the tokenizer's arguments.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('ascii_folding=true')))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'simple', 'named_args': {'ascii_folding': True}},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To demonstrate this token filter, let's compare the output of the following two statements:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT
   'Café naïve coöperate'::pdb.simple::text[],
   'Café naïve coöperate'::pdb.simple('ascii_folding=true')::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
           text          |          text

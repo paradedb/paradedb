@@ -13,8 +13,35 @@ must preserve the source text exactly.
 
 To add a token filter to a tokenizer, append a configuration string to the argument list:
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english', 'ascii_folding=true')))
 WITH (key_field='id');
 ```
+
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {
+                        'tokenizer': 'simple',
+                        'stemmer': 'english',
+                        'named_args': {'ascii_folding': True},
+                    },
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>

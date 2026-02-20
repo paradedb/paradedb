@@ -24,17 +24,47 @@ exact UUID matching is a common use case), and is useful for doing exact string 
 It is also required if the text field is used as a sort field in a [Top N](/documentation/sorting/topn) query,
 or as part of an [aggregate](/documentation/aggregates/overview).
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.literal))
 WITH (key_field='id');
 ```
 
+```python Django
+from django.db import models
+from paradedb.indexes import BM25Index
+
+class MockItem(models.Model):
+    description = models.TextField()
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={
+                    'id': {},
+                    'description': {'tokenizer': 'literal'},
+                },
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+```
+
+</CodeGroup>
+
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-```sql
+<CodeGroup>
+```sql SQL
 SELECT 'Tokenize me!'::pdb.literal::text[];
 ```
+
+```python Django
+# Coming soon
+```
+
+</CodeGroup>
 
 ```ini Expected Response
        text

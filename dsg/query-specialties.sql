@@ -1,3 +1,4 @@
+PREPARE query_stmt AS
 SELECT *
 FROM contacts_companies_combined_full
 WHERE
@@ -13,3 +14,9 @@ WHERE
     AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
 ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
 LIMIT 25;
+
+EXPLAIN (ANALYZE, BUFFERS) EXECUTE query_stmt;
+
+EXECUTE query_stmt;
+
+DEALLOCATE query_stmt;

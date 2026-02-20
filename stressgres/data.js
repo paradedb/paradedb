@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771570213513,
+  "lastUpdate": 1771570218898,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4536,6 +4536,138 @@ window.BENCHMARK_DATA = {
             "value": 40.08203125,
             "unit": "median mem",
             "extra": "avg mem: 26.504107384823847, max mem: 40.08203125, count: 1476"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a07e8d138979d521d1d6ab50beb2a2954291332d",
+          "message": "perf: enable dynamic filter pushdown through SortMergeJoin (#4193)\n\n## What\n\nTopK dynamic filters now propagate through `SortMergeJoinExec` to\n`PgSearchScan` nodes, enabling pre-materialization pruning during join\nqueries with `ORDER BY ... LIMIT`. NULL values in the sort column are\ncorrectly preserved when they belong in the top-K result.\n\n## Why\n\n`SortMergeJoinExec` blocks dynamic filter pushdown by default, so TopK's\nthreshold filters never reached scan nodes — every row was materialized\neven when only a handful were needed. This made `ORDER BY ... LIMIT` on\njoined BM25 tables unnecessarily expensive. You can see the output diff\nof `join_custom_scan.sql` in\n[a628675](https://github.com/paradedb/paradedb/pull/4193/commits/a628675595e6f9f436c06dcc32991374b201bff4).\n\n## How\n\n- **`FilterPassthroughJoinExec`** — thin wrapper around\n`SortMergeJoinExec` that overrides `gather_filters_for_pushdown` /\n`handle_child_pushdown_result` to route filters to the correct join side\nby column name.\n- **Post-optimization `FilterPushdown` pass** — the enforcer's\n`transform_up` recreates ancestor nodes (including `SortExec`),\nproducing new `DynamicFilterPhysicalExpr` instances that haven't been\nconnected yet. A second `FilterPushdown::new_post_optimization()` pass\nwires them up.\n- **Scanner batch-size cap** — when dynamic filters are present, the\nscanner's batch size is capped to DataFusion's `execution.batch_size`\n(8192) so TopK can tighten its threshold between batches and the\npre-filter can prune later batches.\n- **`nulls_pass` in `PreFilter`** — TopK on nullable columns emits `col\nIS NULL OR col < threshold`. A new `try_or_is_null_pattern` helper\ndecomposes this into a `PreFilter` with `nulls_pass=true`, preventing\nincorrect pruning of NULLs that belong in the result.\n- **Name-based column resolution** — `collect_filters` now resolves\ncolumn indices via the scan's schema by name, handling cross-plan\nfilters where the parent's column index doesn't match the scan's field\norder.\n- **`SessionConfig` propagated to `TaskContext`** — ensures DataFusion's\nconfig (including `execution.batch_size`) is available during filter\npushdown.\n\n## Tests\n\n- **TEST 39**: 20K-row join with `ORDER BY ... LIMIT 10`. EXPLAIN\nANALYZE shows `rows_pruned=1.81 K` (was 0 before), confirming filters\npropagate and prune.\n- **TEST 39b**: 20K rows with 10 NULLs at high IDs, `ORDER BY val DESC\nNULLS FIRST LIMIT 25`. EXPLAIN ANALYZE shows `rows_pruned=3.38 K` with\nall 10 NULLs correctly present in the result — proves `nulls_pass`\nworks. Without the IS NULL OR decomposition, `rows_pruned` would be 0.\n- **TEST 36b**: OFFSET + LIMIT on sorted join keys, verifying correct\nfetch propagation.",
+          "timestamp": "2026-02-19T22:30:40-08:00",
+          "tree_id": "23cb9d4c271690121376d1537115302fbef912b6",
+          "url": "https://github.com/paradedb/paradedb/commit/a07e8d138979d521d1d6ab50beb2a2954291332d"
+        },
+        "date": 1771570215025,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.340294403060375, max cpu: 28.77123, count: 55061"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.34999279208514, max mem: 73.5234375, count: 55061"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.642575726966924, max cpu: 9.311348, count: 55061"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 35.80800505632389, max mem: 37.38671875, count: 55061"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588484016943755, max cpu: 9.204219, count: 55061"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.2470313464839, max mem: 71.828125, count: 55061"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.60984155233558, max cpu: 9.430255, count: 110122"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 49.295937084267905, max mem: 60.2578125, count: 110122"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.329535851417596, max cpu: 15.000001, count: 55061"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.48160882078513, max mem: 72.62890625, count: 55061"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1760,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1766.795317920125, max block_count: 3126.0, count: 55061"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 17,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 16.649970033235867, max segment_count: 32.0, count: 55061"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.40495224518072, max cpu: 18.35564, count: 55061"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.487291013035545, max mem: 72.61328125, count: 55061"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5463336815183215, max cpu: 4.738401, count: 55061"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.89133436949474, max mem: 62.703125, count: 55061"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1541070379934095, max cpu: 4.7105007, count: 55061"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.387413150301484, max mem: 65.92578125, count: 55061"
           }
         ]
       }

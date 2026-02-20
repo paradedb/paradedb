@@ -10,7 +10,7 @@ in each bucket.
 Each value is rounded down to its bucket. For instance, a rating of `18` with an interval of `5` rounds down to a bucket
 with key `15`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"histogram": {"field": "rating", "interval": "1"}}')
 FROM mock_items

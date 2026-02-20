@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/count
 
 The following query counts the number of values in a field:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"value_count": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
@@ -42,7 +42,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 
 With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT COUNT(rating) FROM mock_items
 WHERE id @@@ pdb.all();
@@ -61,7 +61,7 @@ MockItem.objects.filter(
 
 To count all rows, including rows with null values, use `COUNT(*)`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all();

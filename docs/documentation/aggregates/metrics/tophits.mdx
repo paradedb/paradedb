@@ -10,7 +10,7 @@ aggregation. It returns the top documents for each bucket of a terms aggregation
 For example, the following query answers "what are top 3 results sorted by `created_at` for each
 `rating` category?"
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items
@@ -50,7 +50,7 @@ or [literal normalized](/documentation/tokenizers/available-tokenizers/literal-n
 
 To specify an offset, use `from`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "desc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items
@@ -73,7 +73,7 @@ MockItem.objects.filter(
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 FROM mock_items

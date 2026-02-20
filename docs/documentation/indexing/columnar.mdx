@@ -9,7 +9,7 @@ This enables fast [filtering pushdown](documentation/filtering#filter-pushdown),
 [aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
 because they are integers, whereas `description` is not because it is text.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, rating)
@@ -42,7 +42,7 @@ class MockItem(models.Model):
 
 To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)

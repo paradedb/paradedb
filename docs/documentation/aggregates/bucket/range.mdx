@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/range
 
 The range aggregation counts the number of occurrences over user-defined buckets. The buckets must be continuous and cannot overlap.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"range": {"field": "rating", "ranges": [{"to": 3.0 }, {"from": 3.0, "to": 6.0} ]}}')
 FROM mock_items

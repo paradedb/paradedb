@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/metrics/sum
 
 The sum aggregation computes the sum of a field.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"sum": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
@@ -42,7 +42,7 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 
 With this feature enabled, the following query is equivalent to the above and is executed in the same way.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT SUM(rating) FROM mock_items
 WHERE id @@@ pdb.all();
@@ -61,7 +61,7 @@ MockItem.objects.filter(
 
 By default, `SUM` ignores null values. Use `COALESCE` to include them in the final sum:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT SUM(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();

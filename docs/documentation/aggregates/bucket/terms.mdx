@@ -13,7 +13,7 @@ canonical: https://docs.paradedb.com/documentation/aggregates/bucket/terms
 A terms aggregation counts the number of occurrences for every unique value in a field. For example, the following query
 groups the `mock_items` table by `rating`, and calculates the number of items for each unique `rating`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()
@@ -47,7 +47,7 @@ MockItem.objects.filter(
 
 Ordering by the bucketing field is supported:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}') FROM mock_items
 WHERE id @@@ pdb.all()

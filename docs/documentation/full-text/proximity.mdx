@@ -10,7 +10,7 @@ Proximity queries are used to match documents containing tokens that are within 
 
 The following query finds all documents where the token `sleek` is at most `1` token away from `shoes`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -35,7 +35,7 @@ MockItem.objects.filter(
 `##` does not care about order -- the term on the left-hand side may appear before or after the term on the right-hand side.
 To ensure that the left-hand term appears before the right-hand term, use `##>`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -59,7 +59,7 @@ In addition to exact tokens, proximity queries can also match against regex expr
 The following query finds all documents where any token matching the regex query `sl.*` is at most `1` token away
 from the token `shoes`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -79,7 +79,7 @@ MockItem.objects.filter(
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
 by providing a second argument:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 -- Expand up to 100 regex matches
 SELECT description, rating, category
@@ -102,7 +102,7 @@ MockItem.objects.filter(
 `pdb.prox_array` matches against an array of tokens instead of a single token. For example, the following query finds all
 documents where any of the tokens `sleek` or `white` is within `1` token of `shoes`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items

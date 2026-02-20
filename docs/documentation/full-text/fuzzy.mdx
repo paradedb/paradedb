@@ -21,7 +21,7 @@ a comment with your use case.
 To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).
 Fuzziness is supported for [match](/documentation/full-text/match) and [term](/documentation/full-text/term) queries.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 -- Fuzzy match disjunction
 SELECT id, description
@@ -85,7 +85,7 @@ beginning within an edit distance of `1`.
 
 To treat the query string as a prefix, set the second argument of `fuzzy` to either `t` or `"true"`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description
 FROM mock_items
@@ -110,7 +110,7 @@ MockItem.objects.filter(
 When used with [match](/documentation/full-text/match) queries, fuzzy prefix treats all tokens in the query string as prefixes.
 For instance, the following query means "find all documents containing the fuzzy prefix `rann` AND the fuzzy prefix `slee`":
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description
 FROM mock_items
@@ -133,7 +133,7 @@ MockItem.objects.filter(
 By default, the cost of a transposition (i.e. "shose" → "shoes") is `2`. Setting the third argument of `fuzzy` to `t` lowers the
 cost of a transposition to `1`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description
 FROM mock_items

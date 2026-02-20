@@ -10,7 +10,7 @@ tokenizer for search, and the [literal](/documentation/tokenizers/available-toke
 To tokenize a field in more than one way, append an `alias=<alias_name>` argument to the additional tokenizer configurations.
 The alias name can be any string you like. For instance, the following statement tokenizes `description` using both the simple and literal tokenizers.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
@@ -52,7 +52,7 @@ and an aliased field called `description_simple`, which uses the simple tokenize
 
 To query against the aliased field, cast it to `pdb.alias('alias_name')`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 -- Query against `description_simple`
 SELECT description, rating, category

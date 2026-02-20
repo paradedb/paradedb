@@ -99,7 +99,7 @@ MockItem.objects.filter(
 
 By default, `MIN`/`MAX` ignore null values. Use `COALESCE` to include them in the final sum:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT MIN(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();

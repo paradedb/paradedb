@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771545229818,
+  "lastUpdate": 1771545601656,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13564,6 +13564,54 @@ window.BENCHMARK_DATA = {
             "value": 572.0194388153094,
             "unit": "median tps",
             "extra": "avg tps: 515.6177804167928, max tps: 738.8167783190561, count: 107722"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae862867e38496aafb797e30e34ed31f6a561309",
+          "message": "fix: bump tantivy for merger NULL ordering fix (#4191)\n\n## Summary\n- Adds multi-segment regression tests that split NULLs and zeros across\n3 segments, exercising the cross-segment merger path for both ASC NULLS\nFIRST and DESC NULLS LAST\n\n## Test plan\n`cargo test --test index_sorting -- null_and_zero_multi_segment` passes\nlocally (2 new tests)\n\nRef: paradedb/tantivy#106",
+          "timestamp": "2026-02-20T04:03:22+05:30",
+          "tree_id": "7220106b66ad4bff4b0160bab9bef6d5d647ee3a",
+          "url": "https://github.com/paradedb/paradedb/commit/ae862867e38496aafb797e30e34ed31f6a561309"
+        },
+        "date": 1771545597666,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 594.8001181943731,
+            "unit": "median tps",
+            "extra": "avg tps: 599.9573251249594, max tps: 690.8993670239086, count: 53866"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 673.2053319899858,
+            "unit": "median tps",
+            "extra": "avg tps: 681.9250380833533, max tps: 861.5080737991312, count: 53866"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.34030391191374,
+            "unit": "median tps",
+            "extra": "avg tps: 84.52175164076282, max tps: 90.59679815707993, count: 53866"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 533.3492565759119,
+            "unit": "median tps",
+            "extra": "avg tps: 502.56307480950585, max tps: 704.9472547618645, count: 107732"
           }
         ]
       }

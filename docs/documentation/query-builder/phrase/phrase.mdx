@@ -11,7 +11,7 @@ By default we recommend using the [phrase operator](/documentation/full-text/ter
 
 Searches for documents containing a phrase.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -45,7 +45,7 @@ MockItem.objects.filter(
 Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase as well
 as term transpositions.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items

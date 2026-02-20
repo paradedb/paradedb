@@ -9,7 +9,7 @@ The `pdb.agg` function accepts an Elasticsearch-compatible JSON aggregate query 
 
 For example, the following query counts the total number of results for a search query.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
@@ -36,7 +36,7 @@ MockItem.objects.filter(
 
 This query counts the number of results for every distinct group:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT rating, pdb.agg('{"value_count": {"field": "id"}}')
 FROM mock_items
@@ -72,7 +72,7 @@ MockItem.objects.filter(
 
 To compute multiple aggregations at once, simply include multiple `pdb.agg` functions in the target list:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT
   pdb.agg('{"avg": {"field": "rating"}}') AS avg_rating,
@@ -106,7 +106,7 @@ MockItem.objects.filter(
 
 If `metadata` is a JSON field with key `color`, use `metadata.color` as the field name:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items

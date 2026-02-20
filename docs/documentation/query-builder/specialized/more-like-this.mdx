@@ -10,7 +10,7 @@ to `pdb.more_like_this`.
 
 For instance, the following query finds documents that are "like" a document with an `id` of `3`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -50,7 +50,7 @@ This is because, by default, all fields present in the index are considered for 
 
 To find only documents that match on specific fields, provide an array of field names as the second argument:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -97,7 +97,7 @@ Let's look at how the MLT query works under the hood:
 In addition to providing a key field value, a custom document can also be provided as JSON.
 The JSON keys are field names and must correspond to field names in the index.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -125,7 +125,7 @@ based on term frequency.
 
 For instance, the following query returns no results because no term appears twice in the input document.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -149,7 +149,7 @@ MockItem.objects.filter(
 while `max_doc_frequency` excludes terms that appear in more than that many documents. By default, no terms are excluded
 based on document frequency.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -175,7 +175,7 @@ score the highest.
 
 This can be configured with `max_query_terms`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -198,7 +198,7 @@ MockItem.objects.filter(
 `min_word_length` and `max_word_length` can be used to exclude terms that are too short or too long, respectively. By default, no terms
 are excluded based on length.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items
@@ -220,7 +220,7 @@ MockItem.objects.filter(
 
 To exclude terms from being considered, provide a text array to `stopwords`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, rating, category
 FROM mock_items

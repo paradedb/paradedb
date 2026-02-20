@@ -8,7 +8,7 @@ The filters aggregation allows a single query to return aggregations for multipl
 To use this aggregation, pass `pdb.agg` to the left-hand side of `FILTER` and a search query to the right-hand side.
 For example:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT
     pdb.agg('{"value_count": {"field": "id"}}')

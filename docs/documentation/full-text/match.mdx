@@ -13,7 +13,7 @@ Match disjunction uses the `|||` operator and means "find all documents that con
 
 To understand what this looks like in practice, let's consider the following query:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -72,7 +72,7 @@ These examples assume that the index uses the default tokenizer and token filter
 Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -152,7 +152,7 @@ WHERE description ||| 'running shoes'::pdb.whitespace;
 The match operators also accept text arrays. If a text array is provided, each element of the array is treated as an exact token,
 which means that no further processing is done.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items

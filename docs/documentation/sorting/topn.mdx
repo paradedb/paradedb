@@ -6,7 +6,7 @@ canonical: https://docs.paradedb.com/documentation/sorting/topn
 
 ParadeDB is highly optimized for quickly returning the Top N results out of the index. In SQL, this means queries that contain an `ORDER BY...LIMIT`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -66,7 +66,7 @@ If any of the above conditions are not met, the query cannot be fully optimized 
 
 To guarantee stable sorting in the event of a tie, additional columns can be provided to `ORDER BY`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -106,7 +106,7 @@ WITH (key_field='id');
 
 This allows sorting by lowercase to be optimized.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items

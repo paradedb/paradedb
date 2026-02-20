@@ -7,7 +7,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
@@ -49,7 +49,7 @@ to find the most suitable one before running `CREATE INDEX`.
 
 For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
@@ -83,7 +83,7 @@ class MockItem(models.Model):
 Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
 including columns used for sorting, grouping, filtering, and aggregations.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
@@ -155,7 +155,7 @@ The `key_field` must:
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
@@ -191,7 +191,7 @@ class MockItem(models.Model):
 A single field can be indexed with multiple tokenizers by using a `tokenizers` list.
 Each tokenizer entry supports `tokenizer`, `args`, `named_args`, and `alias`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (

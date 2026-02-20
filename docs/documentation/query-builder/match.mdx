@@ -17,7 +17,7 @@ canonical: https://docs.paradedb.com/documentation/query-builder/match
 Under the hood, the [match](/documentation/full-text/match) conjunction and disjunction operators get rewritten to this query builder function.
 This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT description, rating, category
 FROM mock_items
@@ -79,7 +79,7 @@ By default, `match` constructs an `OR` boolean query from the query string's tok
 
 When set to `true`, `conjunction_mode` constructs an `AND` boolean query instead.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql SQL
 SELECT description, rating, category
 FROM mock_items

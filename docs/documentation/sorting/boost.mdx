@@ -11,7 +11,7 @@ The first is boosting, which increases or decreases the impact of a specific que
 
 To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, pdb.score(id), description, category
 FROM mock_items
@@ -38,7 +38,7 @@ MockItem.objects.filter(
 
 [Query builder functions](/documentation/query-builder/overview) can also be boosted:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, category, pdb.score(id)
 FROM mock_items
@@ -62,7 +62,7 @@ MockItem.objects.filter(
 
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, description, category, pdb.score(id)
 FROM mock_items
@@ -91,7 +91,7 @@ numeric value.
 
 For instance, the following query assigns a score of `1` to all documents matching the query `shoes`.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 SELECT id, pdb.score(id), description, category
 FROM mock_items

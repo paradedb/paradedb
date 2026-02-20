@@ -16,7 +16,7 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
@@ -65,7 +65,7 @@ WHERE i.relname = 'search_idx_v2';
 
 If all three columns are `true`, the original index can safely be dropped, which will redirect queries to the new index.
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 DROP INDEX search_idx;
 ```
@@ -85,7 +85,7 @@ with connection.cursor() as cursor:
 `REINDEX` is used to rebuild an index without changing the schema.
 The basic syntax for `REINDEX` is:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 REINDEX INDEX search_idx;
 ```
@@ -105,7 +105,7 @@ This operation takes an exclusive lock on the table, which blocks incoming write
 
 To allow for concurrent writes during a reindex, use `REINDEX CONCURRENTLY`:
 
-<CodeGroup dropdown>
+<CodeGroup>
 ```sql
 REINDEX INDEX CONCURRENTLY search_idx;
 ```

@@ -18,6 +18,8 @@
   outputs =
     { self, ... }@inputs:
     let
+      inherit (inputs.nixpkgs) lib;
+
       # The systems supported for this flake's outputs
       supportedSystems = [
         "x86_64-linux" # 64-bit Intel/AMD Linux
@@ -41,13 +43,15 @@
         );
     in
     {
-      # This package output enables you to build pg_search locally:
-      # NIXPKGS_ALLOW_BROKEN=1 nix build --impure .#pg_search
-      # Or you can build the `default` package like this for the sake of brevity:
-      # NIXPKGS_ALLOW_BROKEN=1 nix build
+      # Package outputs
+      # To build pg_search for the most recent supported version of Postgres:
+      # NIXPKGS_ALLOW_BROKEN=1 nix build --impure
       # The "allow broken" setting is necessary because *all* PostgreSQL plugins based on Nixpkgs
-      # are technically broken because tests require a running instance of PostgreSQL in the
-      # Nix sandbox, which is generally infeasible.
+      # are technically broken from Nix's standpoing because tests require a running instance of
+      # PostgreSQL in the Nix sandbox, which is generally infeasible. But the resulting extensions
+      # do work just fine in Postgres.
+      # You can also build the extension for specific versions of Postgres. Example:
+      # NIXPKGS_ALLOW_BROKEN=1 nix build --impure .#pg_search-pg17
       packages = forEachSupportedSystem (
         { pkgs, system }:
         let
@@ -80,7 +84,6 @@
       );
 
       # Development environments output by this flake
-
       # To activate the default environment:
       # nix develop
       # Or if you use direnv:
@@ -104,7 +107,7 @@
               # Makefile tools
               postgresql.pg_config
               perl
-              cargo-pgrx_0_16_1
+              cargo-pgrx
             ];
 
             # Environment variables the environment
@@ -126,6 +129,20 @@
       # To check formatting:
       # git ls-files -z '*.nix' | xargs -0 -r nix develop --command nixfmt --check
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt);
+
+      # Flake checks
+      # To run all checks: NIXPKGS_ALLOW_BROKEN=1 nix flake check --impure
+      checks = forEachSupportedSystem (
+        { pkgs, system }:
+        {
+          # Check the Nix formatting for all Nix files
+          nix-fmt = pkgs.runCommand "check-nix-formatting" { } ''
+            cd ${self}
+            ${lib.getExe pkgs.nixfmt} --check $(find . -name '*.nix') 
+            touch $out
+          '';
+        }
+      );
 
       # A Nixpkgs overlay that adds a Fenix-based Rust toolchain
       overlays.default = final: prev: {

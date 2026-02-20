@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771560887617,
+  "lastUpdate": 1771561834079,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14434,6 +14434,54 @@ window.BENCHMARK_DATA = {
             "value": 560.1837692462755,
             "unit": "median tps",
             "extra": "avg tps: 499.79221699923323, max tps: 734.6147570917469, count: 107736"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d577fea31ef682612c9c84714e95e4ba19c183e1",
+          "message": "perf: Batch visibility filtering (#4086)\n\n## What\n\nBegin batching visibility checks for both aggregates and fast field\nscans.\n\n## Why\n\nAs [discovered in\n#4140](https://github.com/paradedb/paradedb/pull/4140#pullrequestreview-3828967639),\nour benchmark suite was getting a significant advantage from how it was\nbeing set up: `CREATE INDEX` was implicitly creating the index almost\nperfectly sorted by `ctid`.\n\nThat made visibility checks cheaper, but _only_ in our benchmarks! In\nthe real world, segment merging patterns from real sequences of\n`INSERT`s would lead to sawtooth sort patterns within segments, likely\nmatching the size of your insert batches.\n\n## How\n\nReplaced `VisibilityChecker::check` with a `check_batch` method which\nsorts the ctids in order to acquire locks the minimum number of times\nwhile checking a batch. Used it in all callers.\n\nAdditionally, added buffering to the `MVCCFilterCollector` which is used\nin aggregate scans, in order to allow for larger batch lookups of\n`ctids` using `check_batch`.\n\n## Tests\n\nCovered by existing tests.\n\nRegains most of the performance lost in #4140 for the `docs` dataset,\nand improves the performance of aggregates on the `logs` dataset by a\nfew percentage points. No regressions.\n\nMore importantly: this will likely have a larger positive impact on real\nworld `INSERT` patterns.",
+          "timestamp": "2026-02-19T19:16:28-08:00",
+          "tree_id": "50e7b9b1c46080259267cc68038ac1d5a21733cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d577fea31ef682612c9c84714e95e4ba19c183e1"
+        },
+        "date": 1771561830124,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 567.9134087523627,
+            "unit": "median tps",
+            "extra": "avg tps: 568.9424100030968, max tps: 696.6587684268906, count: 53855"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 641.5633553834782,
+            "unit": "median tps",
+            "extra": "avg tps: 641.8991941687327, max tps: 817.8746007694343, count: 53855"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.37191428841062,
+            "unit": "median tps",
+            "extra": "avg tps: 88.41901234142541, max tps: 96.83303353685812, count: 53855"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 541.7142522809702,
+            "unit": "median tps",
+            "extra": "avg tps: 511.48120317196845, max tps: 733.2412908701644, count: 107710"
           }
         ]
       }

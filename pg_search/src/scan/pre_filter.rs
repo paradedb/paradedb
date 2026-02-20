@@ -37,7 +37,10 @@
 //!        │
 //!        ▼
 //! PgSearchScanPlan                   ← handle_child_pushdown_result stores
-//!   .dynamic_filters                   the DynamicFilterPhysicalExpr
+//!   .dynamic_filters                   the DynamicFilterPhysicalExpr; when
+//!                                      paradedb.dynamic_filter_batch_size > 0,
+//!                                      caps the scanner batch size so TopK can
+//!                                      tighten its threshold between batches
 //!        │
 //!        │  at poll time
 //!        ▼
@@ -57,11 +60,12 @@
 //! `FilterPassthroughExec` (in `joinscan::planner`) wraps it and overrides the
 //! two filter-pushdown methods to route filters through.
 //!
-//! `SortMergeJoinEnforcer` is inserted into the physical optimizer rule list
-//! just before the final `FilterPushdown` pass (in
-//! `joinscan::scan_state::create_session_context`). This ensures the enforcer's
-//! plan rewrite (HashJoin → SortMergeJoin) happens before FilterPushdown wires
-//! `DynamicFilterPhysicalExpr` to scan nodes.
+//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
+//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
+//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
+//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
+//! pass (registered in `joinscan::scan_state::create_session_context`) wires the
+//! new filter to the scan.
 //!
 //! # NULL Handling (`nulls_pass`)
 //!

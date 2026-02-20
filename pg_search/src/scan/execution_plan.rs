@@ -364,7 +364,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let states: Vec<_> = self
+            let mut states: Vec<_> = self
                 .states
                 .lock()
                 .map_err(|e| {
@@ -374,6 +374,15 @@ impl ExecutionPlan for PgSearchScanPlan {
                 })?
                 .drain(..)
                 .collect();
+
+            // When the GUC is set, cap the scanner batch size so that TopK
+            // can tighten its threshold between batches.
+            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
+            if df_batch_size > 0 {
+                for UnsafeSendSync(ref mut inner) in states.iter_mut().flatten() {
+                    inner.0.set_batch_size(df_batch_size as usize);
+                }
+            }
 
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),

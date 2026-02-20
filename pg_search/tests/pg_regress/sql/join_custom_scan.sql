@@ -2146,6 +2146,9 @@ WHERE t1.val @@@ 'val'
 ORDER BY t1.val ASC
 LIMIT 10;
 
+-- Cap the scanner batch size so TopK can tighten its threshold between batches.
+SET paradedb.dynamic_filter_batch_size = 8192;
+
 -- EXPLAIN ANALYZE: rows_pruned should be > 0 with multiple segments
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -2234,6 +2237,7 @@ LIMIT 25;
 -- CLEANUP
 -- =============================================================================
 
+RESET paradedb.dynamic_filter_batch_size;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS level1 CASCADE;
 DROP TABLE IF EXISTS level2 CASCADE;

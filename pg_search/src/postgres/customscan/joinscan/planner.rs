@@ -174,7 +174,7 @@ impl SortMergeJoinEnforcer {
                         null_equality,
                     )?;
 
-                    let exec = Arc::new(FilterPassthroughJoinExec::new(Arc::new(exec)))
+                    let exec = Arc::new(FilterPassthroughExec::new(Arc::new(exec)))
                         as Arc<dyn ExecutionPlan>;
 
                     // HashJoinExec might have an internal projection (pruning columns).
@@ -283,35 +283,36 @@ fn check_ordering(
     None
 }
 
-/// Thin wrapper around `SortMergeJoinExec` that enables dynamic-filter pushdown.
+/// Thin wrapper that enables dynamic-filter pushdown through an inner `ExecutionPlan`.
 ///
-/// DataFusion's `SortMergeJoinExec` uses the default `gather_filters_for_pushdown` which
-/// marks all parent filters as unsupported. This blocks `DynamicFilterPhysicalExpr` (from
-/// `SortExec(TopK)`) from reaching scan nodes below the join.
+/// Some DataFusion operators (e.g. `SortMergeJoinExec`) use the default
+/// `gather_filters_for_pushdown` which marks all parent filters as unsupported.
+/// This blocks `DynamicFilterPhysicalExpr` (from `SortExec(TopK)`) from reaching
+/// scan nodes below those operators.
 ///
 /// This wrapper overrides two methods to allow filters through:
 /// - `gather_filters_for_pushdown`: uses `FilterDescription::from_children` for column-based
 ///   routing — a filter on `val` is routed only to the child whose schema contains `val`.
 /// - `handle_child_pushdown_result`: uses `if_any` (matching `HashJoinExec`'s behavior) since
-///   a filter can only apply to the join side that owns the referenced column.
+///   a filter can only apply to the child that owns the referenced column.
 #[derive(Debug)]
-struct FilterPassthroughJoinExec {
+struct FilterPassthroughExec {
     inner: Arc<dyn ExecutionPlan>,
 }
 
-impl FilterPassthroughJoinExec {
+impl FilterPassthroughExec {
     fn new(inner: Arc<dyn ExecutionPlan>) -> Self {
         Self { inner }
     }
 }
 
-impl DisplayAs for FilterPassthroughJoinExec {
+impl DisplayAs for FilterPassthroughExec {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut Formatter) -> fmt::Result {
         self.inner.fmt_as(t, f)
     }
 }
 
-impl ExecutionPlan for FilterPassthroughJoinExec {
+impl ExecutionPlan for FilterPassthroughExec {
     fn name(&self) -> &str {
         self.inner.name()
     }
@@ -337,7 +338,7 @@ impl ExecutionPlan for FilterPassthroughJoinExec {
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let new_inner = Arc::clone(&self.inner).with_new_children(children)?;
-        Ok(Arc::new(FilterPassthroughJoinExec::new(new_inner)))
+        Ok(Arc::new(FilterPassthroughExec::new(new_inner)))
     }
 
     fn execute(

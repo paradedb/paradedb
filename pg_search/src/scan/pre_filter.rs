@@ -32,13 +32,12 @@
 //!        │
 //!        │  FilterPushdown pass
 //!        ▼
-//! FilterPassthroughJoinExec          ← routes filter to correct join side
+//! FilterPassthroughExec               ← routes filter to correct join side
 //!   (wraps SortMergeJoinExec)          using FilterDescription::from_children
 //!        │
 //!        ▼
 //! PgSearchScanPlan                   ← handle_child_pushdown_result stores
-//!   .dynamic_filters                   the DynamicFilterPhysicalExpr and caps
-//!                                      the scanner's batch_size
+//!   .dynamic_filters                   the DynamicFilterPhysicalExpr
 //!        │
 //!        │  at poll time
 //!        ▼
@@ -55,24 +54,14 @@
 //!
 //! DataFusion's `SortMergeJoinExec` blocks filter pushdown by default (its
 //! `gather_filters_for_pushdown` marks all parent filters as unsupported).
-//! `FilterPassthroughJoinExec` (in `joinscan::planner`) wraps it and overrides the
+//! `FilterPassthroughExec` (in `joinscan::planner`) wraps it and overrides the
 //! two filter-pushdown methods to route filters through.
 //!
-//! Because `SortMergeJoinEnforcer` runs as a physical optimizer rule *after* the
-//! initial `FilterPushdown` pass, it causes `with_new_children` on ancestors —
-//! which in `SortExec`'s case creates a *new* `DynamicFilterPhysicalExpr` that
-//! hasn't been connected yet. A second `FilterPushdown::new_post_optimization()`
-//! pass (registered in `joinscan::scan_state::create_session_context`) wires the
-//! new filter to the scan.
-//!
-//! # Batch-Size Capping
-//!
-//! The scanner's default batch size can be large enough to consume an entire segment
-//! in one batch. When that happens, TopK receives all rows at once and has no chance
-//! to tighten its threshold for subsequent batches — so `rows_pruned` stays zero.
-//! When dynamic filters are accepted, `PgSearchScanPlan::handle_child_pushdown_result`
-//! caps the scanner's batch size to DataFusion's `execution.batch_size` (typically
-//! 8192), forcing multiple batches per segment and enabling incremental pruning.
+//! `SortMergeJoinEnforcer` is inserted into the physical optimizer rule list
+//! just before the final `FilterPushdown` pass (in
+//! `joinscan::scan_state::create_session_context`). This ensures the enforcer's
+//! plan rewrite (HashJoin → SortMergeJoin) happens before FilterPushdown wires
+//! `DynamicFilterPhysicalExpr` to scan nodes.
 //!
 //! # NULL Handling (`nulls_pass`)
 //!

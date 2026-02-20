@@ -364,12 +364,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            // Cap the scanner's batch size to DataFusion's configured batch_size
-            // so that the scan produces smaller batches. This allows the pipeline
-            // to be more streaming: TopK can update the dynamic filter threshold
-            // between scan batches, enabling pre-filter pruning on later batches.
-            let df_batch_size = _config.execution.batch_size;
-            let mut states: Vec<_> = self
+            let states: Vec<_> = self
                 .states
                 .lock()
                 .map_err(|e| {
@@ -379,9 +374,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                 })?
                 .drain(..)
                 .collect();
-            for UnsafeSendSync(ref mut inner) in states.iter_mut().flatten() {
-                inner.0.set_batch_size(df_batch_size);
-            }
 
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),

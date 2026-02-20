@@ -65,7 +65,6 @@ use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
-use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -155,22 +154,30 @@ pub fn create_session_context() -> SessionContext {
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
-
     if crate::gucs::is_mixed_fast_field_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    }
+        // Insert SortMergeJoinEnforcer right before the final FilterPushdown rule
+        // so that the enforcer's plan rewrite (HashJoin → SortMergeJoin) happens
+        // before the filter pushdown pass wires DynamicFilterPhysicalExpr to scans.
+        let state = SessionStateBuilder::new()
+            .with_config(config.clone())
+            .build();
+        let mut rules = state.physical_optimizers().to_vec();
 
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+        let fp_index = rules
+            .iter()
+            .rposition(|r| r.name() == "FilterPushdown")
+            .expect("FilterPushdown rule not found in default physical optimizer rules");
+        rules.insert(fp_index, Arc::new(SortMergeJoinEnforcer::new()));
+
+        let state = SessionStateBuilder::new()
+            .with_config(config)
+            .with_physical_optimizer_rules(rules)
+            .build();
+        SessionContext::new_with_state(state)
+    } else {
+        let state = SessionStateBuilder::new().with_config(config).build();
+        SessionContext::new_with_state(state)
+    }
 }
 
 /// Build the DataFusion logical plan for the join.

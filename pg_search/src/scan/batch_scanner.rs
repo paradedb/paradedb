@@ -148,11 +148,6 @@ impl Scanner {
         }
     }
 
-    /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
-    pub(crate) fn set_batch_size(&mut self, size: usize) {
-        self.batch_size = size.min(MAX_BATCH_SIZE);
-    }
-
     /// Returns the Arrow schema for this scanner.
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {

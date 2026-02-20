@@ -271,10 +271,27 @@ CREATE UNIQUE INDEX cccf_company_id_contact_id_uix ON contacts_companies_combine
 --
 -- pg_search BM25 index for advanced full-text search capabilities across multiple fields
 --
+-- NOTE: `sort_by` Configuration Tradeoff
+-- We have configured this index with `sort_by = 'company_id ASC NULLS FIRST'`.
+--
+-- Rationale:
+-- Four out of the six main query patterns (Company List, Intent, Tech Install, Specialties)
+-- filter or join based on `company_id`. By physically sorting the index on `company_id`,
+-- we enable the PostgreSQL planner to utilize efficient Merge Joins without an explicit
+-- Sort step for these queries.
+--
+-- Tradeoff:
+-- The `Contact List` query and the `Aggregate` query (dsg/query-aggregate.sql) filter
+-- primarily on `contact_id`. Since the index is sorted by `company_id`, these specific
+-- queries cannot leverage the pre-sorted order for Merge Joins on `contact_id`.
+-- The planner will likely default to Hash Joins or require explicit Sort steps for these.
+-- We prioritized optimizing the majority of the workload (company-based filters).
+--
 CREATE INDEX contacts_companies_combined_full_idx ON contacts_companies_combined_full
 USING bm25 (contact_id, company_domain, company_industry, company_sector, company_sub_sectors, company_name, company_shorthand_name, contact_business_email, contact_canonical_shorthand_name, contact_first_name, contact_full_name, contact_job_title, contact_last_name, contact_mobile_phone, company_id, employee_rank, revenue_rank, company_emp_rev_details, company_locations_details, contact_job_details, contact_locations_details, contact_confirmed_connect_date)
 WITH (
     key_field = contact_id,
+    sort_by = 'company_id ASC NULLS FIRST',
     text_fields = '{
         "company_domain": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}, "normalizer": "lowercase"},
         "company_industry": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}},
@@ -290,7 +307,7 @@ WITH (
         "contact_mobile_phone": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}, "normalizer": "lowercase"}
     }',
     numeric_fields = '{
-        "company_id": {"indexed": true},
+        "company_id": {"fast": true, "indexed": true},
         "employee_rank": {"indexed": true},
         "revenue_rank": {"indexed": true}
     }',
@@ -335,31 +352,41 @@ CREATE INDEX contacts_companies_combined_full_company_id ON contacts_companies_c
 --
 
 CREATE INDEX company_intent_autocomplete_idx ON company_intent_autocomplete
-USING bm25 (unique_id, intent_topic, score)
+USING bm25 (unique_id, intent_topic, score, company_id)
 WITH (
     key_field = unique_id,
+    sort_by = 'company_id ASC NULLS FIRST',
     text_fields = '{
         "intent_topic": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
     }',
     numeric_fields = '{
-        "score": {"indexed": true}
+        "score": {"indexed": true},
+        "company_id": {"fast": true}
     }'
 );
 
 CREATE INDEX company_tech_install_autocomplete_idx ON company_tech_install_autocomplete
-USING bm25 (unique_id, technology_name)
+USING bm25 (unique_id, technology_name, company_id)
 WITH (
     key_field = unique_id,
+    sort_by = 'company_id ASC NULLS FIRST',
     text_fields = '{
         "technology_name": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
+    }',
+    numeric_fields = '{
+        "company_id": {"fast": true}
     }'
 );
 
 CREATE INDEX company_specialties_autocomplete_idx ON company_specialties_autocomplete
-USING bm25 (unique_id, speciality)
+USING bm25 (unique_id, speciality, company_id)
 WITH (
     key_field = unique_id,
+    sort_by = 'company_id ASC NULLS FIRST',
     text_fields = '{
         "speciality": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
+    }',
+    numeric_fields = '{
+        "company_id": {"fast": true}
     }'
 );

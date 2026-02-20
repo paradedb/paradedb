@@ -65,6 +65,7 @@ use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -159,6 +160,19 @@ pub fn create_session_context() -> SessionContext {
     if crate::gucs::is_mixed_fast_field_sort_enabled() {
         let rule = Arc::new(SortMergeJoinEnforcer::new());
         builder = builder.with_physical_optimizer_rule(rule);
+        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
+        // transform_up causes `with_new_children` on ancestor nodes, which in
+        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
+        // been pushed to PgSearchScan yet. This second pass establishes the
+        // connection.
+        //
+        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
+        // rule (rather than appending a second pass) was considered, but the
+        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
+        // children — the plan structure at that earlier pipeline point differs,
+        // causing missing SortPreservingMergeExec and incorrect join results.
+        builder =
+            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
 
     let state = builder.build();

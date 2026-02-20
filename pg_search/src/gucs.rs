@@ -116,6 +116,12 @@ static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(
 /// won't use parallel, and larger tables scale workers appropriately.
 static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
+/// Override the scanner batch size when dynamic filters are pushed down.
+/// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
+/// size is capped to this value during filter pushdown so that TopK can tighten
+/// its threshold between batches.
+static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -351,6 +357,18 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.dynamic_filter_batch_size",
+        c"Scanner batch size override for dynamic filter pushdown",
+        c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
+          TopK can tighten its threshold between batches. 0 disables the override.",
+        &DYNAMIC_FILTER_BATCH_SIZE,
+        0,
+        128_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -513,6 +531,10 @@ pub fn min_rows_per_worker() -> i32 {
 
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn dynamic_filter_batch_size() -> i32 {
+    DYNAMIC_FILTER_BATCH_SIZE.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

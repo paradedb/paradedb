@@ -158,6 +158,11 @@ impl Scanner {
         build_arrow_schema(&self.which_fast_fields)
     }
 
+    /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
+    pub(crate) fn set_batch_size(&mut self, size: usize) {
+        self.batch_size = size.min(MAX_BATCH_SIZE);
+    }
+
     /// Returns the estimated number of rows that will be produced by this scanner.
     pub fn estimated_rows(&self) -> u64 {
         self.search_results.estimated_doc_count()

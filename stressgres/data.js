@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771573095093,
+  "lastUpdate": 1771574025127,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15094,6 +15094,54 @@ window.BENCHMARK_DATA = {
             "value": 541.7142522809702,
             "unit": "median tps",
             "extra": "avg tps: 511.48120317196845, max tps: 733.2412908701644, count: 107710"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a07e8d138979d521d1d6ab50beb2a2954291332d",
+          "message": "perf: enable dynamic filter pushdown through SortMergeJoin (#4193)\n\n## What\n\nTopK dynamic filters now propagate through `SortMergeJoinExec` to\n`PgSearchScan` nodes, enabling pre-materialization pruning during join\nqueries with `ORDER BY ... LIMIT`. NULL values in the sort column are\ncorrectly preserved when they belong in the top-K result.\n\n## Why\n\n`SortMergeJoinExec` blocks dynamic filter pushdown by default, so TopK's\nthreshold filters never reached scan nodes — every row was materialized\neven when only a handful were needed. This made `ORDER BY ... LIMIT` on\njoined BM25 tables unnecessarily expensive. You can see the output diff\nof `join_custom_scan.sql` in\n[a628675](https://github.com/paradedb/paradedb/pull/4193/commits/a628675595e6f9f436c06dcc32991374b201bff4).\n\n## How\n\n- **`FilterPassthroughJoinExec`** — thin wrapper around\n`SortMergeJoinExec` that overrides `gather_filters_for_pushdown` /\n`handle_child_pushdown_result` to route filters to the correct join side\nby column name.\n- **Post-optimization `FilterPushdown` pass** — the enforcer's\n`transform_up` recreates ancestor nodes (including `SortExec`),\nproducing new `DynamicFilterPhysicalExpr` instances that haven't been\nconnected yet. A second `FilterPushdown::new_post_optimization()` pass\nwires them up.\n- **Scanner batch-size cap** — when dynamic filters are present, the\nscanner's batch size is capped to DataFusion's `execution.batch_size`\n(8192) so TopK can tighten its threshold between batches and the\npre-filter can prune later batches.\n- **`nulls_pass` in `PreFilter`** — TopK on nullable columns emits `col\nIS NULL OR col < threshold`. A new `try_or_is_null_pattern` helper\ndecomposes this into a `PreFilter` with `nulls_pass=true`, preventing\nincorrect pruning of NULLs that belong in the result.\n- **Name-based column resolution** — `collect_filters` now resolves\ncolumn indices via the scan's schema by name, handling cross-plan\nfilters where the parent's column index doesn't match the scan's field\norder.\n- **`SessionConfig` propagated to `TaskContext`** — ensures DataFusion's\nconfig (including `execution.batch_size`) is available during filter\npushdown.\n\n## Tests\n\n- **TEST 39**: 20K-row join with `ORDER BY ... LIMIT 10`. EXPLAIN\nANALYZE shows `rows_pruned=1.81 K` (was 0 before), confirming filters\npropagate and prune.\n- **TEST 39b**: 20K rows with 10 NULLs at high IDs, `ORDER BY val DESC\nNULLS FIRST LIMIT 25`. EXPLAIN ANALYZE shows `rows_pruned=3.38 K` with\nall 10 NULLs correctly present in the result — proves `nulls_pass`\nworks. Without the IS NULL OR decomposition, `rows_pruned` would be 0.\n- **TEST 36b**: OFFSET + LIMIT on sorted join keys, verifying correct\nfetch propagation.",
+          "timestamp": "2026-02-19T22:30:40-08:00",
+          "tree_id": "23cb9d4c271690121376d1537115302fbef912b6",
+          "url": "https://github.com/paradedb/paradedb/commit/a07e8d138979d521d1d6ab50beb2a2954291332d"
+        },
+        "date": 1771574021116,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 593.4021670331144,
+            "unit": "median tps",
+            "extra": "avg tps: 597.1070005723901, max tps: 677.0255254123402, count: 53830"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 662.7834730344629,
+            "unit": "median tps",
+            "extra": "avg tps: 669.9571552345349, max tps: 744.9456409926873, count: 53830"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.18173593000668,
+            "unit": "median tps",
+            "extra": "avg tps: 87.17434573356495, max tps: 88.34774423085089, count: 53830"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 529.421485407903,
+            "unit": "median tps",
+            "extra": "avg tps: 486.89576091011094, max tps: 706.9026099792253, count: 107660"
           }
         ]
       }

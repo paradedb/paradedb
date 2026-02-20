@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771574030227,
+  "lastUpdate": 1771609250686,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1646,6 +1646,78 @@ window.BENCHMARK_DATA = {
             "value": 53.19931328283561,
             "unit": "median tps",
             "extra": "avg tps: 85.14417376496786, max tps: 773.7404858935503, count: 55061"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d5c7a1a8e9dc0322da4091a1c4c5ac37270deb5",
+          "message": "feat: bump tantivy for sorted range query optimization (#4203)\n\n## Summary\n- Fixes https://github.com/paradedb/paradedb/issues/4169\n\n## Test plan\n- `cargo check` passes\n- Tantivy-side tests in paradedb/tantivy#107\n\nRef: paradedb/tantivy#107",
+          "timestamp": "2026-02-20T22:48:58+05:30",
+          "tree_id": "9c42a6ed85bf56421ce51405df8f64fd7c3bc555",
+          "url": "https://github.com/paradedb/paradedb/commit/0d5c7a1a8e9dc0322da4091a1c4c5ac37270deb5"
+        },
+        "date": 1771609246520,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 124.77097527176818,
+            "unit": "median tps",
+            "extra": "avg tps: 124.33645698166711, max tps: 136.59100088023416, count: 55053"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3003.7693019291346,
+            "unit": "median tps",
+            "extra": "avg tps: 2990.1157347676744, max tps: 3042.6197919147785, count: 55053"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 489.00872799562705,
+            "unit": "median tps",
+            "extra": "avg tps: 485.68237785540504, max tps: 579.41642465301, count: 55053"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3034.526295067002,
+            "unit": "median tps",
+            "extra": "avg tps: 3026.0768116620998, max tps: 3066.253207180634, count: 110106"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 515.7003864774308,
+            "unit": "median tps",
+            "extra": "avg tps: 515.8394866202705, max tps: 666.4965857752187, count: 55053"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 518.4063882369966,
+            "unit": "median tps",
+            "extra": "avg tps: 517.2132902559143, max tps: 650.1900006118752, count: 55053"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1923.0645379571586,
+            "unit": "median tps",
+            "extra": "avg tps: 1913.015876544003, max tps: 1928.6089819967244, count: 55053"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.95705119689089,
+            "unit": "median tps",
+            "extra": "avg tps: 106.79662505576131, max tps: 774.0231634171885, count: 55053"
           }
         ]
       }

@@ -34,6 +34,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :chinese_compatible }
+  }
+end
+```
+
 </CodeGroup>
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
@@ -45,6 +57,12 @@ SELECT 'Hello world! 你好!'::pdb.chinese_compatible::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Hello world! 你好!'::pdb.chinese_compatible::text[];"
+)
 ```
 
 </CodeGroup>

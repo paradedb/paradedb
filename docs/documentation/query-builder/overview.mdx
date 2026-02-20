@@ -27,6 +27,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .regex("key.*rd")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 ```ini Expected Response

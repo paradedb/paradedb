@@ -29,6 +29,10 @@ MockItem.objects.filter(
 )
 ```
 
+```ruby Rails
+# coming soon
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -69,6 +73,10 @@ MockItem.objects.filter(
 )
 ```
 
+```ruby Rails
+# coming soon
+```
+
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -90,6 +98,10 @@ MockItem.objects.filter(
 ).values('rating').annotate(
     agg=Agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id": "asc"}], "docvalue_fields": ["id", "created_at"]}}')
 )
+```
+
+```ruby Rails
+# coming soon
 ```
 
 </CodeGroup>

@@ -37,6 +37,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :simple, named_args: { stopwords_language: "english" } }
+  }
+end
+```
+
 </CodeGroup>
 
 Valid languages are `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Hungarian`, `Italian`, `Norwegian`, `Polish`, `Portuguese`, `Russian`, `Spanish`, and `Swedish`. Language names are case-insensitive.
@@ -72,6 +84,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :simple, named_args: { stopwords_language: "English,French" } }
+  }
+end
+```
+
 </CodeGroup>
 
 <CodeGroup>
@@ -81,6 +105,12 @@ SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,French')::text[];"
+)
 ```
 
 </CodeGroup>
@@ -105,6 +135,14 @@ SELECT
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT
+    'The cat in the hat'::pdb.simple::text[],
+    'The cat in the hat'::pdb.simple('stopwords_language=English')::text[];
+SQL
 ```
 
 </CodeGroup>

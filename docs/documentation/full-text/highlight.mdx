@@ -39,6 +39,14 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_snippet(:description)
+        .select(:id)
+        .limit(5)
+```
+
 </CodeGroup>
 
 <ParamField body="start_tag" default="<b>">
@@ -73,6 +81,14 @@ MockItem.objects.filter(
 ).values('id', 'snippet')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_snippet(:description, start_tag: "<i>", end_tag: "</i>")
+        .select(:id)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ## Multiple Snippets
@@ -96,6 +112,14 @@ MockItem.objects.filter(
 ).annotate(
     snippets=Snippets('description', max_num_chars=15)
 ).values('id', 'snippets')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("artistic", "vase")
+        .with_snippets(:description, max_chars: 15)
+        .select(:id)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -155,6 +179,14 @@ MockItem.objects.filter(
 ).values('id', 'snippets')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running")
+        .with_snippets(:description, max_chars: 15, limit: 1)
+        .select(:id)
+        .limit(5)
+```
+
 </CodeGroup>
 
 To get the second snippet (by skipping the first one):
@@ -176,6 +208,14 @@ MockItem.objects.filter(
 ).annotate(
     snippets=Snippets('description', max_num_chars=15, limit=1, offset=1)
 ).values('id', 'snippets')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("running")
+        .with_snippets(:description, max_chars: 15, limit: 1, offset: 1)
+        .select(:id)
+        .limit(5)
 ```
 
 </CodeGroup>
@@ -205,6 +245,14 @@ MockItem.objects.filter(
 ).values('id', 'snippets')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("artistic", "vase")
+        .with_snippets(:description, max_chars: 15, sort_by: :position)
+        .select(:id)
+        .limit(5)
+```
+
 </CodeGroup>
 
 ## Byte Offsets
@@ -230,6 +278,15 @@ MockItem.objects.filter(
     snippet=Snippet('description'),
     snippet_positions=SnippetPositions('description')
 ).values('id', 'snippet', 'snippet_positions')[:5]
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_any("shoes")
+        .with_snippet(:description)
+        .with_snippet_positions(:description)
+        .select(:id)
+        .limit(5)
 ```
 
 </CodeGroup>

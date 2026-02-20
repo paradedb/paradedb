@@ -26,6 +26,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"min": {"field": "rating"}}'))
 ```
 
+```ruby Rails Min
+MockItem.search(:id)
+        .match_all
+        .facets_agg(min_rating: ParadeDB::Aggregations.min(:rating))
+```
+
 ```python Django Max
 from paradedb.functions import Agg
 from paradedb.search import All, ParadeDB
@@ -33,6 +39,12 @@ from paradedb.search import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
+```
+
+```ruby Rails Max
+MockItem.search(:id)
+        .match_all
+        .facets_agg(max_rating: ParadeDB::Aggregations.max(:rating))
 ```
 
 </CodeGroup>
@@ -86,6 +98,10 @@ MockItem.objects.filter(
 ).aggregate(min_rating=Min('rating'))
 ```
 
+```ruby Rails Min
+MockItem.search(:id).match_all.minimum(:rating)
+```
+
 ```python Django Max
 from django.db.models import Max
 from paradedb.search import All, ParadeDB
@@ -93,6 +109,10 @@ from paradedb.search import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(max_rating=Max('rating'))
+```
+
+```ruby Rails Max
+MockItem.search(:id).match_all.maximum(:rating)
 ```
 
 </CodeGroup>
@@ -113,6 +133,12 @@ from paradedb.search import All, ParadeDB
 MockItem.objects.filter(
     id=ParadeDB(All())
 ).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .minimum("COALESCE(rating, 0)")
 ```
 
 </CodeGroup>

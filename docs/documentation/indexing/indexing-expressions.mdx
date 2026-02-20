@@ -21,6 +21,21 @@ WITH (key_field='id');
 # Coming soon
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    "description || ' ' || category" => {
+      tokenizer: :simple,
+      alias: "description_concat"
+    }
+  }
+end
+```
+
 </CodeGroup>
 
 To index a text/JSON expression:
@@ -42,6 +57,11 @@ WHERE (description || ' ' || category) &&& 'running shoes';
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+MockItem.where("(description || ' ' || category) &&& ?", "running shoes")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>
@@ -67,6 +87,19 @@ WITH (key_field='id');
 # Coming soon
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: {},
+    "rating + 1" => { alias: "rating_plus_one" }
+  }
+end
+```
+
 </CodeGroup>
 
 With the expression indexed, queries containing the expression can be pushed down to the ParadeDB index:
@@ -81,6 +114,13 @@ AND rating + 1 > 3;
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+MockItem.search(:description)
+        .matching_all("running", "shoes")
+        .where("rating + 1 > 3")
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

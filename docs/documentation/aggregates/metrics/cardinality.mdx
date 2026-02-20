@@ -21,6 +21,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"cardinality": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(cardinality: { cardinality: { field: "rating" } })
+```
+
 </CodeGroup>
 
 ```ini Expected Response

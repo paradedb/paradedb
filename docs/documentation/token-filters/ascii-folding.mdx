@@ -36,6 +36,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :simple, named_args: { ascii_folding: true } }
+  }
+end
+```
+
 </CodeGroup>
 
 To demonstrate this token filter, let's compare the output of the following two statements:
@@ -49,6 +61,14 @@ SELECT
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT
+    'Café naïve coöperate'::pdb.simple::text[],
+    'Café naïve coöperate'::pdb.simple('ascii_folding=true')::text[];
+SQL
 ```
 
 </CodeGroup>

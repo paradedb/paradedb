@@ -17,6 +17,10 @@ SELECT 'Hello world!'::pdb.simple::text[];
 # Coming soon
 ```
 
+```ruby Rails
+ActiveRecord::Base.connection.exec_query("SELECT 'Hello world!'::pdb.simple::text[];")
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -35,6 +39,10 @@ SELECT 'Hello world!'::pdb.ngram(3,3)::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query("SELECT 'Hello world!'::pdb.ngram(3,3)::text[];")
 ```
 
 </CodeGroup>
@@ -79,6 +87,18 @@ class MockItem(models.Model):
                 name='search_idx',
             ),
         ]
+```
+
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :ngram, args: [3, 3] }
+  }
+end
 ```
 
 </CodeGroup>

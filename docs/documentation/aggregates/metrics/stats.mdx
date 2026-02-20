@@ -21,6 +21,12 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"stats": {"field": "rating"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(stats: ParadeDB::Aggregations.stats(:rating))
+```
+
 </CodeGroup>
 
 ```ini Expected Response

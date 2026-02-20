@@ -37,6 +37,18 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :literal_normalized, named_args: { trim: true } }
+  }
+end
+```
+
 </CodeGroup>
 
 To demonstrate this token filter, let's compare the output of the following two statements:
@@ -50,6 +62,14 @@ SELECT
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(<<~SQL)
+  SELECT
+    '    token with whitespace   '::pdb.literal_normalized::text[],
+    '    token with whitespace   '::pdb.literal_normalized('trim=true')::text[];
+SQL
 ```
 
 </CodeGroup>

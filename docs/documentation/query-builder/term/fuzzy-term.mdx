@@ -28,6 +28,13 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .fuzzy("shoez", distance: 2)
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
 </CodeGroup>
 
 <div className="mt-8" />

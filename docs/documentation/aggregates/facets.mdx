@@ -35,6 +35,17 @@ rows, facets = (
 )
 ```
 
+```ruby Rails
+relation = MockItem.search(:category)
+                   .term("electronics")
+                   .with_facets(agg: ParadeDB::Aggregations.value_count(:id))
+                   .order(rating: :desc)
+                   .limit(3)
+
+rows = relation.to_a
+facets = relation.facets
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -78,6 +89,17 @@ rows, facets = (
     .order_by('rating')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')
 )
+```
+
+```ruby Rails
+relation = MockItem.search(:description)
+                   .matching_any("running", "shoes")
+                   .with_facets(agg: ParadeDB::Aggregations.value_count(:id))
+                   .order(:rating)
+                   .limit(5)
+
+rows = relation.to_a
+facets = relation.facets
 ```
 
 </CodeGroup>

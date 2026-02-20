@@ -25,6 +25,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:description)
+        .near("sleek", "shoes", distance: 1)
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 <Note>
@@ -48,6 +54,10 @@ from paradedb.search import ParadeDB, Proximity
 MockItem.objects.filter(
     description=ParadeDB(Proximity('sleek shoes', distance=1, ordered=True))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+# coming soon
 ```
 
 </CodeGroup>
@@ -74,6 +84,10 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+# coming soon
+```
+
 </CodeGroup>
 
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
@@ -93,6 +107,10 @@ from paradedb.search import ParadeDB, ProximityRegex
 MockItem.objects.filter(
     description=ParadeDB(ProximityRegex(left_term='shoes', pattern='sl.*', distance=1, max_expansions=100))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+# coming soon
 ```
 
 </CodeGroup>
@@ -117,6 +135,10 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+# coming soon
+```
+
 </CodeGroup>
 
 `pdb.prox_array` can also take regex:
@@ -130,6 +152,10 @@ WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## '
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+# coming soon
 ```
 
 </CodeGroup>

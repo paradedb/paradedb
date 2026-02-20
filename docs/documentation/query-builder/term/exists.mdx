@@ -32,4 +32,11 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')[:5]
 ```
 
+```ruby Rails
+MockItem.search(:rating)
+        .exists
+        .select(:description, :rating, :category)
+        .limit(5)
+```
+
 </CodeGroup>

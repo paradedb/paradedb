@@ -66,6 +66,22 @@ class MockItem(models.Model):
         ]
 ```
 
+```ruby Rails
+class MockItemIndex < ParadeDB::Index
+  self.table_name = :mock_items
+  self.key_field = :id
+  self.index_name = :search_idx
+  self.fields = {
+    id: {},
+    description: { tokenizer: :lindera, args: [:chinese] }
+  }
+end
+
+# For Korean/Japanese dictionaries:
+# description: { tokenizer: :lindera, args: [:korean] }
+# description: { tokenizer: :lindera, args: [:japanese] }
+```
+
 </CodeGroup>
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
@@ -77,6 +93,12 @@ SELECT 'Hello world! 你好!'::pdb.lindera(chinese)::text[];
 
 ```python Django
 # Coming soon
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.exec_query(
+  "SELECT 'Hello world! 你好!'::pdb.lindera(chinese)::text[];"
+)
 ```
 
 </CodeGroup>

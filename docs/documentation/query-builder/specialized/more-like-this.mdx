@@ -26,6 +26,12 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```ruby Rails
+MockItem.more_like_this(3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -64,6 +70,12 @@ from paradedb.search import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, fields=['description'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```ruby Rails
+MockItem.more_like_this(3, fields: [:description])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -113,6 +125,12 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```ruby Rails
+MockItem.more_like_this(
+  { description: "Sleek running shoes", category: "footwear" }.to_json
+).select(:id, :description, :rating, :category).order(:id)
+```
+
 </CodeGroup>
 
 ## Configuration Options
@@ -141,6 +159,12 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```ruby Rails
+MockItem.more_like_this(3, min_term_freq: 2)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
 </CodeGroup>
 
 ### Document Frequency
@@ -163,6 +187,12 @@ from paradedb.search import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, min_doc_freq=3)
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```ruby Rails
+MockItem.more_like_this(3, min_doc_freq: 3)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>
@@ -191,6 +221,12 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```ruby Rails
+MockItem.more_like_this(3, max_query_terms: 10)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
 </CodeGroup>
 
 ### Term Length
@@ -214,6 +250,12 @@ MockItem.objects.filter(
 ).values('id', 'description', 'rating', 'category').order_by('id')
 ```
 
+```ruby Rails
+MockItem.more_like_this(3, min_word_length: 5)
+        .select(:id, :description, :rating, :category)
+        .order(:id)
+```
+
 </CodeGroup>
 
 ### Custom Stopwords
@@ -234,6 +276,12 @@ from paradedb.search import MoreLikeThis
 MockItem.objects.filter(
     MoreLikeThis(product_id=3, stopwords=['the', 'a'])
 ).values('id', 'description', 'rating', 'category').order_by('id')
+```
+
+```ruby Rails
+MockItem.more_like_this(3, stopwords: %w[the a])
+        .select(:id, :description, :rating, :category)
+        .order(:id)
 ```
 
 </CodeGroup>

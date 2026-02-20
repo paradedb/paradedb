@@ -23,6 +23,12 @@ MockItem.objects.filter(
 ).values('description', 'rating', 'category')
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .parse("description:(sleek shoes) AND rating:>3")
+        .select(:description, :rating, :category)
+```
+
 </CodeGroup>
 
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
@@ -45,6 +51,12 @@ from paradedb.search import ParadeDB, Parse
 MockItem.objects.filter(
     id=ParadeDB(Parse('description:(sleek shoes) AND rating:>3', lenient=True))
 ).values('description', 'rating', 'category')
+```
+
+```ruby Rails
+MockItem.search(:id)
+        .parse("description:(sleek shoes) AND rating:>3", lenient: true)
+        .select(:description, :rating, :category)
 ```
 
 </CodeGroup>

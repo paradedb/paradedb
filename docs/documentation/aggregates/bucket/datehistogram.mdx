@@ -22,6 +22,17 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          buckets: ParadeDB::Aggregations.date_histogram(
+            :created_at,
+            fixed_interval: "30d"
+          )
+        )
+```
+
 </CodeGroup>
 
 ```ini Expected Response

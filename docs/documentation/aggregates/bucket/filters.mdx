@@ -31,6 +31,16 @@ footwear_count = MockItem.objects.filter(
 ).aggregate(agg=Agg('{"value_count": {"field": "id"}}'))
 ```
 
+```ruby Rails
+electronics_count = MockItem.search(:category)
+                            .term("electronics")
+                            .facets_agg(count: ParadeDB::Aggregations.value_count(:id))
+
+footwear_count = MockItem.search(:category)
+                         .term("footwear")
+                         .facets_agg(count: ParadeDB::Aggregations.value_count(:id))
+```
+
 </CodeGroup>
 
 ```ini Expected Response

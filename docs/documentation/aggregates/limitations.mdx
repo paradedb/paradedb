@@ -60,6 +60,18 @@ CREATE TABLE products (
 );
 ```
 
+```ruby Rails
+# Aggregates can be pushed down
+create_table :products do |t|
+  t.float :price
+end
+
+# Aggregates fall back to PostgreSQL
+create_table :products do |t|
+  t.decimal :price, precision: 10, scale: 2
+end
+```
+
 <Note>
   Filter pushdown (equality and range queries) is fully supported for all
   `NUMERIC` columns. Only aggregate pushdown is not supported.

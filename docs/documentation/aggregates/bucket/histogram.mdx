@@ -26,6 +26,14 @@ MockItem.objects.filter(
 ).aggregate(agg=Agg('{"histogram": {"field": "rating", "interval": "1"}}'))
 ```
 
+```ruby Rails
+MockItem.search(:id)
+        .match_all
+        .facets_agg(
+          buckets: ParadeDB::Aggregations.histogram(:rating, interval: 1)
+        )
+```
+
 </CodeGroup>
 
 ```ini Expected Response

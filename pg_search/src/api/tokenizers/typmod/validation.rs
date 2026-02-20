@@ -32,6 +32,9 @@ pub enum ValueConstraint {
     StringChoice(Vec<&'static str>),
     /// Like StringChoice but allows comma-separated multiple values (e.g., "English,French")
     StringChoiceMultiple(Vec<&'static str>),
+    /// Accepts either a plain tokenizer name or a parameterized expression
+    /// e.g., "simple" or "simple(lowercase=false, ascii_folding=true)"
+    TokenizerExpression(Vec<&'static str>),
     Regex,
 }
 
@@ -125,6 +128,49 @@ impl ValueConstraint {
                                     format_allowed_keys(allowed),
                                     part.trim()
                                 ),
+                            });
+                        }
+                    }
+                    Ok(())
+                } else {
+                    Err(ValidationError::TypeMismatch {
+                        actual_type: prop.to_string(),
+                    })
+                }
+            }
+            ValueConstraint::TokenizerExpression(allowed) => {
+                if let Some(s) = prop.as_str() {
+                    let (name, has_params) = match s.find('(') {
+                        Some(idx) => (&s[..idx], true),
+                        None => (s, false),
+                    };
+                    let lcase = name.to_lowercase();
+                    if !allowed
+                        .iter()
+                        .any(|allowed_val| allowed_val.to_lowercase() == lcase)
+                    {
+                        return Err(ValidationError::InvalidValue {
+                            key: key.unwrap_or(&prop.to_string()).to_string(),
+                            message: format!(
+                                "must be one of: [{}], got '{}'",
+                                format_allowed_keys(allowed),
+                                name
+                            ),
+                        });
+                    }
+                    if has_params {
+                        if !s.ends_with(')') {
+                            return Err(ValidationError::InvalidValue {
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
+                                message: "unbalanced parentheses in tokenizer expression"
+                                    .to_string(),
+                            });
+                        }
+                        let inner = &s[name.len() + 1..s.len() - 1];
+                        if inner.trim().is_empty() {
+                            return Err(ValidationError::InvalidValue {
+                                key: key.unwrap_or(&prop.to_string()).to_string(),
+                                message: "empty parentheses in tokenizer expression".to_string(),
                             });
                         }
                     }
@@ -245,16 +291,10 @@ impl TypmodSchema {
                     ValueConstraint::StringChoice(vec!["raw", "lowercase"])
                 ),
                 rule!("alias", ValueConstraint::String),
-                rule!(
-                    "chinese_convert",
-                    ValueConstraint::StringChoice(vec![
-                        "t2s", "s2t", "tw2s", "tw2sp", "s2tw", "s2twp"
-                    ])
-                ),
                 rule!("columnar", ValueConstraint::Boolean),
                 rule!(
                     "search_tokenizer",
-                    ValueConstraint::StringChoice(vec![
+                    ValueConstraint::TokenizerExpression(vec![
                         "simple",
                         "lindera",
                         "icu",

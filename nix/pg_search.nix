@@ -1,6 +1,6 @@
 {
   buildPgrxExtension,
-  cargo-pgrx_0_16_1,
+  cargo-pgrx,
   fetchFromGitHub,
   fetchurl,
   lib,
@@ -61,7 +61,7 @@ buildPgrxExtension (finalAttrs: {
 
   cargoHash = "sha256-NRrDmswQ+oiVNeIbhfhDA7k4wOxotTLsOuT7WMewX6Y=";
 
-  inherit postgresql;
+  inherit cargo-pgrx postgresql;
 
   # Lindera dictionaries are copied to a temporary directory and the
   # LINDERA_CACHE environment variable prevents the build.rs files in
@@ -78,9 +78,6 @@ buildPgrxExtension (finalAttrs: {
 
     echo "Lindera cache prepared at $LINDERA_CACHE"
   '';
-
-  # https://github.com/paradedb/paradedb/blob/v0.21.8/Cargo.toml#L38-L39
-  cargo-pgrx = cargo-pgrx_0_16_1;
 
   # https://github.com/paradedb/paradedb/tree/v0.21.8/pg_search
   cargoPgrxFlags = [

@@ -2,6 +2,7 @@
   description = "pg_search: full-text search for PostgreSQL using BM25";
 
   # Flake inputs
+  # To update all inputs: nix flake update
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1"; # Unstable Nixpkgs
 
@@ -13,6 +14,7 @@
   };
 
   # Flake outputs
+  # To list which outputs are available: nix flake show
   outputs =
     { self, ... }@inputs:
     let
@@ -48,9 +50,32 @@
       # Nix sandbox, which is generally infeasible.
       packages = forEachSupportedSystem (
         { pkgs, system }:
-        {
-          default = self.packages.${system}.pg_search;
-          pg_search = pkgs.callPackage ./nix/pg_search.nix { };
+        let
+          # The PostgreSQL versions supported for pg_search (see ./pg_search/Cargo.toml)
+          supportedPgVersions = [
+            15
+            16
+            17
+            18
+          ];
+
+          # A helper function for building Postgres-version-specific
+          # variants of pg_search
+          mkForPg =
+            version:
+            pkgs.callPackage ./nix/pg_search.nix {
+              postgresql = pkgs."postgresql_${toString version}";
+              inherit (pkgs) cargo-pgrx;
+            };
+        in
+        (builtins.listToAttrs (
+          map (v: {
+            name = "pg_search-pg${toString v}";
+            value = mkForPg v;
+          }) supportedPgVersions
+        ))
+        // {
+          default = mkForPg 18;
         }
       );
 
@@ -104,6 +129,9 @@
 
       # A Nixpkgs overlay that adds a Fenix-based Rust toolchain
       overlays.default = final: prev: {
+        # standardizes the cargo-pgrx version
+        cargo-pgrx = final.cargo-pgrx_0_16_1;
+
         rustToolchain =
           with inputs.fenix.packages.${prev.stdenv.hostPlatform.system};
           combine (

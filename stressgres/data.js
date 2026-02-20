@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771545607501,
+  "lastUpdate": 1771546149288,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10496,6 +10496,60 @@ window.BENCHMARK_DATA = {
             "value": 16.542631592985266,
             "unit": "median tps",
             "extra": "avg tps: 16.247759249232015, max tps: 19.055619140980692, count: 55394"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5104ec8f5da26b8f5075fa64d3095bdb3eefb35",
+          "message": "feat: add `sort_by` to `docs` benchmark + `sort_by` tests (TEXT/UUID/NUMERIC) (#4140)\n\n## Summary\n\nThis PR implements issue #4088 by:\n\n- Declaring the docs dataset BM25 indexes as sorted on the join keys.\n- Adding integration tests for `sort_by` on TEXT, UUID, and NUMERIC(30)\n(NumericBytes).\n- Extending pg_regress `sorted_index_scan` with UUID + NUMERIC sorting\ncoverage.\n\n## Changes\n\n- **Benchmarks:** added `sort_by` to docs indexes.\n- **Tests:** new Rust integration tests for TEXT/UUID/NUMERIC(30)\n`sort_by`; numeric order uses `ORDER BY table.amount` to avoid\nlexicographic sort.\n- **pg_regress:** added UUID + NUMERIC sorting blocks in\n`sorted_index_scan.sql` with updated expected output.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-02-19T15:00:00-08:00",
+          "tree_id": "883bbd6613f01ca22733c164c9ac50e00cf12986",
+          "url": "https://github.com/paradedb/paradedb/commit/b5104ec8f5da26b8f5075fa64d3095bdb3eefb35"
+        },
+        "date": 1771546145192,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.002179416408865,
+            "unit": "median tps",
+            "extra": "avg tps: 31.565913349463628, max tps: 34.911849800036464, count: 55444"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 237.4954436904482,
+            "unit": "median tps",
+            "extra": "avg tps: 259.23094446432304, max tps: 2625.2657061576283, count: 55444"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1930.9004133266117,
+            "unit": "median tps",
+            "extra": "avg tps: 1908.0028911762474, max tps: 2232.177162205464, count: 55444"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.68556177829748,
+            "unit": "median tps",
+            "extra": "avg tps: 195.8682821872499, max tps: 1814.102112427082, count: 110888"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.309253300801217,
+            "unit": "median tps",
+            "extra": "avg tps: 15.19851878456397, max tps: 20.561086133617906, count: 55444"
           }
         ]
       }

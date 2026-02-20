@@ -128,12 +128,131 @@ CREATE TABLE contact_list (
 );
 
 -- Populate the table with 10,000,000 rows
+-- Split into two lists for querying: 'tjy3slfS5wk' and '21430'
 INSERT INTO contact_list (list_id, ldf_id)
 SELECT
-    'tjy3slfS5wk',
+    CASE WHEN series % 2 = 0 THEN 'tjy3slfS5wk' ELSE '21430' END,
     series
 FROM
     generate_series(1, 10000000) AS series;
+
+
+------------------------------------------------------------------
+--
+-- Populate `company_list`
+--
+------------------------------------------------------------------
+
+DROP TABLE IF EXISTS company_list;
+CREATE TABLE company_list (
+    list_id character varying,
+    original_value jsonb,
+    ldf_id bigint, -- Maps to company_id
+    entity_type character varying,
+    created_at timestamp(3) without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp(3) without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Populate with some companies in list '2543'
+INSERT INTO company_list (list_id, ldf_id)
+SELECT
+    '2543',
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1
+FROM
+    generate_series(1, 1000000) AS series;
+
+
+------------------------------------------------------------------
+--
+-- Populate `company_intent_autocomplete`
+--
+------------------------------------------------------------------
+
+DROP TABLE IF EXISTS company_intent_autocomplete;
+CREATE TABLE company_intent_autocomplete (
+    unique_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_id bigint,
+    intent_topic text,
+    score integer
+);
+
+-- Insert relevant data for query: "pre-employment & employee testing" with score 1-100
+INSERT INTO company_intent_autocomplete (company_id, intent_topic, score)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'pre-employment & employee testing',
+    (random() * 99)::int + 1
+FROM
+    generate_series(1, 500000) AS series;
+
+-- Insert noise
+INSERT INTO company_intent_autocomplete (company_id, intent_topic, score)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'other topic',
+    (random() * 100)::int
+FROM
+    generate_series(1, 500000) AS series;
+
+
+------------------------------------------------------------------
+--
+-- Populate `company_tech_install_autocomplete`
+--
+------------------------------------------------------------------
+
+DROP TABLE IF EXISTS company_tech_install_autocomplete;
+CREATE TABLE company_tech_install_autocomplete (
+    unique_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_id bigint,
+    technology_name text
+);
+
+-- Insert relevant data for query: "salesforce"
+INSERT INTO company_tech_install_autocomplete (company_id, technology_name)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'salesforce'
+FROM
+    generate_series(1, 500000) AS series;
+
+-- Insert noise
+INSERT INTO company_tech_install_autocomplete (company_id, technology_name)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'other tech'
+FROM
+    generate_series(1, 500000) AS series;
+
+
+------------------------------------------------------------------
+--
+-- Populate `company_specialties_autocomplete`
+--
+------------------------------------------------------------------
+
+DROP TABLE IF EXISTS company_specialties_autocomplete;
+CREATE TABLE company_specialties_autocomplete (
+    unique_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_id bigint,
+    speciality text
+);
+
+-- Insert relevant data for query: "salesforce"
+INSERT INTO company_specialties_autocomplete (company_id, speciality)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'salesforce'
+FROM
+    generate_series(1, 500000) AS series;
+
+-- Insert noise
+INSERT INTO company_specialties_autocomplete (company_id, speciality)
+SELECT
+    (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1,
+    'other speciality'
+FROM
+    generate_series(1, 500000) AS series;
 
 
 COMMIT;
@@ -209,3 +328,38 @@ CREATE INDEX contact_list_list_id_ldf_id_idx ON contact_list USING btree (list_i
 -- Name: contacts_companies_combined_full_company_id; Type: INDEX; Schema: public;
 --
 CREATE INDEX contacts_companies_combined_full_company_id ON contacts_companies_combined_full USING btree (company_id);
+
+
+--
+-- Additional BM25 Indexes for autocomplete tables
+--
+
+CREATE INDEX company_intent_autocomplete_idx ON company_intent_autocomplete
+USING bm25 (unique_id, intent_topic, score)
+WITH (
+    key_field = unique_id,
+    text_fields = '{
+        "intent_topic": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
+    }',
+    numeric_fields = '{
+        "score": {"indexed": true}
+    }'
+);
+
+CREATE INDEX company_tech_install_autocomplete_idx ON company_tech_install_autocomplete
+USING bm25 (unique_id, technology_name)
+WITH (
+    key_field = unique_id,
+    text_fields = '{
+        "technology_name": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
+    }'
+);
+
+CREATE INDEX company_specialties_autocomplete_idx ON company_specialties_autocomplete
+USING bm25 (unique_id, speciality)
+WITH (
+    key_field = unique_id,
+    text_fields = '{
+        "speciality": {"fast": true, "tokenizer": {"lowercase": true, "remove_long": 255, "type": "raw"}}
+    }'
+);

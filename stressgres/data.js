@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771547080990,
+  "lastUpdate": 1771558036002,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1502,6 +1502,78 @@ window.BENCHMARK_DATA = {
             "value": 61.125568628125315,
             "unit": "median tps",
             "extra": "avg tps: 73.57365490919908, max tps: 856.9119805720915, count: 55187"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d577fea31ef682612c9c84714e95e4ba19c183e1",
+          "message": "perf: Batch visibility filtering (#4086)\n\n## What\n\nBegin batching visibility checks for both aggregates and fast field\nscans.\n\n## Why\n\nAs [discovered in\n#4140](https://github.com/paradedb/paradedb/pull/4140#pullrequestreview-3828967639),\nour benchmark suite was getting a significant advantage from how it was\nbeing set up: `CREATE INDEX` was implicitly creating the index almost\nperfectly sorted by `ctid`.\n\nThat made visibility checks cheaper, but _only_ in our benchmarks! In\nthe real world, segment merging patterns from real sequences of\n`INSERT`s would lead to sawtooth sort patterns within segments, likely\nmatching the size of your insert batches.\n\n## How\n\nReplaced `VisibilityChecker::check` with a `check_batch` method which\nsorts the ctids in order to acquire locks the minimum number of times\nwhile checking a batch. Used it in all callers.\n\nAdditionally, added buffering to the `MVCCFilterCollector` which is used\nin aggregate scans, in order to allow for larger batch lookups of\n`ctids` using `check_batch`.\n\n## Tests\n\nCovered by existing tests.\n\nRegains most of the performance lost in #4140 for the `docs` dataset,\nand improves the performance of aggregates on the `logs` dataset by a\nfew percentage points. No regressions.\n\nMore importantly: this will likely have a larger positive impact on real\nworld `INSERT` patterns.",
+          "timestamp": "2026-02-19T19:16:28-08:00",
+          "tree_id": "50e7b9b1c46080259267cc68038ac1d5a21733cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d577fea31ef682612c9c84714e95e4ba19c183e1"
+        },
+        "date": 1771558031938,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 127.4675014914038,
+            "unit": "median tps",
+            "extra": "avg tps: 128.65190971052976, max tps: 133.45657025631778, count: 1476"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2859.8200340097824,
+            "unit": "median tps",
+            "extra": "avg tps: 2845.739059143392, max tps: 2896.39326146384, count: 1476"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 498.26022019525567,
+            "unit": "median tps",
+            "extra": "avg tps: 501.8316048323863, max tps: 540.944775254917, count: 1476"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2754.087858112256,
+            "unit": "median tps",
+            "extra": "avg tps: 2763.867344985503, max tps: 2989.826666293935, count: 2952"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 512.0056367493811,
+            "unit": "median tps",
+            "extra": "avg tps: 511.970994584179, max tps: 601.8004666360819, count: 1476"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 531.2616838798053,
+            "unit": "median tps",
+            "extra": "avg tps: 533.3343310639551, max tps: 684.0362659045213, count: 1476"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1808.905518523831,
+            "unit": "median tps",
+            "extra": "avg tps: 1809.7563845544958, max tps: 1836.3578730473178, count: 1476"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 130.5638705398294,
+            "unit": "median tps",
+            "extra": "avg tps: 134.9865382968816, max tps: 175.49684296974212, count: 1476"
           }
         ]
       }

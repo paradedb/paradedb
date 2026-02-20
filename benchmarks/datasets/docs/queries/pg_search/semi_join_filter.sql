@@ -19,7 +19,7 @@ ORDER BY
     f.title ASC                       -- Single Feature Sort (Local Fast Field)
 LIMIT 25;
 
-SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     f."createdAt"

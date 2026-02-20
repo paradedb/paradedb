@@ -29,3 +29,17 @@ GROUP BY
 ORDER BY
     last_activity DESC            -- Single Feature Sort (Computed Aggregate)
 LIMIT 10;
+
+-- Lower bound: uses denormalized matview
+SELECT
+    fip.file_id,
+    fip.file_title,
+    MAX(fip.page_created_at) as last_activity
+FROM files_inner_join_pages fip
+WHERE
+    fip.file_content @@@ 'Section'
+GROUP BY
+    fip.file_id, fip.file_title
+ORDER BY
+    last_activity DESC
+LIMIT 10;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771558036002,
+  "lastUpdate": 1771558041107,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4332,6 +4332,138 @@ window.BENCHMARK_DATA = {
             "value": 53.5,
             "unit": "median mem",
             "extra": "avg mem: 52.136268434481856, max mem: 65.484375, count: 55187"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d577fea31ef682612c9c84714e95e4ba19c183e1",
+          "message": "perf: Batch visibility filtering (#4086)\n\n## What\n\nBegin batching visibility checks for both aggregates and fast field\nscans.\n\n## Why\n\nAs [discovered in\n#4140](https://github.com/paradedb/paradedb/pull/4140#pullrequestreview-3828967639),\nour benchmark suite was getting a significant advantage from how it was\nbeing set up: `CREATE INDEX` was implicitly creating the index almost\nperfectly sorted by `ctid`.\n\nThat made visibility checks cheaper, but _only_ in our benchmarks! In\nthe real world, segment merging patterns from real sequences of\n`INSERT`s would lead to sawtooth sort patterns within segments, likely\nmatching the size of your insert batches.\n\n## How\n\nReplaced `VisibilityChecker::check` with a `check_batch` method which\nsorts the ctids in order to acquire locks the minimum number of times\nwhile checking a batch. Used it in all callers.\n\nAdditionally, added buffering to the `MVCCFilterCollector` which is used\nin aggregate scans, in order to allow for larger batch lookups of\n`ctids` using `check_batch`.\n\n## Tests\n\nCovered by existing tests.\n\nRegains most of the performance lost in #4140 for the `docs` dataset,\nand improves the performance of aggregates on the `logs` dataset by a\nfew percentage points. No regressions.\n\nMore importantly: this will likely have a larger positive impact on real\nworld `INSERT` patterns.",
+          "timestamp": "2026-02-19T19:16:28-08:00",
+          "tree_id": "50e7b9b1c46080259267cc68038ac1d5a21733cf",
+          "url": "https://github.com/paradedb/paradedb/commit/d577fea31ef682612c9c84714e95e4ba19c183e1"
+        },
+        "date": 1771558037015,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.704644177845574, max cpu: 18.677044, count: 1476"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 48.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 48.267186441395665, max mem: 49.640625, count: 1476"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2756512781166744, max cpu: 4.669261, count: 1476"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 30.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.388325182079946, max mem: 31.375, count: 1476"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 1476"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 46.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 41.95536130165989, max mem: 47.02734375, count: 1476"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.522024546511016, max cpu: 9.257474, count: 2952"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 34.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.45071138211382, max mem: 36.75, count: 2952"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.433837071951234, max cpu: 14.007783, count: 1476"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 47.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.37755123644986, max mem: 48.7265625, count: 1476"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 446,
+            "unit": "median block_count",
+            "extra": "avg block_count: 443.39159891598916, max block_count: 498.0, count: 1476"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 4,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 3.9627371273712737, max segment_count: 6.0, count: 1476"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.069673926693799, max cpu: 9.302325, count: 1476"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 47.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 47.31500624576558, max mem: 48.7265625, count: 1476"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.400677575609888, max cpu: 4.64666, count: 1476"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 38.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 37.92966368140244, max mem: 39.5390625, count: 1476"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.0, max cpu: 0.0, count: 1476"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 40.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.504107384823847, max mem: 40.08203125, count: 1476"
           }
         ]
       }

@@ -83,7 +83,8 @@ END $$;
 -- GOAL: Create many contacts named "john" and ensure they work at the "health care" companies.
 -- This overlap will force the JOIN to produce a large intermediate result set.
 INSERT INTO contacts_companies_combined_full (
-    contact_id, company_id, contact_first_name, contact_last_name, contact_full_name, company_name
+    contact_id, company_id, contact_first_name, contact_last_name, contact_full_name, company_name,
+    contact_job_title, contact_job_details
 )
 SELECT
     series AS contact_id,
@@ -92,7 +93,16 @@ SELECT
     'john' AS contact_first_name,
     (SELECT name FROM last_names ORDER BY random() LIMIT 1) AS contact_last_name,
     'john ' || (SELECT name FROM last_names ORDER BY random() LIMIT 1) AS contact_full_name,
-    'HealthCo ' || (series % current_setting('myvars.healthcare_company_count')::int) + 1 AS company_name
+    'HealthCo ' || (series % current_setting('myvars.healthcare_company_count')::int) + 1 AS company_name,
+    -- Populate job details for `dsg/query-aggregate.sql` for every 20th row (ensuring it's in list 'tjy3slfS5wk')
+    CASE
+        WHEN series % 20 = 0 THEN 'Senior Programmer'
+        ELSE 'Other Job'
+    END AS contact_job_title,
+    CASE
+        WHEN series % 20 = 0 THEN '{"job_function": "product management, research, & innovation", "job_area": "software development & engineering"}'::jsonb
+        ELSE '{}'::jsonb
+    END AS contact_job_details
 FROM generate_series(1, current_setting('myvars.john_contact_count')::int) AS series;
 
 -- Insert the remaining random contacts for other companies

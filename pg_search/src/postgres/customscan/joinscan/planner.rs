@@ -285,6 +285,9 @@ fn check_ordering(
 
 /// Thin wrapper that enables dynamic-filter pushdown through an inner `ExecutionPlan`.
 ///
+/// TODO: Remove once upstream DataFusion supports filter pushdown through
+/// `SortMergeJoinExec` natively — <https://github.com/apache/datafusion/issues/20443>
+///
 /// Some DataFusion operators (e.g. `SortMergeJoinExec`) use the default
 /// `gather_filters_for_pushdown` which marks all parent filters as unsupported.
 /// This blocks `DynamicFilterPhysicalExpr` (from `SortExec(TopK)`) from reaching

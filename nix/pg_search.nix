@@ -11,7 +11,10 @@
 }:
 
 let
-  # https://github.com/paradedb/paradedb/blob/v0.21.8/Cargo.lock#L3316-L3346
+  # Attribute set representing the Cargo.toml file in the root
+  rootCargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
+
+  # ../Cargo.lock#L3316-L3346
   linderaVersion = "1.4.1";
   linderaWebsite = "https://lindera.dev";
 
@@ -50,7 +53,7 @@ let
 in
 buildPgrxExtension (finalAttrs: {
   pname = "pg_search";
-  version = "0.21.8";
+  version = rootCargoToml.workspace.package.version;
 
   src = fetchFromGitHub {
     owner = "paradedb";
@@ -79,7 +82,6 @@ buildPgrxExtension (finalAttrs: {
     echo "Lindera cache prepared at $LINDERA_CACHE"
   '';
 
-  # https://github.com/paradedb/paradedb/tree/v0.21.8/pg_search
   cargoPgrxFlags = [
     "--package"
     "pg_search"
@@ -99,9 +101,8 @@ buildPgrxExtension (finalAttrs: {
     homepage = "https://paradedb.com";
     changelog = "https://github.com/paradedb/paradedb/releases/tag/${finalAttrs.version}";
     license = lib.licenses.agpl3Only;
-    maintainers = [ lib.maintainers.lucperkins ];
-    # https://github.com/paradedb/paradedb/blob/v0.21.8/pg_search/Cargo.toml#L14-L18
-    broken = lib.versionOlder postgresql.version "14";
+    # ../Cargo.toml#L14-L18
+    broken = lib.versionOlder postgresql.version "15";
     platforms = postgresql.meta.platforms;
   };
 })

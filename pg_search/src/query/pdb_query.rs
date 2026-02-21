@@ -27,7 +27,7 @@ use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
-use crate::schema::{IndexRecordOption, SearchFieldType, SearchIndexSchema};
+use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -1509,6 +1509,24 @@ fn range(
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
 }
 
+fn resolve_search_tokenizer(
+    search_field: &SearchField,
+    schema: &SearchIndexSchema,
+    searcher: &Searcher,
+) -> anyhow::Result<tantivy::tokenizer::TextAnalyzer> {
+    if let Some(st) = search_field.field_config().search_tokenizer() {
+        return Ok(st
+            .to_tantivy_tokenizer()
+            .expect("field-level search_tokenizer should be a valid tantivy tokenizer"));
+    }
+    if let Some(ref st) = schema.index_search_tokenizer() {
+        return Ok(st
+            .to_tantivy_tokenizer()
+            .expect("index-level search_tokenizer should be a valid tantivy tokenizer"));
+    }
+    Ok(searcher.index().tokenizer_for_field(search_field.field())?)
+}
+
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
@@ -1522,7 +1540,7 @@ fn tokenized_phrase(
         .with_positions()?;
 
     let field_type = search_field.field_entry().field_type();
-    let mut tokenizer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut tokenizer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut stream = tokenizer.token_stream(phrase);
     let path = field.path();
 
@@ -1595,7 +1613,7 @@ fn phrase(
     let field_type = search_field.field_entry().field_type();
 
     let mut terms = Vec::new();
-    let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
+    let mut analyzer = resolve_search_tokenizer(&search_field, schema, searcher)?;
     let mut should_warn = false;
 
     for phrase in phrases.into_iter() {
@@ -1799,7 +1817,7 @@ fn match_query(
         Some(ref tokenizer) => SearchTokenizer::from_json_value(tokenizer)?
             .to_tantivy_tokenizer()
             .expect("tantivy should support tokenizer {tokenizer:?}"),
-        None => searcher.index().tokenizer_for_field(search_field.field())?,
+        None => resolve_search_tokenizer(&search_field, schema, searcher)?,
     };
     let mut stream = analyzer.token_stream(value);
     let mut terms = Vec::new();

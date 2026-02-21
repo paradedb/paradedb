@@ -68,7 +68,7 @@ set -x
 cargo pgrx stop "${FEATURE}" --package pg_search
 
 # Install pg_search extension, conditionally using --release
-cargo pgrx install --package pg_search "${BUILD_PARAMS[@]}" --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
+cargo pgrx install --package pg_search ${BUILD_PARAMS[@]+"${BUILD_PARAMS[@]}"} --pg-config "${HOME}/.pgrx/${PGVER}/pgrx-install/bin/pg_config" || exit $? # ksh88: there's a space between --profile and the value
 
 # Start the PostgreSQL server with the installed extension
 RUST_BACKTRACE=1 cargo pgrx start "${FEATURE}" --package pg_search

@@ -38,6 +38,8 @@ pub enum SearchFieldConfig {
         fieldnorms: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -62,6 +64,8 @@ pub enum SearchFieldConfig {
         expand_dots: bool,
         #[serde(default)]
         tokenizer: SearchTokenizer,
+        #[serde(default)]
+        search_tokenizer: Option<SearchTokenizer>,
         #[serde(default = "default_as_freqs_and_positions")]
         record: IndexRecordOption,
         #[serde(default)]
@@ -204,6 +208,18 @@ impl SearchFieldConfig {
     pub fn tokenizer(&self) -> Option<&SearchTokenizer> {
         match self {
             Self::Text { tokenizer, .. } | Self::Json { tokenizer, .. } => Some(tokenizer),
+            _ => None,
+        }
+    }
+
+    pub fn search_tokenizer(&self) -> Option<&SearchTokenizer> {
+        match self {
+            Self::Text {
+                search_tokenizer, ..
+            }
+            | Self::Json {
+                search_tokenizer, ..
+            } => search_tokenizer.as_ref(),
             _ => None,
         }
     }

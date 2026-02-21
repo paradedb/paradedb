@@ -367,6 +367,10 @@ impl SearchIndexSchema {
         self.bm25_options.key_field_type()
     }
 
+    pub fn index_search_tokenizer(&self) -> Option<SearchTokenizer> {
+        self.bm25_options.search_tokenizer()
+    }
+
     /// Convert sort_by configuration to Tantivy's IndexSortByField.
     ///
     /// Validates that the sort field exists in the schema and is a fast field.

@@ -164,6 +164,16 @@ extern "C-unwind" fn validate_sort_by(value: *const std::os::raw::c_char) {
 }
 
 #[pg_guard]
+extern "C-unwind" fn validate_search_tokenizer(value: *const std::os::raw::c_char) {
+    let s = cstr_to_rust_str(value);
+    if s.is_empty() {
+        return;
+    }
+    crate::api::tokenizers::tokenizer_from_expression(&s)
+        .unwrap_or_else(|| panic!("invalid search_tokenizer: '{s}'"));
+}
+
+#[pg_guard]
 extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     if value.is_null() {
         // a NULL value means we're to use whatever our defaults are
@@ -202,7 +212,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 13;
+const NUM_REL_OPTS: usize = 14;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -297,6 +307,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "sort_by".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, sort_by_offset) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "search_tokenizer".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(BM25IndexOptionsData, search_tokenizer_offset) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
@@ -397,6 +414,10 @@ impl BM25IndexOptions {
     /// - Otherwise: returns parsed sort fields
     pub fn sort_by(&self) -> Vec<SortByField> {
         self.options_data().sort_by()
+    }
+
+    pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
+        self.options_data().search_tokenizer()
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {
@@ -671,6 +692,7 @@ struct BM25IndexOptionsData {
     background_layer_sizes_offset: i32,
     mutable_segment_rows: i32,
     sort_by_offset: i32,
+    search_tokenizer_offset: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -732,6 +754,14 @@ impl BM25IndexOptionsData {
             return vec![];
         }
         parse_sort_by_string(&sort_by_str)
+    }
+
+    pub fn search_tokenizer(&self) -> Option<SearchTokenizer> {
+        let expr = self.get_str(self.search_tokenizer_offset, "".to_string());
+        if expr.is_empty() {
+            return None;
+        }
+        crate::api::tokenizers::tokenizer_from_expression(&expr)
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -906,6 +936,14 @@ pub unsafe fn init() {
         "Comma-separated list of fields to sort segments by (e.g., 'field1 ASC, field2 DESC NULLS LAST')".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_sort_by),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "search_tokenizer".as_pg_cstr(),
+        "Default search-time tokenizer for text/JSON fields".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }
@@ -1103,6 +1141,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             // configuration as the `SearchTokenizer::Keyword` tokenizer.
             #[allow(deprecated)]
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
+            search_tokenizer: None,
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,
@@ -1121,6 +1160,7 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             expand_dots: false,
             #[allow(deprecated)]
             tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::default()),
+            search_tokenizer: None,
             record: IndexRecordOption::Basic,
             normalizer: SearchNormalizer::Raw,
             column: None,

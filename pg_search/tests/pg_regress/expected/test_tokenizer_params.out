@@ -59,27 +59,27 @@ DROP INDEX idx_jieba;
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.simple('chinese_convert=t2s')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- chinese_convert rejected by ngram
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.ngram(2, 4, 'chinese_convert=t2s')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- chinese_convert rejected by whitespace
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.whitespace('chinese_convert=t2s')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'chinese_convert'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- min/max rejected by simple (positional integer not allowed at position 0)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.simple('min=2')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- language rejected by simple
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.simple('language=chinese')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- pattern rejected by simple (positional regex not allowed at position 0)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.simple('[a-z]+')))
@@ -89,17 +89,17 @@ ERROR:  Option '[a-z]+' is not allowed at position 0
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.jieba('prefix_only=true')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'prefix_only'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- language rejected by ngram
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.ngram(2, 4, 'language=chinese')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'language'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -- min/max rejected by lindera (positional integer not expected)
 CREATE INDEX idx_bad ON test_tokenizer_params
 USING bm25 (id, (content::pdb.lindera('chinese', 'min=2')))
 WITH (key_field = 'id');
-ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, search_tokenizer, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'min'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------

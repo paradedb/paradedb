@@ -23,8 +23,8 @@ INSERT INTO autocomplete (title) VALUES
 
 -- Edge ngram (prefix_only=true) at index time, unicode_words at search time
 CREATE INDEX idx_autocomplete ON autocomplete USING bm25
-    (id, (title::pdb.ngram(1, 10, 'prefix_only=true', 'search_tokenizer=unicode_words')))
-    WITH (key_field = 'id');
+    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))
+    WITH (key_field = 'id', search_tokenizer = 'unicode_words');
 
 -- "sho" stays as one token at search time → matches only titles whose prefix ngrams include "sho"
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, title FROM autocomplete WHERE title ||| 'sho' ORDER BY id;
@@ -80,8 +80,8 @@ INSERT INTO case_test (description) VALUES
     ('RUNNING LATE');
 
 CREATE INDEX idx_case_test ON case_test USING bm25
-    (id, (description::pdb.simple('search_tokenizer=simple(lowercase=false)')))
-    WITH (key_field = 'id');
+    (id, description)
+    WITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)');
 
 -- "Running" not lowercased at search time → doesn't match lowered index tokens → 0 rows
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, description FROM case_test WHERE description ||| 'Running' ORDER BY id;
@@ -104,8 +104,8 @@ INSERT INTO combined_test (content) VALUES
     ('HELLO AGAIN');
 
 CREATE INDEX idx_combined ON combined_test USING bm25
-    (id, (content::pdb.ngram(1, 10, 'prefix_only=true', 'search_tokenizer=unicode_words(lowercase=false)')))
-    WITH (key_field = 'id');
+    (id, (content::pdb.ngram(1, 10, 'prefix_only=true')))
+    WITH (key_field = 'id', search_tokenizer = 'unicode_words(lowercase=false)');
 
 -- "Hello" not lowered at search time → no match against lowered ngram prefixes
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF) SELECT id, content FROM combined_test WHERE content ||| 'Hello' ORDER BY id;

@@ -33,6 +33,12 @@ With this configuration:
 
 The `search_tokenizer` value can include parameters, e.g. `search_tokenizer='simple(lowercase=false)'`.
 
+Because `search_tokenizer` only affects query-time behavior, you can change it without reindexing:
+
+```sql
+ALTER INDEX search_idx SET (search_tokenizer = 'simple(lowercase=false)');
+```
+
 ## Example
 
 ```sql
@@ -57,22 +63,6 @@ SELECT id, title FROM products WHERE title ||| 's' ORDER BY id;
 Without `search_tokenizer`, the query `'sho'` would be edge-ngrammed into `s`, `sh`, `sho` and match
 every title starting with `s` — not just those starting with `sho`.
 
-## Per-Field Override
-
-You can override the index-level `search_tokenizer` for a specific field by adding it as a typmod parameter:
-
-```sql
-CREATE INDEX search_idx ON products
-USING bm25 (
-  id,
-  (title::pdb.ngram(1, 10, 'prefix_only=true', 'search_tokenizer=simple(lowercase=false)')),
-  (description::pdb.ngram(1, 10, 'prefix_only=true'))
-) WITH (key_field='id', search_tokenizer='unicode_words');
-```
-
-In this example, `title` uses `simple(lowercase=false)` at search time (the per-field override), while
-`description` uses `unicode_words` (the index-level default).
-
 ## Overriding at Query Time
 
 You can still override the search tokenizer for a specific query by casting the query string:
@@ -87,9 +77,8 @@ SELECT id, title FROM products WHERE title ||| 'sho'::pdb.ngram(1, 10, 'prefix_o
 When resolving which tokenizer to use at search time, ParadeDB checks in this order:
 
 1. **Query-level cast** — e.g. `'sho'::pdb.ngram(...)` (highest priority)
-2. **Per-field typmod** — e.g. `search_tokenizer=simple(lowercase=false)` in the column definition
-3. **Index-level WITH option** — e.g. `WITH (search_tokenizer='unicode_words')`
-4. **Index-time tokenizer** — the tokenizer used to build the index (fallback)
+2. **Index-level WITH option** — e.g. `WITH (search_tokenizer='unicode_words')`
+3. **Index-time tokenizer** — the tokenizer used to build the index (fallback)
 
 ## Supported Tokenizers
 

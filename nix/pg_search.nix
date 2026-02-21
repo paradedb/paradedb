@@ -14,8 +14,13 @@ let
   # Attribute set representing the Cargo.toml file in the root
   rootCargoToml = builtins.fromTOML (builtins.readFile ../Cargo.toml);
 
-  # ../Cargo.lock#L3316-L3346
-  linderaVersion = "1.4.1";
+  # Get the current Lindera version from the root Cargo.lock
+  linderaVersion =
+    (builtins.head (
+      builtins.filter (p: p.name == "lindera")
+        (builtins.fromTOML (builtins.readFile ../Cargo.lock)).package
+    )).version;
+
   linderaWebsite = "https://lindera.dev";
 
   # pg_search's tokenizer uses several language dictionaries used by the Lindera crate

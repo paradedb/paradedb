@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -Eeuo pipefail
 
 PGDATA=${PGDATA:-/var/lib/postgresql/data}

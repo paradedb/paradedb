@@ -118,7 +118,7 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
     })
 }
 
-fn tokenizer_from_expression(expr: &str) -> Option<SearchTokenizer> {
+pub(crate) fn tokenizer_from_expression(expr: &str) -> Option<SearchTokenizer> {
     let (name, inner) = match expr.find('(') {
         Some(idx) => (&expr[..idx], Some(&expr[idx + 1..expr.len() - 1])),
         None => (expr, None),

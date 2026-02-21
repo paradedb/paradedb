@@ -45,8 +45,6 @@
                   {
                     "group": "Migration",
                     "pages": [
-                      "documentation/migration/overview",
-                      "documentation/migration/elasticsearch-query-mapping",
                       "documentation/migration/elasticsearch-feature-comparison"
                     ]
                   },

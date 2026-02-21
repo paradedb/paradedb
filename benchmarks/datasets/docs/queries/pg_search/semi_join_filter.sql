@@ -19,7 +19,7 @@ ORDER BY
     f.title ASC                       -- Single Feature Sort (Local Fast Field)
 LIMIT 25;
 
-SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT
+SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT
     f.id,
     f.title,
     f."createdAt"
@@ -38,6 +38,40 @@ LIMIT 25;
 
 -- Sortedness enabled, no join scan.
 SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT
+    f.id,
+    f.title,
+    f."createdAt"
+FROM files f
+WHERE
+    -- The "Join" is a filter against a list of IDs (Semi-Join)
+    f."documentId" IN (
+        SELECT id
+        FROM documents
+        WHERE parents @@@ 'PROJECT_ALPHA'
+        AND title @@@ 'Document Title 1'
+    )
+ORDER BY
+    f.title ASC                       -- Single Feature Sort (Local Fast Field)
+LIMIT 25;
+
+SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO on; SET paradedb.dynamic_filter_batch_size = 8192; SELECT
+    f.id,
+    f.title,
+    f."createdAt"
+FROM files f
+WHERE
+    -- The "Join" is a filter against a list of IDs (Semi-Join)
+    f."documentId" IN (
+        SELECT id
+        FROM documents
+        WHERE parents @@@ 'PROJECT_ALPHA'
+        AND title @@@ 'Document Title 1'
+    )
+ORDER BY
+    f.title ASC                       -- Single Feature Sort (Local Fast Field)
+LIMIT 25;
+
+SET work_mem TO '4GB'; SET paradedb.enable_mixed_fast_field_sort TO on; SET paradedb.enable_join_custom_scan TO on; SET paradedb.dynamic_filter_batch_size = 65536; SELECT
     f.id,
     f.title,
     f."createdAt"

@@ -250,7 +250,6 @@ COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 # the upstream entrypoint to ensure tuning runs at the correct time (boot vs restart).
 COPY ./docker/tune-postgresql.sh /usr/local/bin/tune-postgresql.sh
 COPY ./docker/entrypoint-wrapper.sh /usr/local/bin/entrypoint-wrapper.sh
-
 RUN chmod +x /usr/local/bin/tune-postgresql.sh /usr/local/bin/entrypoint-wrapper.sh
 
 # Override the default entrypoint to use our wrapper. This wrapper will trigger

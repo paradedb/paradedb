@@ -1685,6 +1685,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -1729,6 +1730,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1752,6 +1754,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1773,6 +1776,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1792,6 +1796,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "futures",
  "log",
@@ -1801,6 +1806,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1828,6 +1834,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-arrow"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -1850,6 +1857,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1871,6 +1879,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1891,10 +1900,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 
 [[package]]
 name = "datafusion-execution"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1914,6 +1925,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1933,6 +1945,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1944,6 +1957,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "arrow-buffer",
@@ -1969,6 +1983,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1988,6 +2003,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1999,6 +2015,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "async-trait",
@@ -2013,6 +2030,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2029,6 +2047,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -2037,6 +2056,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "datafusion-doc",
  "quote",
@@ -2046,6 +2066,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "chrono",
@@ -2063,6 +2084,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -2084,6 +2106,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-adapter"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2097,6 +2120,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -2112,6 +2136,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2128,6 +2153,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -2157,6 +2183,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "chrono",
@@ -2181,6 +2208,7 @@ dependencies = [
 [[package]]
 name = "datafusion-proto-common"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2190,6 +2218,7 @@ dependencies = [
 [[package]]
 name = "datafusion-pruning"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -2205,6 +2234,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "52.0.0"
+source = "git+https://github.com/paradedb/datafusion.git?branch=stuhood.moe%2Fsmj-dynamic-filter-pushdown#de51be2117446eb70d7571e66901244df73a8b3c"
 dependencies = [
  "async-trait",
  "datafusion-common",

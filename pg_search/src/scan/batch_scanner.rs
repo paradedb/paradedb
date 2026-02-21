@@ -244,6 +244,7 @@ impl Scanner {
 
         // Apply pre-materialization filters (before expensive dictionary lookups).
         if !pre_filters.is_empty() {
+            println!("applying pre-filters!");
             let before = ids.len();
             for pre_filter in pre_filters {
                 if ids.is_empty() {
@@ -260,6 +261,8 @@ impl Scanner {
             }
             self.pre_filter_rows_scanned += before;
             self.pre_filter_rows_pruned += before - ids.len();
+        } else {
+            println!("no pre-filters: emitting {}", ids.len());
         }
 
         // Execute batch lookups of the fast-field values, and construct the batch.
@@ -346,6 +349,7 @@ impl Scanner {
         pre_filters: &[PreFilter],
     ) {
         if self.prefetched.is_none() {
+            println!(">>> prefetching!");
             if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
                 self.prefetched = Some(batch);
             }

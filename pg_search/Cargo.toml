@@ -75,8 +75,8 @@ paste = "1.0.15"
 typetag = "0.2"
 tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
-datafusion = { version = "=52.0.0", default-features = false }
-datafusion-proto = { version = "=52.0.0", default-features = false }
+datafusion = { path = "/Users/stuhood/src/datafusion/datafusion/core", package = "datafusion", default-features = false }
+datafusion-proto = { path = "/Users/stuhood/src/datafusion/datafusion/proto", package = "datafusion-proto", default-features = false }
 futures = "0.3"
 
 [dev-dependencies]

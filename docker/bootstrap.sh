@@ -35,7 +35,7 @@ for DB in template1 "$POSTGRES_DB"; do
   psql -d "$DB" -c "ALTER DATABASE \"$DB\" SET search_path TO public,paradedb;"
 done
 
-echo "ParadeDB auto-tune: Running initial configuration..."
+echo "Tuning postgresql.conf based on available container resources..."
 /usr/local/bin/tune-postgresql.sh
 
 echo "ParadeDB bootstrap completed!"

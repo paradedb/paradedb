@@ -43,6 +43,7 @@ jobs:
       - name: Check for Trailing Whitespaces
         run: |
           FILES=$(git grep -Ilr '[[:blank:]]$' -- \
+            ':(exclude)*.nix' \
             ':(exclude)*.sql' \
             ':(exclude)*.out' \
             ':(exclude)*.rs' \

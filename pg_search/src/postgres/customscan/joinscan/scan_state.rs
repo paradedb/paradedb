@@ -17,30 +17,43 @@
 
 //! # Parallel Partitioning Strategy & Correctness
 //!
-//! `JoinScan` implements parallel execution by **partitioning the first (outermost) table**
-//! across workers while **replicating (fully scanning)** all subsequent tables in the join tree.
+//! `JoinScan` supports two parallel execution strategies:
 //!
-//! This is equivalent to a "Broadcast Join" or "Fragment-and-Replicate" strategy in distributed
-//! databases.
+//! ## 1. Segment Partitioning (Default)
+//!
+//! Partitions the **first (outermost) table** across workers by index segments, while
+//! **replicating (fully scanning)** all subsequent tables in the join tree.
+//!
+//! This is equivalent to a "Broadcast Join" or "Fragment-and-Replicate" strategy.
+//!
+//! ## 2. Range Partitioning
+//!
+//! Used when multiple tables in the join are sorted by their join keys. We partition the
+//! sort key space into disjoint ranges and assign ranges to workers.
+//!
+//! Each worker processes a subset of the data from **all partitioned tables** corresponding
+//! to its assigned ranges. This enables a **Co-located Join** strategy where workers join
+//! corresponding partitions without shuffling.
 //!
 //! ## Correctness
 //!
-//! This strategy relies on the distributive property of Inner Joins:
+//! Both strategies rely on the distributive property of Inner Joins:
 //!
 //! (A_part1 JOIN B) UNION (A_part2 JOIN B) = (A_part1 UNION A_part2) JOIN B = A JOIN B
 //!
-//! Each worker computes a partial join result for its subset of `A`. When these partial results
-//! are gathered by PostgreSQL, the union forms the complete, correct result set.
+//! For Range Partitioning, since ranges are disjoint and cover the entire key space:
+//!
+//! (A_range1 JOIN B_range1) UNION (A_range2 JOIN B_range2) ... = A JOIN B
 //!
 //! ## SAFETY WARNING
 //!
-//! This strategy is **ONLY CORRECT** for:
+//! These strategies are **ONLY CORRECT** for:
 //! 1.  **Inner Joins**: `JOIN_INNER`
 //! 2.  **Left Outer Joins** (where the Left/Outer table is partitioned)
 //! 3.  **Semi Joins** (where the Left table is partitioned)
 //! 4.  **Anti Joins** (where the Left table is partitioned)
 //!
-//! It is **INCORRECT** and will produce duplicate or wrong results for:
+//! They are **INCORRECT** and will produce duplicate or wrong results for:
 //! 1.  **Right Outer Joins**: Unmatched rows from the replicated Right table would be emitted
 //!     as `(NULL, b)` by *every* worker, causing duplicates.
 //! 2.  **Full Outer Joins**: Same duplicate issue for the replicated side.
@@ -63,7 +76,9 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
+use crate::postgres::customscan::joinscan::build::{
+    JoinCSClause, JoinSource, PartitioningStrategy,
+};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -74,6 +89,7 @@ use crate::postgres::customscan::joinscan::translator::{make_col, CombinedMapper
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
 use datafusion::execution::session_state::SessionStateBuilder;
@@ -228,9 +244,27 @@ fn build_clause_df<'a>(
         }
 
         let partitioning_idx = join_clause.partitioning_source_index();
+        let strategy = join_clause.partitioning_strategy;
+        let range_points = if strategy == PartitioningStrategy::Range {
+            Some(join_clause.range_split_points.clone())
+        } else {
+            None
+        };
 
         // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
+        let is_parallel_0 = if strategy == PartitioningStrategy::Range {
+            join_clause.partitioned_source_indices.contains(&0)
+        } else {
+            partitioning_idx == 0
+        };
+        let range_points_0 = if is_parallel_0 {
+            range_points.clone()
+        } else {
+            None
+        };
+
+        let mut df =
+            build_source_df(ctx, &join_clause.sources[0], is_parallel_0, range_points_0).await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
         df = df.alias(&alias0)?;
 
@@ -243,7 +277,19 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let is_parallel_i = if strategy == PartitioningStrategy::Range {
+                join_clause.partitioned_source_indices.contains(&i)
+            } else {
+                partitioning_idx == i
+            };
+            let range_points_i = if is_parallel_i {
+                range_points.clone()
+            } else {
+                None
+            };
+
+            let right_df =
+                build_source_df(ctx, right_source, is_parallel_i, range_points_i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -528,6 +574,7 @@ fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
     is_parallel: bool,
+    range_split_points: Option<Vec<TantivyValue>>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = &source.scan_info;
@@ -539,6 +586,7 @@ fn build_source_df<'a>(
             fields.clone(),
             None,
             is_parallel,
+            range_split_points,
         ));
         ctx.register_table(alias, provider)?;
 

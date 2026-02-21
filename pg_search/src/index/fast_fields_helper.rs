@@ -15,18 +15,30 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::types_arrow::date_time_to_ts_nanos;
 use crate::schema::SearchFieldType;
 
+use arrow_array::builder::{
+    BinaryViewBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder,
+    TimestampNanosecondBuilder, UInt64Builder,
+};
+use arrow_array::ArrayRef;
+use arrow_buffer::Buffer;
+use datafusion::common::{DataFusionError, Result};
 use serde::{Deserialize, Serialize};
+use std::convert::identity;
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
+use tantivy::termdict::TermOrdinal;
 use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
+
+const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -222,9 +234,261 @@ impl FFType {
         };
         ff.first_vals(docs, output);
     }
+
+    /// Fetch values for the given doc ids into an Arrow array.
+    pub fn fetch_arrow_array(&self, ids: &[DocId]) -> Result<ArrayRef> {
+        match self {
+            FFType::Text(str_column) => {
+                let mut term_ords = Vec::with_capacity(ids.len());
+                term_ords.resize(ids.len(), None);
+                str_column.ords().first_vals(ids, &mut term_ords);
+                Ok(ords_to_string_array(
+                    str_column.clone(),
+                    term_ords
+                        .into_iter()
+                        .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
+                ))
+            }
+            FFType::Bytes(bytes_column) => {
+                let mut term_ords = Vec::with_capacity(ids.len());
+                term_ords.resize(ids.len(), None);
+                bytes_column.ords().first_vals(ids, &mut term_ords);
+                Ok(ords_to_bytes_array(
+                    bytes_column.clone(),
+                    term_ords
+                        .into_iter()
+                        .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
+                ))
+            }
+            FFType::Junk => Err(DataFusionError::Internal(
+                "Cannot fetch arrow array for Junk column".to_string(),
+            )),
+            FFType::I64(col) => fetch_primitive(col, ids, identity, Int64Builder::new),
+            FFType::F64(col) => fetch_primitive(col, ids, identity, Float64Builder::new),
+            FFType::U64(col) => fetch_primitive(col, ids, identity, UInt64Builder::new),
+            FFType::Bool(col) => fetch_primitive(col, ids, identity, BooleanBuilder::new),
+            FFType::Date(col) => fetch_primitive(
+                col,
+                ids,
+                date_time_to_ts_nanos,
+                TimestampNanosecondBuilder::new,
+            ),
+        }
+    }
 }
 
-/// A request for a specific fast field, used *before* the column is open.
+fn fetch_primitive<T, U, F, B>(
+    col: &tantivy::fastfield::Column<T>,
+    ids: &[u32],
+    conversion: F,
+    ctor: impl Fn() -> B,
+) -> Result<ArrayRef>
+where
+    T: Copy + tantivy::fastfield::FastValue,
+    F: Fn(T) -> U,
+    B: arrow_array::builder::ArrayBuilder + Extend<Option<U>>,
+{
+    let mut column_results = Vec::with_capacity(ids.len());
+    column_results.resize(ids.len(), None);
+    col.first_vals(ids, &mut column_results);
+
+    let mut builder = ctor();
+    builder.extend(column_results.into_iter().map(|opt| opt.map(&conversion)));
+    Ok(Arc::new(builder.finish()))
+}
+
+/// Given an unordered collection of TermOrdinals for the given StrColumn, return a
+/// `StringViewArray` with one row per input term ordinal (in the input order).
+///
+/// A `StringViewArray` contains a series of buffers containing arbitrarily concatenated bytes data,
+/// and then a series of (buffer, offset, len) entries representing views into those buffers. This
+/// method creates a single buffer containing the concatenated data for the given term ordinals in
+/// term sorted order, and then a view per input row in input order. A caller can ignore those
+/// details and just consume the array as if it were an array of strings.
+///
+/// `NULL_TERM_ORDINAL` represents NULL.
+pub fn ords_to_string_array(
+    str_ff: StrColumn,
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
+
+    let mut builder = StringViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
+    let mut bytes = Vec::new();
+    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_sstable_delta_reader = str_ff
+        .dictionary()
+        .sstable_delta_reader_block(current_block_addr.clone())
+        .expect("Failed to open term dictionary.");
+    let mut current_ordinal = 0;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            break;
+        }
+
+        match &previous_term {
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                views[row_idx] = Some(*previous_view);
+                continue;
+            }
+            _ => {}
+        }
+
+        assert!(ord >= current_ordinal);
+        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        if new_block_addr != current_block_addr {
+            current_block_addr = new_block_addr;
+            current_ordinal = current_block_addr.first_ordinal;
+            current_sstable_delta_reader = str_ff
+                .dictionary()
+                .sstable_delta_reader_block(current_block_addr.clone())
+                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+            bytes.clear();
+        }
+
+        for _ in current_ordinal..=ord {
+            match current_sstable_delta_reader.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                }
+                Err(e) => {
+                    panic!("Failed to decode dictionary block: {e}")
+                }
+            }
+            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        }
+        current_ordinal = ord + 1;
+
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_string_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_string_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    let block_no = builder.append_block(Buffer::from(buffer));
+    for view in views {
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    Arc::new(builder.finish())
+}
+
+/// Given an unordered collection of TermOrdinals for the given BytesColumn, return a
+/// `BinaryViewArray` with one row per input term ordinal (in the input order).
+///
+/// This is identical to `ords_to_string_array` but uses `BinaryViewBuilder` for binary data.
+///
+/// Given an unordered collection of TermOrdinals for the given BytesColumn, return a
+/// `BinaryViewArray` with one row per input term ordinal (in the input order).
+///
+/// This is identical to `ords_to_string_array` but uses `BinaryViewBuilder` for binary data.
+///
+/// `NULL_TERM_ORDINAL` represents NULL.
+pub fn ords_to_bytes_array(
+    bytes_ff: BytesColumn,
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
+
+    let mut builder = BinaryViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
+    let mut bytes = Vec::new();
+    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_sstable_delta_reader = bytes_ff
+        .dictionary()
+        .sstable_delta_reader_block(current_block_addr.clone())
+        .expect("Failed to open term dictionary.");
+    let mut current_ordinal = 0;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            break;
+        }
+
+        match &previous_term {
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                views[row_idx] = Some(*previous_view);
+                continue;
+            }
+            _ => {}
+        }
+
+        assert!(ord >= current_ordinal);
+        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        if new_block_addr != current_block_addr {
+            current_block_addr = new_block_addr;
+            current_ordinal = current_block_addr.first_ordinal;
+            current_sstable_delta_reader = bytes_ff
+                .dictionary()
+                .sstable_delta_reader_block(current_block_addr.clone())
+                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+            bytes.clear();
+        }
+
+        for _ in current_ordinal..=ord {
+            match current_sstable_delta_reader.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                }
+                Err(e) => {
+                    panic!("Failed to decode dictionary block: {e}")
+                }
+            }
+            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        }
+        current_ordinal = ord + 1;
+
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_bytes_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_bytes_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    let block_no = builder.append_block(Buffer::from(buffer));
+    for view in views {
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    Arc::new(builder.finish())
+}
 ///
 /// This enum allows consumers to specify which columns to retrieve and their expected types.
 ///

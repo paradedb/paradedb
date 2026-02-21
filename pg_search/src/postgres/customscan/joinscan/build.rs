@@ -123,7 +123,18 @@ pub struct ChildProjection {
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types::TantivyValue;
 use crate::scan::info::RowEstimate;
+
+/// The strategy used to partition the join for parallel execution.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+pub enum PartitioningStrategy {
+    /// Partition by checking out segments (default).
+    #[default]
+    Segment,
+    /// Partition by splitting the sort key range.
+    Range,
+}
 
 /// Represents the source of data for a join side.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -305,6 +316,13 @@ pub struct JoinCSClause {
     pub order_by: Vec<OrderByInfo>,
     /// Projection of output columns for this join.
     pub output_projection: Option<Vec<ChildProjection>>,
+    /// The strategy used for parallel partitioning.
+    pub partitioning_strategy: PartitioningStrategy,
+    /// The split points for range partitioning (if strategy is Range).
+    pub range_split_points: Vec<TantivyValue>,
+    /// Indices of sources that are partitioned (if strategy is Range).
+    /// These sources will execute range queries in parallel.
+    pub partitioned_source_indices: Vec<usize>,
 }
 
 impl JoinCSClause {
@@ -334,6 +352,16 @@ impl JoinCSClause {
 
     pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {
         self.output_projection = Some(projection);
+        self
+    }
+
+    pub fn with_partitioning_strategy(mut self, strategy: PartitioningStrategy) -> Self {
+        self.partitioning_strategy = strategy;
+        self
+    }
+
+    pub fn with_range_split_points(mut self, points: Vec<TantivyValue>) -> Self {
+        self.range_split_points = points;
         self
     }
 

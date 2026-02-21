@@ -233,7 +233,7 @@ impl SearchPredicateUDF {
         use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
         use crate::index::mvcc::MvccSatisfies;
         use crate::index::reader::index::SearchIndexReader;
-        use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
+        use crate::postgres::heap::VisibilityChecker;
         use crate::postgres::rel::PgSearchRelation;
         use crate::scan::Scanner;
 
@@ -258,7 +258,7 @@ impl SearchPredicateUDF {
         let ffhelper = FFHelper::with_fields(&reader, &fields);
 
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let mut visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());
 

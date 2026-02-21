@@ -21,7 +21,7 @@ mod tests {
     use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
     use crate::index::mvcc::MvccSatisfies;
     use crate::index::reader::index::SearchIndexReader;
-    use crate::postgres::heap::VisibilityChecker as HeapVisibilityChecker;
+    use crate::postgres::heap::VisibilityChecker;
     use crate::postgres::rel::PgSearchRelation;
     use crate::query::SearchQueryInput;
     use crate::scan::execution_plan::PgSearchScanPlan;
@@ -90,7 +90,7 @@ mod tests {
             pg_sys::PushActiveSnapshot(snap);
         }
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
-        let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
         let scanner = Scanner::new(search_results, None, fields.clone(), heap_oid.into());
 
@@ -306,7 +306,9 @@ mod tests {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());
             }
 
-            Arc::new(PgSearchTableProvider::new(scan_info, fields, None, false))
+            Arc::new(PgSearchTableProvider::new(
+                scan_info, fields, None, false, None,
+            ))
         }
 
         /// Assert all filters get Exact pushdown

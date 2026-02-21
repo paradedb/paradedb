@@ -44,12 +44,21 @@ fi
 
 TOTAL_RAM_MB=$((TOTAL_RAM_BYTES / 1024 / 1024))
 
+# Safety floor: Do not auto-tune on very small instances (< 512MB)
+# to prevent misconfiguration issues.
+
 if [ "$TOTAL_RAM_MB" -lt 512 ]; then
   echo "ParadeDB auto-tune: System RAM ($TOTAL_RAM_MB MB) is too low. Skipping."
   exit 0
 fi
 
 CPU_COUNT=$(nproc)
+
+# shared_buffers: 25% of RAM
+# effective_cache_size: 75% of RAM
+# maintenance_work_mem: min(2GB, RAM/16)
+# work_mem: (RAM - shared_buffers) / (max_connections * 3) -> assuming default 100 connections
+# wal_buffers: min(64MB, shared_buffers / 32)
 
 SB_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.25)}")
 ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")

@@ -97,7 +97,7 @@ buildPgrxExtension (finalAttrs: {
   passthru.updateScript = nix-update-script { };
 
   meta = {
-    description = "Transactional Elasticsearch alternative as a PostgreSQL extension";
+    description = "Simple, Elastic-quality search for Postgres";
     homepage = "https://paradedb.com";
     changelog = "https://github.com/paradedb/paradedb/releases/tag/${finalAttrs.version}";
     license = lib.licenses.agpl3Only;

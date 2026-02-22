@@ -715,6 +715,75 @@ impl SearchTokenizer {
     pub fn normalizer(&self) -> Option<SearchNormalizer> {
         self.filters().normalizer()
     }
+
+    // We need to maintain backwards compatibility for Lindera variants. Prior to
+    // Lindera 1.4.0, keep_whitespace defaulted to true. It now defaults to false.
+    // In order to maintain backwards compatibility for existing indexes, we set it to
+    // true in cases where it is not otherwise defined on an existing index.
+    // For non-lindera variants, this is is a no-op.
+    pub fn with_lindera_backwards_compatibility(self, is_create_index: bool) -> Self {
+        match &self {
+            // We need to maintain backwards compatibility for Lindera variants. Prior to
+            // Lindera 1.4.0, keep_whitespace defaulted to true. It now defaults to false.
+            // In order to maintain backwards compatibility for existing indexes, we set it to
+            // true in cases where it is not otherwise defined on an existing index.
+            SearchTokenizer::ChineseLindera {
+                keep_whitespace,
+                filters,
+            } => {
+                if keep_whitespace.is_none() && !is_create_index {
+                    SearchTokenizer::ChineseLindera {
+                        keep_whitespace: Some(true),
+                        filters: filters.clone(),
+                    }
+                } else {
+                    self
+                }
+            }
+            SearchTokenizer::JapaneseLindera {
+                keep_whitespace,
+                filters,
+            } => {
+                if keep_whitespace.is_none() && !is_create_index {
+                    SearchTokenizer::JapaneseLindera {
+                        keep_whitespace: Some(true),
+                        filters: filters.clone(),
+                    }
+                } else {
+                    self
+                }
+            }
+            SearchTokenizer::KoreanLindera {
+                keep_whitespace,
+                filters,
+            } => {
+                if keep_whitespace.is_none() && !is_create_index {
+                    SearchTokenizer::KoreanLindera {
+                        keep_whitespace: Some(true),
+                        filters: filters.clone(),
+                    }
+                } else {
+                    self
+                }
+            }
+            SearchTokenizer::Lindera {
+                language,
+                keep_whitespace,
+                filters,
+            } => {
+                if keep_whitespace.is_none() && !is_create_index {
+                    SearchTokenizer::Lindera {
+                        language: language.clone(),
+                        keep_whitespace: Some(true),
+                        filters: filters.clone(),
+                    }
+                } else {
+                    self
+                }
+            }
+            _ => self,
+        }
+    }
 }
 
 pub static LANGUAGES: Lazy<HashMap<Language, &str>> = Lazy::new(|| {
@@ -1335,5 +1404,71 @@ mod tests {
         // Verify no whitespace tokens
         assert!(!tokens_chinese.contains(&" ".to_string()));
         assert!(!tokens_chinese.iter().any(|t| t.trim().is_empty()));
+    }
+
+    #[rstest]
+    #[case::chinese_lindera(
+        SearchTokenizer::ChineseLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() },
+        SearchTokenizer::ChineseLindera { keep_whitespace: Some(true), filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::japanese_lindera(
+        SearchTokenizer::JapaneseLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() },
+        SearchTokenizer::JapaneseLindera { keep_whitespace: Some(true), filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::korean_lindera(
+        SearchTokenizer::KoreanLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() },
+        SearchTokenizer::KoreanLindera { keep_whitespace: Some(true), filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::lindera(
+        SearchTokenizer::Lindera { language: LinderaLanguage::Japanese, keep_whitespace: None, filters: SearchTokenizerFilters::default() },
+        SearchTokenizer::Lindera { language: LinderaLanguage::Japanese, keep_whitespace: Some(true), filters: SearchTokenizerFilters::default() }
+    )]
+    fn test_lindera_backwards_compat_defaults_keep_whitespace_on_existing_index(
+        #[case] input: SearchTokenizer,
+        #[case] expected: SearchTokenizer,
+    ) {
+        let result = input.with_lindera_backwards_compatibility(false);
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::chinese_lindera(
+        SearchTokenizer::ChineseLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::japanese_lindera(
+        SearchTokenizer::JapaneseLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::korean_lindera(
+        SearchTokenizer::KoreanLindera { keep_whitespace: None, filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::lindera(
+        SearchTokenizer::Lindera { language: LinderaLanguage::Japanese, keep_whitespace: None, filters: SearchTokenizerFilters::default() }
+    )]
+    fn test_lindera_backwards_compat_no_override_on_create_index(
+        #[case] input: SearchTokenizer,
+    ) {
+        let result = input.clone().with_lindera_backwards_compatibility(true);
+        assert_eq!(result, input);
+    }
+
+    #[rstest]
+    #[case::explicit_false(
+        SearchTokenizer::ChineseLindera { keep_whitespace: Some(false), filters: SearchTokenizerFilters::default() }
+    )]
+    #[case::explicit_true(
+        SearchTokenizer::ChineseLindera { keep_whitespace: Some(true), filters: SearchTokenizerFilters::default() }
+    )]
+    fn test_lindera_backwards_compat_preserves_explicit_keep_whitespace(
+        #[case] input: SearchTokenizer,
+    ) {
+        let result = input.clone().with_lindera_backwards_compatibility(false);
+        assert_eq!(result, input);
+    }
+
+    #[rstest]
+    fn test_lindera_backwards_compat_passthrough_non_lindera() {
+        let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
+        let result = tokenizer.clone().with_lindera_backwards_compatibility(false);
+        assert_eq!(result, tokenizer);
     }
 }

@@ -169,7 +169,7 @@ jobs:
           sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
 
       - name: Build & install Citus 14 (PG 16-18)
-        if: matrix.pg_version >= 16 && matrix.pg_version <= 18
+        if: matrix.pg_version >= 16
         env:
           CITUS_VERSION: v14.0.0
         run: |

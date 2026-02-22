@@ -131,8 +131,7 @@ impl<W: Write> PanicSafeBufWriter<W> {
 impl<W: Write> Write for PanicSafeBufWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if std::thread::panicking() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "skipping write during panic unwind to prevent double-panic",
             ));
         }
@@ -141,24 +140,11 @@ impl<W: Write> Write for PanicSafeBufWriter<W> {
 
     fn flush(&mut self) -> Result<()> {
         if std::thread::panicking() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "skipping flush during panic unwind to prevent double-panic",
             ));
         }
         self.inner.as_mut().unwrap().flush()
-    }
-}
-
-/// We are intentionally not using impl_safe_drop! here because
-/// we want to skip the `Drop` of the writer entirely on panic
-impl<W: Write> Drop for PanicSafeBufWriter<W> {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            if let Some(buffer) = self.inner.take() {
-                std::mem::forget(buffer);
-            }
-        }
     }
 }
 

@@ -619,17 +619,20 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
         };
 
         // And then collect our old contents, which are no longer reachable.
-        let recyclable_blocks = unsafe {
+        // We MUST collect these into a Vec before calling extend_with_when_recyclable to avoid a deadlock
+        // where the FSM leaf page lock is held while trying to acquire a shared lock on the list blocks.
+        let recyclable_blocks: Vec<_> = unsafe {
             LinkedItemList::<T>::freeable_blocks_without_header(
                 original.bman.clone(),
                 start_blockno,
             )
             .chain(std::iter::once(self.cloned.header_blockno))
+            .collect()
         };
         self.bman.fsm().extend_with_when_recyclable(
             &mut self.bman,
             unsafe { pg_sys::ReadNextFullTransactionId() },
-            recyclable_blocks,
+            recyclable_blocks.into_iter(),
         );
     }
 }

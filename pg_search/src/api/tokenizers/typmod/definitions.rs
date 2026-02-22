@@ -261,7 +261,7 @@ impl TryFrom<i32> for LinderaTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
-        let keep_whitespace = parsed.get("keep_whitespace").map(|v| v.as_bool()).flatten();
+        let keep_whitespace = parsed.get("keep_whitespace").and_then(|v| v.as_bool());
         let language = parsed
             .try_get("language", 0)
             .map(|p| match p.as_str() {

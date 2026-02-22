@@ -3,7 +3,6 @@
 # Test pg_search (Nix)
 # Test building and running the ParadeDB Docker Image using Determinate Nix.
 
-
 name: Test pg_search (Nix)
 
 on:

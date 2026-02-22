@@ -91,10 +91,11 @@ pub fn search_field_config_from_type(
     let mut tokenizer = match type_name.as_str() {
         "alias" => panic!("`pdb.alias` is not allowed in index definitions"),
         "simple" => SearchTokenizer::Simple(SearchTokenizerFilters::default()),
-        "lindera" => SearchTokenizer::Lindera(
-            LinderaLanguage::default(),
-            SearchTokenizerFilters::default(),
-        ),
+        "lindera" => SearchTokenizer::Lindera {
+            language: LinderaLanguage::default(),
+            keep_whitespace: None,
+            filters: SearchTokenizerFilters::default(),
+        },
         "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         "jieba" => SearchTokenizer::Jieba {
             chinese_convert: None,
@@ -206,11 +207,48 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = regex_typmod.filters;
         }
 
-        SearchTokenizer::Lindera(style, filters) => {
+        SearchTokenizer::Lindera {
+            language: style,
+            keep_whitespace,
+            filters,
+        } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
             *style = lindera_typmod.language;
+            // keep_whitespace is meant to be backwards-compatible for existing indexes (because
+            // the default changed in Lindera 1.4.0+). The correct default is chosen by the
+            // tokenizer duruing initialization, so we'll only override it here if the typmod
+            // specifies it explicitly.
+            if lindera_typmod.keep_whitespace.is_some() {
+                *keep_whitespace = lindera_typmod.keep_whitespace;
+            }
+            *filters = lindera_typmod.filters;
+        }
+
+        #[allow(deprecated)]
+        SearchTokenizer::ChineseLindera {
+            keep_whitespace,
+            filters,
+        }
+        | SearchTokenizer::JapaneseLindera {
+            keep_whitespace,
+            filters,
+        }
+        | SearchTokenizer::KoreanLindera {
+            keep_whitespace,
+            filters,
+        } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            // keep_whitespace is meant to be backwards-compatible for existing indexes (because
+            // the default changed in Lindera 1.4.0+). The correct default is chosen by the
+            // tokenizer duruing initialization, so we'll only override it here if the typmod
+            // specifies it explicitly.
+            if lindera_typmod.keep_whitespace.is_some() {
+                *keep_whitespace = lindera_typmod.keep_whitespace;
+            }
             *filters = lindera_typmod.filters;
         }
 
@@ -220,14 +258,12 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
         | SearchTokenizer::Simple(filters)
         | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
-        | SearchTokenizer::ChineseCompatible(filters)
-        | SearchTokenizer::ChineseLindera(filters)
-        | SearchTokenizer::JapaneseLindera(filters)
-        | SearchTokenizer::KoreanLindera(filters) => {
+        | SearchTokenizer::ChineseCompatible(filters) => {
             // | SearchTokenizer::Jieba(filters) =>  {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
+
             *filters = generic_typmod.filters;
         }
 

@@ -2984,6 +2984,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsst-rs"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "561f2458a3407836ab8f1acc9113b8cda91b9d6378ba8dad13b2fe1a1d3af5ce"
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4866,7 +4872,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5804,7 +5810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
@@ -7207,7 +7213,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7262,7 +7268,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "bitpacking",
 ]
@@ -7270,7 +7276,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7285,7 +7291,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7318,7 +7324,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7330,20 +7336,20 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
+ "fsst-rs",
  "futures-util",
  "itertools 0.14.0",
  "tantivy-bitpacker",
  "tantivy-common",
  "tantivy-fst",
- "zstd",
 ]
 
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7380,7 +7386,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=517ad3675aeb62170d51bfe279f51ccfad771527#517ad3675aeb62170d51bfe279f51ccfad771527"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.fsst#8ad0939fa6e04303d4b3c437b23c391a68436d66"
 dependencies = [
  "serde",
 ]

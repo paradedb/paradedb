@@ -379,78 +379,47 @@ fn ords_to_string_array(
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
-    let mut bytes = Vec::new();
-    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
-    let mut current_sstable_delta_reader = str_ff
-        .dictionary()
-        .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
-    let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+
+    let mut unique_ords = Vec::new();
+    let mut row_groups: Vec<Vec<usize>> = Vec::new();
+
     for (row_idx, ord) in term_ords {
         if ord == NULL_TERM_ORDINAL {
             // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
             // be appended to the builder as null.
             break;
         }
-
-        // only advance forward if the new ord is different than the one we just processed
-        //
-        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
-        // it's still sorted
-        match &previous_term {
-            Some((previous_ord, previous_view)) if *previous_ord == ord => {
-                // This is the same term ordinal: reuse the previous view.
-                views[row_idx] = Some(*previous_view);
-                continue;
-            }
-            // Fall through.
-            _ => {}
+        if unique_ords.last() == Some(&ord) {
+            row_groups.last_mut().unwrap().push(row_idx);
+        } else {
+            unique_ords.push(ord);
+            row_groups.push(vec![row_idx]);
         }
-
-        // This is a new term ordinal: decode it and append it to the builder.
-        assert!(ord >= current_ordinal);
-        // check if block changed for new term_ord
-        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
-        if new_block_addr != current_block_addr {
-            current_block_addr = new_block_addr;
-            current_ordinal = current_block_addr.first_ordinal;
-            current_sstable_delta_reader = str_ff
-                .dictionary()
-                .sstable_delta_reader_block(current_block_addr.clone())
-                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
-            bytes.clear();
-        }
-
-        // Move to ord inside that block
-        for _ in current_ordinal..=ord {
-            match current_sstable_delta_reader.advance() {
-                Ok(true) => {}
-                Ok(false) => {
-                    panic!("Term ordinal {ord} did not exist in the dictionary.");
-                }
-                Err(e) => {
-                    panic!("Failed to decode dictionary block: {e}")
-                }
-            }
-            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
-            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
-        }
-        current_ordinal = ord + 1;
-
-        // Set the view for this row_idx.
-        let offset: u32 = buffer
-            .len()
-            .try_into()
-            .expect("Too many terms requested in `ords_to_string_array`");
-        let len: u32 = bytes
-            .len()
-            .try_into()
-            .expect("Single term is too long in `ords_to_string_array`");
-        buffer.extend_from_slice(&bytes);
-        previous_term = Some((ord, (offset, len)));
-        views[row_idx] = Some((offset, len));
     }
+
+    let mut row_groups_iter = row_groups.into_iter();
+
+    str_ff
+        .dictionary()
+        .sorted_ords_to_term_cb(unique_ords.into_iter(), |bytes| {
+            let row_indices = row_groups_iter.next().unwrap();
+
+            let offset: u32 = buffer
+                .len()
+                .try_into()
+                .expect("Too many terms requested in `ords_to_string_array`");
+            let len: u32 = bytes
+                .len()
+                .try_into()
+                .expect("Single term is too long in `ords_to_string_array`");
+            buffer.extend_from_slice(bytes);
+
+            for row_idx in row_indices {
+                views[row_idx] = Some((offset, len));
+            }
+            Ok(())
+        })
+        .expect("Failed to fetch term dictionary");
 
     // Append all the rows' views to the builder.
     let block_no = builder.append_block(Buffer::from(buffer));
@@ -489,78 +458,47 @@ fn ords_to_bytes_array(
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
-    let mut bytes = Vec::new();
-    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
-    let mut current_sstable_delta_reader = bytes_ff
-        .dictionary()
-        .sstable_delta_reader_block(current_block_addr.clone())
-        .expect("Failed to open term dictionary.");
-    let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+
+    let mut unique_ords = Vec::new();
+    let mut row_groups: Vec<Vec<usize>> = Vec::new();
+
     for (row_idx, ord) in term_ords {
         if ord == NULL_TERM_ORDINAL {
             // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
             // be appended to the builder as null.
             break;
         }
-
-        // only advance forward if the new ord is different than the one we just processed
-        //
-        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
-        // it's still sorted
-        match &previous_term {
-            Some((previous_ord, previous_view)) if *previous_ord == ord => {
-                // This is the same term ordinal: reuse the previous view.
-                views[row_idx] = Some(*previous_view);
-                continue;
-            }
-            // Fall through.
-            _ => {}
+        if unique_ords.last() == Some(&ord) {
+            row_groups.last_mut().unwrap().push(row_idx);
+        } else {
+            unique_ords.push(ord);
+            row_groups.push(vec![row_idx]);
         }
-
-        // This is a new term ordinal: decode it and append it to the builder.
-        assert!(ord >= current_ordinal);
-        // check if block changed for new term_ord
-        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
-        if new_block_addr != current_block_addr {
-            current_block_addr = new_block_addr;
-            current_ordinal = current_block_addr.first_ordinal;
-            current_sstable_delta_reader = bytes_ff
-                .dictionary()
-                .sstable_delta_reader_block(current_block_addr.clone())
-                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
-            bytes.clear();
-        }
-
-        // Move to ord inside that block
-        for _ in current_ordinal..=ord {
-            match current_sstable_delta_reader.advance() {
-                Ok(true) => {}
-                Ok(false) => {
-                    panic!("Term ordinal {ord} did not exist in the dictionary.");
-                }
-                Err(e) => {
-                    panic!("Failed to decode dictionary block: {e}")
-                }
-            }
-            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
-            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
-        }
-        current_ordinal = ord + 1;
-
-        // Set the view for this row_idx.
-        let offset: u32 = buffer
-            .len()
-            .try_into()
-            .expect("Too many terms requested in `ords_to_bytes_array`");
-        let len: u32 = bytes
-            .len()
-            .try_into()
-            .expect("Single term is too long in `ords_to_bytes_array`");
-        buffer.extend_from_slice(&bytes);
-        previous_term = Some((ord, (offset, len)));
-        views[row_idx] = Some((offset, len));
     }
+
+    let mut row_groups_iter = row_groups.into_iter();
+
+    bytes_ff
+        .dictionary()
+        .sorted_ords_to_term_cb(unique_ords.into_iter(), |bytes| {
+            let row_indices = row_groups_iter.next().unwrap();
+
+            let offset: u32 = buffer
+                .len()
+                .try_into()
+                .expect("Too many terms requested in `ords_to_bytes_array`");
+            let len: u32 = bytes
+                .len()
+                .try_into()
+                .expect("Single term is too long in `ords_to_bytes_array`");
+            buffer.extend_from_slice(bytes);
+
+            for row_idx in row_indices {
+                views[row_idx] = Some((offset, len));
+            }
+            Ok(())
+        })
+        .expect("Failed to fetch term dictionary");
 
     // Append all the rows' views to the builder.
     let block_no = builder.append_block(Buffer::from(buffer));

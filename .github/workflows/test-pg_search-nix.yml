@@ -1,4 +1,10 @@
-name: Build Nix package for pg_search
+# workflows/test-pg_search-nix.yml
+#
+# Test pg_search (Nix)
+# Test building and running the ParadeDB Docker Image using Determinate Nix.
+
+
+name: Test pg_search (Nix)
 
 on:
   pull_request:
@@ -9,19 +15,19 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: nix-build-${{ github.head_ref || github.ref }}
+  group: test-pg_search-nix-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  nix-build-pg_search:
-    name: Build pg_search Package with Nix
+  test-pg_search-nix:
+    name: Test pg_search Builds with Determinate Nix
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
-      - name: Install Determinate nix
+      - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
 
       # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
@@ -30,10 +36,11 @@ jobs:
 
       # https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake-check
       - name: Run Flake Checks
-        run: |
-          NIXPKGS_ALLOW_BROKEN=1 nix flake check --impure
+        run: NIXPKGS_ALLOW_BROKEN=1 nix flake check --impure
 
-      - name: Build All pg_search Packages
+      # If this step fails due to an incorrect hash in flake.nix, the error will
+      # provide the correct hash
+      - name: Build pg_search for Nix
         env:
           # This is necessary due to longstanding issues surrounding running Postgres
           # in Nix's tightly controlled sandbox
@@ -44,4 +51,4 @@ jobs:
             | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
             | xargs -L1 nix build --impure
 
-          echo "All pg_search packages built successfully"
+          echo "All pg_search packages built successfully."

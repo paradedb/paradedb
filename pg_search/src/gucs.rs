@@ -116,6 +116,12 @@ static ENABLE_HEURISTIC_SELECTIVITY: GucSetting<bool> = GucSetting::<bool>::new(
 /// won't use parallel, and larger tables scale workers appropriately.
 static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 
+/// Override the scanner batch size when dynamic filters are pushed down.
+/// 0 means disabled (use the scanner's default). When > 0, the scanner's batch
+/// size is capped to this value during filter pushdown so that TopK can tighten
+/// its threshold between batches.
+static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -187,14 +193,13 @@ pub fn init() {
         c"paradedb.enable_mixed_fast_field_sort",
         c"Enable sorted execution for MixedFastFieldExecState",
         c"Enable sorted execution for MixedFastFieldExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-        &ENABLE_MIXED_FAST_FIELD_SORT,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
+                &ENABLE_MIXED_FAST_FIELD_SORT,
+                GucContext::Userset,
+                GucFlags::default(),
+            );
 
     GucRegistry::define_int_guc(
-        MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,
-        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
+                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
         c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
          than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
@@ -349,6 +354,18 @@ pub fn init() {
         &MIN_ROWS_PER_WORKER,
         0,
         i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.dynamic_filter_batch_size",
+        c"Scanner batch size override for dynamic filter pushdown",
+        c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
+          TopK can tighten its threshold between batches. 0 disables the override.",
+        &DYNAMIC_FILTER_BATCH_SIZE,
+        0,
+        128_000,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -514,6 +531,10 @@ pub fn min_rows_per_worker() -> i32 {
 
 pub fn add_doc_count_to_aggs() -> bool {
     ADD_DOC_COUNT_TO_AGGS.get()
+}
+
+pub fn dynamic_filter_batch_size() -> i32 {
+    DYNAMIC_FILTER_BATCH_SIZE.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

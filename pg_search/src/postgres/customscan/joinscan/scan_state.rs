@@ -64,6 +64,9 @@ use pgrx::pg_sys;
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
+use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
+use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
+
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
@@ -73,6 +76,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::PgSearchTableProvider;
+use datafusion::execution::session_state::SessionStateBuilder;
 
 /// Execution state for a single base relation in a join.
 pub struct RelationState {
@@ -138,17 +142,41 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with parallelization disabled.
+/// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
 ///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output
-/// across machines with different CPU counts.
+/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
+/// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
+/// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
+/// in a compatible way.
 pub fn create_session_context() -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
-    SessionContext::new_with_config(config)
+
+    let mut builder = SessionStateBuilder::new().with_config(config);
+
+    if crate::gucs::is_mixed_fast_field_sort_enabled() {
+        let rule = Arc::new(SortMergeJoinEnforcer::new());
+        builder = builder.with_physical_optimizer_rule(rule);
+        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
+        // transform_up causes `with_new_children` on ancestor nodes, which in
+        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
+        // been pushed to PgSearchScan yet. This second pass establishes the
+        // connection.
+        //
+        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
+        // rule (rather than appending a second pass) was considered, but the
+        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
+        // children — the plan structure at that earlier pipeline point differs,
+        // causing missing SortPreservingMergeExec and incorrect join results.
+        builder =
+            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+    }
+
+    let state = builder.build();
+    SessionContext::new_with_state(state)
 }
 
 /// Build the DataFusion logical plan for the join.

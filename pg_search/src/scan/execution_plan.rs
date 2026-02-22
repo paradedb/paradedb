@@ -53,10 +53,11 @@ use futures::Stream;
 
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
-use crate::scan::{Scanner, VisibilityChecker};
+use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -68,7 +69,7 @@ unsafe impl<T> Sync for UnsafeSendSync<T> {}
 
 /// State for a scan partition.
 /// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
-pub type ScanState = (Scanner, Arc<FFHelper>, Box<dyn VisibilityChecker>);
+pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
@@ -364,7 +365,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let states = self
+            let mut states: Vec<_> = self
                 .states
                 .lock()
                 .map_err(|e| {
@@ -374,6 +375,15 @@ impl ExecutionPlan for PgSearchScanPlan {
                 })?
                 .drain(..)
                 .collect();
+
+            // When the GUC is set, cap the scanner batch size so that TopK
+            // can tighten its threshold between batches.
+            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
+            if df_batch_size > 0 {
+                for UnsafeSendSync(ref mut inner) in states.iter_mut().flatten() {
+                    inner.0.set_batch_size(df_batch_size as usize);
+                }
+            }
 
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
@@ -397,7 +407,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 struct ScanStream {
     scanner: Scanner,
     ffhelper: Arc<FFHelper>,
-    visibility: Box<dyn VisibilityChecker>,
+    visibility: Box<VisibilityChecker>,
     schema: SchemaRef,
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// Metrics counters for EXPLAIN ANALYZE (only set when dynamic filters are present).
@@ -421,7 +431,7 @@ impl ScanStream {
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&*current_expr, &mut filters);
+                    collect_filters(&*current_expr, &self.schema, &mut filters);
                 }
             }
         }
@@ -437,7 +447,7 @@ impl Stream for ScanStream {
         let pre_filters = this.build_filters();
         match this
             .scanner
-            .next(&this.ffhelper, &mut *this.visibility, &pre_filters)
+            .next(&this.ffhelper, &mut this.visibility, &pre_filters)
         {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
             None => {

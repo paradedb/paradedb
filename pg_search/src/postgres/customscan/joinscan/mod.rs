@@ -142,6 +142,7 @@
 mod build;
 mod explain;
 mod memory;
+mod planner;
 mod planning;
 mod predicate;
 mod privdat;
@@ -993,12 +994,14 @@ impl CustomScan for JoinScan {
                 let memory_pool =
                     Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));
                 let task_ctx = Arc::new(
-                    TaskContext::default().with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
+                    TaskContext::default()
+                        .with_session_config(ctx.state().config().clone())
+                        .with_runtime(Arc::new(
+                            RuntimeEnvBuilder::new()
+                                .with_memory_pool(memory_pool)
+                                .build()
+                                .expect("Failed to create RuntimeEnv"),
+                        )),
                 );
                 let stream = {
                     let _guard = runtime.enter();

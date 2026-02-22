@@ -460,6 +460,156 @@ fn index_sort_by_after_updates(mut conn: PgConnection) {
     );
 }
 
+/// Test sort_by across multiple segments for various column types and directions.
+#[rstest]
+#[case::text_asc("text_asc")]
+#[case::text_desc("text_desc")]
+#[case::uuid_asc("uuid_asc")]
+#[case::numeric_bytes_asc("numeric_bytes_asc")]
+fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &str) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    let (ddl, inserts, query, expected): (&str, Vec<&str>, &str, Vec<Option<String>>) =
+        match variant {
+            "text_asc" => (
+                r#"
+                    CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
+                    CREATE INDEX test_sort_idx ON test_sort
+                    USING bm25 (id, content, sort_col)
+                    WITH (
+                        key_field = 'id',
+                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "raw"}}}',
+                        sort_by = 'sort_col ASC NULLS FIRST'
+                    );
+                "#,
+                vec![
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'zebra'), ('fruit', 'banana')",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'cherry'), ('fruit', NULL)",
+                ],
+                "SELECT sort_col FROM test_sort WHERE content @@@ 'fruit' ORDER BY sort_col ASC NULLS FIRST",
+                vec![
+                    None,
+                    Some("apple".into()),
+                    Some("banana".into()),
+                    Some("cherry".into()),
+                    Some("mango".into()),
+                    Some("zebra".into()),
+                ],
+            ),
+            "text_desc" => (
+                r#"
+                    CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
+                    CREATE INDEX test_sort_idx ON test_sort
+                    USING bm25 (id, content, sort_col)
+                    WITH (
+                        key_field = 'id',
+                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "raw"}}}',
+                        sort_by = 'sort_col DESC NULLS LAST'
+                    );
+                "#,
+                vec![
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'zebra'), ('fruit', 'banana')",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'cherry'), ('fruit', NULL)",
+                ],
+                "SELECT sort_col FROM test_sort WHERE content @@@ 'fruit' ORDER BY sort_col DESC NULLS LAST",
+                vec![
+                    Some("zebra".into()),
+                    Some("mango".into()),
+                    Some("cherry".into()),
+                    Some("banana".into()),
+                    Some("apple".into()),
+                    None,
+                ],
+            ),
+            "uuid_asc" => (
+                r#"
+                    CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col UUID);
+                    CREATE INDEX test_sort_idx ON test_sort
+                    USING bm25 (id, content, sort_col)
+                    WITH (
+                        key_field = 'id',
+                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+                        sort_by = 'sort_col ASC NULLS FIRST'
+                    );
+                "#,
+                vec![
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000002'), ('uuid', '00000000-0000-0000-0000-000000000010')",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000001'), ('uuid', NULL)",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000003'), ('uuid', '00000000-0000-0000-0000-000000000100')",
+                ],
+                "SELECT sort_col::text FROM test_sort WHERE content @@@ 'uuid' ORDER BY sort_col ASC NULLS FIRST",
+                vec![
+                    None,
+                    Some("00000000-0000-0000-0000-000000000001".into()),
+                    Some("00000000-0000-0000-0000-000000000002".into()),
+                    Some("00000000-0000-0000-0000-000000000003".into()),
+                    Some("00000000-0000-0000-0000-000000000010".into()),
+                    Some("00000000-0000-0000-0000-000000000100".into()),
+                ],
+            ),
+            "numeric_bytes_asc" => (
+                r#"
+                    CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col NUMERIC(30,0));
+                    CREATE INDEX test_sort_idx ON test_sort
+                    USING bm25 (id, content, sort_col)
+                    WITH (
+                        key_field = 'id',
+                        text_fields = '{"content": {}}',
+                        numeric_fields = '{"sort_col": {"fast": true}}',
+                        sort_by = 'sort_col ASC NULLS FIRST'
+                    );
+                "#,
+                vec![
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('num', NULL), ('num', 100000000000000000000000000000), ('num', 5)",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('num', 10), ('num', 1), ('num', 100000000000000000000000000001)",
+                    "INSERT INTO test_sort (content, sort_col) VALUES ('num', 500), ('num', 50)",
+                ],
+                // Table-qualify sort_col so Postgres doesn't resolve to the output column
+                // (sort_col::text) and sort lexicographically instead of numerically.
+                "SELECT sort_col::text FROM test_sort WHERE content @@@ 'num' ORDER BY test_sort.sort_col ASC NULLS FIRST",
+                vec![
+                    None,
+                    Some("1".into()),
+                    Some("5".into()),
+                    Some("10".into()),
+                    Some("50".into()),
+                    Some("500".into()),
+                    Some("100000000000000000000000000000".into()),
+                    Some("100000000000000000000000000001".into()),
+                ],
+            ),
+            _ => panic!("unknown variant: {variant}"),
+        };
+
+    ddl.execute(&mut conn);
+    for ins in &inserts {
+        ins.execute(&mut conn);
+    }
+
+    // Verify we actually have multiple segments, so we're testing cross-segment merge ordering.
+    let explain_sql = format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}");
+    let (plan,): (Value,) = explain_sql.fetch_one(&mut conn);
+    let segment_count = plan
+        .pointer("/0/Plan/Plans/0/Plans/0/Segment Count")
+        .or_else(|| plan.pointer("/0/Plan/Plans/0/Segment Count"))
+        .or_else(|| plan.pointer("/0/Plan/Segment Count"))
+        .and_then(|v| v.as_i64())
+        .filter(|v| *v > 0)
+        .expect("Could not extract Segment Count from EXPLAIN output");
+    assert!(
+        segment_count > 1,
+        "{variant}: test requires multiple segments, got {segment_count}",
+    );
+
+    let results: Vec<Option<String>> = query.fetch_scalar(&mut conn);
+    assert_eq!(
+        results, expected,
+        "{variant} sort_by should match expected order"
+    );
+}
+
 // ============================================================================
 // Parallel Execution Tests
 // ============================================================================
@@ -997,5 +1147,266 @@ fn index_sort_by_many_segments_parallel(mut conn: PgConnection) {
         priorities[0] >= 10000,
         "Highest priority should be >= 10000, got {}",
         priorities[0]
+    );
+}
+
+/// Verify that NULLS FIRST ordering keeps NULLs separate from zero values.
+#[rstest]
+fn index_sort_by_null_and_zero_interleaving(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_idx ON test_null_zero
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Insert data with NULLs and 0 values — the problematic combination.
+    // If tantivy assigns missing docs sort key 0, NULLs and Some(0)
+    // will have the same sort key and may interleave.
+    r#"
+        INSERT INTO test_null_zero (content, score) VALUES
+        ('Item A', NULL),
+        ('Item B', 0),
+        ('Item C', NULL),
+        ('Item D', 0),
+        ('Item E', 1),
+        ('Item F', NULL),
+        ('Item G', 5);
+    "#
+    .execute(&mut conn);
+
+    // ASC NULLS FIRST: expect all NULLs first, then 0s, then positive values
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero
+        WHERE content @@@ 'Item'
+        ORDER BY score ASC NULLS FIRST
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(results.len(), 7, "Should return all 7 results");
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    // Find where NULLs end
+    let first_non_null_idx = scores.iter().position(|s| s.is_some());
+    if let Some(idx) = first_non_null_idx {
+        // All values before first non-NULL should be NULL
+        assert!(
+            scores[..idx].iter().all(|s| s.is_none()),
+            "All values before first non-NULL should be NULL (NULLS FIRST). Got: {:?}",
+            scores
+        );
+
+        // All values from first non-NULL onwards should be non-NULL and sorted ASC
+        let non_null_scores: Vec<i32> = scores[idx..].iter().filter_map(|s| *s).collect();
+        assert_eq!(
+            non_null_scores.len(),
+            scores.len() - idx,
+            "No NULLs should appear after non-NULL values. Full order: {:?}",
+            scores
+        );
+        assert!(
+            is_sorted_asc(&non_null_scores),
+            "Non-null scores should be sorted ASC. Got: {:?}",
+            non_null_scores
+        );
+    }
+
+    // Verify exact expected order: [NULL, NULL, NULL, 0, 0, 1, 5]
+    assert_eq!(
+        scores,
+        vec![None, None, None, Some(0), Some(0), Some(1), Some(5)],
+        "Expected NULLs first, then 0s, then ascending values"
+    );
+}
+
+/// Regression test for tantivy merger NULL ordering (PR #106).
+///
+/// Splits NULLs and zeros across 3 segments so the merger must correctly
+/// preserve ASC NULLS FIRST ordering after a cross-segment merge.
+#[rstest]
+fn index_sort_by_null_and_zero_multi_segment_asc(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero_ms_asc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_ms_asc_idx ON test_null_zero_ms_asc
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Segment 1: [NULL, 0]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item A', NULL),
+        ('Item B', 0);
+    "#
+    .execute(&mut conn);
+
+    // Segment 2: [NULL, 0]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item C', NULL),
+        ('Item D', 0);
+    "#
+    .execute(&mut conn);
+
+    // Segment 3: [NULL, 1]
+    r#"
+        INSERT INTO test_null_zero_ms_asc (content, score) VALUES
+        ('Item E', NULL),
+        ('Item F', 1);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero_ms_asc
+        WHERE content @@@ 'Item'
+        ORDER BY score ASC NULLS FIRST
+    "#
+    .fetch(&mut conn);
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    assert_eq!(
+        scores,
+        vec![None, None, None, Some(0), Some(0), Some(1)],
+        "ASC NULLS FIRST across segments: NULLs first, then 0s, then positive"
+    );
+}
+
+/// Regression test for tantivy merger NULL ordering (PR #106).
+///
+/// Splits NULLs and zeros across 3 segments so the merger must correctly
+/// preserve DESC NULLS LAST ordering after a cross-segment merge.
+#[rstest]
+fn index_sort_by_null_and_zero_multi_segment_desc(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_null_zero_ms_desc (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            score INTEGER
+        );
+
+        CREATE INDEX test_null_zero_ms_desc_idx ON test_null_zero_ms_desc
+        USING bm25 (id, content, score)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"score": {"fast": true}}',
+            sort_by = 'score DESC NULLS LAST'
+        );
+    "#
+    .execute(&mut conn);
+
+    // Segment 1: [1, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item A', 1),
+        ('Item B', NULL);
+    "#
+    .execute(&mut conn);
+
+    // Segment 2: [0, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item C', 0),
+        ('Item D', NULL);
+    "#
+    .execute(&mut conn);
+
+    // Segment 3: [0, NULL]
+    r#"
+        INSERT INTO test_null_zero_ms_desc (content, score) VALUES
+        ('Item E', 0),
+        ('Item F', NULL);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, Option<i32>)> = r#"
+        SELECT id, score FROM test_null_zero_ms_desc
+        WHERE content @@@ 'Item'
+        ORDER BY score DESC NULLS LAST
+    "#
+    .fetch(&mut conn);
+
+    let scores: Vec<Option<i32>> = results.iter().map(|(_, s)| *s).collect();
+
+    assert_eq!(
+        scores,
+        vec![Some(1), Some(0), Some(0), None, None, None],
+        "DESC NULLS LAST across segments: positive first, then 0s, then NULLs"
+    );
+}
+
+/// Verify that BIGINT values above 2^24 sort correctly on a sorted index.
+/// 16,777,216 and 16,777,217 are identical as f32.
+#[rstest]
+fn index_sort_by_f32_precision_above_2_24(mut conn: PgConnection) {
+    "SET max_parallel_workers TO 0;".execute(&mut conn);
+
+    r#"
+        CREATE TABLE test_f32_precision (
+            id SERIAL PRIMARY KEY,
+            content TEXT,
+            val BIGINT
+        );
+
+        CREATE INDEX test_f32_precision_idx ON test_f32_precision
+        USING bm25 (id, content, val)
+        WITH (
+            key_field = 'id',
+            text_fields = '{"content": {}}',
+            numeric_fields = '{"val": {"fast": true}}',
+            sort_by = 'val ASC NULLS FIRST'
+        );
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO test_f32_precision (content, val) VALUES
+        ('item', 16777217),
+        ('item', 16777216);
+    "#
+    .execute(&mut conn);
+
+    let results: Vec<(i32, i64)> = r#"
+        SELECT id, val FROM test_f32_precision
+        WHERE content @@@ 'item'
+        ORDER BY val ASC
+    "#
+    .fetch(&mut conn);
+
+    let vals: Vec<i64> = results.iter().map(|(_, v)| *v).collect();
+    assert_eq!(
+        vals,
+        vec![16_777_216, 16_777_217],
+        "Values above 2^24 must sort correctly"
     );
 }

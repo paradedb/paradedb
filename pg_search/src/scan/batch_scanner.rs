@@ -31,10 +31,10 @@ use tantivy::{DocAddress, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
 use super::pre_filter::{apply_pre_filter, PreFilter};
-use super::VisibilityChecker;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -110,6 +110,8 @@ pub struct Scanner {
     batch_size: usize,
     which_fast_fields: Vec<WhichFastField>,
     table_oid: u32,
+    maybe_ctids: Vec<Option<u64>>,
+    visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
@@ -142,6 +144,8 @@ impl Scanner {
             batch_size,
             which_fast_fields,
             table_oid,
+            maybe_ctids: Vec::new(),
+            visibility_results: Vec::new(),
             prefetched: None,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
@@ -152,6 +156,11 @@ impl Scanner {
     #[allow(dead_code)]
     pub fn schema(&self) -> SchemaRef {
         build_arrow_schema(&self.which_fast_fields)
+    }
+
+    /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
+    pub(crate) fn set_batch_size(&mut self, size: usize) {
+        self.batch_size = size.min(MAX_BATCH_SIZE);
     }
 
     /// Returns the estimated number of rows that will be produced by this scanner.
@@ -199,7 +208,7 @@ impl Scanner {
     pub fn next(
         &mut self,
         ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
+        visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
@@ -209,23 +218,20 @@ impl Scanner {
         let (segment_ord, mut scores, mut ids) = self.try_get_batch_ids()?;
 
         // Batch lookup the ctids.
-        let mut ctids: Vec<u64> = {
-            let mut ctids = Vec::with_capacity(ids.len());
-            ctids.resize(ids.len(), None);
-            ffhelper.ctid(segment_ord).as_u64s(&ids, &mut ctids);
-            ctids
-                .into_iter()
-                .map(|ctid| ctid.expect("All docs must have ctids"))
-                .collect()
-        };
+        self.maybe_ctids.resize(ids.len(), None);
+        ffhelper
+            .ctid(segment_ord)
+            .as_u64s(&ids, &mut self.maybe_ctids);
 
         // Filter out invisible rows.
-        let mut write_idx = 0;
-        for read_idx in 0..ctids.len() {
-            let ctid = ctids[read_idx];
+        self.visibility_results.resize(ids.len(), None);
+        visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
 
-            if let Some(visible_ctid) = visibility.check(ctid) {
-                ctids[write_idx] = visible_ctid;
+        let mut ctids = Vec::with_capacity(ids.len());
+        let mut write_idx = 0;
+        for (read_idx, maybe_visible_ctid) in self.visibility_results.iter().enumerate() {
+            if let Some(visible_ctid) = maybe_visible_ctid {
+                ctids.push(*visible_ctid);
                 if read_idx != write_idx {
                     ids[write_idx] = ids[read_idx];
                     scores[write_idx] = scores[read_idx];
@@ -233,8 +239,6 @@ impl Scanner {
                 write_idx += 1;
             }
         }
-
-        ctids.truncate(write_idx);
         ids.truncate(write_idx);
         scores.truncate(write_idx);
 
@@ -338,7 +342,7 @@ impl Scanner {
     pub fn prefetch_next(
         &mut self,
         ffhelper: &FFHelper,
-        visibility: &mut (impl VisibilityChecker + ?Sized),
+        visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
     ) {
         if self.prefetched.is_none() {

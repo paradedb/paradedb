@@ -12,6 +12,14 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/test-pg_search-nix.yml"
+      - "nix/**"
+      - "tokenizers/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "flake.nix"
+      - "flake.lock"
   workflow_dispatch:
 
 concurrency:

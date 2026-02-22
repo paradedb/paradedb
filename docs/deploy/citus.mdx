@@ -20,7 +20,7 @@ Both `citus` and `pg_search` must be added to `shared_preload_libraries` in the 
 ```bash
 # Install Citus first
 curl https://install.citusdata.com/community/deb.sh | sudo bash
-apt-get install -y postgresql-17-citus-13.0
+apt-get install -y postgresql-18-citus-14.0
 
 # Add both extensions to shared_preload_libraries
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" /var/lib/postgresql/data/postgresql.conf

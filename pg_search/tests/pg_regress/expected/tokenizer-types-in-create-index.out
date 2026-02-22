@@ -116,35 +116,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) @@@ 'test';
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_korean","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  could not parse query string 'lindera_korean:(test)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) @@@ 'test';
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_japanese","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  could not parse query string 'lindera_japanese:(test)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) @@@ 'test';
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"lindera_chinese","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  could not parse query string 'lindera_chinese:(test)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) @@@ 'test';
                                                                   QUERY PLAN                                                                   
 -----------------------------------------------------------------------------------------------------------------------------------------------
@@ -246,35 +225,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) &&& 'test';
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_korean","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_korean", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("korean_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) &&& 'test';
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_japanese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_japanese", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("japanese_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) &&& 'test';
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_chinese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_chinese", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("chinese_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) &&& 'test';
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -376,35 +331,11 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) ||| 'test';
-                                                                                             QUERY PLAN                                                                                              
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_korean","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_korean", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("korean_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) ||| 'test';
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_japanese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_japanese", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("japanese_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) ||| 'test';
-                                                                                              QUERY PLAN                                                                                              
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
-   Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"match":{"field":"lindera_chinese","value":"test","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
-     Applies to Aggregates: COUNT(*)
-     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
-(5 rows)
-
+ERROR:  An invalid argument was passed: 'No Tokenizer found for field FieldEntry { name: "lindera_chinese", field_type: Str(TextOptions { indexing: Some(TextFieldIndexing { record: WithFreqsAndPositions, fieldnorms: true, tokenizer: TokenizerName("chinese_lindera") }), stored: false, fast: IsEnabled(false), coerce: false }) }'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) ||| 'test';
                                                                                          QUERY PLAN                                                                                         
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

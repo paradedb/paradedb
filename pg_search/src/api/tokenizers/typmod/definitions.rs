@@ -60,6 +60,9 @@ pub struct RegexTypmod {
 // for pdb.lindera
 pub struct LinderaTypmod {
     pub language: LinderaLanguage,
+    // keep_whitespace must be optional. If it is not specified, the default behavior is up to the
+    // tokenizer itself.
+    pub keep_whitespace: Option<bool>,
     pub filters: SearchTokenizerFilters,
 }
 
@@ -258,6 +261,7 @@ impl TryFrom<i32> for LinderaTypmod {
     fn try_from(typmod: i32) -> Result<Self, Self::Error> {
         let parsed = Self::parsed(typmod)?;
         let filters = SearchTokenizerFilters::from(&parsed);
+        let keep_whitespace = parsed.get("keep_whitespace").map(|v| v.as_bool()).flatten();
         let language = parsed
             .try_get("language", 0)
             .map(|p| match p.as_str() {
@@ -273,7 +277,11 @@ impl TryFrom<i32> for LinderaTypmod {
                 }
             })
             .ok_or(typmod::Error::MissingKey("language"))?;
-        Ok(LinderaTypmod { language, filters })
+        Ok(LinderaTypmod {
+            language,
+            keep_whitespace,
+            filters,
+        })
     }
 }
 

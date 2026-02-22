@@ -70,59 +70,71 @@ SELECT 'Running Shoes.  olé'::pdb.chinese_compatible('lowercase=false', 'stemme
 SELECT 'Running Shoes.  olé'::pdb.lindera::text[]; -- error, needs a language
 ERROR:  Missing required option: 'language'
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=chinese')::text[]; -- error, needs a language
-              text              
---------------------------------
- {running," ",shoes,.,"  ",olé}
+         text          
+-----------------------
+ {running,shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=japanese')::text[]; -- error, needs a language
-              text              
---------------------------------
- {running," ",shoes,.,"  ",olé}
+         text          
+-----------------------
+ {running,shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera('language=korean')::text[]; -- error, needs a language
-              text              
---------------------------------
- {running," ",shoes,.,"  ",olé}
+         text          
+-----------------------
+ {running,shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false')::text[];
-              text              
---------------------------------
- {Running," ",Shoes,.,"  ",olé}
+         text          
+-----------------------
+ {Running,Shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-           text            
----------------------------
- {Run," ",Shoe,.,"  ",ole}
+       text       
+------------------
+ {Run,Shoe,.,ole}
 (1 row)
 
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=true', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+SELECT 'Running Shoes.  olé'::pdb.lindera(chinese, 'keep_whitespace=false', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false')::text[];
-              text              
---------------------------------
- {Running," ",Shoes,.,"  ",olé}
+         text          
+-----------------------
+ {Running,Shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-           text            
----------------------------
- {Run," ",Shoe,.,"  ",ole}
+       text       
+------------------
+ {Run,Shoe,.,ole}
 (1 row)
 
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=true', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+SELECT 'Running Shoes.  olé'::pdb.lindera(japanese, 'keep_whitespace=false', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false')::text[];
-              text              
---------------------------------
- {Running," ",Shoes,.,"  ",olé}
+         text          
+-----------------------
+ {Running,Shoes,.,olé}
 (1 row)
 
 SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'lowercase=false', 'stemmer=english', 'ascii_folding=true')::text[];
-           text            
----------------------------
- {Run," ",Shoe,.,"  ",ole}
+       text       
+------------------
+ {Run,Shoe,.,ole}
 (1 row)
 
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=true', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+SELECT 'Running Shoes.  olé'::pdb.lindera(korean, 'keep_whitespace=false', 'lowercase=false')::text[];
+ERROR:  Invalid option: 'keep_whitespace'. Allowed options: alias, alpha_num_only, ascii_folding, chinese_convert, columnar, fieldnorms, language, lowercase, normalizer, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 SELECT 'Running Shoes.  olé'::pdb.jieba::text[];
                 text                
 ------------------------------------

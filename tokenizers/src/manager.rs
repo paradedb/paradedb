@@ -1444,9 +1444,7 @@ mod tests {
     #[case::lindera(
         SearchTokenizer::Lindera { language: LinderaLanguage::Japanese, keep_whitespace: None, filters: SearchTokenizerFilters::default() }
     )]
-    fn test_lindera_backwards_compat_no_override_on_create_index(
-        #[case] input: SearchTokenizer,
-    ) {
+    fn test_lindera_backwards_compat_no_override_on_create_index(#[case] input: SearchTokenizer) {
         let result = input.clone().with_lindera_backwards_compatibility(true);
         assert_eq!(result, input);
     }
@@ -1468,7 +1466,9 @@ mod tests {
     #[rstest]
     fn test_lindera_backwards_compat_passthrough_non_lindera() {
         let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
-        let result = tokenizer.clone().with_lindera_backwards_compatibility(false);
+        let result = tokenizer
+            .clone()
+            .with_lindera_backwards_compatibility(false);
         assert_eq!(result, tokenizer);
     }
 }

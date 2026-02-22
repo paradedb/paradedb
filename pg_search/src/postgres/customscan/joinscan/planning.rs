@@ -23,8 +23,8 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, JoinSource, ScanInfo};
-use super::predicate::find_base_info_recursive;
+use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate};
+use super::predicate::{find_base_info_recursive, is_column_fast_field};
 use super::privdat::{OutputColumnInfo, PrivateData, SCORE_COL_NAME};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
@@ -108,6 +108,44 @@ pub(super) struct JoinConditions {
     pub has_search_predicate: bool,
 }
 
+trait JoinSourceLookup {
+    #[allow(unused)]
+    fn contains_rti(&self, rti: pg_sys::Index) -> bool;
+    fn map_var(
+        &self,
+        varno: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<pg_sys::AttrNumber>;
+}
+
+impl JoinSourceLookup for JoinSource {
+    fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        JoinSource::contains_rti(self, rti)
+    }
+
+    fn map_var(
+        &self,
+        varno: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<pg_sys::AttrNumber> {
+        JoinSource::map_var(self, varno, attno)
+    }
+}
+
+impl JoinSourceLookup for JoinSourceCandidate {
+    fn contains_rti(&self, rti: pg_sys::Index) -> bool {
+        JoinSourceCandidate::contains_rti(self, rti)
+    }
+
+    fn map_var(
+        &self,
+        varno: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<pg_sys::AttrNumber> {
+        JoinSourceCandidate::map_var(self, varno, attno)
+    }
+}
+
 /// Extract join conditions from the restrict list.
 ///
 /// Analyzes the join's restrict list to identify:
@@ -149,7 +187,7 @@ pub(super) unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 pub(super) unsafe fn collect_join_sources(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(Vec<JoinSource>, Vec<JoinKeyPair>)> {
+) -> Option<(Vec<JoinSourceCandidate>, Vec<JoinKeyPair>)> {
     if rel.is_null() {
         return None;
     }
@@ -173,7 +211,7 @@ pub(super) unsafe fn collect_join_sources(
         let rte = pg_sys::rt_fetch(rti, rtable);
         let relid = get_plain_relation_relid(rte)?;
 
-        let mut side_info = ScanInfo::new().with_heap_rti(rti).with_heaprelid(relid);
+        let mut side_info = JoinSourceCandidate::new(rti).with_heaprelid(relid);
 
         if !(*rte).eref.is_null() {
             let eref = (*rte).eref;
@@ -225,7 +263,7 @@ pub(super) unsafe fn collect_join_sources(
             }
         }
 
-        return Some((vec![JoinSource::new(side_info)], Vec::new()));
+        return Some((vec![side_info], Vec::new()));
     }
 
     // Case 2: Join Relation (multiple relids)
@@ -249,7 +287,12 @@ pub(super) unsafe fn collect_join_sources(
                     let private_data = PrivateData::from((*custom_path).custom_private);
                     // Return all sources and keys from the existing JoinScan
                     return Some((
-                        private_data.join_clause.sources,
+                        private_data
+                            .join_clause
+                            .sources
+                            .into_iter()
+                            .map(JoinSourceCandidate::from)
+                            .collect(),
                         private_data.join_clause.join_keys,
                     ));
                 }
@@ -297,8 +340,23 @@ pub(super) unsafe fn collect_join_sources(
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
-                        if !is_source_column_fast_field(outer, jk.outer_attno)
-                            || !is_source_column_fast_field(inner, jk.inner_attno)
+                        let (Some(outer_heaprelid), Some(outer_indexrelid)) =
+                            (outer.heaprelid, outer.indexrelid)
+                        else {
+                            return None;
+                        };
+                        let (Some(inner_heaprelid), Some(inner_indexrelid)) =
+                            (inner.heaprelid, inner.indexrelid)
+                        else {
+                            return None;
+                        };
+
+                        if !is_column_fast_field(outer_heaprelid, outer_indexrelid, jk.outer_attno)
+                            || !is_column_fast_field(
+                                inner_heaprelid,
+                                inner_indexrelid,
+                                jk.inner_attno,
+                            )
                         {
                             return None;
                         }
@@ -325,7 +383,7 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
 
 unsafe fn extract_join_conditions_from_list(
     restrictlist: *mut pg_sys::List,
-    sources: &[JoinSource],
+    sources: &[impl JoinSourceLookup],
 ) -> JoinConditions {
     let mut result = JoinConditions {
         equi_keys: Vec::new(),
@@ -410,7 +468,7 @@ unsafe fn extract_join_conditions_from_list(
 }
 
 fn find_source_for_var(
-    sources: &[JoinSource],
+    sources: &[impl JoinSourceLookup],
     varno: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<(pg_sys::Index, pg_sys::AttrNumber)> {
@@ -482,9 +540,8 @@ pub(super) unsafe fn collect_required_fields(
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut join_clause.sources {
                         if source.alias().as_deref() == Some(alias) {
-                            if let Some(attno) = get_attno_by_name(&source.scan_info, raw_col_name)
-                            {
-                                ensure_field(&mut source.scan_info, attno);
+                            if let Some(attno) = get_attno_by_name(source, raw_col_name) {
+                                ensure_field(source, attno);
                             }
                             break;
                         }
@@ -498,45 +555,40 @@ pub(super) unsafe fn collect_required_fields(
 
 unsafe fn ensure_column(source: &mut JoinSource, rti: pg_sys::Index, attno: pg_sys::AttrNumber) {
     if source.contains_rti(rti) {
-        ensure_field(&mut source.scan_info, attno);
+        ensure_field(source, attno);
     }
 }
 
 unsafe fn ensure_ctid(source: &mut JoinSource) {
-    source.scan_info.add_field(
+    source.add_field(
         pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
         WhichFastField::Ctid,
     );
 }
 
-unsafe fn ensure_field(side: &mut ScanInfo, attno: pg_sys::AttrNumber) {
-    if side.fields.iter().any(|f| f.attno == attno) {
+unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
+    if side.fields().iter().any(|f| f.attno == attno) {
         return;
     }
 
-    if let Some(heaprelid) = side.heaprelid {
-        if let Some(indexrelid) = side.indexrelid {
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = PgSearchRelation::open(indexrelid);
-            let tupdesc = heaprel.tuple_desc();
+    let heaprel = PgSearchRelation::open(side.heaprelid());
+    let indexrel = PgSearchRelation::open(side.indexrelid());
+    let tupdesc = heaprel.tuple_desc();
 
-            if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
-                side.add_field(attno, field);
-                return;
-            }
-        }
+    if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
+        side.add_field(attno, field);
+        return;
     }
 
     pgrx::warning!(
         "ensure_field: failed for attno {} in relation {:?}",
         attno,
-        side.alias
+        side.alias()
     );
 }
 
-unsafe fn get_attno_by_name(side: &ScanInfo, name: &str) -> Option<pg_sys::AttrNumber> {
-    let heaprelid = side.heaprelid?;
-    let rel = PgSearchRelation::open(heaprelid);
+unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+    let rel = PgSearchRelation::open(side.heaprelid());
     let tupdesc = rel.tuple_desc();
     for (i, att) in tupdesc.iter().enumerate() {
         if att.name() == name {
@@ -544,14 +596,6 @@ unsafe fn get_attno_by_name(side: &ScanInfo, name: &str) -> Option<pg_sys::AttrN
         }
     }
     None
-}
-
-pub(super) unsafe fn is_source_column_fast_field(
-    source: &JoinSource,
-    attno: pg_sys::AttrNumber,
-) -> bool {
-    use super::predicate::is_column_fast_field;
-    is_column_fast_field(&source.scan_info, attno)
 }
 
 /// Check if all ORDER BY columns are fast fields.
@@ -595,7 +639,8 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in sources {
                     if source.contains_rti(varno) {
-                        if !is_source_column_fast_field(source, varattno) {
+                        if !is_column_fast_field(source.heaprelid(), source.indexrelid(), varattno)
+                        {
                             return false;
                         }
                         found = true;
@@ -702,9 +747,9 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
 /// Sets `score_needed` on the ordering base relation.
 /// Returns the RTI of the ordering base relation if found.
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
-    source.scan_info.score_needed = true;
-    source.scan_info.add_field(0, WhichFastField::Score);
-    source.scan_info.heap_rti
+    source.set_score_needed(true);
+    source.add_field(0, WhichFastField::Score);
+    Some(source.heap_rti())
 }
 
 /// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.

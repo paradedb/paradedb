@@ -155,9 +155,9 @@ use self::memory::PanicOnOOMMemoryPool;
 use self::planning::{
     collect_join_sources, collect_required_fields, ensure_score_bubbling,
     expr_uses_scores_from_source, extract_join_conditions, extract_orderby, extract_score_pathkey,
-    get_score_func_rti, is_source_column_fast_field, order_by_columns_are_fast_fields,
+    get_score_func_rti, order_by_columns_are_fast_fields,
 };
-use self::predicate::extract_join_level_conditions;
+use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 
 use self::scan_state::{
@@ -204,10 +204,7 @@ impl ParallelQueryCapable for JoinScan {
         // We only partition the largest source
         let join_clause = &state.custom_state().join_clause;
         let source = join_clause.partitioning_source();
-        let segment_count = source
-            .scan_info
-            .segment_count
-            .expect("Segment count missing for partitioning source");
+        let segment_count = source.segment_count();
 
         // JoinScan doesn't currently support aggregates in the scan
         ParallelScanState::size_of(segment_count, &[], false)
@@ -224,13 +221,13 @@ impl ParallelQueryCapable for JoinScan {
         // Initialize shared state with segments from the largest source
         let join_clause = &state.custom_state().join_clause;
         let source = join_clause.partitioning_source();
-        let index_relid = source.scan_info.indexrelid.expect("Index relid missing");
-        let query = source.scan_info.query.clone();
+        let index_relid = source.indexrelid();
+        let query = source.query();
 
         let index_rel = PgSearchRelation::open(index_relid);
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
-            query.unwrap_or(crate::query::SearchQueryInput::All),
+            query,
             false,
             MvccSatisfies::Snapshot,
             None,
@@ -326,28 +323,28 @@ impl CustomScan for JoinScan {
             let innerrel = args.innerrel;
             let extra = args.extra;
 
-            let (mut sources, mut join_keys) =
+            let (mut source_candidates, mut join_keys) =
                 if let Some(res) = collect_join_sources(root, outerrel) {
                     res
                 } else {
                     return Vec::new();
                 };
-            let (inner_sources, inner_keys) =
+            let (inner_candidates, inner_keys) =
                 if let Some(res) = collect_join_sources(root, innerrel) {
                     res
                 } else {
                     return Vec::new();
                 };
-            sources.extend(inner_sources);
+            source_candidates.extend(inner_candidates);
             join_keys.extend(inner_keys);
 
             // Calculate estimates to decide which table to partition
-            for source in &mut sources {
+            for source in &mut source_candidates {
                 source.estimate_rows();
             }
 
             // Collect aliases for warnings
-            let aliases: Vec<String> = sources
+            let aliases: Vec<String> = source_candidates
                 .iter()
                 .enumerate()
                 .map(|(i, s)| s.execution_alias(i))
@@ -357,9 +354,29 @@ impl CustomScan for JoinScan {
             // We use this flag to decide whether to emit user-friendly warnings explaining why the JoinScan
             // wasn't chosen (e.g., missing LIMIT, missing fast fields). If the user hasn't tried to search,
             // we don't want to spam them with warnings about standard Postgres joins.
-            let is_interesting = sources
+            let is_interesting = source_candidates
                 .iter()
                 .any(|s| s.has_bm25_index() && s.has_search_predicate());
+
+            if source_candidates.iter().any(|s| !s.has_bm25_index()) {
+                if is_interesting {
+                    Self::add_planner_warning(
+                        "JoinScan not used: all join sources must have a BM25 index",
+                        &aliases,
+                    );
+                }
+                return Vec::new();
+            }
+
+            let mut sources = Vec::with_capacity(source_candidates.len());
+            for candidate in source_candidates {
+                let source: Option<build::JoinSource> = candidate.into();
+                if let Some(source) = source {
+                    sources.push(source);
+                } else {
+                    return Vec::new();
+                }
+            }
 
             // TODO(join-types): Currently only INNER JOIN is supported.
             // Future work should add:
@@ -444,9 +461,15 @@ impl CustomScan for JoinScan {
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
-                        if !is_source_column_fast_field(outer, jk.outer_attno)
-                            || !is_source_column_fast_field(inner, jk.inner_attno)
-                        {
+                        if !is_column_fast_field(
+                            outer.heaprelid(),
+                            outer.indexrelid(),
+                            jk.outer_attno,
+                        ) || !is_column_fast_field(
+                            inner.heaprelid(),
+                            inner.indexrelid(),
+                            jk.inner_attno,
+                        ) {
                             if is_interesting {
                                 Self::add_planner_warning(
                                     "JoinScan not used: join key columns must be fast fields",
@@ -551,15 +574,9 @@ impl CustomScan for JoinScan {
             let (segment_count, row_estimate) = {
                 let largest_source = join_clause.partitioning_source();
 
-                let segment_count = largest_source
-                    .scan_info
-                    .segment_count
-                    .expect("Segment count missing for partitioning source");
+                let segment_count = largest_source.segment_count();
 
-                let row_estimate = largest_source
-                    .scan_info
-                    .estimate
-                    .expect("Estimate missing for partitioning source");
+                let row_estimate = largest_source.estimate();
 
                 (segment_count, row_estimate)
             };
@@ -817,7 +834,7 @@ impl CustomScan for JoinScan {
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.outer_rti))
-                        .map(|(i, s)| (s.scan_info.heaprelid, s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.heaprelid()), s.execution_alias(i)))
                         .expect("Outer source not found");
 
                     let (inner_relid, inner_alias_name) = join_clause
@@ -825,7 +842,7 @@ impl CustomScan for JoinScan {
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.inner_rti))
-                        .map(|(i, s)| (s.scan_info.heaprelid, s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.heaprelid()), s.execution_alias(i)))
                         .expect("Inner source not found");
 
                     format!(

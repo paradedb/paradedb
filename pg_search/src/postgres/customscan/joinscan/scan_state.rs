@@ -236,9 +236,7 @@ fn build_clause_df<'a>(
 
         // Maintain a set of RTIs that are currently in 'df' (the left side)
         let mut left_rtis = std::collections::HashSet::new();
-        if let Some(rti) = join_clause.sources[0].scan_info.heap_rti {
-            left_rtis.insert(rti);
-        }
+        left_rtis.insert(join_clause.sources[0].heap_rti());
 
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
@@ -247,9 +245,7 @@ fn build_clause_df<'a>(
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
-            let right_rti = right_source.scan_info.heap_rti.ok_or_else(|| {
-                DataFusionError::Internal("JoinScan source missing heap_rti".into())
-            })?;
+            let right_rti = right_source.heap_rti();
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
             let mut on: Vec<Expr> = Vec::new();
@@ -530,12 +526,12 @@ fn build_source_df<'a>(
     is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
-        let scan_info = &source.scan_info;
-        let alias = scan_info.alias.as_deref().unwrap_or("base");
-        let fields: Vec<WhichFastField> =
-            scan_info.fields.iter().map(|f| f.field.clone()).collect();
+        let scan_info = source.scan_info();
+        let source_alias = source.alias();
+        let alias = source_alias.as_deref().unwrap_or("base");
+        let fields: Vec<WhichFastField> = source.fields().iter().map(|f| f.field.clone()).collect();
         let provider = Arc::new(PgSearchTableProvider::new(
-            scan_info.clone(),
+            scan_info,
             fields.clone(),
             None,
             is_parallel,
@@ -549,7 +545,7 @@ fn build_source_df<'a>(
         for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
             let expr = match field_type {
                 WhichFastField::Ctid => {
-                    let rti = scan_info.heap_rti.unwrap_or(0);
+                    let rti = source.heap_rti();
                     make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
                 }
                 WhichFastField::Score => make_col(alias, df_field.name()).alias(SCORE_COL_NAME),

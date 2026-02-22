@@ -201,19 +201,6 @@ impl JoinSourceCandidate {
         self.heap_rti == rti
     }
 
-    /// Map a base relation variable to its position in this source's output.
-    pub fn map_var(
-        &self,
-        varno: pg_sys::Index,
-        attno: pg_sys::AttrNumber,
-    ) -> Option<pg_sys::AttrNumber> {
-        if self.heap_rti == varno {
-            Some(attno)
-        } else {
-            None
-        }
-    }
-
     /// Calculate and store the estimated number of rows matching the query.
     ///
     /// This uses `MvccSatisfies::LargestSegment` to efficiently estimate the count
@@ -289,10 +276,6 @@ impl JoinSource {
         }
     }
 
-    pub fn heap_rti(&self) -> pg_sys::Index {
-        self.heap_rti
-    }
-
     pub fn heaprelid(&self) -> pg_sys::Oid {
         self.heaprelid
     }
@@ -337,7 +320,7 @@ impl JoinSource {
 
     /// Check if this source contains the given RTI.
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        self.heap_rti() == rti
+        self.heap_rti == rti
     }
 
     /// Check if this source has a search predicate.
@@ -357,7 +340,7 @@ impl JoinSource {
         varno: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<pg_sys::AttrNumber> {
-        if self.heap_rti() == varno {
+        if self.heap_rti == varno {
             Some(attno)
         } else {
             None
@@ -385,7 +368,7 @@ impl JoinSource {
 
     /// Recursively find the ordering RTI of this source.
     pub fn ordering_rti(&self) -> Option<pg_sys::Index> {
-        Some(self.heap_rti())
+        Some(self.heap_rti)
     }
 
     pub fn set_score_needed(&mut self, needed: bool) {

@@ -109,40 +109,30 @@ pub(super) struct JoinConditions {
 }
 
 trait JoinSourceLookup {
-    #[allow(unused)]
-    fn contains_rti(&self, rti: pg_sys::Index) -> bool;
-    fn map_var(
-        &self,
-        varno: pg_sys::Index,
-        attno: pg_sys::AttrNumber,
-    ) -> Option<pg_sys::AttrNumber>;
-}
-
-impl JoinSourceLookup for JoinSource {
-    fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        JoinSource::contains_rti(self, rti)
-    }
+    fn heap_rti(&self) -> pg_sys::Index;
 
     fn map_var(
         &self,
         varno: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<pg_sys::AttrNumber> {
-        JoinSource::map_var(self, varno, attno)
+        if self.heap_rti() == varno {
+            Some(attno)
+        } else {
+            None
+        }
+    }
+}
+
+impl JoinSourceLookup for JoinSource {
+    fn heap_rti(&self) -> pg_sys::Index {
+        self.heap_rti
     }
 }
 
 impl JoinSourceLookup for JoinSourceCandidate {
-    fn contains_rti(&self, rti: pg_sys::Index) -> bool {
-        JoinSourceCandidate::contains_rti(self, rti)
-    }
-
-    fn map_var(
-        &self,
-        varno: pg_sys::Index,
-        attno: pg_sys::AttrNumber,
-    ) -> Option<pg_sys::AttrNumber> {
-        JoinSourceCandidate::map_var(self, varno, attno)
+    fn heap_rti(&self) -> pg_sys::Index {
+        self.heap_rti
     }
 }
 
@@ -749,7 +739,7 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
     source.set_score_needed(true);
     source.add_field(0, WhichFastField::Score);
-    Some(source.heap_rti())
+    Some(source.heap_rti)
 }
 
 /// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.

@@ -236,7 +236,7 @@ fn build_clause_df<'a>(
 
         // Maintain a set of RTIs that are currently in 'df' (the left side)
         let mut left_rtis = std::collections::HashSet::new();
-        left_rtis.insert(join_clause.sources[0].heap_rti());
+        left_rtis.insert(join_clause.sources[0].heap_rti);
 
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
@@ -245,7 +245,7 @@ fn build_clause_df<'a>(
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
-            let right_rti = right_source.heap_rti();
+            let right_rti = right_source.heap_rti;
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
             let mut on: Vec<Expr> = Vec::new();
@@ -545,7 +545,7 @@ fn build_source_df<'a>(
         for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
             let expr = match field_type {
                 WhichFastField::Ctid => {
-                    let rti = source.heap_rti();
+                    let rti = source.heap_rti;
                     make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
                 }
                 WhichFastField::Score => make_col(alias, df_field.name()).alias(SCORE_COL_NAME),

@@ -130,10 +130,22 @@ impl<W: Write> PanicSafeBufWriter<W> {
 
 impl<W: Write> Write for PanicSafeBufWriter<W> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if std::thread::panicking() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "skipping write during panic unwind to prevent double-panic",
+            ));
+        }
         self.inner.as_mut().unwrap().write(buf)
     }
 
     fn flush(&mut self) -> Result<()> {
+        if std::thread::panicking() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "skipping flush during panic unwind to prevent double-panic",
+            ));
+        }
         self.inner.as_mut().unwrap().flush()
     }
 }

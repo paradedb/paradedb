@@ -201,9 +201,7 @@ impl Drop for Buffer {
                 block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
 
                 // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
-                // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
                 if !std::thread::panicking()
-                    && pg_sys::InterruptHoldoffCount > 0
                     && crate::postgres::utils::IsTransactionState()
                 {
                     pg_sys::UnlockReleaseBuffer(self.pg_buffer);

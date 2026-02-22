@@ -45,6 +45,9 @@ profile.json*
 # Node
 node_modules/
 
+# Nix artifacts
+result*
+
 # Cursor
 .cursor/
 

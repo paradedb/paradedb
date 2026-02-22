@@ -362,7 +362,7 @@ impl Scanner {
 /// term sorted order, and then a view per input row in input order. A caller can ignore those
 /// details and just consume the array as if it were an array of strings.
 ///
-/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
+/// `NULL_TERM_ORDINAL` represents NULL.
 fn ords_to_string_array(
     str_ff: StrColumn,
     term_ords: impl IntoIterator<Item = TermOrdinal>,
@@ -380,6 +380,7 @@ fn ords_to_string_array(
 
     let mut buffer = Vec::new();
 
+    // TODO: sorted_ords_to_term_cb now supports duplicated ords, so this should not be necessary.
     let mut unique_ords = Vec::new();
     let mut row_groups: Vec<Vec<usize>> = Vec::new();
 
@@ -441,7 +442,7 @@ fn ords_to_string_array(
 ///
 /// This is identical to `ords_to_string_array` but uses `BinaryViewBuilder` for binary data.
 ///
-/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
+/// `NULL_TERM_ORDINAL` represents NULL.
 fn ords_to_bytes_array(
     bytes_ff: BytesColumn,
     term_ords: impl IntoIterator<Item = TermOrdinal>,
@@ -459,6 +460,7 @@ fn ords_to_bytes_array(
 
     let mut buffer = Vec::new();
 
+    // TODO: sorted_ords_to_term_cb now supports duplicated ords, so this should not be necessary.
     let mut unique_ords = Vec::new();
     let mut row_groups: Vec<Vec<usize>> = Vec::new();
 

@@ -143,9 +143,8 @@ jobs:
 
       # Needed for Citus compatibility tests
       # Citus 13 supports PG 15-17, Citus 14 supports PG 16-18
-      # Note: Citus doesn't support ARM architecture
       - name: Build & install Citus 13 (PG 15)
-        if: matrix.arch == 'amd64' && matrix.pg_version == 15
+        if: matrix.pg_version == 15
         env:
           CITUS_VERSION: v13.0.1
         run: |
@@ -170,7 +169,7 @@ jobs:
           sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
 
       - name: Build & install Citus 14 (PG 16-18)
-        if: matrix.arch == 'amd64' && matrix.pg_version >= 16 && matrix.pg_version <= 18
+        if: matrix.pg_version >= 16 && matrix.pg_version <= 18
         env:
           CITUS_VERSION: v14.0.0
         run: |
@@ -194,17 +193,11 @@ jobs:
           PG_CONFIG="${PG_CONFIG}" make -j"$(nproc)"
           sudo PG_CONFIG="${PG_CONFIG}" make install -j"$(nproc)"
 
-      - name: Add extensions to shared_preload_libraries (with Citus)
-        if: matrix.arch == 'amd64'
+      - name: Add extensions to shared_preload_libraries
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: |
           sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'citus,pg_search'/" postgresql.conf
           sed -i "s/^max_connections = .*/max_connections = 300/" postgresql.conf
-
-      - name: Add extensions to shared_preload_libraries (without Citus)
-        if: matrix.arch != 'amd64'
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       - name: Compile & install pg_search extension (system)
         if: matrix.pg_impl == 'system'

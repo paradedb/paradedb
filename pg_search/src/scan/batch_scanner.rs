@@ -379,45 +379,38 @@ fn ords_to_string_array(
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
-
-    // TODO: sorted_ords_to_term_cb now supports duplicated ords, so this should not be necessary.
-    let mut unique_ords = Vec::new();
-    let mut row_groups: Vec<Vec<usize>> = Vec::new();
-
-    for (row_idx, ord) in term_ords {
-        if ord == NULL_TERM_ORDINAL {
-            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
-            // be appended to the builder as null.
-            break;
-        }
-        if unique_ords.last() == Some(&ord) {
-            row_groups.last_mut().unwrap().push(row_idx);
-        } else {
-            unique_ords.push(ord);
-            row_groups.push(vec![row_idx]);
-        }
-    }
-
-    let mut row_groups_iter = row_groups.into_iter();
-
+    let term_ords_iter = term_ords
+        .iter()
+        .map(|(_, ord)| *ord)
+        .take_while(|ord| *ord < NULL_TERM_ORDINAL);
+    let mut view_indexes_iter = term_ords.iter();
+    let mut previous_ord = NULL_TERM_ORDINAL;
+    let mut view = None;
     str_ff
         .dictionary()
-        .sorted_ords_to_term_cb(unique_ords.into_iter(), |bytes| {
-            let row_indices = row_groups_iter.next().unwrap();
+        .sorted_ords_to_term_cb(term_ords_iter, |bytes| {
+            let (view_index, term_ord) = view_indexes_iter
+                .next()
+                .expect("Wrong number of calls to callback");
 
-            let offset: u32 = buffer
-                .len()
-                .try_into()
-                .expect("Too many terms requested in `ords_to_string_array`");
-            let len: u32 = bytes
-                .len()
-                .try_into()
-                .expect("Single term is too long in `ords_to_string_array`");
-            buffer.extend_from_slice(bytes);
-
-            for row_idx in row_indices {
-                views[row_idx] = Some((offset, len));
+            if *term_ord != previous_ord {
+                // Add to the buffer, and construct a new view.
+                let offset: u32 = buffer
+                    .len()
+                    .try_into()
+                    .expect("Too many terms requested in `ords_to_string_array`");
+                let len: u32 = bytes
+                    .len()
+                    .try_into()
+                    .expect("Single term is too long in `ords_to_string_array`");
+                buffer.extend_from_slice(bytes);
+                previous_ord = *term_ord;
+                view = Some((offset, len));
+            } else {
+                // Use the previous view.
             }
+
+            views[*view_index] = view;
             Ok(())
         })
         .expect("Failed to fetch term dictionary");
@@ -459,45 +452,38 @@ fn ords_to_bytes_array(
     views.resize(term_ords.len(), None);
 
     let mut buffer = Vec::new();
-
-    // TODO: sorted_ords_to_term_cb now supports duplicated ords, so this should not be necessary.
-    let mut unique_ords = Vec::new();
-    let mut row_groups: Vec<Vec<usize>> = Vec::new();
-
-    for (row_idx, ord) in term_ords {
-        if ord == NULL_TERM_ORDINAL {
-            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
-            // be appended to the builder as null.
-            break;
-        }
-        if unique_ords.last() == Some(&ord) {
-            row_groups.last_mut().unwrap().push(row_idx);
-        } else {
-            unique_ords.push(ord);
-            row_groups.push(vec![row_idx]);
-        }
-    }
-
-    let mut row_groups_iter = row_groups.into_iter();
-
+    let term_ords_iter = term_ords
+        .iter()
+        .map(|(_, ord)| *ord)
+        .take_while(|ord| *ord < NULL_TERM_ORDINAL);
+    let mut view_indexes_iter = term_ords.iter();
+    let mut previous_ord = NULL_TERM_ORDINAL;
+    let mut view = None;
     bytes_ff
         .dictionary()
-        .sorted_ords_to_term_cb(unique_ords.into_iter(), |bytes| {
-            let row_indices = row_groups_iter.next().unwrap();
+        .sorted_ords_to_term_cb(term_ords_iter, |bytes| {
+            let (view_index, term_ord) = view_indexes_iter
+                .next()
+                .expect("Wrong number of calls to callback");
 
-            let offset: u32 = buffer
-                .len()
-                .try_into()
-                .expect("Too many terms requested in `ords_to_bytes_array`");
-            let len: u32 = bytes
-                .len()
-                .try_into()
-                .expect("Single term is too long in `ords_to_bytes_array`");
-            buffer.extend_from_slice(bytes);
-
-            for row_idx in row_indices {
-                views[row_idx] = Some((offset, len));
+            if *term_ord != previous_ord {
+                // Add to the buffer, and construct a new view.
+                let offset: u32 = buffer
+                    .len()
+                    .try_into()
+                    .expect("Too many terms requested in `ords_to_bytes_array`");
+                let len: u32 = bytes
+                    .len()
+                    .try_into()
+                    .expect("Single term is too long in `ords_to_bytes_array`");
+                buffer.extend_from_slice(bytes);
+                previous_ord = *term_ord;
+                view = Some((offset, len));
+            } else {
+                // Use the previous view.
             }
+
+            views[*view_index] = view;
             Ok(())
         })
         .expect("Failed to fetch term dictionary");

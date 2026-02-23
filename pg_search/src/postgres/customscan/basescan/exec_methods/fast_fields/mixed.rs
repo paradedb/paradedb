@@ -422,6 +422,7 @@ impl MixedFastFieldExecState {
             self.batch_size_hint,
             self.scanner_fast_fields.clone(),
             heaprel.oid().into(),
+            Default::default(),
         );
 
         // Clone visibility checker for the plan
@@ -438,6 +439,8 @@ impl MixedFastFieldExecState {
             build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
+            None,
+            Vec::new(),
             None,
         );
 
@@ -517,6 +520,7 @@ impl MixedFastFieldExecState {
                     self.batch_size_hint,
                     self.scanner_fast_fields.clone(),
                     heaprel.oid().into(),
+                    Default::default(),
                 );
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
@@ -554,6 +558,7 @@ impl MixedFastFieldExecState {
                         self.batch_size_hint,
                         self.scanner_fast_fields.clone(),
                         heaprel.oid().into(),
+                        Default::default(),
                     );
                     let visibility = visibility_checker.clone();
                     (

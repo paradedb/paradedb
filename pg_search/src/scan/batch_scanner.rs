@@ -131,6 +131,7 @@ impl Batch {
                 })
             })
             .collect();
+
         RecordBatch::try_new(schema.clone(), columns).expect("Failed to create RecordBatch")
     }
 }
@@ -416,6 +417,15 @@ impl Scanner {
                         }
                         _ => Some(col_array),
                     }
+                }
+                WhichFastField::Deferred(_, _, _) => {
+                    // Emit packed DocAddress (segment_ord << 32 | doc_id)
+                    let mut b = UInt64Builder::with_capacity(ids.len());
+                    for doc_id in &ids {
+                        let packed = ((segment_ord as u64) << 32) | (*doc_id as u64);
+                        b.append_value(packed);
+                    }
+                    Some(Arc::new(b.finish()) as ArrayRef)
                 }
             })
             .collect();

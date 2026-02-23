@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::{ArrayRef, RecordBatch, UInt64Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use datafusion::common::{DataFusionError, Result};
@@ -14,7 +13,10 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
 
-use crate::index::fast_fields_helper::{FFHelper, FFType};
+use crate::index::fast_fields_helper::{
+    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, NULL_TERM_ORDINAL,
+};
+use arrow_select::interleave::interleave;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredField {
     pub field_name: String,
@@ -203,7 +205,7 @@ impl LookupStream {
                             name
                         ))
                     })?;
-                output_columns.push(decode_doc_addresses(
+                output_columns.push(materialize_deferred_column(
                     &self.ffhelper,
                     doc_addr_array,
                     field.ff_index,
@@ -222,13 +224,21 @@ impl LookupStream {
     }
 }
 
-fn decode_doc_addresses(
+/// Materializes deferred `DocAddress` values into their original text or bytes representation.
+///
+/// This function converts packed `DocAddress` values (segment ordinal and document ID) into
+/// an Arrow `ArrayRef` matching the requested String or Binary view array type. To maximize
+/// efficiency, it groups requests by segment, sorts them for sequential dictionary access,
+/// fetches materialized columns per segment, and then uses Arrow's `interleave` to reconstruct
+/// the data in the original input row order.
+fn materialize_deferred_column(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
     ff_index: usize,
     is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
+    // 1. Group requests by segment ordinal to process one segment at a time.
     let mut by_seg: HashMap<u32, Vec<(usize, tantivy::DocId)>> = HashMap::new();
     for row in 0..num_rows {
         let packed = doc_addr_array.value(row);
@@ -237,82 +247,69 @@ fn decode_doc_addresses(
         by_seg.entry(seg_ord).or_default().push((row, doc_id));
     }
 
-    // Sort doc_ids within each segment for sequential access (first_vals efficiency)
+    // 2. Sort doc_ids within each segment for sequential access (first_vals efficiency).
     for rows in by_seg.values_mut() {
         rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
     }
 
-    if is_bytes {
-        let mut result: Vec<Option<Vec<u8>>> = vec![None; num_rows];
-        for (seg_ord, rows) in &by_seg {
-            if let FFType::Bytes(bytes_col) = ffhelper.column(*seg_ord, ff_index) {
-                // Step 1: doc_id → term_ord
-                let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-                let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
+    let mut segment_arrays: Vec<ArrayRef> = Vec::with_capacity(by_seg.len());
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    // Sort seg_ords to ensure deterministic behavior across executions.
+    let mut seg_ords: Vec<u32> = by_seg.keys().copied().collect();
+    seg_ords.sort_unstable();
+
+    for (array_idx, seg_ord) in seg_ords.into_iter().enumerate() {
+        let rows = by_seg.remove(&seg_ord).unwrap();
+
+        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
+
+        // 3. Perform a bulk dictionary lookup for the entire segment.
+        let array = if is_bytes {
+            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
                 bytes_col.ords().first_vals(&ids, &mut term_ords);
-
-                // Step 2: term_ord → bytes. Sort by ordinal for sequential dictionary access.
-                let mut ord_idx_pairs: Vec<(usize, u64)> = term_ords
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, maybe_ord)| maybe_ord.map(|ord| (i, ord)))
-                    .collect();
-                ord_idx_pairs.sort_unstable_by_key(|(_, ord)| *ord);
-
-                let mut buffer = Vec::new();
-                for (i, ord) in ord_idx_pairs {
-                    let (row_idx, _) = rows[i];
-                    buffer.clear();
-                    if bytes_col.ord_to_bytes(ord, &mut buffer).is_ok() {
-                        result[row_idx] = Some(buffer.clone());
-                    }
-                }
+                ords_to_bytes_array(
+                    bytes_col.clone(),
+                    term_ords
+                        .into_iter()
+                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+                )
+            } else {
+                return Err(DataFusionError::Execution(format!(
+                    "Expected Bytes column for index {}",
+                    ff_index
+                )));
             }
-        }
-        let mut b = BinaryViewBuilder::with_capacity(num_rows);
-        for v in result {
-            match v {
-                Some(x) => b.append_value(&x),
-                None => b.append_null(),
-            }
-        }
-        Ok(Arc::new(b.finish()))
-    } else {
-        let mut result: Vec<Option<String>> = vec![None; num_rows];
-        for (seg_ord, rows) in &by_seg {
-            if let FFType::Text(str_col) = ffhelper.column(*seg_ord, ff_index) {
-                // Step 1: doc_id → term_ord via ords().first_vals()
-                let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-                let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
-                str_col.ords().first_vals(&ids, &mut term_ords);
+        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
+            str_col.ords().first_vals(&ids, &mut term_ords);
+            ords_to_string_array(
+                str_col.clone(),
+                term_ords
+                    .into_iter()
+                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+            )
+        } else {
+            return Err(DataFusionError::Execution(format!(
+                "Expected Text column for index {}",
+                ff_index
+            )));
+        };
+        segment_arrays.push(array);
 
-                // Step 2: term_ord → string. Sort by ordinal for sequential dictionary access.
-                let mut ord_idx_pairs: Vec<(usize, u64)> = term_ords
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, maybe_ord)| maybe_ord.map(|ord| (i, ord)))
-                    .collect();
-                ord_idx_pairs.sort_unstable_by_key(|(_, ord)| *ord);
-
-                let mut s = String::new();
-                for (i, ord) in ord_idx_pairs {
-                    let (row_idx, _) = rows[i];
-                    s.clear();
-                    if str_col.ord_to_str(ord, &mut s).is_ok() {
-                        result[row_idx] = Some(s.clone());
-                    }
-                }
-            }
+        // 4. Map the sorted, segment-local results back to their original row indices
+        // in the global `RecordBatch` for interleaving.
+        for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+            indices[original_row_idx] = (array_idx, idx_within_segment);
         }
-        let mut b = StringViewBuilder::with_capacity(num_rows);
-        for v in result {
-            match v {
-                Some(s) => b.append_value(&s),
-                None => b.append_null(),
-            }
-        }
-        Ok(Arc::new(b.finish()))
     }
+
+    // 5. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
+    // segment arrays into the final array matching the original row order.
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    interleave(&segment_arrays_refs, &indices)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
 }
 
 impl Stream for LookupStream {

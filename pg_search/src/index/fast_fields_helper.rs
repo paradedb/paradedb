@@ -25,8 +25,13 @@ use serde::{Deserialize, Serialize};
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
+use tantivy::termdict::TermOrdinal;
 use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
+
+use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
+use arrow_array::ArrayRef;
+use arrow_buffer::Buffer;
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -308,4 +313,221 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
         .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
         .collect();
     Arc::new(Schema::new(fields))
+}
+
+pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
+
+/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
+pub(crate) fn ords_to_string_array(
+    str_ff: StrColumn,
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
+
+    // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
+    // term to a StringViewBuilder's data buffer, and record a view to be appended later in sorted
+    // order.
+    let mut builder = StringViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
+    let mut bytes = Vec::new();
+    let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_sstable_delta_reader = str_ff
+        .dictionary()
+        .sstable_delta_reader_block(current_block_addr.clone())
+        .expect("Failed to open term dictionary.");
+    let mut current_ordinal = 0;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
+            // be appended to the builder as null.
+            break;
+        }
+
+        // only advance forward if the new ord is different than the one we just processed
+        //
+        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
+        // it's still sorted
+        match &previous_term {
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                // This is the same term ordinal: reuse the previous view.
+                views[row_idx] = Some(*previous_view);
+                continue;
+            }
+            // Fall through.
+            _ => {}
+        }
+
+        // This is a new term ordinal: decode it and append it to the builder.
+        assert!(ord >= current_ordinal);
+        // check if block changed for new term_ord
+        let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        if new_block_addr != current_block_addr {
+            current_block_addr = new_block_addr;
+            current_ordinal = current_block_addr.first_ordinal;
+            current_sstable_delta_reader = str_ff
+                .dictionary()
+                .sstable_delta_reader_block(current_block_addr.clone())
+                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+            bytes.clear();
+        }
+
+        // Move to ord inside that block
+        for _ in current_ordinal..=ord {
+            match current_sstable_delta_reader.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                }
+                Err(e) => {
+                    panic!("Failed to decode dictionary block: {e}")
+                }
+            }
+            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        }
+        current_ordinal = ord + 1;
+
+        // Set the view for this row_idx.
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_string_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_string_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    // Append all the rows' views to the builder.
+    let block_no = builder.append_block(Buffer::from(buffer));
+    for view in views {
+        // Each view is an offset and len in our single block, or None for a null.
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    std::sync::Arc::new(builder.finish())
+}
+
+/// Given an unordered collection of TermOrdinals for the given BytesColumn, return a
+/// `BinaryViewArray` with one row per input term ordinal (in the input order).
+///
+/// This is identical to `ords_to_string_array` but uses `BinaryViewBuilder` for binary data.
+///
+/// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
+pub(crate) fn ords_to_bytes_array(
+    bytes_ff: BytesColumn,
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
+
+    // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
+    // term to a BinaryViewBuilder's data buffer, and record a view to be appended later in sorted
+    // order.
+    let mut builder = BinaryViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
+    let mut bytes = Vec::new();
+    let mut current_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(0);
+    let mut current_sstable_delta_reader = bytes_ff
+        .dictionary()
+        .sstable_delta_reader_block(current_block_addr.clone())
+        .expect("Failed to open term dictionary.");
+    let mut current_ordinal = 0;
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
+            // be appended to the builder as null.
+            break;
+        }
+
+        // only advance forward if the new ord is different than the one we just processed
+        //
+        // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
+        // it's still sorted
+        match &previous_term {
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                // This is the same term ordinal: reuse the previous view.
+                views[row_idx] = Some(*previous_view);
+                continue;
+            }
+            // Fall through.
+            _ => {}
+        }
+
+        // This is a new term ordinal: decode it and append it to the builder.
+        assert!(ord >= current_ordinal);
+        // check if block changed for new term_ord
+        let new_block_addr = bytes_ff.dictionary().sstable_index.get_block_with_ord(ord);
+        if new_block_addr != current_block_addr {
+            current_block_addr = new_block_addr;
+            current_ordinal = current_block_addr.first_ordinal;
+            current_sstable_delta_reader = bytes_ff
+                .dictionary()
+                .sstable_delta_reader_block(current_block_addr.clone())
+                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+            bytes.clear();
+        }
+
+        // Move to ord inside that block
+        for _ in current_ordinal..=ord {
+            match current_sstable_delta_reader.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                }
+                Err(e) => {
+                    panic!("Failed to decode dictionary block: {e}")
+                }
+            }
+            bytes.truncate(current_sstable_delta_reader.common_prefix_len());
+            bytes.extend_from_slice(current_sstable_delta_reader.suffix());
+        }
+        current_ordinal = ord + 1;
+
+        // Set the view for this row_idx.
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_bytes_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_bytes_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    // Append all the rows' views to the builder.
+    let block_no = builder.append_block(Buffer::from(buffer));
+    for view in views {
+        // Each view is an offset and len in our single block, or None for a null.
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    std::sync::Arc::new(builder.finish())
 }

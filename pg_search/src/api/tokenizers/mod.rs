@@ -216,13 +216,11 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
                 panic!("{}", e);
             });
             *style = lindera_typmod.language;
-            // keep_whitespace is meant to be backwards-compatible for existing indexes (because
-            // the default changed in Lindera 1.4.0+). The correct default is chosen by the
-            // tokenizer duruing initialization, so we'll only override it here if the typmod
-            // specifies it explicitly.
-            if lindera_typmod.keep_whitespace.is_some() {
-                *keep_whitespace = lindera_typmod.keep_whitespace;
-            }
+            // keep_whitespace is meant to be backwards-compatible for existing indexes,
+            // so a state of None on the tokenizer is reservered for that case. All others require
+            // a specified value. If one is not provided via the typmod, the default is false, to
+            // match Lindera 1.4.0+ behavior.
+            *keep_whitespace = Some(lindera_typmod.keep_whitespace.unwrap_or(false));
             *filters = lindera_typmod.filters;
         }
 
@@ -242,13 +240,11 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
-            // keep_whitespace is meant to be backwards-compatible for existing indexes (because
-            // the default changed in Lindera 1.4.0+). The correct default is chosen by the
-            // tokenizer duruing initialization, so we'll only override it here if the typmod
-            // specifies it explicitly.
-            if lindera_typmod.keep_whitespace.is_some() {
-                *keep_whitespace = lindera_typmod.keep_whitespace;
-            }
+            // keep_whitespace is meant to be backwards-compatible for existing indexes,
+            // so a state of None on the tokenizer is reservered for that case. All others require
+            // a specified value. If one is not provided via the typmod, the default is false, to
+            // match Lindera 1.4.0+ behavior.
+            *keep_whitespace = Some(lindera_typmod.keep_whitespace.unwrap_or(false));
             *filters = lindera_typmod.filters;
         }
 

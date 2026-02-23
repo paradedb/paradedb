@@ -3675,7 +3675,7 @@ LIMIT 10;
            :   SortPreservingMergeExec: [val@2 ASC NULLS LAST], fetch=10
            :     SortExec: TopK(fetch=10), expr=[val@2 ASC NULLS LAST], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val]
-           :         TantivyLookup: decode=[val]
+           :         TantivyLookupExec: decode=[val]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
            :             SortPreservingMergeExec: [t1_id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
@@ -3725,7 +3725,7 @@ LIMIT 10;
 (22 rows)
 =======
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=18.19 K, output_bytes=668.2 KB, output_batches=3]
-           :         TantivyLookup: decode=[val]
+           :         TantivyLookupExec: decode=[val], metrics=[output_rows=18.19 K, output_bytes=1052.2 KB, output_batches=3]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=18.19 K, output_bytes=960.0 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=38.19 K, peak_mem_used=656.2 K]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
@@ -3820,7 +3820,7 @@ LIMIT 25;
            :   SortPreservingMergeExec: [val@3 DESC], fetch=25
            :     SortExec: TopK(fetch=25), expr=[val@3 DESC], preserve_partitioning=[true]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, id@3 as id, val@4 as val]
-           :         TantivyLookup: decode=[val]
+           :         TantivyLookupExec: decode=[val]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)]
            :             SortPreservingMergeExec: [t1_id@1 ASC]
            :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
@@ -3854,7 +3854,7 @@ LIMIT 25;
            :   SortPreservingMergeExec: [val@3 DESC], fetch=25, metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1]
            :     SortExec: TopK(fetch=25), expr=[val@3 DESC], preserve_partitioning=[true], filter=[val@3 IS NULL OR val@3 > val 9986], metrics=[output_rows=25, output_bytes=1008.0 B, output_batches=1, row_replacements=569]
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, id@3 as id, val@4 as val], metrics=[output_rows=18.20 K, output_bytes=860.6 KB, output_batches=3]
-           :         TantivyLookup: decode=[val]
+           :         TantivyLookupExec: decode=[val], metrics=[output_rows=18.20 K, output_bytes=1052.6 KB, output_batches=3]
            :           SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=18.20 K, output_bytes=960.0 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=38.20 K, peak_mem_used=656.2 K]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]

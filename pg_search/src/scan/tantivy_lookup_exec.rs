@@ -10,6 +10,7 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
 
@@ -39,6 +40,7 @@ pub struct TantivyLookupExec {
     deferred_fields: Vec<DeferredField>,
     ffhelper: Arc<FFHelper>,
     properties: PlanProperties,
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl std::fmt::Debug for TantivyLookupExec {
@@ -69,6 +71,7 @@ impl TantivyLookupExec {
             deferred_fields,
             ffhelper,
             properties,
+            metrics: ExecutionPlanMetricsSet::new(),
         })
     }
 }
@@ -104,7 +107,7 @@ impl DisplayAs for TantivyLookupExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "TantivyLookup: decode=[{}]",
+            "TantivyLookupExec: decode=[{}]",
             self.deferred_fields
                 .iter()
                 .map(|d| d.field_name.as_str())
@@ -116,14 +119,21 @@ impl DisplayAs for TantivyLookupExec {
 
 impl ExecutionPlan for TantivyLookupExec {
     fn name(&self) -> &str {
-        "TantivyLookup"
+        "TantivyLookupExec"
     }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
     fn properties(&self) -> &PlanProperties {
         &self.properties
     }
+
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
     }
@@ -161,6 +171,7 @@ impl ExecutionPlan for TantivyLookupExec {
                     })
             })
             .collect::<Result<Vec<_>>>()?;
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let stream = unsafe {
             UnsafeSendStream::new(LookupStream {
                 input: input_stream,
@@ -168,6 +179,7 @@ impl ExecutionPlan for TantivyLookupExec {
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper: Arc::clone(&self.ffhelper),
                 schema: self.properties.eq_properties.schema().clone(),
+                baseline_metrics,
             })
         };
         Ok(Box::pin(stream))
@@ -180,6 +192,7 @@ struct LookupStream {
     deferred_fields: Vec<DeferredField>,
     ffhelper: Arc<FFHelper>,
     schema: SchemaRef,
+    baseline_metrics: BaselineMetrics,
 }
 
 impl LookupStream {
@@ -315,10 +328,17 @@ fn materialize_deferred_column(
 impl Stream for LookupStream {
     type Item = Result<RecordBatch>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.input).poll_next(cx) {
-            Poll::Ready(Some(Ok(batch))) => Poll::Ready(Some(self.enrich_batch(batch))),
+        let poll = Pin::new(&mut self.input).poll_next(cx);
+        let final_poll = match poll {
+            Poll::Ready(Some(Ok(batch))) => {
+                let timer = self.baseline_metrics.elapsed_compute().timer();
+                let result = self.enrich_batch(batch);
+                timer.done();
+                Poll::Ready(Some(result))
+            }
             other => other,
-        }
+        };
+        self.baseline_metrics.record_poll(final_poll)
     }
 }
 impl RecordBatchStream for LookupStream {

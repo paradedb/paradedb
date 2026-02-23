@@ -85,13 +85,34 @@ static KOR_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(||
     ))
 });
 
+#[derive(Clone)]
+pub enum KeepWhitespaceBehavior {
+    BackwardsCompatible,
+    Keep,
+    Remove,
+}
+impl Default for KeepWhitespaceBehavior {
+    fn default() -> Self {
+        Self::Remove
+    }
+}
+impl From<&'_ Option<bool>> for KeepWhitespaceBehavior {
+    fn from(value: &'_ Option<bool>) -> Self {
+        match value {
+            None => Self::BackwardsCompatible,
+            Some(true) => Self::Keep,
+            Some(false) => Self::Remove,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct LinderaChineseTokenizer {
-    keep_whitespace: bool,
+    keep_whitespace: KeepWhitespaceBehavior,
     token: Token,
 }
 impl LinderaChineseTokenizer {
-    pub fn new(keep_whitespace: bool) -> Self {
+    pub fn new(keep_whitespace: KeepWhitespaceBehavior) -> Self {
         Self {
             keep_whitespace,
             token: Default::default(),
@@ -101,11 +122,11 @@ impl LinderaChineseTokenizer {
 
 #[derive(Clone, Default)]
 pub struct LinderaJapaneseTokenizer {
-    keep_whitespace: bool,
+    keep_whitespace: KeepWhitespaceBehavior,
     token: Token,
 }
 impl LinderaJapaneseTokenizer {
-    pub fn new(keep_whitespace: bool) -> Self {
+    pub fn new(keep_whitespace: KeepWhitespaceBehavior) -> Self {
         Self {
             keep_whitespace,
             token: Default::default(),
@@ -115,11 +136,11 @@ impl LinderaJapaneseTokenizer {
 
 #[derive(Clone, Default)]
 pub struct LinderaKoreanTokenizer {
-    keep_whitespace: bool,
+    keep_whitespace: KeepWhitespaceBehavior,
     token: Token,
 }
 impl LinderaKoreanTokenizer {
-    pub fn new(keep_whitespace: bool) -> Self {
+    pub fn new(keep_whitespace: KeepWhitespaceBehavior) -> Self {
         Self {
             keep_whitespace,
             token: Default::default(),
@@ -135,10 +156,11 @@ impl Tokenizer for LinderaChineseTokenizer {
             return MultiLanguageTokenStream::Empty;
         }
 
-        let tokenizer = if self.keep_whitespace {
-            &CMN_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &CMN_TOKENIZER
+        let tokenizer = match self.keep_whitespace {
+            KeepWhitespaceBehavior::BackwardsCompatible | KeepWhitespaceBehavior::Keep => {
+                &CMN_TOKENIZER_KEEP_WHITESPACE
+            }
+            KeepWhitespaceBehavior::Remove => &CMN_TOKENIZER,
         };
 
         let lindera_token_stream = LinderaTokenStream {
@@ -160,10 +182,11 @@ impl Tokenizer for LinderaJapaneseTokenizer {
             return MultiLanguageTokenStream::Empty;
         }
 
-        let tokenizer = if self.keep_whitespace {
-            &JPN_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &JPN_TOKENIZER
+        let tokenizer = match self.keep_whitespace {
+            KeepWhitespaceBehavior::BackwardsCompatible | KeepWhitespaceBehavior::Keep => {
+                &JPN_TOKENIZER_KEEP_WHITESPACE
+            }
+            KeepWhitespaceBehavior::Remove => &JPN_TOKENIZER,
         };
 
         let lindera_token_stream = LinderaTokenStream {
@@ -184,10 +207,11 @@ impl Tokenizer for LinderaKoreanTokenizer {
         if text.trim().is_empty() {
             return MultiLanguageTokenStream::Empty;
         }
-        let tokenizer = if self.keep_whitespace {
-            &KOR_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &KOR_TOKENIZER
+        let tokenizer = match self.keep_whitespace {
+            KeepWhitespaceBehavior::BackwardsCompatible | KeepWhitespaceBehavior::Keep => {
+                &KOR_TOKENIZER_KEEP_WHITESPACE
+            }
+            KeepWhitespaceBehavior::Remove => &KOR_TOKENIZER,
         };
 
         let lindera_token_stream = LinderaTokenStream {
@@ -298,7 +322,26 @@ mod tests {
 
     #[rstest]
     fn test_lindera_chinese_tokenizer_with_whitespace() {
-        let mut tokenizer = LinderaChineseTokenizer::new(true);
+        // Test 1, explicit keep
+        let mut tokenizer = LinderaChineseTokenizer::new(KeepWhitespaceBehavior::Keep);
+        let tokens = test_helper(
+            &mut tokenizer,
+            "地址1，包含無效的字元 (包括符號與不標準的asci阿爾發字元",
+        );
+        // With keep_whitespace=true (backward compatible behavior), whitespace is included as a token
+        assert_eq!(tokens.len(), 19);
+        {
+            let token = &tokens[0];
+            assert_eq!(token.text, "地址");
+            assert_eq!(token.offset_from, 0);
+            assert_eq!(token.offset_to, 6);
+            assert_eq!(token.position, 0);
+            assert_eq!(token.position_length, 1);
+        }
+
+        // Test 2, backwards-compatible (keep)
+        let mut tokenizer =
+            LinderaChineseTokenizer::new(KeepWhitespaceBehavior::BackwardsCompatible);
         let tokens = test_helper(
             &mut tokenizer,
             "地址1，包含無效的字元 (包括符號與不標準的asci阿爾發字元",
@@ -334,7 +377,24 @@ mod tests {
 
     #[rstest]
     fn test_japanese_tokenizer_with_whitespace() {
-        let mut tokenizer = LinderaJapaneseTokenizer::new(true);
+        // Test 1, explicity keep
+        let mut tokenizer = LinderaJapaneseTokenizer::new(KeepWhitespaceBehavior::Keep);
+        {
+            let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");
+            assert_eq!(tokens.len(), 8);
+            {
+                let token = &tokens[0];
+                assert_eq!(token.text, "すもも");
+                assert_eq!(token.offset_from, 0);
+                assert_eq!(token.offset_to, 9);
+                assert_eq!(token.position, 0);
+                assert_eq!(token.position_length, 1);
+            }
+        }
+
+        // Test 2, backwards-compatible (keep)
+        let mut tokenizer =
+            LinderaJapaneseTokenizer::new(KeepWhitespaceBehavior::BackwardsCompatible);
         {
             let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");
             assert_eq!(tokens.len(), 8);
@@ -369,7 +429,25 @@ mod tests {
 
     #[rstest]
     fn test_korean_tokenizer_with_whitespace() {
-        let mut tokenizer = LinderaKoreanTokenizer::new(true);
+        // Test 1, explicit keep
+        let mut tokenizer = LinderaKoreanTokenizer::new(KeepWhitespaceBehavior::Keep);
+        {
+            // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
+            let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
+            assert_eq!(tokens.len(), 11);
+            {
+                let token = &tokens[0];
+                assert_eq!(token.text, "일본");
+                assert_eq!(token.offset_from, 0);
+                assert_eq!(token.offset_to, 6);
+                assert_eq!(token.position, 0);
+                assert_eq!(token.position_length, 1);
+            }
+        }
+
+        // Test 2, backwards-compatible (keep)
+        let mut tokenizer =
+            LinderaKoreanTokenizer::new(KeepWhitespaceBehavior::BackwardsCompatible);
         {
             // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
             let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");

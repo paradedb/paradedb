@@ -44,15 +44,15 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
             key_field = 'id',
             text_fields = '{
                 "author": {
-                    "tokenizer": {"type": "korean_lindera"},
+                    "tokenizer": {"type": "korean_lindera", "keep_whitespace": true},
                     "record": "position"
                 },
                 "title": {
-                    "tokenizer": {"type": "korean_lindera"},
+                    "tokenizer": {"type": "korean_lindera", "keep_whitespace": true},
                     "record": "position"
                 },
                 "message": {
-                    "tokenizer": {"type": "korean_lindera"},
+                    "tokenizer": {"type": "korean_lindera", "keep_whitespace": true},
                     "record": "position"
                 }
             }'
@@ -93,15 +93,15 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "author": {
-                "tokenizer": {"type": "chinese_lindera"},
+                "tokenizer": {"type": "chinese_lindera", "keep_whitespace": true},
                 "record": "position"
             },
             "title": {
-                "tokenizer": {"type": "chinese_lindera"},
+                "tokenizer": {"type": "chinese_lindera", "keep_whitespace": true},
                 "record": "position"
             },
             "message": {
-                "tokenizer": {"type": "chinese_lindera"},
+                "tokenizer": {"type": "chinese_lindera", "keep_whitespace": true},
                 "record": "position"
             }
         }'
@@ -143,15 +143,15 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
         key_field = 'id',
         text_fields = '{
             "author": {
-                "tokenizer": {"type": "japanese_lindera"},
+                "tokenizer": {"type": "japanese_lindera", "keep_whitespace": true},
                 "record": "position"
             },
             "title": {
-                "tokenizer": {"type": "japanese_lindera"},
+                "tokenizer": {"type": "japanese_lindera", "keep_whitespace": true},
                 "record": "position"
             },
             "message": {
-                "tokenizer": {"type": "japanese_lindera"},
+                "tokenizer": {"type": "japanese_lindera", "keep_whitespace": true},
                 "record": "position"
             }
         }'

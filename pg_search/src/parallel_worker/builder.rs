@@ -20,7 +20,7 @@ use crate::parallel_worker::{
     estimate_chunk, estimate_keys, ParallelProcess, ParallelStateManager, TocKeys, WorkerStyle,
     MAXALIGN_DOWN,
 };
-use pgrx::pg_sys;
+use pgrx::{check_for_interrupts, pg_sys};
 use std::ffi::CString;
 use std::ptr::NonNull;
 
@@ -173,16 +173,18 @@ impl ParallelProcessAttach {
     pub fn wait_for_attach(self) -> Option<ParallelProcessFinish> {
         unsafe {
             pg_sys::WaitForParallelWorkersToAttach(self.launcher.pcxt.as_ptr());
+            let nqueues = self.launcher.mq_handles.len();
             Some(ParallelProcessFinish {
                 launcher: self.launcher,
+                done_queues: vec![false; nqueues],
             })
         }
     }
 }
 
-#[repr(transparent)]
 pub struct ParallelProcessFinish {
     launcher: ParallelProcessLauncher,
+    done_queues: Vec<bool>,
 }
 
 impl ParallelProcessFinish {
@@ -198,61 +200,81 @@ impl ParallelProcessFinish {
         &mut self.launcher.state_manager
     }
 
-    pub fn recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {
+    /// Blocking receive from all worker message queues.
+    ///
+    /// Each worker sends at most one message. Queues that have already delivered
+    /// a message or detached are skipped. Returns `None` if no messages were
+    /// received (all workers detached without sending).
+    pub fn recv(&mut self) -> Option<Vec<(usize, Vec<u8>)>> {
         let nlaunched = unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize };
         let mut messages = Vec::with_capacity(nlaunched);
 
         // this is a blocking call and we'll keep trying to recv until all message queues are detached
         loop {
-            let mut detached_cnt = 0;
-            for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
-                if let Ok(message) = receiver.recv() {
-                    messages.push((i, message));
-                } else {
-                    detached_cnt += 1;
-                }
+            check_for_interrupts!();
+
+            if self.done_queues.iter().take(nlaunched).all(|&done| done) {
+                break;
             }
 
-            if detached_cnt == nlaunched {
-                break;
+            for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
+                if self.done_queues[i] {
+                    continue;
+                }
+                match receiver.recv() {
+                    Ok(message) => {
+                        messages.push((i, message));
+                        self.done_queues[i] = true;
+                    }
+                    Err(_) => {
+                        self.done_queues[i] = true;
+                    }
+                }
             }
         }
 
         if messages.is_empty() {
             // everyone is detached
-            return None;
+            None
+        } else {
+            Some(messages)
         }
-
-        Some(messages)
     }
 
-    pub fn try_recv(&self) -> Option<Vec<(usize, Vec<u8>)>> {
+    /// Non-blocking receive from all worker message queues.
+    ///
+    /// Each worker sends at most one message. Queues that have already delivered
+    /// a message or detached are skipped. Returns `None` when all queues are done
+    /// (either delivered or detached), signaling that iteration is complete.
+    pub fn try_recv(&mut self) -> Option<Vec<(usize, Vec<u8>)>> {
         let nlaunched = unsafe { (*self.launcher.pcxt.as_ptr()).nworkers_launched as usize };
-        let mut detached_cnt = 0;
         let mut messages = Vec::with_capacity(nlaunched);
+
         for (i, receiver) in self.launcher.mq_handles.iter().enumerate().take(nlaunched) {
+            if self.done_queues[i] {
+                continue;
+            }
             match receiver.try_recv() {
-                Ok(Some(message)) => messages.push((i, message)),
-                Ok(None) => continue,
+                Ok(Some(message)) => {
+                    messages.push((i, message));
+                    self.done_queues[i] = true;
+                }
+                Ok(None) => {}
                 Err(_) => {
-                    detached_cnt += 1;
+                    self.done_queues[i] = true;
                 }
             }
         }
 
-        if detached_cnt == nlaunched {
-            // all message queues are detached
-            assert!(
-                messages.is_empty(),
-                "when all message queues are detached, messages should be empty"
-            );
+        // all message queues are detached
+        if messages.is_empty() && self.done_queues.iter().take(nlaunched).all(|&done| done) {
             return None;
         }
 
         Some(messages)
     }
 
-    pub fn wait_for_finish(self) -> Vec<(usize, Vec<u8>)> {
+    pub fn wait_for_finish(mut self) -> Vec<(usize, Vec<u8>)> {
         unsafe {
             let pcxt = self.launcher.pcxt.as_ptr();
 
@@ -290,13 +312,19 @@ impl Iterator for ParallelProcessMessageQueue {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
+            check_for_interrupts!();
+
             if let Some(next) = self.batch.pop() {
                 return Some(next);
             }
 
-            match self.finisher.as_ref()?.try_recv() {
+            match self.finisher.as_mut()?.try_recv() {
                 None => {
                     self.batch = self.finisher.take().unwrap().wait_for_finish();
+                }
+                Some(batch) if batch.is_empty() => {
+                    // Workers are still processing; yield to avoid CPU spinning.
+                    std::thread::yield_now();
                 }
                 Some(batch) => {
                     self.batch = batch;

@@ -207,6 +207,17 @@ impl SearchFieldConfig {
             _ => None,
         }
     }
+
+    pub fn prepare_tokenizer(&mut self, is_create_index: bool) {
+        match self {
+            Self::Text { tokenizer, .. } | Self::Json { tokenizer, .. } => {
+                *tokenizer = tokenizer
+                    .clone()
+                    .with_lindera_backwards_compatibility(is_create_index);
+            }
+            _ => (),
+        }
+    }
 }
 
 impl SearchFieldConfig {

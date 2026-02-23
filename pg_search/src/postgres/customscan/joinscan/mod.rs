@@ -392,10 +392,10 @@ impl CustomScan for JoinScan {
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
-            if jointype != pg_sys::JoinType::JOIN_INNER {
+            if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
                 if is_interesting {
                     Self::add_planner_warning(
-                        "JoinScan not used: only INNER JOIN is currently supported",
+                        format!("JoinScan not used: only INNER JOIN is currently supported, got {:?}", jointype),
                         (),
                     );
                 }

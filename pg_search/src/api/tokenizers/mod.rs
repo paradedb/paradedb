@@ -217,7 +217,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             });
             *style = lindera_typmod.language;
             // keep_whitespace is meant to be backwards-compatible for existing indexes,
-            // so a state of None on the tokenizer is reservered for that case. All others require
+            // so a state of None on the tokenizer is reserved for that case. All others require
             // a specified value. If one is not provided via the typmod, the default is false, to
             // match Lindera 1.4.0+ behavior.
             *keep_whitespace = Some(lindera_typmod.keep_whitespace.unwrap_or(false));
@@ -241,7 +241,7 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
                 panic!("{}", e);
             });
             // keep_whitespace is meant to be backwards-compatible for existing indexes,
-            // so a state of None on the tokenizer is reservered for that case. All others require
+            // so a state of None on the tokenizer is reserved for that case. All others require
             // a specified value. If one is not provided via the typmod, the default is false, to
             // match Lindera 1.4.0+ behavior.
             *keep_whitespace = Some(lindera_typmod.keep_whitespace.unwrap_or(false));
@@ -259,7 +259,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             let generic_typmod = GenericTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
-
             *filters = generic_typmod.filters;
         }
 

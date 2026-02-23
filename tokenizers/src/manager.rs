@@ -727,7 +727,7 @@ impl SearchTokenizer {
     /// In order to maintain backwards compatibility for existing indexes, existing indexes
     /// without a specified keep_whitespace value will be left that way (the correct default
     /// will be applied during conversion to a Tantivy tokenizer). All new indexes will be
-    /// given an explicity value, either the specified value, or false, which matches the
+    /// given an explicit value, either the specified value, or false, which matches the
     /// new lindera behavior.
     /// For non-lindera variants, this is is a no-op.
     pub fn with_lindera_backwards_compatibility(self, is_create_index: bool) -> Self {

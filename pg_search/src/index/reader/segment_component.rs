@@ -62,6 +62,16 @@ impl WeakOwnedBytes {
         let full_slice: &[u8] = arc.deref().deref();
         let data_slice: &[u8] = bytes.as_slice();
         let offset = data_slice.as_ptr() as usize - full_slice.as_ptr() as usize;
+        debug_assert!(
+            data_slice.as_ptr() >= full_slice.as_ptr(),
+            "data_slice starts before full_slice"
+        );
+        debug_assert!(
+            offset + data_slice.len() <= full_slice.len(),
+            "data_slice extends beyond full_slice: offset={offset}, data_len={}, full_len={}",
+            data_slice.len(),
+            full_slice.len()
+        );
         WeakOwnedBytes {
             weak: Arc::downgrade(arc),
             offset,
@@ -91,9 +101,15 @@ pub struct SegmentComponentReader {
     /// range upgrade the weak reference if the data is still alive, avoiding
     /// redundant allocations. The weak reference does not prevent the data from
     /// being freed when all strong references are dropped.
+    ///
+    /// Note: `.unwrap()` on the lock is safe here because this struct is
+    /// per-query. A panic that poisons the mutex would abort the transaction
+    /// (via pgrx), dropping this entire struct before the lock is ever
+    /// reacquired.
     cache: Mutex<Option<(Range<usize>, WeakOwnedBytes)>>,
 }
 
+// Debug impl only used for diagnostics; not covered by tests.
 impl fmt::Debug for SegmentComponentReader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SegmentComponentReader")

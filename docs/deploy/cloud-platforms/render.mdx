@@ -1,0 +1,53 @@
+---
+title: Render
+description: Deploy ParadeDB on Render with one click
+canonical: https://docs.paradedb.com/deploy/cloud-platforms/render
+---
+
+<Note>
+  Cloud platform deployments run ParadeDB Community, which does not include WAL support. This makes them suitable for
+  hobby, development, and staging environments. For production, we recommend [ParadeDB Enterprise](/welcome/enterprise)
+  deployed via [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
+</Note>
+
+[Render](https://render.com) is a cloud platform that makes it easy to deploy and manage applications. The
+[ParadeDB Render template](https://github.com/paradedb/deployment-render) provides a one-click deployment
+that runs ParadeDB Community as a private service with persistent SSD storage.
+
+## One-Click Deploy
+
+The fastest way to get started is to click the button below, which will fork the template repository and deploy
+ParadeDB to your Render account.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/paradedb/deployment-render)
+
+## Manual Setup
+
+If you prefer to configure the deployment yourself:
+
+1. Fork the [deployment-render](https://github.com/paradedb/deployment-render) repository
+2. In the Render dashboard, create a new **Private Service** and connect your forked repository
+3. Select **Docker** as the runtime
+4. Attach a **Disk** of at least 10 GB mounted at `/var/lib/postgresql`
+5. Set the following environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSTGRES_USER` | Database user | `postgres` |
+| `POSTGRES_PASSWORD` | Database password | Auto-generated |
+| `POSTGRES_DB` | Database name | `paradedb` |
+
+## Connecting to ParadeDB
+
+ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet. You can
+connect from other services on your Render account via the internal network:
+
+```bash
+psql -h paradedb -U postgres -d paradedb
+```
+
+To connect from your local machine, set up [Render SSH](https://docs.render.com/ssh) and then run:
+
+```bash
+psql -U postgres paradedb
+```

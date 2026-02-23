@@ -4,7 +4,7 @@ description: Explore the different ways to deploy ParadeDB into production
 canonical: https://docs.paradedb.com/deploy/overview
 ---
 
-There are two ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted/kubernetes) or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
+There are three ways to deploy ParadeDB: [self-hosting ParadeDB](/deploy/self-hosted/kubernetes), using a ParadeDB container in a [cloud platform](/deploy/cloud-platforms/render), or using [ParadeDB BYOC](/deploy/byoc) (Bring Your Own Cloud).
 
 ## Self-Hosted ParadeDB
 
@@ -22,6 +22,18 @@ the server crashes or restarts, which would necessitate a reindex and incur down
 
 When you are ready to deploy in ParadeDB to production, [contact us](mailto:sales@paradedb.com) for access to ParadeDB Enterprise, which has WAL support.
 
+</Note>
+
+## Cloud Platforms
+
+For hobby, development, or staging environments, ParadeDB Community can be deployed to cloud platforms with minimal setup:
+
+- [Render](/deploy/cloud-platforms/render) — One-click deploy to Render
+
+<Note>
+  Cloud platform deployments run ParadeDB Community, which does not include WAL support. This makes them suitable for
+  hobby, development, and staging environments. For production, we recommend [ParadeDB Enterprise](/deploy/enterprise)
+  deployed via [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
 
 ## ParadeDB BYOC

@@ -57,6 +57,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
+use crate::scan::tantivy_lookup_exec::DeferredField;
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -102,6 +103,8 @@ pub struct PgSearchScanPlan {
     dynamic_filters: Vec<Arc<dyn PhysicalExpr>>,
     /// Metrics for EXPLAIN ANALYZE.
     metrics: ExecutionPlanMetricsSet,
+    deferred_fields: Vec<DeferredField>,
+    ffhelper_for_lookup: Option<Arc<FFHelper>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -126,6 +129,8 @@ impl PgSearchScanPlan {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&SortByField>,
+        deferred_fields: Vec<DeferredField>,
+        ffhelper_for_lookup: Option<Arc<FFHelper>>,
     ) -> Self {
         // Ensure we always return at least one partition to satisfy DataFusion distribution
         // requirements (e.g. HashJoinExec mode=CollectLeft requires SinglePartition).
@@ -161,7 +166,18 @@ impl PgSearchScanPlan {
             query_for_display,
             dynamic_filters: Vec::new(),
             metrics: ExecutionPlanMetricsSet::new(),
+            deferred_fields,
+            ffhelper_for_lookup,
         }
+    }
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    pub fn ffhelper(&self) -> &Arc<FFHelper> {
+        self.ffhelper_for_lookup
+            .as_ref()
+            .expect("ffhelper_for_lookup must be Some when late materialization is active")
     }
 }
 
@@ -392,6 +408,8 @@ impl ExecutionPlan for PgSearchScanPlan {
                 query_for_display: self.query_for_display.clone(),
                 dynamic_filters,
                 metrics: self.metrics.clone(),
+                deferred_fields: self.deferred_fields.clone(),
+                ffhelper_for_lookup: self.ffhelper_for_lookup.clone(),
             });
 
             Ok(
@@ -563,6 +581,8 @@ pub fn create_sorted_scan(
         schema.clone(),
         query_for_display,
         Some(sort_order),
+        Vec::new(),
+        None,
     ));
 
     // For a single segment, no merging is needed

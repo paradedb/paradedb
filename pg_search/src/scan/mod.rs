@@ -20,9 +20,11 @@ pub mod codec;
 pub mod execution_plan;
 pub mod filter_pushdown;
 pub mod info;
+pub mod late_materialization_rule;
 pub mod pre_filter;
 pub mod search_predicate_udf;
 pub mod table_provider;
+pub mod tantivy_lookup_exec;
 #[cfg(any(test, feature = "pg_test"))]
 mod tests;
 

@@ -139,12 +139,15 @@ impl TypmodRules for RegexTypmod {
 
 impl TypmodRules for LinderaTypmod {
     fn rules() -> Vec<PropertyRule> {
-        vec![rule!(
-            "language",
-            ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
-            required,
-            positional = 0
-        )]
+        vec![
+            rule!(
+                "language",
+                ValueConstraint::StringChoice(vec!["chinese", "japanese", "korean"]),
+                required,
+                positional = 0
+            ),
+            rule!("keep_whitespace", ValueConstraint::Boolean),
+        ]
     }
 }
 

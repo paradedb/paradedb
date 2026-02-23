@@ -377,7 +377,7 @@ mod tests {
 
     #[rstest]
     fn test_japanese_tokenizer_with_whitespace() {
-        // Test 1, explicity keep
+        // Test 1, explicit keep
         let mut tokenizer = LinderaJapaneseTokenizer::new(KeepWhitespaceBehavior::Keep);
         {
             let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");

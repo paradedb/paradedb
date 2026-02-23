@@ -252,6 +252,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     {
         let mut config = options.field_config_or_default(&name);
         config.set_normalizer(normalizer);
+        config.prepare_tokenizer(index_relation.is_create_index());
 
         match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),

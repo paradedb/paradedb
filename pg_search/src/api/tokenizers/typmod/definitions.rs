@@ -60,8 +60,6 @@ pub struct RegexTypmod {
 // for pdb.lindera
 pub struct LinderaTypmod {
     pub language: LinderaLanguage,
-    // keep_whitespace must be optional. If it is not specified, the default behavior is up to the
-    // tokenizer itself.
     pub keep_whitespace: Option<bool>,
     pub filters: SearchTokenizerFilters,
 }

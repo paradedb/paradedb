@@ -305,6 +305,12 @@
                       }
                     ]
                   },
+                  {
+                    "group": "Cloud Platforms",
+                    "pages": [
+                      "deploy/cloud-platforms/render"
+                    ]
+                  },
                   "deploy/byoc",
                   "deploy/enterprise",
                   "deploy/upgrading",

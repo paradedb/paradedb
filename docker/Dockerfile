@@ -221,11 +221,19 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
-# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
-# ship with by default, we ensure the PostgreSQL APT repository is present in the image. The upstream `postgres` image already
-# includes the PGDG signing key, so we only need to add the repository entry. We do not run `apt-get update` here to avoid
-# unnecessarily downloading package indexes. The user can run `apt-get update` themselves before installing extensions.
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
+# In order for users to manually install additional PostgreSQL extensions
+# (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not ship with by default,
+# we ensure the PostgreSQL APT (PGDG) repository is present in the image.
+#
+# The upstream `postgres` image already installs the PGDG signing key into
+# /usr/local/share/keyrings/postgres.gpg.asc. We reference that key explicitly
+# via `signed-by` so the repository can be verified correctly.
+#
+# We intentionally do NOT run `apt-get update` here to avoid downloading
+# package indexes during image build. Users can run `apt-get update`
+# themselves before installing additional packages.
+RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list && \
     apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

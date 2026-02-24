@@ -206,7 +206,12 @@ impl PgSearchTableProvider {
             let mut partition =
                 self.create_scan_partition(reader, segment_id, &ffhelper, &visibility, heap_relid);
             // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
+            partition.0.prefetch_next(
+                &ffhelper,
+                &mut partition.2,
+                &[],
+                &std::sync::Arc::new(arrow_schema::Schema::empty()),
+            );
 
             segments.push(partition);
         }

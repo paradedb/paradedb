@@ -293,6 +293,7 @@ impl Scanner {
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
+        schema: &SchemaRef,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -318,21 +319,17 @@ impl Scanner {
                     break;
                 }
 
-                // Fetch column if needed
-                if memoized_columns[pre_filter.ff_index].is_none() {
-                    memoized_columns[pre_filter.ff_index] = Some(Self::fetch_column(
-                        ffhelper,
-                        segment_ord,
-                        pre_filter.ff_index,
-                        &ids,
-                    ));
+                // Fetch columns if needed
+                for &ff_index in &pre_filter.required_columns {
+                    if memoized_columns[ff_index].is_none() {
+                        memoized_columns[ff_index] =
+                            Some(Self::fetch_column(ffhelper, segment_ord, ff_index, &ids));
+                    }
                 }
-
-                let col_array = memoized_columns[pre_filter.ff_index].as_ref().unwrap();
 
                 // Apply filter
                 let mask = pre_filter
-                    .apply_arrow(ffhelper, segment_ord, col_array)
+                    .apply_arrow(ffhelper, segment_ord, &memoized_columns, schema, ids.len())
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
 
                 // Compact state
@@ -448,9 +445,10 @@ impl Scanner {
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
         pre_filters: &[PreFilter],
+        schema: &SchemaRef,
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters, schema) {
                 self.prefetched = Some(batch);
             }
         }

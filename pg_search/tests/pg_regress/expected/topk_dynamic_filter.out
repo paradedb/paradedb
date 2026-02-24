@@ -173,7 +173,7 @@ LIMIT 3;
            :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_2@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=89, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
            :       ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id], metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=0]
+           :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=0, rows_scanned=1]
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]

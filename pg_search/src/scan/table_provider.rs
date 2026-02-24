@@ -16,7 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::any::Any;
+use std::cell::RefCell;
 use std::fmt::Debug;
+use std::ops::Bound;
 use std::sync::{Arc, OnceLock};
 
 use arrow_schema::{Field, Schema, SchemaRef};
@@ -32,15 +34,30 @@ use tantivy::index::SegmentId;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
+use crate::postgres::customscan::parallel::{
+    checkout_range_index, checkout_segment, list_segment_ids,
+};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::ParallelScanState;
+use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::Scanner;
+
+thread_local! {
+    /// Cache of range indices claimed by the current worker.
+    /// This ensures that multiple providers in the same worker claim the same ranges
+    /// for co-located joins.
+    pub static WORKER_RANGE_CACHE: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn clear_worker_range_cache() {
+    WORKER_RANGE_CACHE.with(|c| c.borrow_mut().clear());
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PgSearchTableProvider {
@@ -55,6 +72,9 @@ pub struct PgSearchTableProvider {
     /// if `is_parallel` is true.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
+    /// Split points for range partitioning.
+    /// If Some, the provider will use range partitioning strategy.
+    range_split_points: Option<Vec<TantivyValue>>,
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -66,6 +86,7 @@ impl PgSearchTableProvider {
         fields: Vec<WhichFastField>,
         parallel_state: Option<*mut ParallelScanState>,
         is_parallel: bool,
+        range_split_points: Option<Vec<TantivyValue>>,
     ) -> Self {
         Self {
             scan_info,
@@ -73,6 +94,7 @@ impl PgSearchTableProvider {
             schema: OnceLock::new(),
             is_parallel,
             parallel_state,
+            range_split_points,
         }
     }
 
@@ -151,6 +173,26 @@ impl PgSearchTableProvider {
         )
     }
 
+    /// Creates a single scan partition for a range query across all segments.
+    fn create_range_scan_partition(
+        &self,
+        reader: &SearchIndexReader,
+        query: Box<dyn tantivy::query::Query>,
+        ffhelper: &Arc<FFHelper>,
+        visibility: &VisibilityChecker,
+        heap_relid: pg_sys::Oid,
+    ) -> ScanState {
+        // Search ALL segments with the range query
+        let search_results =
+            reader.search_segments_with_query(reader.segment_ids().into_iter(), query);
+        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+        (
+            scanner,
+            Arc::clone(ffhelper),
+            Box::new(visibility.clone()) as Box<VisibilityChecker>,
+        )
+    }
+
     /// Creates a PgSearchScanPlan from a list of segments.
     fn create_scan(
         &self,
@@ -210,6 +252,94 @@ impl PgSearchTableProvider {
 
             segments.push(partition);
         }
+
+        self.create_scan(segments, query_for_display, sort_order)
+    }
+
+    /// Creates a PgSearchScanPlan for range partitioned parallel scans.
+    #[allow(clippy::too_many_arguments)]
+    fn create_range_partitioned_scan(
+        &self,
+        parallel_state: *mut ParallelScanState,
+        reader: &SearchIndexReader,
+        ffhelper: FFHelper,
+        visibility: VisibilityChecker,
+        heap_relid: pg_sys::Oid,
+        query_for_display: SearchQueryInput,
+        sort_order: Option<&crate::postgres::options::SortByField>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let mut segments = Vec::new();
+        let ffhelper = Arc::new(ffhelper);
+        let split_points = self.range_split_points.as_ref().unwrap();
+        let sort_field = self
+            .scan_info
+            .sort_order
+            .as_ref()
+            .expect("Sort order required for range partitioning");
+
+        // Claim ranges for this worker
+        WORKER_RANGE_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if cache.is_empty() {
+                loop {
+                    pgrx::check_for_interrupts!();
+                    match unsafe { checkout_range_index(parallel_state) } {
+                        Some(idx) => cache.push(idx),
+                        None => break,
+                    }
+                }
+            }
+
+            // Create a partition for each claimed range
+            for &i in cache.iter() {
+                let (lower, upper) = if i == 0 {
+                    (
+                        Bound::Unbounded,
+                        Bound::Excluded(split_points[0].clone().into()),
+                    )
+                } else if i == split_points.len() {
+                    (
+                        Bound::Included(split_points[i - 1].clone().into()),
+                        Bound::Unbounded,
+                    )
+                } else {
+                    (
+                        Bound::Included(split_points[i - 1].clone().into()),
+                        Bound::Excluded(split_points[i].clone().into()),
+                    )
+                };
+
+                let range_query = SearchQueryInput::FieldedQuery {
+                    field: sort_field.field_name.clone(),
+                    query: pdb::Query::Range {
+                        lower_bound: lower,
+                        upper_bound: upper,
+                        is_datetime: false, // TODO: Handle datetime if necessary
+                    },
+                };
+
+                // Combine with base query (AND)
+                let combined_query_input = SearchQueryInput::Boolean {
+                    must: vec![query_for_display.clone(), range_query],
+                    should: vec![],
+                    must_not: vec![],
+                };
+
+                let tantivy_query = reader.make_query(&combined_query_input, None);
+
+                let mut partition = self.create_range_scan_partition(
+                    reader,
+                    tantivy_query,
+                    &ffhelper,
+                    &visibility,
+                    heap_relid,
+                );
+                // Do real work between checkouts to avoid one worker claiming all segments.
+                partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
+
+                segments.push(partition);
+            }
+        });
 
         self.create_scan(segments, query_for_display, sort_order)
     }
@@ -342,13 +472,19 @@ impl TableProvider for PgSearchTableProvider {
 
         // Determine MVCC strategy based on whether we are running in parallel mode
         let mvcc_style = if let Some(parallel_state) = self.parallel_state {
-            unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // Leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else {
-                    // Workers see all segments listed in shared state
-                    MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+            if self.range_split_points.is_some() {
+                // In Range partitioning, workers scan all segments visible to the snapshot.
+                // We don't rely on ParallelScanState for segment lists.
+                MvccSatisfies::Snapshot
+            } else {
+                unsafe {
+                    if pg_sys::ParallelWorkerNumber == -1 {
+                        // Leader only sees snapshot-visible segments
+                        MvccSatisfies::Snapshot
+                    } else {
+                        // Workers see all segments listed in shared state
+                        MvccSatisfies::ParallelWorker(list_segment_ids(parallel_state))
+                    }
                 }
             }
         } else {
@@ -371,17 +507,29 @@ impl TableProvider for PgSearchTableProvider {
         let sort_order = self.scan_info.sort_order.as_ref();
 
         if let Some(parallel_state) = self.parallel_state {
-            // In joinscan, the "partitioning source" (the first source) uses the throttled checkout
-            // strategy to dynamically claim segments.
-            self.create_throttled_scan(
-                parallel_state,
-                &reader,
-                ffhelper,
-                visibility,
-                heap_relid,
-                query,
-                sort_order,
-            )
+            if self.range_split_points.is_some() {
+                // Range partitioned scan
+                self.create_range_partitioned_scan(
+                    parallel_state,
+                    &reader,
+                    ffhelper,
+                    visibility,
+                    heap_relid,
+                    query,
+                    sort_order,
+                )
+            } else {
+                // Segment partitioned scan
+                self.create_throttled_scan(
+                    parallel_state,
+                    &reader,
+                    ffhelper,
+                    visibility,
+                    heap_relid,
+                    query,
+                    sort_order,
+                )
+            }
         } else if let Some(sort_order) = sort_order {
             // Serial sorted scan (or replicated source with sorting)
             self.create_eager_scan(

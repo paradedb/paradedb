@@ -289,6 +289,41 @@ impl ParallelScanPayload {
         }
     }
 
+    fn init_ranges(&mut self, count: usize) {
+        // Compute and assign our Layout: must match what we were allocated with.
+        self.layout = ParallelScanPayloadLayout::new(count, &[], false)
+            .expect("could not layout `ParallelScanPayload` for initialization");
+
+        // Segment ids (zeroed).
+        let ids_range = self.layout.ids.clone();
+        let ids_slice: &mut [[u8; SEGMENT_ID_SIZE]] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[ids_range]).unwrap();
+        for target in ids_slice.iter_mut() {
+            *target = [0u8; SEGMENT_ID_SIZE];
+        }
+
+        // Deleted docs (zeroed).
+        let deleted_docs_range = self.layout.deleted_docs.clone();
+        let deleted_docs_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[deleted_docs_range]).unwrap();
+        for target in deleted_docs_slice.iter_mut() {
+            *target = 0;
+        }
+
+        // Max docs (zeroed).
+        let max_docs_range = self.layout.max_docs.clone();
+        let max_docs_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_docs_range]).unwrap();
+        for target in max_docs_slice.iter_mut() {
+            *target = 0;
+        }
+
+        // Segment claims.
+        for segment_claim in self.segment_claims_mut().iter_mut() {
+            *segment_claim = SEGMENT_CLAIM_UNCLAIMED;
+        }
+    }
+
     fn data(&self) -> &[u8] {
         unsafe {
             let data_ptr = std::ptr::addr_of!(self.data);
@@ -394,13 +429,22 @@ const PARALLEL_STATE_UNINITIALIZED: usize = usize::MAX;
 /// # Concurrency Model
 ///
 /// The `basescan` and IAM in ParadeDB use a "lazy checkout" model where parallel workers claim
-/// segments on-demand from a shared pool. This allows for dynamic work-sharing without needing to
-/// pre-assign segments to specific workers.
+/// work items (segments or ranges) on-demand from a shared pool. This allows for dynamic work-sharing
+/// without needing to pre-assign items to specific workers.
 ///
 /// For this model to work effectively, it is critical that workers perform actual work (scanning)
-/// between checkouts. If a worker checks out segments in a tight loop without intermediate work,
-/// it may claim all segments before other workers have time to start up, resulting in poor
+/// between checkouts. If a worker checks out items in a tight loop without intermediate work,
+/// it may claim all items before other workers have time to start up, resulting in poor
 /// parallelism.
+///
+/// ## Partitioning Strategies
+///
+/// 1. **Segment Partitioning**: Workers claim physical index segments (`SegmentId`).
+///    Used by `basescan` and `JoinScan` (default).
+///
+/// 2. **Range Partitioning**: Workers claim abstract range indices (0..N).
+///    Used by `JoinScan` when tables are sorted by join keys.
+///    The "Range" corresponds to a partition of the sort key space.
 ///
 /// This dynamic model is chosen because it is ~impossible to determine the exact number of parallel
 /// workers available to a Custom Scan at runtime. The `ParallelContext` is shared across all
@@ -450,6 +494,15 @@ impl ParallelScanState {
         self.populate(args.segment_readers, &args.query, args.with_aggregates);
     }
 
+    /// Phase 1+2: Create the mutex and populate with range count in one call.
+    /// Used by JoinScan for range partitioning.
+    pub fn create_and_populate_ranges(&mut self, count: usize) {
+        self.mutex.init();
+        self.aggregation_cv.init();
+        self.init_cv.init();
+        self.populate_ranges(count);
+    }
+
     /// Phase 2: Populate with actual data (assumes mutex already created via `create`).
     /// Used by Index Scan where the leader initializes the segment pool.
     ///
@@ -461,6 +514,18 @@ impl ParallelScanState {
         self.remaining_segments = segments.len();
         // Set nsegments LAST - this signals initialization is complete
         self.nsegments = segments.len();
+
+        // Wake up any workers waiting in `wait_for_initialization()`.
+        self.init_cv.broadcast();
+    }
+
+    /// Phase 2: Populate with range count.
+    fn populate_ranges(&mut self, count: usize) {
+        self.payload.init_ranges(count);
+        self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
+        self.remaining_segments = count;
+        // Set nsegments LAST - this signals initialization is complete
+        self.nsegments = count;
 
         // Wake up any workers waiting in `wait_for_initialization()`.
         self.init_cv.broadcast();
@@ -688,6 +753,24 @@ impl ParallelScanState {
             self.payload.segment_claims_mut()[claimed_segment] = parallel_worker_number;
             break Some(self.segment_id(claimed_segment));
         }
+    }
+
+    /// Claim a work item (range index) from the shared pool.
+    /// Waits for initialization if needed, then returns None if no items remain.
+    pub fn checkout_range_index(&mut self) -> Option<usize> {
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+
+        self.wait_for_initialization();
+
+        let _mutex = self.acquire_mutex();
+        let remaining = self.remaining_segments;
+        if remaining == 0 {
+            return None;
+        }
+
+        let claimed_item = self.decrement_remaining_segments();
+        self.payload.segment_claims_mut()[claimed_item] = parallel_worker_number;
+        Some(claimed_item)
     }
 
     /// Returns a map of segment IDs to their deleted document counts.

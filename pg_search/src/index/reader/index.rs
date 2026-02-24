@@ -25,6 +25,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::sampling;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::heap::VisibilityChecker;
@@ -32,6 +33,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::types::TantivyValue;
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 use crate::scan::info::RowEstimate;
@@ -456,7 +458,7 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    fn make_query(
+    pub fn make_query(
         &self,
         search_query_input: &SearchQueryInput,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
@@ -588,12 +590,21 @@ impl SearchIndexReader {
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
     ) -> MultiSegmentSearchResults {
+        self.search_segments_with_query(segment_ids, self.query().box_clone())
+    }
+
+    /// Search specific index segments for matching documents with a custom query.
+    pub fn search_segments_with_query(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        query: Box<dyn Query>,
+    ) -> MultiSegmentSearchResults {
         let iterators = self
             .segment_readers_in_segments(segment_ids)
             .map(|(segment_ord, segment_reader)| {
                 ScorerIter::new(
                     DeferredScorer::new(
-                        self.query().box_clone(),
+                        query.box_clone(),
                         self.need_scores,
                         segment_reader.clone(),
                         self.searcher.clone(),
@@ -984,6 +995,31 @@ impl SearchIndexReader {
                 (matching, total_docs)
             }
         }
+    }
+
+    /// Sample the given fast field for a number of documents, and return the sorted values.
+    ///
+    /// If the index contains multiple segments, this method samples from the segment with the
+    /// most documents.
+    pub fn sample_fast_field(
+        &self,
+        field_name: &str,
+        num_samples: usize,
+    ) -> Result<Vec<TantivyValue>> {
+        let segment_readers = self.searcher.segment_readers();
+        if segment_readers.is_empty() {
+            return Ok(vec![]);
+        }
+        // Pick the largest segment
+        let reader = segment_readers
+            .iter()
+            .max_by_key(|r| r.num_docs())
+            .expect("segment_readers is not empty");
+        Ok(sampling::sample_fast_field(
+            reader,
+            field_name,
+            num_samples,
+        )?)
     }
 
     /// Build a query tree with recursive estimates for EXPLAIN output.

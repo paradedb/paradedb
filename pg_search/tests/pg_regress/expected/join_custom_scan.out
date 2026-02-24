@@ -3713,11 +3713,11 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid_2@0 as ctid_2, ctid_1@2 as ctid_1, val@4 as val], metrics=[output_rows=18.19 K, output_bytes=768.0 KB, output_batches=3]
            :         SortMergeJoinExec: join_type=Inner, on=[(t1_id@1, id@1)], metrics=[output_rows=18.19 K, output_bytes=1152.0 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=38.19 K, peak_mem_used=787.3 K]
            :           SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :             ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
+           :             ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=412.2 KB, output_batches=2]
            :               CooperativeExec
            :                 PgSearchScan: segments=2, query="all"
            :           SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=18.19 K, output_bytes=568.5 KB, output_batches=3]
-           :             ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=18.19 K, output_bytes=722.5 KB, output_batches=4]
+           :             ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=18.19 K, output_bytes=732.4 KB, output_batches=4]
            :               CooperativeExec
            :                 PgSearchScan: segments=2, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[rows_pruned=1.81 K, rows_scanned=1.81 K]
 (22 rows)
@@ -3841,11 +3841,11 @@ LIMIT 25;
            :         ProjectionExec: expr=[ctid_1@0 as ctid_1, id@1 as id, val@2 as val, ctid_2@3 as ctid_2], metrics=[output_rows=16.62 K, output_bytes=1219.4 KB, output_batches=3]
            :           SortMergeJoinExec: join_type=Inner, on=[(id@1, t1_id@1)], metrics=[output_rows=16.62 K, output_bytes=1463.0 KB, output_batches=3, spill_count=0, spilled_bytes=0.0 B, spilled_rows=0, input_batches=6, input_rows=36.62 K, peak_mem_used=524.9 K]
            :             SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=16.62 K, output_bytes=519.5 KB, output_batches=3]
-           :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=657.6 KB, output_batches=4]
+           :               ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=16.62 K, output_bytes=671.7 KB, output_batches=4]
            :                 CooperativeExec
            :                   PgSearchScan: segments=2, dynamic_filters=1, query={"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"val"}}]}}]}}, metrics=[rows_pruned=3.38 K, rows_scanned=3.62 K]
            :             SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
-           :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
+           :               ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=316.2 KB, output_batches=4]
            :                 CooperativeExec
            :                   PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=0]
 (23 rows)

@@ -448,9 +448,12 @@ impl<'de> Deserialize<'de> for TantivyValue {
     where
         D: Deserializer<'de>,
     {
-        let inner_val = tantivy::schema::OwnedValue::deserialize(deserializer)?;
-
-        Ok(TantivyValue(inner_val))
+        #[derive(Deserialize)]
+        struct Helper {
+            val: tantivy::schema::OwnedValue,
+        }
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(TantivyValue(helper.val))
     }
 }
 

@@ -23,7 +23,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
     ca-certificates \
     build-essential \
     gnupg \

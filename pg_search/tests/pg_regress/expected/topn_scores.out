@@ -95,7 +95,15 @@ SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, id ASC, category
 LIMIT 5;
-ERROR:  Unsupported sort-field count: 3. At most 2 are supported when `pdb.score` is requested.
+ id |       description        | rating |   score   
+----+--------------------------+--------+-----------
+  3 | Sleek running shoes      |      5 | 3.4849067
+  5 | Generic shoes            |      4 | 3.8772602
+  2 | Plastic Keyboard         |      4 | 3.2668595
+  1 | Ergonomic metal keyboard |      4 | 2.8213787
+  4 | White jogging shoes      |      3 | 3.4849067
+(5 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
@@ -163,32 +171,30 @@ SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
-                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: rating, (pdb.score(id)), id, category DESC
-         ->  Custom Scan (ParadeDB Scan) on mock_items
-               Table: mock_items
-               Index: search_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: search_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: rating asc, pdb.score() asc, id asc, category desc
+            TopN Limit: 5
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (9 rows)
 
 SELECT id, description, rating, pdb.score(id) FROM mock_items
 WHERE description @@@ 'keyboard' OR description @@@ 'shoes' AND rating > 2
 ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using Normal instead). Reason: ORDER BY has 4 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: mock_items)
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
-  4 | White jogging shoes      |      3 | 3.4849067
-  1 | Ergonomic metal keyboard |      4 | 2.8213787
-  2 | Plastic Keyboard         |      4 | 3.2668595
-  5 | Generic shoes            |      4 | 3.8772602
   3 | Sleek running shoes      |      5 | 3.4849067
+  5 | Generic shoes            |      4 | 3.8772602
+  2 | Plastic Keyboard         |      4 | 3.2668595
+  1 | Ergonomic metal keyboard |      4 | 2.8213787
+  4 | White jogging shoes      |      3 | 3.4849067
 (5 rows)
 
 DROP TABLE mock_items;

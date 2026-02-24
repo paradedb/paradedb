@@ -9,8 +9,8 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 # First Stage: Builder
 ###############################################
 
-# Note: Debian Trixie = Debian 13
-FROM dhi.io/postgres:${PG_VERSION_MAJOR}-trixie AS builder
+# Note: Debian 13 = Debian Trixie
+FROM dhi.io/postgres:${PG_VERSION_MAJOR}-debian13 AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=stable
@@ -68,7 +68,7 @@ ENV COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_VERSION=${PARADEDB_VERSION} \
     ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
-# Copy the full project. This layer will invalidate if any project file changes.
+# Copy the full project. This layer will be invalidated if any project file changes.
 COPY . /tmp/
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
@@ -142,7 +142,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM dhi.io/postgres:${PG_VERSION_MAJOR}-trixie AS paradedb
+FROM dhi.io/postgres:${PG_VERSION_MAJOR}-debian13 AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
@@ -182,7 +182,7 @@ RUN apt-get update && \
     find /var/cache -type f -exec truncate --size 0 {} \; && \
     find /var/log -type f -exec truncate --size 0 {} \;
 
-# Install Postgis and ca-certificates
+# Install PostGIS and ca-certificates
 # ca-certificates required for PostGIS
 ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
@@ -195,7 +195,7 @@ RUN apt-get update \
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the
-# postgresql.conf.sample file, we ensure that our settings are applied onto the postgresql.conf file.
+# postgresql.conf.sample file, we ensure that our settings are applied to the postgresql.conf file.
 #
 # The `postgres` database is the default database that exists in every Postgres installation. The pg_cron
 # extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
@@ -221,7 +221,7 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
-# In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
+# In order for a user to manually install third-party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
 # ship with by default, we ensure the PostgreSQL APT repository is present in the image. The upstream `postgres` image already
 # includes the PGDG signing key, so we only need to add the repository entry. We do not run `apt-get update` here to avoid
 # unnecessarily downloading package indexes. The user can run `apt-get update` themselves before installing extensions.
@@ -236,7 +236,7 @@ WORKDIR /
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 
-# The upstream `postgres` Docker image comes with its own `entrypoint.sh` script which
+# The upstream `postgres` Docker image comes with its own `entrypoint.sh` script, which
 # starts as `root` and then switches to the `postgres` user after running chown and chmod
 # on the PostgreSQL data directory. To maintain compatibility with the upstream image and
 # ensure that the `postgres` user has the correct permissions on the data directory, we let

@@ -9,8 +9,8 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 # First Stage: Builder
 ###############################################
 
-# Note: Debian Trixie = Debian 13
-FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
+# Note: Debian 13 (Trixie)
+FROM docker.io/docker/dhi-postgres:${PG_VERSION_MAJOR}-debian13-dev AS builder
 
 ARG PG_VERSION_MAJOR
 ARG RUST_VERSION=stable
@@ -142,7 +142,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL and Barman Cloud
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-trixie AS paradedb
+FROM docker.io/docker/dhi-postgres:${PG_VERSION_MAJOR}-debian13-dev AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
     org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \

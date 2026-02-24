@@ -11,7 +11,7 @@
 #       memory: "4Gi"
 #       cpu: "2000m"
 
-FROM rust:1.93-slim
+FROM docker.io/docker/dhi-rust:1.93-debian13-dev
 
 # Install build and runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

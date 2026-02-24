@@ -115,62 +115,10 @@ pub struct ScanInfo {
 }
 
 impl ScanInfo {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_heap_rti(mut self, rti: pg_sys::Index) -> Self {
-        self.heap_rti = rti;
-        self
-    }
-
-    pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.heaprelid = oid;
-        self
-    }
-
-    pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.indexrelid = oid;
-        self
-    }
-
-    /// Returns true if this scan has a BM25 index.
-    pub fn has_bm25_index(&self) -> bool {
-        self.indexrelid != pgrx::pg_sys::InvalidOid
-    }
-
-    pub fn with_query(mut self, query: SearchQueryInput) -> Self {
-        self.query = query;
-        self.has_search_predicate = true;
-        self
-    }
-
-    pub fn with_alias(mut self, alias: String) -> Self {
-        self.alias = Some(alias);
-        self
-    }
-
-    pub fn with_score_needed(mut self, needed: bool) -> Self {
-        self.score_needed = needed;
-        self
-    }
-
     pub fn add_field(&mut self, attno: pg_sys::AttrNumber, field: WhichFastField) {
         if !self.fields.iter().any(|f| f.attno == attno) {
             self.fields.push(FieldInfo { attno, field });
         }
-    }
-
-    /// Sets the sort order from the BM25 index metadata.
-    ///
-    /// This is populated at planning time by reading from the index's `sort_by` option.
-    /// When set, DataFusion-based execution can leverage the physical sort order for:
-    /// - Declaring output ordering via `EquivalenceProperties`
-    /// - Using `SortPreservingMergeExec` for merging sorted segment streams
-    /// - Enabling sort-merge joins when beneficial
-    pub fn with_sort_order(mut self, sort_order: Option<SortByField>) -> Self {
-        self.sort_order = sort_order;
-        self
     }
 
     /// Returns true if this scan's index produces sorted output.

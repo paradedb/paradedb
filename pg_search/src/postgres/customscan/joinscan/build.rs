@@ -308,11 +308,6 @@ impl JoinSource {
     pub fn collect_base_relations(&self, acc: &mut Vec<ScanInfo>) {
         acc.push(self.scan_info.clone());
     }
-
-    /// Recursively find the ordering RTI of this source.
-    pub fn ordering_rti(&self) -> Option<pg_sys::Index> {
-        Some(self.scan_info.heap_rti)
-    }
 }
 
 impl From<JoinSource> for JoinSourceCandidate {

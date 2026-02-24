@@ -297,10 +297,12 @@ mod tests {
             index_oid: pg_sys::Oid,
             fields: Vec<WhichFastField>,
         ) -> Arc<PgSearchTableProvider> {
-            let mut scan_info = ScanInfo::new()
-                .with_heaprelid(heap_oid)
-                .with_indexrelid(index_oid)
-                .with_heap_rti(1);
+            let mut scan_info = ScanInfo {
+                heap_rti: 1,
+                heaprelid: heap_oid,
+                indexrelid: index_oid,
+                ..Default::default()
+            };
 
             for (i, field) in fields.iter().enumerate() {
                 scan_info.add_field(i as pg_sys::AttrNumber, field.clone());

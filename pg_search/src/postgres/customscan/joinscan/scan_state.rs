@@ -63,7 +63,9 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
+use crate::postgres::customscan::joinscan::build::{
+    JoinCSClause, JoinSource, JoinType as JoinScanJoinType,
+};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -210,7 +212,7 @@ pub async fn build_joinscan_physical_plan(
 ///
 /// This function constructs the logical plan for a join by:
 /// 1. Building DataFrames for the left (outer) and right (inner) sources.
-/// 2. Performing an inner join on the specified equi-join keys.
+/// 2. Performing the configured join type on the specified equi-join keys.
 /// 3. Applying join-level filters (both search predicates and heap conditions).
 /// 4. Applying sorting and limits if specified.
 /// 5. Projecting the final output columns as defined by the join's output projection.
@@ -228,6 +230,32 @@ fn build_clause_df<'a>(
         }
 
         let partitioning_idx = join_clause.partitioning_source_index();
+        let df_join_type = match join_clause.join_type {
+            JoinScanJoinType::Inner => JoinType::Inner,
+            // Emulate semi semantics via Inner + left-side dedup.
+            JoinScanJoinType::Semi => JoinType::Inner,
+            other => {
+                return Err(DataFusionError::Internal(format!(
+                    "JoinScan runtime: unsupported join type {:?}",
+                    other
+                )));
+            }
+        };
+
+        // For the current partitioning strategy, semi join is only valid when the
+        // left source is partitioned and right source is replicated.
+        if join_clause.join_type == JoinScanJoinType::Semi {
+            if join_clause.sources.len() != 2 {
+                return Err(DataFusionError::Internal(
+                    "JoinScan runtime: SEMI JOIN requires exactly 2 sources".into(),
+                ));
+            }
+            if partitioning_idx != 0 {
+                return Err(DataFusionError::Internal(
+                    "JoinScan runtime: SEMI JOIN requires partitioning the left source".into(),
+                ));
+            }
+        }
 
         // 1. Start with the first source
         let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
@@ -241,14 +269,22 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let mut effective_right_source = right_source.clone();
+            if join_clause.join_type == JoinScanJoinType::Semi {
+                effective_right_source
+                    .scan_info
+                    .fields
+                    .retain(|f| f.field.name() != "ctid");
+            }
+            let mut right_df =
+                build_source_df(ctx, &effective_right_source, partitioning_idx == i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
             let right_rti = right_source.scan_info.heap_rti;
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
-            let mut on: Vec<Expr> = Vec::new();
+            let mut key_pairs: Vec<(String, String, String)> = Vec::new();
 
             for jk in &join_clause.join_keys {
                 // Case 1: Key connects Left(outer) -> Right(inner)
@@ -270,10 +306,7 @@ fn build_clause_df<'a>(
                                 DataFusionError::Internal("Missing column name".into())
                             })?;
 
-                        on.push(
-                            make_col(&left_alias, &left_col_name)
-                                .eq(make_col(&alias_right, &right_col_name)),
-                        );
+                        key_pairs.push((left_alias, left_col_name, right_col_name));
                     }
                 }
                 // Case 2: Key connects Left(inner) -> Right(outer) (swap)
@@ -297,12 +330,16 @@ fn build_clause_df<'a>(
                                 DataFusionError::Internal("Missing column name".into())
                             })?;
 
-                        on.push(
-                            make_col(&left_alias, &left_col_name)
-                                .eq(make_col(&alias_right, &right_col_name)),
-                        );
+                        key_pairs.push((left_alias, left_col_name, right_col_name));
                     }
                 }
+            }
+
+            let mut on: Vec<Expr> = Vec::new();
+            for (left_alias, left_col_name, right_col_name) in &key_pairs {
+                on.push(
+                    make_col(left_alias, left_col_name).eq(make_col(&alias_right, right_col_name)),
+                );
             }
 
             if on.is_empty() {
@@ -313,9 +350,17 @@ fn build_clause_df<'a>(
                 // Step 2: Join B. No keys A=B? Cross join?
                 // Or we rely on the planner having ordered them such that there is connectivity.
                 // If not connected, it's a cross join.
+                if join_clause.join_type == JoinScanJoinType::Semi {
+                    return Err(DataFusionError::Internal(
+                        "JoinScan runtime: SEMI JOIN requires equi-join keys".into(),
+                    ));
+                }
                 df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
             } else {
-                df = df.join_on(right_df, JoinType::Inner, on)?;
+                df = match df.join_on(right_df, df_join_type, on) {
+                    Ok(next_df) => next_df,
+                    Err(e) => return Err(e),
+                };
             }
 
             left_rtis.insert(right_rti);
@@ -387,6 +432,31 @@ fn build_clause_df<'a>(
             df = df.filter(filter_expr)?;
         }
 
+        // Emulate SEMI semantics: keep only left-side rows and collapse duplicates
+        // before ORDER BY/LIMIT so one left row is emitted even with many right matches.
+        if join_clause.join_type == JoinScanJoinType::Semi {
+            let left_source = &join_clause.sources[0];
+            let left_alias = left_source.execution_alias(0);
+            let left_rti = left_source.scan_info.heap_rti.unwrap_or(0);
+            let left_ctid = format!("ctid_{}", left_rti);
+
+            let mut left_exprs = Vec::new();
+            for f in &left_source.scan_info.fields {
+                match &f.field {
+                    WhichFastField::Ctid => left_exprs.push(col(&left_ctid).alias(left_ctid.clone())),
+                    WhichFastField::Score => left_exprs.push(
+                        make_col(&left_alias, SCORE_COL_NAME).alias(SCORE_COL_NAME.to_string()),
+                    ),
+                    _ => {
+                        let n = f.field.name();
+                        left_exprs.push(make_col(&left_alias, &n).alias(n));
+                    }
+                }
+            }
+            df = df.select(left_exprs)?;
+            df = df.distinct()?;
+        }
+
         // 4. Apply Sort
         if !join_clause.order_by.is_empty() {
             let mut sort_exprs = Vec::new();
@@ -420,8 +490,12 @@ fn build_clause_df<'a>(
                         for (i, source) in join_clause.sources.iter().enumerate() {
                             if let Some(mapped_attno) = source.map_var(*rti, *attno) {
                                 if let Some(field_name) = source.column_name(mapped_attno) {
-                                    let alias = source.execution_alias(i);
-                                    resolved_expr = Some(make_col(&alias, &field_name));
+                                    if join_clause.join_type == JoinScanJoinType::Semi && i == 0 {
+                                        resolved_expr = Some(col(&field_name));
+                                    } else {
+                                        let alias = source.execution_alias(i);
+                                        resolved_expr = Some(make_col(&alias, &field_name));
+                                    }
                                     break;
                                 }
                             }
@@ -458,9 +532,14 @@ fn build_clause_df<'a>(
                 final_cols.push(expr.alias(col_alias));
             }
 
-            // ALWAYS carry forward all CTID columns from both sides
+            // For SEMI JOIN, DataFusion output is left-only by definition.
+            // Keep only left-side CTID columns for heap materialization.
             let mut base_relations = Vec::new();
-            join_clause.collect_base_relations(&mut base_relations);
+            if join_clause.join_type == JoinScanJoinType::Semi {
+                join_clause.sources[0].collect_base_relations(&mut base_relations);
+            } else {
+                join_clause.collect_base_relations(&mut base_relations);
+            }
             for base in base_relations {
                 let rti = base.heap_rti;
                 let ctid_name = format!("ctid_{}", rti);
@@ -491,21 +570,34 @@ fn build_projection_expr(
     proj: &crate::postgres::customscan::joinscan::build::ChildProjection,
     join_clause: &JoinCSClause,
 ) -> Expr {
+    let is_semi = join_clause.join_type == JoinScanJoinType::Semi;
     for (i, source) in join_clause.sources.iter().enumerate() {
         let alias = source.execution_alias(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
                 if let Some(name) = source.column_name(attno) {
+                    if is_semi && i == 0 {
+                        return col(&name);
+                    }
                     return make_col(&alias, &name);
                 } else {
+                    if is_semi && i == 0 {
+                        return col(SCORE_COL_NAME);
+                    }
                     return make_col(&alias, SCORE_COL_NAME);
                 }
             } else if source.contains_rti(proj.rti) {
+                if is_semi && i == 0 {
+                    return col(SCORE_COL_NAME);
+                }
                 return make_col(&alias, SCORE_COL_NAME);
             }
         } else if let Some(attno) = source.map_var(proj.rti, proj.attno) {
             if let Some(field_name) = source.column_name(attno) {
+                if is_semi && i == 0 {
+                    return col(&field_name);
+                }
                 return make_col(&alias, &field_name);
             }
         }

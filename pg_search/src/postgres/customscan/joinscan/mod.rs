@@ -395,7 +395,10 @@ impl CustomScan for JoinScan {
             if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
                 if is_interesting {
                     Self::add_planner_warning(
-                        format!("JoinScan not used: only INNER JOIN is currently supported, got {:?}", jointype),
+                        format!(
+                            "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
+                            jointype
+                        ),
                         (),
                     );
                 }
@@ -918,9 +921,10 @@ impl CustomScan for JoinScan {
                 &PgSearchExtensionCodec::default(),
             )
             .expect("Failed to deserialize logical plan");
-            let physical_plan = runtime
-                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-                .expect("Failed to create execution plan");
+            let physical_plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
+                Ok(plan) => plan,
+                Err(e) => panic!("Failed to create execution plan: {e}"),
+            };
             let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
             for line in displayable.indent(false).to_string().lines() {
@@ -996,9 +1000,10 @@ impl CustomScan for JoinScan {
                 .expect("Failed to deserialize logical plan");
 
                 // Convert logical plan to physical plan
-                let plan = runtime
-                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-                    .expect("Failed to create execution plan");
+                let plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
+                    Ok(plan) => plan,
+                    Err(e) => panic!("Failed to create execution plan: {e}"),
+                };
 
                 let memory_pool =
                     Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));
@@ -1118,7 +1123,6 @@ impl JoinScan {
                         .expect("ctid should be u64")
                         .value(row_idx)
                 };
-
                 // Fetch the tuple from the heap using the CTID
                 let rel_state = state.custom_state_mut().relations.get_mut(&rti)?;
                 if !rel_state
@@ -1132,7 +1136,6 @@ impl JoinScan {
                 fetched_rtis.insert(rti);
             }
         }
-
         // Get the result tuple descriptor from the result slot
         let result_tupdesc = (*result_slot).tts_tupleDescriptor;
         let natts = (*result_tupdesc).natts as usize;

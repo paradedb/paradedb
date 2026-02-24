@@ -266,7 +266,7 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let mut right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -488,6 +488,7 @@ fn build_clause_df<'a>(
                 final_cols.push(expr.alias(col_alias));
             }
 
+            // ALWAYS carry forward all CTID columns from both sides
             let mut base_relations = Vec::new();
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {

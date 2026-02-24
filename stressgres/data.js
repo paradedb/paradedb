@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771972129433,
+  "lastUpdate": 1771972134689,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12016,6 +12016,108 @@ window.BENCHMARK_DATA = {
             "value": 162.546875,
             "unit": "median mem",
             "extra": "avg mem: 182.85987460456303, max mem: 223.078125, count: 56662"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc572cc3f0652124c683623984819ec67bbdc59",
+          "message": "feat: Add SortKeyComputer and Comparator implementations for 5-element tuples (#4228)\n\nCloses #3148\n\n## Why\n\nQueries with `ORDER BY` on more than 3 columns combined with `LIMIT`\nwould fall back to\nNormalScan + external sort instead of using the optimized parallel TopN\ncustom scan. This\nwas because `MAX_TOPN_FEATURES` was limited to 3 and the\n`top_in_segments` match block\nonly handled up to 2 erased features.\n\nUsers with multi-column tiebreaker sorts (common in pagination) were\nhitting this limit\nand seeing degraded performance — the index had to scan all matching\nrows instead of\nefficiently returning only the top N.\n\n## How\n\n- Bumped `MAX_TOPN_FEATURES` from `3` to `5` in\n`pg_search/src/index/reader/index.rs`\n- Added match arms for `3` and `4` erased features in\n`SearchIndexReader::top_in_segments`, following the existing pattern of\npopping features, passing tuples to `order_by()`, and unpacking in the\niterator map\n- Depends on https://github.com/paradedb/tantivy/pull/108 for 5-element\ntuple `SortKeyComputer` and `Comparator` implementations\n\n## Tests\n\n- Added regression tests for 4-column, 5-column, and 6-column (exceeds\nlimit) `ORDER BY` in `top_n_scan.sql`\n- 4 and 5 columns: verified `TopNScanExecState` is selected\n- 6 columns: verified fallback to `NormalScanExecState` with appropriate\nwarning\n- Updated expected outputs for `topn_scores`, `topn_validation`, and \n  `mixedff_advanced_06_score_function` where TopN now correctly kicks in\n- All `cargo pgrx regress` tests pass",
+          "timestamp": "2026-02-24T13:33:45-08:00",
+          "tree_id": "6934e0a0eb026304429e57c9959a3ef4b2e3ae46",
+          "url": "https://github.com/paradedb/paradedb/commit/6cc572cc3f0652124c683623984819ec67bbdc59"
+        },
+        "date": 1771972130526,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07884076592251549, max background_merging: 2.0, count: 56037"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.846253140507914, max cpu: 9.571285, count: 56037"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.403199838945696, max mem: 25.41015625, count: 56037"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.992894977142474, max cpu: 9.687184, count: 56037"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.75,
+            "unit": "median mem",
+            "extra": "avg mem: 167.18166352421167, max mem: 168.82421875, count: 56037"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51614,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51474.39373985046, max block_count: 51614.0, count: 56037"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.05157306779449, max segment_count: 62.0, count: 56037"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.632806351635627, max cpu: 9.338522, count: 56037"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 111.8404369685431, max mem: 136.85546875, count: 56037"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.698125779019629, max cpu: 9.638554, count: 56037"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.015187161496, max mem: 168.6796875, count: 56037"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.895610418087273, max cpu: 33.267326, count: 56037"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.17579121830218, max mem: 222.84375, count: 56037"
           }
         ]
       }

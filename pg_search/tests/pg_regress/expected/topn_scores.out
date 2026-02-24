@@ -97,11 +97,11 @@ ORDER BY rating, id ASC, category
 LIMIT 5;
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
-  3 | Sleek running shoes      |      5 | 3.4849067
-  5 | Generic shoes            |      4 | 3.8772602
-  2 | Plastic Keyboard         |      4 | 3.2668595
-  1 | Ergonomic metal keyboard |      4 | 2.8213787
   4 | White jogging shoes      |      3 | 3.4849067
+  1 | Ergonomic metal keyboard |      4 | 2.8213787
+  2 | Plastic Keyboard         |      4 | 3.2668595
+  5 | Generic shoes            |      4 | 3.8772602
+  3 | Sleek running shoes      |      5 | 3.4849067
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -190,11 +190,11 @@ ORDER BY rating, pdb.score(id), id, category DESC
 LIMIT 5;
  id |       description        | rating |   score   
 ----+--------------------------+--------+-----------
-  3 | Sleek running shoes      |      5 | 3.4849067
-  5 | Generic shoes            |      4 | 3.8772602
-  2 | Plastic Keyboard         |      4 | 3.2668595
-  1 | Ergonomic metal keyboard |      4 | 2.8213787
   4 | White jogging shoes      |      3 | 3.4849067
+  1 | Ergonomic metal keyboard |      4 | 2.8213787
+  2 | Plastic Keyboard         |      4 | 3.2668595
+  5 | Generic shoes            |      4 | 3.8772602
+  3 | Sleek running shoes      |      5 | 3.4849067
 (5 rows)
 
 DROP TABLE mock_items;

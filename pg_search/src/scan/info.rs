@@ -81,14 +81,13 @@ impl RowEstimate {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct ScanInfo {
     /// The range table index for this scan's base relation.
-    pub heap_rti: Option<pg_sys::Index>,
+    pub heap_rti: pg_sys::Index,
     /// The OID of the heap table.
-    pub heaprelid: Option<pg_sys::Oid>,
+    pub heaprelid: pg_sys::Oid,
     /// The OID of the BM25 index (if this scan has one).
-    pub indexrelid: Option<pg_sys::Oid>,
+    pub indexrelid: pg_sys::Oid,
     /// The search query for this scan (extracted from WHERE clause predicates).
-    /// None if this scan has no BM25 index or no search predicate.
-    pub query: Option<SearchQueryInput>,
+    pub query: SearchQueryInput,
     /// Whether this scan has a search predicate (uses @@@ operator).
     pub has_search_predicate: bool,
     /// The alias used in the query (e.g., "p" for "products p"), if any.
@@ -110,11 +109,9 @@ pub struct ScanInfo {
     pub sort_order: Option<SortByField>,
     /// Estimated number of rows matching the query.
     /// Used to decide which table to partition in parallel joins.
-    /// - `Some(estimate)`: This table has a BM25 index, and `estimate` is the result.
-    /// - `None`: This table does NOT have a BM25 index (or we failed to identify it).
-    pub estimate: Option<RowEstimate>,
+    pub estimate: RowEstimate,
     /// The number of segments in the index.
-    pub segment_count: Option<usize>,
+    pub segment_count: usize,
 }
 
 impl ScanInfo {
@@ -123,27 +120,27 @@ impl ScanInfo {
     }
 
     pub fn with_heap_rti(mut self, rti: pg_sys::Index) -> Self {
-        self.heap_rti = Some(rti);
+        self.heap_rti = rti;
         self
     }
 
     pub fn with_heaprelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.heaprelid = Some(oid);
+        self.heaprelid = oid;
         self
     }
 
     pub fn with_indexrelid(mut self, oid: pg_sys::Oid) -> Self {
-        self.indexrelid = Some(oid);
+        self.indexrelid = oid;
         self
     }
 
     /// Returns true if this scan has a BM25 index.
     pub fn has_bm25_index(&self) -> bool {
-        self.indexrelid.is_some()
+        self.indexrelid != pgrx::pg_sys::InvalidOid
     }
 
     pub fn with_query(mut self, query: SearchQueryInput) -> Self {
-        self.query = Some(query);
+        self.query = query;
         self.has_search_predicate = true;
         self
     }

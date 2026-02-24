@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771613069503,
+  "lastUpdate": 1771896771908,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1718,6 +1718,78 @@ window.BENCHMARK_DATA = {
             "value": 72.95705119689089,
             "unit": "median tps",
             "extra": "avg tps: 106.79662505576131, max tps: 774.0231634171885, count: 55053"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100",
+          "message": "fix: prevent parallel worker message queue hang and enable query cancellation (#4222)\n\n## What\n\nFix a hang in the parallel aggregation leader process that made queries\nunkillable and blocked WAL replay on replicas.\n\n## Why\n\nWhen parallel workers exit unexpectedly (e.g., crash due to \"index out\nof bounds\"), the leader gets stuck in a tight spin loop inside\n`ParallelProcessMessageQueue::next()` waiting for messages that will\nnever arrive. Two things make this especially bad:\n\n1. No `check_for_interrupts!()` in the loop, so `pg_cancel_backend` /\n`pg_terminate_backend` do nothing\n2. No tracking of which queues already delivered their message, so the\nleader keeps polling completed queues forever\n\nThis caused a long replication lag for some users because the hung query\nheld a snapshot that prevented WAL replay.\n\n## How\n\nAll changes are in `pg_search/src/parallel_worker/builder.rs`:\n\n- **Add `check_for_interrupts!()`** in the iterator loop so\ncancel/terminate signals are respected\n- **Track done queues** — each worker sends at most one message, so once\na queue delivers or detaches, skip it on future polls. When all queues\nare done, stop iterating.\n- **Yield on empty batches** — when workers are still processing (no\nmessages yet), call `thread::yield_now()` instead of busy-spinning\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2026-02-23T17:13:37-08:00",
+          "tree_id": "dc29002d8f7fd0ebfebfe097e4a16534171c3524",
+          "url": "https://github.com/paradedb/paradedb/commit/1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100"
+        },
+        "date": 1771896767860,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 121.17365358395944,
+            "unit": "median tps",
+            "extra": "avg tps: 121.62571418304037, max tps: 135.14431592467324, count: 54973"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2877.408144977879,
+            "unit": "median tps",
+            "extra": "avg tps: 2871.452033004634, max tps: 3035.6557466917084, count: 54973"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 446.47271661640076,
+            "unit": "median tps",
+            "extra": "avg tps: 452.610751723718, max tps: 663.4948076223345, count: 54973"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2877.9864442361454,
+            "unit": "median tps",
+            "extra": "avg tps: 2874.353524019385, max tps: 3026.8469684381353, count: 109946"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 560.4469303658167,
+            "unit": "median tps",
+            "extra": "avg tps: 561.1789814290249, max tps: 666.4265487383126, count: 54973"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 560.905359399449,
+            "unit": "median tps",
+            "extra": "avg tps: 561.2369916934537, max tps: 642.4266641780916, count: 54973"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1993.182781398247,
+            "unit": "median tps",
+            "extra": "avg tps: 1979.2049822357903, max tps: 2002.6457428062881, count: 54973"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 105.13848095936586,
+            "unit": "median tps",
+            "extra": "avg tps: 133.59412190446216, max tps: 285.29935177134286, count: 54973"
           }
         ]
       }

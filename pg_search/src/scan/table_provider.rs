@@ -19,7 +19,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
 
-use arrow_schema::{Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::{DataFusionError, Result, Statistics};
@@ -56,8 +56,6 @@ pub struct PgSearchTableProvider {
     /// if `is_parallel` is true.
     #[serde(skip)]
     parallel_state: Option<*mut ParallelScanState>,
-    late_mat_enabled: bool,
-    deferred_fields: Vec<DeferredField>,
 }
 
 unsafe impl Send for PgSearchTableProvider {}
@@ -76,8 +74,6 @@ impl PgSearchTableProvider {
             schema: OnceLock::new(),
             is_parallel,
             parallel_state,
-            late_mat_enabled: false,
-            deferred_fields: Vec::new(),
         }
     }
 
@@ -93,41 +89,29 @@ impl PgSearchTableProvider {
         &mut self,
         required_early_columns: &std::collections::HashSet<String>,
     ) {
-        if self.late_mat_enabled {
-            return;
-        }
-        let mut deferred = Vec::new();
-        for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Named(name, _) = wff {
+        for wff in self.fields.iter_mut() {
+            if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
-                    wff.arrow_data_type(),
+                    field_type.arrow_data_type(),
                     arrow_schema::DataType::Utf8View
                         | arrow_schema::DataType::BinaryView
                         | arrow_schema::DataType::LargeUtf8
                         | arrow_schema::DataType::LargeBinary
                 );
                 if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    deferred.push(DeferredField {
-                        field_name: name.clone(),
-                        is_bytes: matches!(
-                            wff.arrow_data_type(),
-                            arrow_schema::DataType::BinaryView
-                                | arrow_schema::DataType::LargeBinary
-                        ),
-                        ff_index,
-                    });
+                    let is_bytes = matches!(
+                        field_type.arrow_data_type(),
+                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                    );
+                    *wff = WhichFastField::Deferred(name.clone(), *field_type, is_bytes);
                 }
             }
-        }
-        if !deferred.is_empty() {
-            self.deferred_fields = deferred;
-            self.late_mat_enabled = true;
         }
     }
 
     fn get_schema(&self) -> SchemaRef {
         self.schema
-            .get_or_init(|| build_schema(&self.fields, &self.deferred_fields))
+            .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
             .clone()
     }
 
@@ -178,14 +162,7 @@ impl PgSearchTableProvider {
         heap_relid: pg_sys::Oid,
     ) -> ScanState {
         let search_results = reader.search_segments(std::iter::once(segment_id));
-        let deferred_indices = self.deferred_fields.iter().map(|d| d.ff_index).collect();
-        let scanner = Scanner::new(
-            search_results,
-            None,
-            self.fields.clone(),
-            heap_relid.into(),
-            deferred_indices,
-        );
+        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
         (
             scanner,
             Arc::clone(ffhelper),
@@ -210,13 +187,22 @@ impl PgSearchTableProvider {
                 None
             }
         });
-        let force_late = std::env::var("PARADEDB_FORCE_LATE_MAT").is_ok();
-        let is_late_mat = self.late_mat_enabled || force_late;
 
-        let (deferred, maybe_ff) = if is_late_mat {
-            (self.deferred_fields.clone(), Some(Arc::clone(&ffhelper)))
+        let mut deferred = Vec::new();
+        for (ff_index, wff) in self.fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
+                deferred.push(DeferredField {
+                    field_name: name.clone(),
+                    is_bytes: *is_bytes,
+                    ff_index,
+                });
+            }
+        }
+
+        let maybe_ff = if deferred.is_empty() {
+            None
         } else {
-            (Vec::new(), None)
+            Some(Arc::clone(&ffhelper))
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
@@ -302,26 +288,6 @@ impl PgSearchTableProvider {
 
         self.create_scan(segments, query_for_display, sort_order, ffhelper)
     }
-}
-
-fn build_schema(fields: &[WhichFastField], deferred: &[DeferredField]) -> SchemaRef {
-    let deferred_names: std::collections::HashSet<&str> =
-        deferred.iter().map(|d| d.field_name.as_str()).collect();
-
-    let arrow_fields: Vec<Field> = fields
-        .iter()
-        .map(|f| {
-            let name = f.name();
-            if deferred_names.contains(name.as_str()) {
-                Field::new(name, arrow_schema::DataType::UInt64, true) // packed DocAddress
-            } else {
-                Field::new(name, f.arrow_data_type(), true)
-            }
-        })
-        .collect();
-
-    // NO __pdb_segment_ord appended here
-    Arc::new(Schema::new(arrow_fields))
 }
 
 #[async_trait]

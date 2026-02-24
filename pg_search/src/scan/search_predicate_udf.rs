@@ -260,13 +260,7 @@ impl SearchPredicateUDF {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let mut scanner = Scanner::new(
-            search_results,
-            None,
-            fields,
-            self.heap_oid.into(),
-            Default::default(),
-        );
+        let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());
 
         let mut ctids = Vec::new();
         while let Some(batch) = scanner.next(

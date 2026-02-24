@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771898746467,
+  "lastUpdate": 1771899703127,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12512,6 +12512,60 @@ window.BENCHMARK_DATA = {
             "value": 14.812588330091133,
             "unit": "median tps",
             "extra": "avg tps: 14.82602822422778, max tps: 20.469429102095596, count: 55479"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100",
+          "message": "fix: prevent parallel worker message queue hang and enable query cancellation (#4222)\n\n## What\n\nFix a hang in the parallel aggregation leader process that made queries\nunkillable and blocked WAL replay on replicas.\n\n## Why\n\nWhen parallel workers exit unexpectedly (e.g., crash due to \"index out\nof bounds\"), the leader gets stuck in a tight spin loop inside\n`ParallelProcessMessageQueue::next()` waiting for messages that will\nnever arrive. Two things make this especially bad:\n\n1. No `check_for_interrupts!()` in the loop, so `pg_cancel_backend` /\n`pg_terminate_backend` do nothing\n2. No tracking of which queues already delivered their message, so the\nleader keeps polling completed queues forever\n\nThis caused a long replication lag for some users because the hung query\nheld a snapshot that prevented WAL replay.\n\n## How\n\nAll changes are in `pg_search/src/parallel_worker/builder.rs`:\n\n- **Add `check_for_interrupts!()`** in the iterator loop so\ncancel/terminate signals are respected\n- **Track done queues** — each worker sends at most one message, so once\na queue delivers or detaches, skip it on future polls. When all queues\nare done, stop iterating.\n- **Yield on empty batches** — when workers are still processing (no\nmessages yet), call `thread::yield_now()` instead of busy-spinning\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2026-02-23T17:13:37-08:00",
+          "tree_id": "dc29002d8f7fd0ebfebfe097e4a16534171c3524",
+          "url": "https://github.com/paradedb/paradedb/commit/1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100"
+        },
+        "date": 1771899699076,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.91905129244777,
+            "unit": "median tps",
+            "extra": "avg tps: 31.58625609660995, max tps: 34.74341790699425, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 233.2333504809593,
+            "unit": "median tps",
+            "extra": "avg tps: 253.7855693613911, max tps: 2640.414441746789, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1854.841134332527,
+            "unit": "median tps",
+            "extra": "avg tps: 1842.6560920305121, max tps: 2205.8828872380695, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 176.43492801333494,
+            "unit": "median tps",
+            "extra": "avg tps: 205.59445657632884, max tps: 1755.44032411826, count: 111018"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.153111061100626,
+            "unit": "median tps",
+            "extra": "avg tps: 14.978329582211488, max tps: 18.450638959465145, count: 55509"
           }
         ]
       }

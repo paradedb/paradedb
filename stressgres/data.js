@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771899703127,
+  "lastUpdate": 1771899708339,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15156,6 +15156,114 @@ window.BENCHMARK_DATA = {
             "value": 169.57421875,
             "unit": "median mem",
             "extra": "avg mem: 166.6787780201743, max mem: 170.97265625, count: 55479"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100",
+          "message": "fix: prevent parallel worker message queue hang and enable query cancellation (#4222)\n\n## What\n\nFix a hang in the parallel aggregation leader process that made queries\nunkillable and blocked WAL replay on replicas.\n\n## Why\n\nWhen parallel workers exit unexpectedly (e.g., crash due to \"index out\nof bounds\"), the leader gets stuck in a tight spin loop inside\n`ParallelProcessMessageQueue::next()` waiting for messages that will\nnever arrive. Two things make this especially bad:\n\n1. No `check_for_interrupts!()` in the loop, so `pg_cancel_backend` /\n`pg_terminate_backend` do nothing\n2. No tracking of which queues already delivered their message, so the\nleader keeps polling completed queues forever\n\nThis caused a long replication lag for some users because the hung query\nheld a snapshot that prevented WAL replay.\n\n## How\n\nAll changes are in `pg_search/src/parallel_worker/builder.rs`:\n\n- **Add `check_for_interrupts!()`** in the iterator loop so\ncancel/terminate signals are respected\n- **Track done queues** — each worker sends at most one message, so once\na queue delivers or detaches, skip it on future polls. When all queues\nare done, stop iterating.\n- **Yield on empty batches** — when workers are still processing (no\nmessages yet), call `thread::yield_now()` instead of busy-spinning\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2026-02-23T17:13:37-08:00",
+          "tree_id": "dc29002d8f7fd0ebfebfe097e4a16534171c3524",
+          "url": "https://github.com/paradedb/paradedb/commit/1c9c9d043a1a1ff3ed04556e45c3ed3a1372a100"
+        },
+        "date": 1771899704192,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.727567611449434, max cpu: 47.19764, count: 55509"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 170.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.86538514587724, max mem: 176.140625, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.672913264702328, max cpu: 28.015566, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.7648822291205, max mem: 120.1015625, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77752706639425, max cpu: 9.504951, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 121.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 113.16127733790917, max mem: 156.27734375, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13569,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13897.910717180997, max block_count: 24845.0, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.487436491414002, max cpu: 4.678363, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 95.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 89.3242719508323, max mem: 131.50390625, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.599866688284784, max segment_count: 36.0, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.464372002472906, max cpu: 28.042841, count: 111018"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 159.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.41658521168864, max mem: 163.82421875, count: 111018"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.9265,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.769448948890318, max cpu: 28.015566, count: 55509"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 170.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.68264514256697, max mem: 171.5, count: 55509"
           }
         ]
       }

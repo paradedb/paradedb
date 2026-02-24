@@ -32,23 +32,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
-      # This step is used to check if the PR author is a member of the org, since
-      # access to GitHub Actions secrets is limited to org members.
-      - name: Check if PR author is member of org
-        id: org-check
-        run: |
-          echo "Checking if ${{ github.actor }} is a member of the org..."
-          result=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}" \
-            https://api.github.com/orgs/paradedb/members/${{ github.actor }})
-          if [ "$result" -eq 204 ]; then
-            echo "is_member=true" >> $GITHUB_OUTPUT
-            echo "PR author is a member of the org"
-          else
-            echo "is_member=false" >> $GITHUB_OUTPUT
-            echo "PR author is not a member of the org"
-          fi
-
       # To avoid spamming PRs with the Docker Scout comparison, we only run
       # it if the PR modifies the Dockerfile or its related scripts
       - name: Detect Dockerfile Changes
@@ -59,12 +42,11 @@ jobs:
             docker:
               - 'docker/**'
 
-      # We only login to the DHI registry if the PR author is a member of the org and there
-      # are changes to the docker/ directory, since access to GitHub Actions secrets
-      # is limited to org members and we only want to compare upcoming release Docker
-      # images via Docker Scout when there are changes to the Dockerfile or its related scripts.
+      # We only login when this is a trusted context where secrets are available:
+      # - workflow_dispatch on this repository
+      # - pull_request from a branch in this repository (not a fork)
       - name: Login to DHI Registry
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
+        if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
         uses: docker/login-action@v3
         with:
           registry: dhi.io
@@ -135,7 +117,7 @@ jobs:
           docker rm temp-inspect-paradedb
 
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
+        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && steps.dockerfilter.outputs.docker == 'true'
         uses: docker/scout-action@v1
         with:
           command: compare

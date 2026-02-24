@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771973098605,
+  "lastUpdate": 1771973103863,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16380,6 +16380,114 @@ window.BENCHMARK_DATA = {
             "value": 172.40625,
             "unit": "median mem",
             "extra": "avg mem: 168.79934024740265, max mem: 173.09765625, count: 55441"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc572cc3f0652124c683623984819ec67bbdc59",
+          "message": "feat: Add SortKeyComputer and Comparator implementations for 5-element tuples (#4228)\n\nCloses #3148\n\n## Why\n\nQueries with `ORDER BY` on more than 3 columns combined with `LIMIT`\nwould fall back to\nNormalScan + external sort instead of using the optimized parallel TopN\ncustom scan. This\nwas because `MAX_TOPN_FEATURES` was limited to 3 and the\n`top_in_segments` match block\nonly handled up to 2 erased features.\n\nUsers with multi-column tiebreaker sorts (common in pagination) were\nhitting this limit\nand seeing degraded performance — the index had to scan all matching\nrows instead of\nefficiently returning only the top N.\n\n## How\n\n- Bumped `MAX_TOPN_FEATURES` from `3` to `5` in\n`pg_search/src/index/reader/index.rs`\n- Added match arms for `3` and `4` erased features in\n`SearchIndexReader::top_in_segments`, following the existing pattern of\npopping features, passing tuples to `order_by()`, and unpacking in the\niterator map\n- Depends on https://github.com/paradedb/tantivy/pull/108 for 5-element\ntuple `SortKeyComputer` and `Comparator` implementations\n\n## Tests\n\n- Added regression tests for 4-column, 5-column, and 6-column (exceeds\nlimit) `ORDER BY` in `top_n_scan.sql`\n- 4 and 5 columns: verified `TopNScanExecState` is selected\n- 6 columns: verified fallback to `NormalScanExecState` with appropriate\nwarning\n- Updated expected outputs for `topn_scores`, `topn_validation`, and \n  `mixedff_advanced_06_score_function` where TopN now correctly kicks in\n- All `cargo pgrx regress` tests pass",
+          "timestamp": "2026-02-24T13:33:45-08:00",
+          "tree_id": "6934e0a0eb026304429e57c9959a3ef4b2e3ae46",
+          "url": "https://github.com/paradedb/paradedb/commit/6cc572cc3f0652124c683623984819ec67bbdc59"
+        },
+        "date": 1771973099705,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.627629969772357, max cpu: 42.687748, count: 55530"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 154.07415621342068, max mem: 176.6640625, count: 55530"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.686241671035268, max cpu: 28.042841, count: 55530"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 118.90327560834234, max mem: 120.1953125, count: 55530"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.797787478607061, max cpu: 13.88621, count: 55530"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 125.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 117.99590290439852, max mem: 159.22265625, count: 55530"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13773,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13900.436178642176, max block_count: 24464.0, count: 55530"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.286256223048498, max cpu: 4.669261, count: 55530"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 93.17382144223843, max mem: 134.6015625, count: 55530"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.647974068071314, max segment_count: 41.0, count: 55530"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.64531087586084, max cpu: 28.430405, count: 111060"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 163.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.86048187635063, max mem: 164.6171875, count: 111060"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.842037556944474, max cpu: 27.87996, count: 55530"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 169.4038637617054, max mem: 173.8671875, count: 55530"
           }
         ]
       }

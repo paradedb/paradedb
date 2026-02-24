@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771967162941,
+  "lastUpdate": 1771967168298,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7712,6 +7712,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.27274470495946, max segment_count: 130.0, count: 57365"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6",
+          "message": "refactor: Split up `JoinSource` into `JoinSourceCandidate` (#4214)\n\n# Ticket(s) Closed\n\n- Closes #4153 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-24T12:30:34-08:00",
+          "tree_id": "7da091c988f50b5ff88711269df44f457f87f592",
+          "url": "https://github.com/paradedb/paradedb/commit/4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6"
+        },
+        "date": 1771967164002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.063526244990268, max cpu: 42.72997, count: 57752"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.58487848635113, max mem: 237.1875, count: 57752"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.434303859880835, max cpu: 33.267326, count: 57752"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.02203312493506, max mem: 175.81640625, count: 57752"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34180,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33499.68660825599, max block_count: 36141.0, count: 57752"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.07381562543289, max segment_count: 128.0, count: 57752"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771971118749,
+  "lastUpdate": 1771972129433,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9318,6 +9318,54 @@ window.BENCHMARK_DATA = {
             "value": 5.2489218637662844,
             "unit": "median tps",
             "extra": "avg tps: 5.294333932842639, max tps: 6.366907534578162, count: 56662"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc572cc3f0652124c683623984819ec67bbdc59",
+          "message": "feat: Add SortKeyComputer and Comparator implementations for 5-element tuples (#4228)\n\nCloses #3148\n\n## Why\n\nQueries with `ORDER BY` on more than 3 columns combined with `LIMIT`\nwould fall back to\nNormalScan + external sort instead of using the optimized parallel TopN\ncustom scan. This\nwas because `MAX_TOPN_FEATURES` was limited to 3 and the\n`top_in_segments` match block\nonly handled up to 2 erased features.\n\nUsers with multi-column tiebreaker sorts (common in pagination) were\nhitting this limit\nand seeing degraded performance — the index had to scan all matching\nrows instead of\nefficiently returning only the top N.\n\n## How\n\n- Bumped `MAX_TOPN_FEATURES` from `3` to `5` in\n`pg_search/src/index/reader/index.rs`\n- Added match arms for `3` and `4` erased features in\n`SearchIndexReader::top_in_segments`, following the existing pattern of\npopping features, passing tuples to `order_by()`, and unpacking in the\niterator map\n- Depends on https://github.com/paradedb/tantivy/pull/108 for 5-element\ntuple `SortKeyComputer` and `Comparator` implementations\n\n## Tests\n\n- Added regression tests for 4-column, 5-column, and 6-column (exceeds\nlimit) `ORDER BY` in `top_n_scan.sql`\n- 4 and 5 columns: verified `TopNScanExecState` is selected\n- 6 columns: verified fallback to `NormalScanExecState` with appropriate\nwarning\n- Updated expected outputs for `topn_scores`, `topn_validation`, and \n  `mixedff_advanced_06_score_function` where TopN now correctly kicks in\n- All `cargo pgrx regress` tests pass",
+          "timestamp": "2026-02-24T13:33:45-08:00",
+          "tree_id": "6934e0a0eb026304429e57c9959a3ef4b2e3ae46",
+          "url": "https://github.com/paradedb/paradedb/commit/6cc572cc3f0652124c683623984819ec67bbdc59"
+        },
+        "date": 1771972125238,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1096.2027169356104,
+            "unit": "median tps",
+            "extra": "avg tps: 1097.64686338726, max tps: 1134.1709947729448, count: 56037"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1226.5839766217607,
+            "unit": "median tps",
+            "extra": "avg tps: 1224.765513281498, max tps: 1259.5465191689711, count: 56037"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1862.6791366873874,
+            "unit": "median tps",
+            "extra": "avg tps: 1837.7086104810355, max tps: 2006.9775742362897, count: 56037"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.3407336818588105,
+            "unit": "median tps",
+            "extra": "avg tps: 5.352789095417962, max tps: 6.93010712760571, count: 56037"
           }
         ]
       }

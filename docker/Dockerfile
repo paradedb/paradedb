@@ -225,7 +225,8 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
 # ship with by default, we ensure the PostgreSQL APT repository is present in the image. The upstream `postgres` image already
 # includes the PGDG signing key, so we only need to add the repository entry. We do not run `apt-get update` here to avoid
 # unnecessarily downloading package indexes. The user can run `apt-get update` themselves before installing extensions.
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
+RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list && \
     apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

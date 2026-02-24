@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771969100326,
+  "lastUpdate": 1771970072480,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17074,6 +17074,54 @@ window.BENCHMARK_DATA = {
             "value": 532.6752020378094,
             "unit": "median tps",
             "extra": "avg tps: 507.15035012755425, max tps: 720.3403107967592, count: 107708"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6",
+          "message": "refactor: Split up `JoinSource` into `JoinSourceCandidate` (#4214)\n\n# Ticket(s) Closed\n\n- Closes #4153 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-24T12:30:34-08:00",
+          "tree_id": "7da091c988f50b5ff88711269df44f457f87f592",
+          "url": "https://github.com/paradedb/paradedb/commit/4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6"
+        },
+        "date": 1771970068363,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 539.1403779724467,
+            "unit": "median tps",
+            "extra": "avg tps: 544.2047846364148, max tps: 713.6608297262353, count: 53838"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 695.3782999361833,
+            "unit": "median tps",
+            "extra": "avg tps: 699.4842717279533, max tps: 842.2072037007204, count: 53838"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.74782754609429,
+            "unit": "median tps",
+            "extra": "avg tps: 87.71255268791751, max tps: 88.40977239389933, count: 53838"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 499.56274801510995,
+            "unit": "median tps",
+            "extra": "avg tps: 453.06176784341255, max tps: 670.16118898042, count: 107676"
           }
         ]
       }

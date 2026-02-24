@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771970077771,
+  "lastUpdate": 1771970140781,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1862,6 +1862,78 @@ window.BENCHMARK_DATA = {
             "value": 52.17258649875719,
             "unit": "median tps",
             "extra": "avg tps: 55.297881377865394, max tps: 271.5753945088464, count: 55148"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc572cc3f0652124c683623984819ec67bbdc59",
+          "message": "feat: Add SortKeyComputer and Comparator implementations for 5-element tuples (#4228)\n\nCloses #3148\n\n## Why\n\nQueries with `ORDER BY` on more than 3 columns combined with `LIMIT`\nwould fall back to\nNormalScan + external sort instead of using the optimized parallel TopN\ncustom scan. This\nwas because `MAX_TOPN_FEATURES` was limited to 3 and the\n`top_in_segments` match block\nonly handled up to 2 erased features.\n\nUsers with multi-column tiebreaker sorts (common in pagination) were\nhitting this limit\nand seeing degraded performance — the index had to scan all matching\nrows instead of\nefficiently returning only the top N.\n\n## How\n\n- Bumped `MAX_TOPN_FEATURES` from `3` to `5` in\n`pg_search/src/index/reader/index.rs`\n- Added match arms for `3` and `4` erased features in\n`SearchIndexReader::top_in_segments`, following the existing pattern of\npopping features, passing tuples to `order_by()`, and unpacking in the\niterator map\n- Depends on https://github.com/paradedb/tantivy/pull/108 for 5-element\ntuple `SortKeyComputer` and `Comparator` implementations\n\n## Tests\n\n- Added regression tests for 4-column, 5-column, and 6-column (exceeds\nlimit) `ORDER BY` in `top_n_scan.sql`\n- 4 and 5 columns: verified `TopNScanExecState` is selected\n- 6 columns: verified fallback to `NormalScanExecState` with appropriate\nwarning\n- Updated expected outputs for `topn_scores`, `topn_validation`, and \n  `mixedff_advanced_06_score_function` where TopN now correctly kicks in\n- All `cargo pgrx regress` tests pass",
+          "timestamp": "2026-02-24T13:33:45-08:00",
+          "tree_id": "6934e0a0eb026304429e57c9959a3ef4b2e3ae46",
+          "url": "https://github.com/paradedb/paradedb/commit/6cc572cc3f0652124c683623984819ec67bbdc59"
+        },
+        "date": 1771970136608,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 120.33491925662396,
+            "unit": "median tps",
+            "extra": "avg tps: 120.88969813621759, max tps: 137.8156256411626, count: 55131"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2914.869102987986,
+            "unit": "median tps",
+            "extra": "avg tps: 2898.050209484496, max tps: 3014.5745911812073, count: 55131"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 494.64119729372845,
+            "unit": "median tps",
+            "extra": "avg tps: 494.28493795954535, max tps: 571.1246243427782, count: 55131"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3009.737205742116,
+            "unit": "median tps",
+            "extra": "avg tps: 3001.0826595134204, max tps: 3028.941809841629, count: 110262"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 496.74281446868054,
+            "unit": "median tps",
+            "extra": "avg tps: 498.99268426191696, max tps: 654.5785292624928, count: 55131"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 508.7883450911085,
+            "unit": "median tps",
+            "extra": "avg tps: 511.8205205321147, max tps: 606.5459478484862, count: 55131"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1831.4215036659257,
+            "unit": "median tps",
+            "extra": "avg tps: 1822.8007787949182, max tps: 1840.100118900949, count: 55131"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 80.62773706368998,
+            "unit": "median tps",
+            "extra": "avg tps: 96.27202950364722, max tps: 376.03812846124293, count: 55131"
           }
         ]
       }

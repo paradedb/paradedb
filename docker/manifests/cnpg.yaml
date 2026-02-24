@@ -18520,14 +18520,14 @@ spec:
         - /manager
         env:
         - name: OPERATOR_IMAGE_NAME
-          value: "docker.io/docker/dhi-cloudnative-pg:1.27"
+          value: "dhi.io/cloudnative-pg:1.27.1"
         - name: OPERATOR_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
         - name: MONITORING_QUERIES_CONFIGMAP
           value: "cnpg-default-monitoring"
-        image: "docker.io/docker/dhi-cloudnative-pg:1.27"
+        image: "dhi.io/cloudnative-pg:1.27.1"
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:

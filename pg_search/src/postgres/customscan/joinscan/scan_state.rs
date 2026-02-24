@@ -241,8 +241,6 @@ fn build_clause_df<'a>(
             }
         };
 
-        // For the current partitioning strategy, semi join is only valid when the
-        // left source is partitioned and right source is replicated.
         if join_clause.join_type == JoinScanJoinType::Semi {
             if join_clause.sources.len() != 2 {
                 return Err(DataFusionError::Internal(
@@ -348,10 +346,7 @@ fn build_clause_df<'a>(
                 }
                 df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
             } else {
-                df = match df.join_on(right_df, df_join_type, on) {
-                    Ok(next_df) => next_df,
-                    Err(e) => return Err(e),
-                };
+                df = df.join_on(right_df, df_join_type, on)?;
             }
 
             left_rtis.insert(right_rti);

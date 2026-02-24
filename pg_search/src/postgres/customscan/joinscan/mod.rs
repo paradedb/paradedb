@@ -924,11 +924,9 @@ impl CustomScan for JoinScan {
                 &PgSearchExtensionCodec::default(),
             )
             .expect("Failed to deserialize logical plan");
-            let physical_plan =
-                match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
-                    Ok(plan) => plan,
-                    Err(e) => panic!("Failed to create execution plan: {e}"),
-                };
+            let physical_plan = runtime
+                .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                .expect("Failed to create execution plan");
             let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
             for line in displayable.indent(false).to_string().lines() {
@@ -1004,11 +1002,9 @@ impl CustomScan for JoinScan {
                 .expect("Failed to deserialize logical plan");
 
                 // Convert logical plan to physical plan
-                let plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan))
-                {
-                    Ok(plan) => plan,
-                    Err(e) => panic!("Failed to create execution plan: {e}"),
-                };
+                let plan = runtime
+                    .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                    .expect("Failed to create execution plan");
 
                 let memory_pool =
                     Arc::new(PanicOnOOMMemoryPool::new(state.custom_state().max_memory));

@@ -273,7 +273,7 @@ fn build_clause_df<'a>(
             let right_rti = right_source.scan_info.heap_rti;
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
-            let mut key_pairs: Vec<(String, String, String)> = Vec::new();
+            let mut on: Vec<Expr> = Vec::new();
 
             for jk in &join_clause.join_keys {
                 // Case 1: Key connects Left(outer) -> Right(inner)
@@ -295,7 +295,10 @@ fn build_clause_df<'a>(
                                 DataFusionError::Internal("Missing column name".into())
                             })?;
 
-                        key_pairs.push((left_alias, left_col_name, right_col_name));
+                        on.push(
+                            make_col(&left_alias, &left_col_name)
+                                .eq(make_col(&alias_right, &right_col_name)),
+                        );
                     }
                 }
                 // Case 2: Key connects Left(inner) -> Right(outer) (swap)
@@ -319,16 +322,12 @@ fn build_clause_df<'a>(
                                 DataFusionError::Internal("Missing column name".into())
                             })?;
 
-                        key_pairs.push((left_alias, left_col_name, right_col_name));
+                        on.push(
+                            make_col(&left_alias, &left_col_name)
+                                .eq(make_col(&alias_right, &right_col_name)),
+                        );
                     }
                 }
-            }
-
-            let mut on: Vec<Expr> = Vec::new();
-            for (left_alias, left_col_name, right_col_name) in &key_pairs {
-                on.push(
-                    make_col(left_alias, left_col_name).eq(make_col(&alias_right, right_col_name)),
-                );
             }
 
             if on.is_empty() {

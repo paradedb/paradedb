@@ -495,10 +495,10 @@ impl RecordBatchStream for ScanStream {
 /// This is used to wrap `ScanStream` which is !Send because it contains Tantivy and Postgres
 /// state that is not Send. This is safe because pg_search operates in a single-threaded
 /// Tokio executor within Postgres, and these objects will never cross thread boundaries.
-struct UnsafeSendStream<T>(T);
+pub(crate) struct UnsafeSendStream<T>(pub(crate) T);
 
 impl<T> UnsafeSendStream<T> {
-    unsafe fn new(t: T) -> Self {
+    pub(crate) unsafe fn new(t: T) -> Self {
         Self(t)
     }
 }

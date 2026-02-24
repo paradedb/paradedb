@@ -22,11 +22,8 @@ use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
 };
 use arrow_array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
-use arrow_buffer::Buffer;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
-use tantivy::columnar::{BytesColumn, StrColumn};
-use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{
@@ -406,26 +403,51 @@ impl Scanner {
                                 .as_any()
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Text ordinals");
-                            Some(ords_to_string_array(str_column.clone(), ords_array))
+                            Some(ords_to_string_array(
+                                str_column.clone(),
+                                ords_array
+                                    .into_iter()
+                                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+                            ))
                         }
                         FFType::Bytes(bytes_column) => {
                             let ords_array = col_array
                                 .as_any()
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Bytes ordinals");
-                            Some(ords_to_bytes_array(bytes_column.clone(), ords_array))
+                            Some(ords_to_bytes_array(
+                                bytes_column.clone(),
+                                ords_array
+                                    .into_iter()
+                                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+                            ))
                         }
                         _ => Some(col_array),
                     }
                 }
-                WhichFastField::Deferred(_, _, _) => {
-                    // Emit packed DocAddress (segment_ord << 32 | doc_id)
-                    let mut b = UInt64Builder::with_capacity(ids.len());
-                    for doc_id in &ids {
-                        let packed = ((segment_ord as u64) << 32) | (*doc_id as u64);
-                        b.append_value(packed);
+                WhichFastField::Deferred(_, _, is_bytes) => {
+                    use arrow_schema::DataType;
+
+                    match &memoized_columns[ff_index] {
+                        Some(col_array) if col_array.data_type() == &DataType::UInt64 => {
+                            Some(crate::scan::deferred_encode::build_state_term_ordinals(
+                                segment_ord,
+                                col_array.clone(),
+                                *is_bytes,
+                            ))
+                        }
+                        Some(col_array) => {
+                            Some(crate::scan::deferred_encode::build_state_hydrated(
+                                col_array.clone(),
+                                *is_bytes,
+                            ))
+                        }
+                        None => Some(crate::scan::deferred_encode::build_state_doc_address(
+                            segment_ord,
+                            &ids,
+                            *is_bytes,
+                        )),
                     }
-                    Some(Arc::new(b.finish()) as ArrayRef)
                 }
             })
             .collect();

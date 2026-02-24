@@ -174,7 +174,19 @@ impl PgSearchTableProvider {
             Box::new(visibility.clone()) as Box<VisibilityChecker>,
         )
     }
-
+    pub fn deferred_fields(&self) -> Vec<DeferredField> {
+        let mut deferred = Vec::new();
+        for (ff_index, wff) in self.fields.iter().enumerate() {
+            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
+                deferred.push(DeferredField {
+                    field_name: name.clone(),
+                    is_bytes: *is_bytes,
+                    ff_index,
+                });
+            }
+        }
+        deferred
+    }
     /// Creates a PgSearchScanPlan from a list of segments.
     fn create_scan(
         &self,
@@ -193,16 +205,7 @@ impl PgSearchTableProvider {
             }
         });
 
-        let mut deferred = Vec::new();
-        for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
-                deferred.push(DeferredField {
-                    field_name: name.clone(),
-                    is_bytes: *is_bytes,
-                    ff_index,
-                });
-            }
-        }
+        let deferred = self.deferred_fields();
 
         let maybe_ff = if deferred.is_empty() {
             None

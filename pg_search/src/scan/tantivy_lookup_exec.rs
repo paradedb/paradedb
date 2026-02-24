@@ -4,8 +4,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use arrow_array::{ArrayRef, RecordBatch, UInt64Array};
+use crate::index::fast_fields_helper::{
+    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, NULL_TERM_ORDINAL,
+};
+use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::execution_plan::UnsafeSendStream;
+use arrow_array::{ArrayRef, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_select::interleave::interleave;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
@@ -13,11 +20,6 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
-
-use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, NULL_TERM_ORDINAL,
-};
-use arrow_select::interleave::interleave;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredField {
     pub field_name: String,
@@ -208,19 +210,19 @@ impl LookupStream {
                 .position(|d| &d.field_name == name)
             {
                 let field = &self.deferred_fields[d_idx];
-                let doc_addr_array = batch
+                let union_array = batch
                     .column(self.deferred_col_indices[d_idx])
                     .as_any()
-                    .downcast_ref::<UInt64Array>()
+                    .downcast_ref::<arrow_array::UnionArray>()
                     .ok_or_else(|| {
                         DataFusionError::Execution(format!(
-                            "expected UInt64 DocAddress column for '{}'",
+                            "expected UnionArray for deferred column '{}'",
                             name
                         ))
                     })?;
                 output_columns.push(materialize_deferred_column(
                     &self.ffhelper,
-                    doc_addr_array,
+                    union_array,
                     field.ff_index,
                     field.is_bytes,
                     num_rows,
@@ -237,57 +239,101 @@ impl LookupStream {
     }
 }
 
-/// Materializes deferred `DocAddress` values into their original text or bytes representation.
+/// Materializes deferred union values into their original text or bytes representation.
 ///
-/// This function converts packed `DocAddress` values (segment ordinal and document ID) into
-/// an Arrow `ArrayRef` matching the requested String or Binary view array type. To maximize
-/// efficiency, it groups requests by segment, sorts them for sequential dictionary access,
-/// fetches materialized columns per segment, and then uses Arrow's `interleave` to reconstruct
-/// the data in the original input row order.
+/// This function converts a 3-way `UnionArray` (containing either a packed `DocAddress`,
+/// `TermOrdinal`s, or already-materialized strings) into an Arrow `ArrayRef` matching the
+/// requested String or Binary view array type. To maximize efficiency, it groups requests
+/// by segment, sorts them for sequential dictionary access, fetches materialized columns
+/// per segment, and then uses Arrow's `interleave` to reconstruct the data in the
+/// original input row order.
 fn materialize_deferred_column(
     ffhelper: &FFHelper,
-    doc_addr_array: &UInt64Array,
+    union_array: &UnionArray,
     ff_index: usize,
     is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
+    // Extract the type_ids buffer that tells us which state each row is in
+    let type_ids = union_array.type_ids();
+
+    // Extract the underlying arrays from the union
+    let doc_address_child = union_array
+        .child(0)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    let term_ord_child = union_array
+        .child(1)
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .unwrap();
+    let materialized_child = union_array.child(2);
+
+    let seg_ord_array = term_ord_child
+        .column(0)
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .unwrap();
+    let ord_array = term_ord_child
+        .column(1)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+
     // 1. Group requests by segment ordinal to process one segment at a time.
-    let mut by_seg: HashMap<u32, Vec<(usize, tantivy::DocId)>> = HashMap::new();
+    // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
+    let mut state_0_by_seg: crate::api::HashMap<u32, Vec<(usize, tantivy::DocId)>> =
+        crate::api::HashMap::default();
+    let mut state_1_by_seg: crate::api::HashMap<u32, Vec<(usize, u64)>> =
+        crate::api::HashMap::default();
+    let mut pre_materialized_rows = Vec::new();
+
     for row in 0..num_rows {
-        let packed = doc_addr_array.value(row);
-        let seg_ord = (packed >> 32) as u32;
-        let doc_id = (packed & 0xFFFF_FFFF) as u32;
-        by_seg.entry(seg_ord).or_default().push((row, doc_id));
+        match type_ids[row] {
+            0 => {
+                let packed = doc_address_child.value(row);
+                let (seg_ord, doc_id) = unpack_doc_address(packed);
+                state_0_by_seg
+                    .entry(seg_ord)
+                    .or_default()
+                    .push((row, doc_id));
+            }
+            1 => {
+                let seg_ord = seg_ord_array.value(row);
+                let term_ord = ord_array.value(row);
+                state_1_by_seg
+                    .entry(seg_ord)
+                    .or_default()
+                    .push((row, term_ord));
+            }
+            2 => {
+                pre_materialized_rows.push(row);
+            }
+            _ => unreachable!("Invalid Union State"),
+        }
     }
 
-    // 2. Sort doc_ids within each segment for sequential access (first_vals efficiency).
-    for rows in by_seg.values_mut() {
-        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
-    }
-
-    let mut segment_arrays: Vec<ArrayRef> = Vec::with_capacity(by_seg.len());
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
 
-    // Sort seg_ords to ensure deterministic behavior across executions.
-    let mut seg_ords: Vec<u32> = by_seg.keys().copied().collect();
-    seg_ords.sort_unstable();
+    // Map pre-materialized rows (State 2) directly.
+    if !pre_materialized_rows.is_empty() {
+        segment_arrays.push(materialized_child.clone());
+        let array_idx = 0;
+        for row_idx in pre_materialized_rows {
+            indices[row_idx] = (array_idx, row_idx);
+        }
+    }
 
-    for (array_idx, seg_ord) in seg_ords.into_iter().enumerate() {
-        let rows = by_seg.remove(&seg_ord).unwrap();
-
-        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-        let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
+    // Helper closure to handle Step 3 and Step 4 cleanly for both State 0 and State 1
+    let mut process_ordinals = |seg_ord: u32, rows: Vec<(usize, u64)>| -> Result<()> {
+        let ords: Vec<u64> = rows.iter().map(|(_, ord)| *ord).collect();
 
         // 3. Perform a bulk dictionary lookup for the entire segment.
         let array = if is_bytes {
             if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                bytes_col.ords().first_vals(&ids, &mut term_ords);
-                ords_to_bytes_array(
-                    bytes_col.clone(),
-                    term_ords
-                        .into_iter()
-                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-                )
+                ords_to_bytes_array(bytes_col.clone(), ords)
             } else {
                 return Err(DataFusionError::Execution(format!(
                     "Expected Bytes column for index {}",
@@ -295,26 +341,63 @@ fn materialize_deferred_column(
                 )));
             }
         } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            str_col.ords().first_vals(&ids, &mut term_ords);
-            ords_to_string_array(
-                str_col.clone(),
-                term_ords
-                    .into_iter()
-                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-            )
+            ords_to_string_array(str_col.clone(), ords)
         } else {
             return Err(DataFusionError::Execution(format!(
                 "Expected Text column for index {}",
                 ff_index
             )));
         };
+
         segment_arrays.push(array);
+        let array_idx = segment_arrays.len() - 1;
 
         // 4. Map the sorted, segment-local results back to their original row indices
         // in the global `RecordBatch` for interleaving.
         for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
             indices[original_row_idx] = (array_idx, idx_within_segment);
         }
+        Ok(())
+    };
+
+    // Sort seg_ords to ensure deterministic behavior across executions.
+    let mut seg_ords_0: Vec<u32> = state_0_by_seg.keys().copied().collect();
+    seg_ords_0.sort_unstable();
+
+    for seg_ord in seg_ords_0 {
+        let mut rows = state_0_by_seg.remove(&seg_ord).unwrap();
+        // 2. Sort doc_ids within each segment for sequential access (first_vals efficiency).
+        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
+
+        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
+
+        if is_bytes {
+            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
+                bytes_col.ords().first_vals(&ids, &mut term_ords);
+            }
+        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
+            str_col.ords().first_vals(&ids, &mut term_ords);
+        }
+
+        let rows_with_ords = rows
+            .into_iter()
+            .zip(term_ords)
+            .map(|((row_idx, _), ord)| (row_idx, ord.unwrap_or(NULL_TERM_ORDINAL)))
+            .collect();
+
+        process_ordinals(seg_ord, rows_with_ords)?;
+    }
+
+    let mut seg_ords_1: Vec<u32> = state_1_by_seg.keys().copied().collect();
+    seg_ords_1.sort_unstable();
+
+    for seg_ord in seg_ords_1 {
+        let mut rows = state_1_by_seg.remove(&seg_ord).unwrap();
+        // 2. Sort term ordinals within each segment for sequential access (dictionary decode efficiency).
+        rows.sort_unstable_by_key(|(_, ord)| *ord);
+
+        process_ordinals(seg_ord, rows)?;
     }
 
     // 5. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
@@ -344,24 +427,5 @@ impl Stream for LookupStream {
 impl RecordBatchStream for LookupStream {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
-    }
-}
-
-struct UnsafeSendStream<T>(T);
-impl<T> UnsafeSendStream<T> {
-    unsafe fn new(t: T) -> Self {
-        Self(t)
-    }
-}
-unsafe impl<T> Send for UnsafeSendStream<T> {}
-impl<T: Stream> Stream for UnsafeSendStream<T> {
-    type Item = T::Item;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().0).poll_next(cx) }
-    }
-}
-impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
-    fn schema(&self) -> SchemaRef {
-        self.0.schema()
     }
 }

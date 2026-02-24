@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771966199601,
+  "lastUpdate": 1771967162941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6178,6 +6178,42 @@ window.BENCHMARK_DATA = {
             "value": 5.26667871146569,
             "unit": "median tps",
             "extra": "avg tps: 4.727159208658857, max tps: 5.903451019983711, count: 57365"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6",
+          "message": "refactor: Split up `JoinSource` into `JoinSourceCandidate` (#4214)\n\n# Ticket(s) Closed\n\n- Closes #4153 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-24T12:30:34-08:00",
+          "tree_id": "7da091c988f50b5ff88711269df44f457f87f592",
+          "url": "https://github.com/paradedb/paradedb/commit/4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6"
+        },
+        "date": 1771967158675,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.565818911430201,
+            "unit": "median tps",
+            "extra": "avg tps: 6.449075819850586, max tps: 9.81710733147461, count: 57752"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.262424423999654,
+            "unit": "median tps",
+            "extra": "avg tps: 4.711659223758922, max tps: 5.899989981211727, count: 57752"
           }
         ]
       }

@@ -49,7 +49,7 @@
 //!   → Vec<PreFilter>                   it into PreFilter(s)
 //!        │
 //!        ▼
-//! Scanner::next()                    ← applies PreFilters via apply_pre_filter()
+//! Scanner::next()                    ← applies PreFilters via apply_arrow()
 //!   prunes doc IDs in-place            before materializing Arrow columns
 //! ```
 //!
@@ -67,21 +67,14 @@
 //! pass (registered in `joinscan::scan_state::create_session_context`) wires the
 //! new filter to the scan.
 //!
-//! # NULL Handling (`nulls_pass`)
+//! # Native DataFusion Evaluation
 //!
-//! TopK on a nullable column emits `col IS NULL OR col < threshold`. Without special
-//! handling, the `OR` expression would be skipped entirely (no pre-filter created) or,
-//! if naively decomposed, NULLs would be incorrectly pruned. [`try_or_is_null_pattern`]
-//! detects this pattern, extracts the comparison, and produces a [`PreFilter`] with
-//! `nulls_pass = true`. The apply functions ([`filter_by_ordinals`], [`filter_by_values`])
-//! check this flag and let NULL rows through instead of discarding them.
-//!
-//! # Column Resolution
-//!
-//! Dynamic filters from parent operators reference columns by the *parent's* schema
-//! indices, which may differ from the scan's field order (e.g. after projections or
-//! joins). [`collect_filters`] resolves columns by **name** against the scan's schema
-//! so that the correct fast-field index is used regardless of plan-level reordering.
+//! `PreFilter`s do not execute custom matching logic. Instead, they leverage native DataFusion
+//! `PhysicalExpr` evaluation over a mock `RecordBatch` containing only the fetched fast-field columns.
+//! For string columns, to avoid expensive materialization, the `PreFilter` dynamically rewrites the
+//! expression per segment: translating string literals into local `UInt64` ordinal bounds and evaluating
+//! the bounds check directly against the fetched term ordinals. This allows complex expressions
+//! (e.g. `IS NULL OR col < 'abc'`) to be seamlessly evaluated by Arrow's highly optimized compute kernels.
 //!
 //! # Observability
 //!
@@ -94,390 +87,334 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
-use datafusion::arrow::compute::is_null;
-use datafusion::arrow::compute::kernels::boolean;
-use datafusion::arrow::compute::kernels::cmp;
-use datafusion::arrow::compute::kernels::zip;
+use datafusion::arrow::array::{ArrayRef, BooleanArray};
+use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Operator;
-use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Literal};
+use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Literal, NotExpr};
 use datafusion::physical_expr::PhysicalExpr;
-use tantivy::columnar::BytesColumn;
 use tantivy::SegmentOrdinal;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType};
 
-/// A pre-materialization filter applied inside [`Scanner::next()`](super::batch_scanner::Scanner::next)
-/// between visibility checks and column materialization. By filtering at the
-/// term-ordinal or fast-field level, we skip expensive term dictionary I/O for
-/// pruned documents.
+/// A pre-materialization filter applied inside `Scanner::next()`.
+///
+/// Wraps a DataFusion `PhysicalExpr` that has been validated to only contain
+/// operations we can evaluate early (e.g. before fetching expensive string dictionaries).
 pub struct PreFilter {
-    /// Index into `which_fast_fields` (== schema field index == ff_index).
-    pub ff_index: usize,
-    /// Lower bound of the accepted range.
-    pub lower: Bound<PreFilterValue>,
-    /// Upper bound of the accepted range.
-    pub upper: Bound<PreFilterValue>,
-    /// When true, rows with NULL values for this column pass the filter.
-    /// This is needed for TopK dynamic filters which produce
-    /// `col IS NULL OR col < threshold`.
-    pub nulls_pass: bool,
-}
-
-/// A typed threshold value for pre-materialization filtering.
-pub enum PreFilterValue {
-    /// Raw bytes for Text/Bytes columns — converted to a term ordinal per-segment.
-    Bytes(Vec<u8>),
-    /// 64-bit signed integer.
-    I64(i64),
-    /// 64-bit float.
-    F64(f64),
-    /// 64-bit unsigned integer.
-    U64(u64),
-}
-
-impl PreFilterValue {
-    fn as_bytes(&self) -> Option<&[u8]> {
-        match self {
-            Self::Bytes(b) => Some(b),
-            _ => None,
-        }
-    }
-
-    fn as_i64(&self) -> Option<i64> {
-        match self {
-            Self::I64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    fn as_f64(&self) -> Option<f64> {
-        match self {
-            Self::F64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    fn as_u64(&self) -> Option<u64> {
-        match self {
-            Self::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
+    /// The validated DataFusion physical expression.
+    pub expr: Arc<dyn PhysicalExpr>,
+    /// The indices of the fast fields this expression requires.
+    pub required_columns: Vec<usize>,
 }
 
 impl PreFilter {
-    /// Apply the filter to an Arrow array, returning a boolean mask.
-    ///
-    /// This method does *not* filter the array in-place. Instead, it returns a
-    /// `BooleanArray` mask where `true` indicates values that satisfy the filter
-    /// and `false` indicates values that should be pruned.
+    /// Evaluate the pre-filter against a batch of memoized fast-field columns.
+    /// Returns a boolean mask of rows that pass the filter.
     pub fn apply_arrow(
         &self,
         ffhelper: &FFHelper,
         segment_ord: SegmentOrdinal,
-        array: &ArrayRef,
+        memoized_columns: &[Option<ArrayRef>],
+        schema: &SchemaRef,
+        num_rows: usize,
     ) -> Result<BooleanArray, String> {
-        let col = ffhelper.column(segment_ord, self.ff_index);
-        match col {
-            FFType::Text(col) => self.apply_arrow_ordinals(col, array),
-            FFType::Bytes(col) => self.apply_arrow_ordinals(col, array),
-            FFType::I64(_) => {
-                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
-                    v.as_i64().map(|v| ScalarValue::Int64(Some(v)))
-                })
-                .ok_or("Failed to map lower bound for I64")?;
-                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
-                    v.as_i64().map(|v| ScalarValue::Int64(Some(v)))
-                })
-                .ok_or("Failed to map upper bound for I64")?;
-                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
-            }
-            FFType::F64(_) => {
-                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
-                    v.as_f64().map(|v| ScalarValue::Float64(Some(v)))
-                })
-                .ok_or("Failed to map lower bound for F64")?;
-                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
-                    v.as_f64().map(|v| ScalarValue::Float64(Some(v)))
-                })
-                .ok_or("Failed to map upper bound for F64")?;
-                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
-            }
-            FFType::U64(_) => {
-                let lower = map_bound(&self.lower, |v: &PreFilterValue| {
-                    v.as_u64().map(|v| ScalarValue::UInt64(Some(v)))
-                })
-                .ok_or("Failed to map lower bound for U64")?;
-                let upper = map_bound(&self.upper, |v: &PreFilterValue| {
-                    v.as_u64().map(|v| ScalarValue::UInt64(Some(v)))
-                })
-                .ok_or("Failed to map upper bound for U64")?;
-                apply_arrow_bounds(array, lower, upper, self.nulls_pass)
-            }
-            // TODO: Support Bool and Date column types here as well.
-            _ => Ok(BooleanArray::from(vec![true; array.len()])),
+        // 1. Rewrite the expression for the current segment.
+        // String literal comparisons are rewritten to ordinal comparisons.
+        let rewritten_string_expr = self
+            .expr
+            .clone()
+            .transform(|node| {
+                if let Some(binary) = node.as_any().downcast_ref::<BinaryExpr>() {
+                    if let Some(rewritten) =
+                        try_rewrite_binary(binary, ffhelper, segment_ord, schema)
+                    {
+                        return Ok(Transformed::yes(rewritten));
+                    }
+                }
+                Ok(Transformed::no(node))
+            })
+            .data()
+            .map_err(|e| format!("Failed to rewrite string expr: {}", e))?;
+
+        let rewritten_expr = rewritten_string_expr
+            .transform(|node| {
+                if let Some(col) = node.as_any().downcast_ref::<Column>() {
+                    if let Ok(orig_idx) = schema.index_of(col.name()) {
+                        if let Some(new_idx) = self
+                            .required_columns
+                            .iter()
+                            .position(|&idx| idx == orig_idx)
+                        {
+                            let new_col = Column::new(col.name(), new_idx);
+                            return Ok(
+                                Transformed::yes(Arc::new(new_col) as Arc<dyn PhysicalExpr>),
+                            );
+                        }
+                    }
+                }
+                Ok(Transformed::no(node))
+            })
+            .data()
+            .map_err(|e| format!("Failed to update col indices: {}", e))?;
+
+        // 2. Build a RecordBatch from memoized_columns.
+        // We only include the columns that were actually required and fetched.
+        let mut fields = Vec::with_capacity(self.required_columns.len());
+        let mut arrays = Vec::with_capacity(self.required_columns.len());
+        for &ff_index in &self.required_columns {
+            let col_name = schema.field(ff_index).name().clone();
+            let array = memoized_columns[ff_index]
+                .as_ref()
+                .ok_or_else(|| format!("Column {} not fetched", ff_index))?
+                .clone();
+
+            // Note: The schema of the array might differ from the global schema
+            // (e.g. UInt64 ordinals instead of Utf8). DataFusion `Column` exprs just extract by name/index,
+            // so we must build the batch schema to match the *actual* array types we pass in.
+            fields.push(Field::new(col_name, array.data_type().clone(), true));
+            arrays.push(array);
         }
-    }
 
-    fn apply_arrow_ordinals(
-        &self,
-        col: &BytesColumn,
-        array: &ArrayRef,
-    ) -> Result<BooleanArray, String> {
-        let lower = map_bound(&self.lower, PreFilterValue::as_bytes)
-            .ok_or("Failed to map lower bound for Bytes")?;
-        let upper = map_bound(&self.upper, PreFilterValue::as_bytes)
-            .ok_or("Failed to map upper bound for Bytes")?;
+        let batch_schema = Arc::new(Schema::new(fields));
+        let options = datafusion::arrow::record_batch::RecordBatchOptions::new()
+            .with_row_count(Some(num_rows));
+        let batch = RecordBatch::try_new_with_options(batch_schema, arrays, &options)
+            .map_err(|e| format!("Failed to build RecordBatch: {}", e))?;
 
-        let (lo_ord, hi_ord) = col
-            .dictionary()
-            .term_bounds_to_ord(lower, upper)
-            .map_err(|e| format!("Failed to lookup term bounds: {e}"))?;
+        // 3. Evaluate the rewritten expression natively via DataFusion.
+        let columnar_value = rewritten_expr
+            .evaluate(&batch)
+            .map_err(|e| format!("Failed to evaluate expr: {}", e))?;
 
-        let lo_scalar = match lo_ord {
-            Bound::Included(v) => Bound::Included(ScalarValue::UInt64(Some(v))),
-            Bound::Excluded(v) => Bound::Excluded(ScalarValue::UInt64(Some(v))),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-        let hi_scalar = match hi_ord {
-            Bound::Included(v) => Bound::Included(ScalarValue::UInt64(Some(v))),
-            Bound::Excluded(v) => Bound::Excluded(ScalarValue::UInt64(Some(v))),
-            Bound::Unbounded => Bound::Unbounded,
-        };
+        let array = columnar_value
+            .into_array(num_rows)
+            .map_err(|e| format!("Failed to convert into array: {}", e))?;
 
-        apply_arrow_bounds(array, lo_scalar, hi_scalar, self.nulls_pass)
+        let bool_array = array
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .ok_or_else(|| "Result is not a BooleanArray".to_string())?
+            .clone();
+
+        Ok(bool_array)
     }
 }
 
-/// Apply bounds to an Arrow array using compute kernels.
-fn apply_arrow_bounds(
-    array: &ArrayRef,
-    lower: Bound<ScalarValue>,
-    upper: Bound<ScalarValue>,
-    nulls_pass: bool,
-) -> Result<BooleanArray, String> {
-    let lower_mask = match lower {
-        Bound::Included(val) => cmp::gt_eq(array, &val.to_scalar().map_err(|e| e.to_string())?),
-        Bound::Excluded(val) => cmp::gt(array, &val.to_scalar().map_err(|e| e.to_string())?),
-        Bound::Unbounded => Ok(BooleanArray::from(vec![true; array.len()])),
-    }
-    .map_err(|e| format!("Failed to apply lower bound: {e}"))?;
-
-    let upper_mask = match upper {
-        Bound::Included(val) => cmp::lt_eq(array, &val.to_scalar().map_err(|e| e.to_string())?),
-        Bound::Excluded(val) => cmp::lt(array, &val.to_scalar().map_err(|e| e.to_string())?),
-        Bound::Unbounded => Ok(BooleanArray::from(vec![true; array.len()])),
-    }
-    .map_err(|e| format!("Failed to apply upper bound: {e}"))?;
-
-    let mask = boolean::and(&lower_mask, &upper_mask)
-        .map_err(|e| format!("Failed to combine bounds: {e}"))?;
-    if mask.null_count() == 0 {
-        return Ok(mask);
-    }
-
-    // Handle NULLs: replace them with `nulls_pass` (true or false) so the result is fully valid.
-    let null_mask = is_null(array).map_err(|e| format!("Failed to check nulls: {e}"))?;
-    let replacement = ScalarValue::Boolean(Some(nulls_pass))
-        .to_array_of_size(array.len())
-        .map_err(|e| format!("Failed to create replacement array: {e}"))?;
-
-    // If input is NULL (null_mask is true), use replacement (nulls_pass).
-    // Otherwise use the comparison result.
-    let result = zip::zip(&null_mask, &replacement, &mask)
-        .map_err(|e| format!("Failed to zip nulls: {e}"))?;
-
-    let result_bool = result
-        .as_any()
-        .downcast_ref::<BooleanArray>()
-        .ok_or_else(|| "Failed to downcast zip result to BooleanArray".to_string())?
-        .clone();
-
-    Ok(result_bool)
-}
-
-/// Map the inner value of a `Bound`.
-fn map_bound<'a, T, U>(
-    bound: &'a Bound<T>,
-    f: impl FnOnce(&'a T) -> Option<U>,
-) -> Option<Bound<U>> {
-    match bound {
-        Bound::Included(v) => f(v).map(Bound::Included),
-        Bound::Excluded(v) => f(v).map(Bound::Excluded),
-        Bound::Unbounded => Some(Bound::Unbounded),
-    }
-}
-
-// ============================================================================
-// PhysicalExpr → PreFilter decomposition
-// ============================================================================
-
-/// Recursively decompose a `PhysicalExpr` into `PreFilter`s.
+/// Recursively decomposes and validates a `PhysicalExpr` into `PreFilter`s.
 ///
-/// Handles:
-/// - `BinaryExpr(Column, Lt/LtEq/Gt/GtEq, Literal)` and the reversed form
-/// - `BinaryExpr(left, And, right)` — recurses into both children
-/// - `BinaryExpr(IsNull(col), Or, comparison)` — TopK dynamic filter pattern
-/// - Anything else (including `Literal(true)`) is silently skipped.
-///
-/// The `schema` parameter is used for column name resolution. Dynamic filters
-/// from parent operators (e.g. TopK above a SortMergeJoin) reference columns
-/// by the parent's schema indices, which may differ from the scan's schema.
-/// Name-based lookup ensures the correct fast field index is used.
-pub fn collect_filters(expr: &dyn PhysicalExpr, schema: &SchemaRef, out: &mut Vec<PreFilter>) {
+/// Top-level `AND` operations are split into separate `PreFilter`s to allow early
+/// short-circuiting in the scanner. Expressions containing unsupported nodes
+/// (e.g. non-comparison operators, functions) are safely skipped.
+pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &mut Vec<PreFilter>) {
+    // Split top-level ANDs to maximize early pruning
     if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
-        let op = binary.op();
-
-        // Handle AND: recurse into both children.
-        if matches!(op, Operator::And) {
-            collect_filters(binary.left().as_ref(), schema, out);
-            collect_filters(binary.right().as_ref(), schema, out);
+        if matches!(binary.op(), Operator::And) {
+            collect_filters(binary.left(), schema, out);
+            collect_filters(binary.right(), schema, out);
             return;
         }
+    }
 
-        // Handle OR with IS NULL — TopK dynamic filters produce
-        // `col IS NULL OR col < threshold`. Extract the comparison
-        // and set nulls_pass=true so NULLs are not incorrectly pruned.
-        if matches!(op, Operator::Or) {
-            if let Some(pf) = try_or_is_null_pattern(binary, schema) {
-                out.push(pf);
-                return;
-            }
-        }
-
-        // Try Column op Literal
-        if let Some(pf) = try_column_op_literal(binary.left(), op, binary.right(), schema, false) {
-            out.push(pf);
-            return;
-        }
-
-        // Try Literal op Column (reversed)
-        if let Some(reversed_op) = flip_operator(op) {
-            if let Some(pf) =
-                try_column_op_literal(binary.right(), &reversed_op, binary.left(), schema, false)
-            {
-                out.push(pf);
-            }
-        }
+    // Check if the expression is supported for pre-filtering
+    let mut required_columns = Vec::new();
+    if is_supported(expr, schema, &mut required_columns) {
+        required_columns.sort_unstable();
+        required_columns.dedup();
+        out.push(PreFilter {
+            expr: Arc::clone(expr),
+            required_columns,
+        });
     }
 }
 
-/// Try to match the TopK pattern `IsNull(col) OR col op Literal`.
-/// Returns a PreFilter with `nulls_pass=true` if matched.
-fn try_or_is_null_pattern(binary: &BinaryExpr, schema: &SchemaRef) -> Option<PreFilter> {
-    let (is_null_side, comparison_side) = if binary
-        .left()
-        .as_any()
-        .downcast_ref::<IsNullExpr>()
-        .is_some()
-    {
-        (binary.left(), binary.right())
-    } else if binary
-        .right()
-        .as_any()
-        .downcast_ref::<IsNullExpr>()
-        .is_some()
-    {
-        (binary.right(), binary.left())
-    } else {
-        return None;
-    };
+/// Validates that an expression only contains nodes we can evaluate during pre-filtering.
+fn is_supported(
+    expr: &Arc<dyn PhysicalExpr>,
+    schema: &SchemaRef,
+    required_columns: &mut Vec<usize>,
+) -> bool {
+    let mut supported = true;
+    let _ = expr.apply(|node| {
+        let node_any = node.as_any();
 
-    let is_null = is_null_side.as_any().downcast_ref::<IsNullExpr>()?;
-    let is_null_col = is_null.arg().as_any().downcast_ref::<Column>()?;
-
-    // The comparison side must be a simple BinaryExpr(Column op Literal).
-    let cmp = comparison_side.as_any().downcast_ref::<BinaryExpr>()?;
-    let op = cmp.op();
-
-    // Extract the comparison column and verify it matches the IS NULL column.
-    let cmp_col = cmp
-        .left()
-        .as_any()
-        .downcast_ref::<Column>()
-        .or_else(|| cmp.right().as_any().downcast_ref::<Column>())?;
-    if is_null_col.name() != cmp_col.name() {
-        return None;
-    }
-
-    // Try Column op Literal
-    if let Some(pf) = try_column_op_literal(cmp.left(), op, cmp.right(), schema, true) {
-        return Some(pf);
-    }
-
-    // Try Literal op Column (reversed)
-    if let Some(reversed_op) = flip_operator(op) {
-        if let Some(pf) = try_column_op_literal(cmp.right(), &reversed_op, cmp.left(), schema, true)
+        if let Some(col) = node_any.downcast_ref::<Column>() {
+            // Must map to a valid column index
+            if let Ok(idx) = schema.index_of(col.name()) {
+                required_columns.push(idx);
+            } else {
+                supported = false;
+                return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+            }
+        } else if node_any.downcast_ref::<Literal>().is_some() {
+            // Allowed
+        } else if let Some(binary) = node_any.downcast_ref::<BinaryExpr>() {
+            // Only logical and simple comparison operators are allowed
+            match binary.op() {
+                Operator::Eq
+                | Operator::NotEq
+                | Operator::Lt
+                | Operator::LtEq
+                | Operator::Gt
+                | Operator::GtEq
+                | Operator::And
+                | Operator::Or => {}
+                _ => {
+                    supported = false;
+                    return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+                }
+            }
+        } else if node_any.downcast_ref::<IsNullExpr>().is_some()
+            || node_any.downcast_ref::<NotExpr>().is_some()
         {
-            return Some(pf);
+            // Allowed
+        } else {
+            // Any other node type (e.g. CAST, LIKE, UDFs) blocks the expression from pre-filtering
+            supported = false;
+            return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
+        }
+
+        Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+    });
+    supported
+}
+
+/// Attempts to rewrite a binary expression involving a String/Bytes column and a Literal
+/// into an equivalent expression over segment-local ordinals.
+fn try_rewrite_binary(
+    binary: &BinaryExpr,
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
+    schema: &SchemaRef,
+) -> Option<Arc<dyn PhysicalExpr>> {
+    let left_col = binary.left().as_any().downcast_ref::<Column>();
+    let right_lit = binary.right().as_any().downcast_ref::<Literal>();
+
+    if let (Some(col), Some(lit)) = (left_col, right_lit) {
+        return rewrite_col_op_lit(col, binary.op(), lit, ffhelper, segment_ord, schema);
+    }
+
+    let left_lit = binary.left().as_any().downcast_ref::<Literal>();
+    let right_col = binary.right().as_any().downcast_ref::<Column>();
+
+    if let (Some(lit), Some(col)) = (left_lit, right_col) {
+        if let Some(flipped_op) = flip_operator(binary.op()) {
+            return rewrite_col_op_lit(col, &flipped_op, lit, ffhelper, segment_ord, schema);
         }
     }
 
     None
 }
 
-/// Try to build a `PreFilter` from `Column op Literal`.
-///
-/// Uses `schema` for name-based column resolution so that filters from parent
-/// operators (whose column indices differ from the scan's) are correctly mapped.
-fn try_column_op_literal(
-    left: &Arc<dyn PhysicalExpr>,
+/// Rewrites `Column op Literal` to `Column(UInt64) op Literal(UInt64)` if the column is a string type.
+fn rewrite_col_op_lit(
+    col: &Column,
     op: &Operator,
-    right: &Arc<dyn PhysicalExpr>,
+    lit: &Literal,
+    ffhelper: &FFHelper,
+    segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
-    nulls_pass: bool,
-) -> Option<PreFilter> {
-    let col = left.as_any().downcast_ref::<Column>()?;
-    let lit = right.as_any().downcast_ref::<Literal>()?;
-    let value = scalar_to_pre_filter_value(lit.value())?;
+) -> Option<Arc<dyn PhysicalExpr>> {
+    let ff_index = schema.index_of(col.name()).ok()?;
+    let ff_type = ffhelper.column(segment_ord, ff_index);
 
-    // Resolve the column index using the scan's schema by name.
-    // This handles cross-plan filters where the column index in the expression
-    // (from a parent operator's schema) doesn't match the scan's field order.
-    let ff_index = schema.column_with_name(col.name())?.0;
+    let bytes = match lit.value() {
+        ScalarValue::Utf8(Some(s))
+        | ScalarValue::LargeUtf8(Some(s))
+        | ScalarValue::Utf8View(Some(s)) => s.as_bytes(),
+        ScalarValue::Binary(Some(b))
+        | ScalarValue::LargeBinary(Some(b))
+        | ScalarValue::BinaryView(Some(b)) => b.as_slice(),
+        _ => return None, // Not a string/bytes literal. Leave for native DataFusion eval over numerics.
+    };
 
+    let dict = match ff_type {
+        FFType::Text(c) => c.dictionary(),
+        FFType::Bytes(c) => c.dictionary(),
+        _ => return None, // Not a string/bytes column. Leave for native DataFusion eval over numerics.
+    };
+
+    // Convert string bounds to native string bounds.
     let (lower, upper) = match op {
-        Operator::Lt => (Bound::Unbounded, Bound::Excluded(value)),
-        Operator::LtEq => (Bound::Unbounded, Bound::Included(value)),
-        Operator::Gt => (Bound::Excluded(value), Bound::Unbounded),
-        Operator::GtEq => (Bound::Included(value), Bound::Unbounded),
+        Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
+        Operator::LtEq => (Bound::Unbounded, Bound::Included(bytes)),
+        Operator::Gt => (Bound::Excluded(bytes), Bound::Unbounded),
+        Operator::GtEq => (Bound::Included(bytes), Bound::Unbounded),
+        Operator::Eq => (Bound::Included(bytes), Bound::Included(bytes)),
         _ => return None,
     };
 
-    Some(PreFilter {
-        ff_index,
-        lower,
-        upper,
-        nulls_pass,
-    })
+    // Lookup ordinal bounds.
+    let (lo_ord, hi_ord) = dict.term_bounds_to_ord(lower, upper).ok()?;
+
+    // The Column must point to the correct index in our mock RecordBatch
+    let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
+
+    let mut exprs = Vec::new();
+    match lo_ord {
+        Bound::Included(ord) => {
+            let lit_expr =
+                Arc::new(Literal::new(ScalarValue::UInt64(Some(ord)))) as Arc<dyn PhysicalExpr>;
+            exprs.push(
+                Arc::new(BinaryExpr::new(col_expr.clone(), Operator::GtEq, lit_expr))
+                    as Arc<dyn PhysicalExpr>,
+            );
+        }
+        Bound::Excluded(ord) => {
+            let lit_expr =
+                Arc::new(Literal::new(ScalarValue::UInt64(Some(ord)))) as Arc<dyn PhysicalExpr>;
+            exprs.push(
+                Arc::new(BinaryExpr::new(col_expr.clone(), Operator::Gt, lit_expr))
+                    as Arc<dyn PhysicalExpr>,
+            );
+        }
+        Bound::Unbounded => {}
+    }
+
+    match hi_ord {
+        Bound::Included(ord) => {
+            let lit_expr =
+                Arc::new(Literal::new(ScalarValue::UInt64(Some(ord)))) as Arc<dyn PhysicalExpr>;
+            exprs.push(
+                Arc::new(BinaryExpr::new(col_expr.clone(), Operator::LtEq, lit_expr))
+                    as Arc<dyn PhysicalExpr>,
+            );
+        }
+        Bound::Excluded(ord) => {
+            let lit_expr =
+                Arc::new(Literal::new(ScalarValue::UInt64(Some(ord)))) as Arc<dyn PhysicalExpr>;
+            exprs.push(
+                Arc::new(BinaryExpr::new(col_expr.clone(), Operator::Lt, lit_expr))
+                    as Arc<dyn PhysicalExpr>,
+            );
+        }
+        Bound::Unbounded => {}
+    }
+
+    if exprs.is_empty() {
+        // Condition represents the entire dictionary range.
+        Some(Arc::new(Literal::new(ScalarValue::Boolean(Some(true)))))
+    } else if exprs.len() == 1 {
+        Some(exprs.into_iter().next().unwrap())
+    } else {
+        // Map exact bounds (lo_ord AND hi_ord) via AND
+        Some(Arc::new(BinaryExpr::new(
+            exprs[0].clone(),
+            Operator::And,
+            exprs[1].clone(),
+        )))
+    }
 }
 
-/// Flip a comparison operator so that `Literal op Column` becomes `Column flipped_op Literal`.
+/// Flips a comparison operator so that `Literal op Column` becomes `Column flipped_op Literal`.
 fn flip_operator(op: &Operator) -> Option<Operator> {
     match op {
         Operator::Lt => Some(Operator::Gt),
         Operator::LtEq => Some(Operator::GtEq),
         Operator::Gt => Some(Operator::Lt),
         Operator::GtEq => Some(Operator::LtEq),
-        _ => None,
-    }
-}
-
-/// Convert a DataFusion `ScalarValue` to a `PreFilterValue`.
-fn scalar_to_pre_filter_value(scalar: &ScalarValue) -> Option<PreFilterValue> {
-    match scalar {
-        ScalarValue::Utf8(Some(s))
-        | ScalarValue::Utf8View(Some(s))
-        | ScalarValue::LargeUtf8(Some(s)) => Some(PreFilterValue::Bytes(s.as_bytes().to_vec())),
-        ScalarValue::Int64(Some(v)) => Some(PreFilterValue::I64(*v)),
-        ScalarValue::Int32(Some(v)) => Some(PreFilterValue::I64(*v as i64)),
-        ScalarValue::Int16(Some(v)) => Some(PreFilterValue::I64(*v as i64)),
-        ScalarValue::Float64(Some(v)) => Some(PreFilterValue::F64(*v)),
-        ScalarValue::Float32(Some(v)) => Some(PreFilterValue::F64(*v as f64)),
-        ScalarValue::UInt64(Some(v)) => Some(PreFilterValue::U64(*v)),
-        ScalarValue::UInt32(Some(v)) => Some(PreFilterValue::U64(*v as u64)),
         _ => None,
     }
 }

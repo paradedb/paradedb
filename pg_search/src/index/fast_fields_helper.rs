@@ -299,7 +299,9 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _, _) => DataType::UInt64,
+            WhichFastField::Deferred(_, _, is_bytes) => {
+                crate::scan::deferred_encode::deferred_union_data_type(*is_bytes)
+            }
         }
     }
 }

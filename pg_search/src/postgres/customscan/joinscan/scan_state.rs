@@ -338,12 +338,14 @@ fn build_clause_df<'a>(
                 // Step 2: Join B. No keys A=B? Cross join?
                 // Or we rely on the planner having ordered them such that there is connectivity.
                 // If not connected, it's a cross join.
+
+                // TODO: review this
                 if join_clause.join_type == JoinScanJoinType::Semi {
                     return Err(DataFusionError::Internal(
                         "JoinScan runtime: SEMI JOIN requires equi-join keys".into(),
                     ));
                 }
-                df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
+                df = df.join(right_df, df_join_type, &[], &[], None)?;
             } else {
                 df = df.join_on(right_df, df_join_type, on)?;
             }

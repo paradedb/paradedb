@@ -370,11 +370,14 @@ impl CustomScan for JoinScan {
 
             let mut sources = Vec::with_capacity(source_candidates.len());
             for candidate in source_candidates {
-                let source: Option<build::JoinSource> = candidate.into();
-                if let Some(source) = source {
-                    sources.push(source);
-                } else {
-                    return Vec::new();
+                match build::JoinSource::try_from(candidate) {
+                    Ok(source) => sources.push(source),
+                    Err(e) => {
+                        if is_interesting {
+                            Self::add_planner_warning(format!("JoinScan not used: {e}"), &aliases);
+                        }
+                        return Vec::new();
+                    }
                 }
             }
 
@@ -545,10 +548,7 @@ impl CustomScan for JoinScan {
             // Check if this is a valid join for JoinScan
             // We need at least one side with a BM25 index AND a search predicate,
             // OR successfully extracted join-level predicates.
-            let has_side_predicate = join_clause
-                .sources
-                .iter()
-                .any(|s| s.has_bm25_index() && s.has_search_predicate());
+            let has_side_predicate = join_clause.sources.iter().any(|s| s.has_search_predicate());
             let has_join_level_predicates = !join_clause.join_level_predicates.is_empty();
 
             if !has_side_predicate && !has_join_level_predicates {

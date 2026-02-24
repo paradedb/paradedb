@@ -27,6 +27,7 @@ use crate::api::OrderByInfo;
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 pub use crate::scan::ScanInfo;
+use anyhow::anyhow;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -328,11 +329,6 @@ impl JoinSource {
         self.has_search_predicate
     }
 
-    /// Check if this source has a BM25 index.
-    pub fn has_bm25_index(&self) -> bool {
-        true
-    }
-
     /// Map a base relation variable to its position in this source's output.
     /// Since we flattened the join, this is just identity if RTI matches.
     pub fn map_var(
@@ -398,12 +394,24 @@ impl From<JoinSource> for JoinSourceCandidate {
     }
 }
 
-impl From<JoinSourceCandidate> for Option<JoinSource> {
-    fn from(candidate: JoinSourceCandidate) -> Self {
-        Some(JoinSource {
+impl TryFrom<JoinSourceCandidate> for JoinSource {
+    type Error = anyhow::Error;
+
+    fn try_from(candidate: JoinSourceCandidate) -> Result<Self, Self::Error> {
+        Ok(JoinSource {
             heap_rti: candidate.heap_rti,
-            heaprelid: candidate.heaprelid?,
-            indexrelid: candidate.indexrelid?,
+            heaprelid: candidate.heaprelid.ok_or_else(|| {
+                anyhow!(
+                    "cannot build JoinSource for RTI {}: heaprelid is missing",
+                    candidate.heap_rti
+                )
+            })?,
+            indexrelid: candidate.indexrelid.ok_or_else(|| {
+                anyhow!(
+                    "cannot build JoinSource for RTI {}: indexrelid is missing",
+                    candidate.heap_rti
+                )
+            })?,
             query: candidate
                 .query
                 .unwrap_or(crate::query::SearchQueryInput::All),
@@ -412,8 +420,18 @@ impl From<JoinSourceCandidate> for Option<JoinSource> {
             score_needed: candidate.score_needed,
             fields: candidate.fields,
             sort_order: candidate.sort_order,
-            estimate: candidate.estimate?,
-            segment_count: candidate.segment_count?,
+            estimate: candidate.estimate.ok_or_else(|| {
+                anyhow!(
+                    "cannot build JoinSource for RTI {}: estimate is missing",
+                    candidate.heap_rti
+                )
+            })?,
+            segment_count: candidate.segment_count.ok_or_else(|| {
+                anyhow!(
+                    "cannot build JoinSource for RTI {}: segment_count is missing",
+                    candidate.heap_rti
+                )
+            })?,
         })
     }
 }

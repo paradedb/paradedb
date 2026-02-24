@@ -489,14 +489,8 @@ fn build_clause_df<'a>(
                 final_cols.push(expr.alias(col_alias));
             }
 
-            // For SEMI JOIN, DataFusion output is left-only by definition.
-            // Keep only left-side CTID columns for heap materialization.
             let mut base_relations = Vec::new();
-            if join_clause.join_type == JoinScanJoinType::Semi {
-                join_clause.sources[0].collect_base_relations(&mut base_relations);
-            } else {
-                join_clause.collect_base_relations(&mut base_relations);
-            }
+            join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
                 let rti = base.heap_rti;
                 let ctid_name = format!("ctid_{}", rti);

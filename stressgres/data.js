@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771971113629,
+  "lastUpdate": 1771971118749,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8012,6 +8012,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.07381562543289, max segment_count: 128.0, count: 57752"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6cc572cc3f0652124c683623984819ec67bbdc59",
+          "message": "feat: Add SortKeyComputer and Comparator implementations for 5-element tuples (#4228)\n\nCloses #3148\n\n## Why\n\nQueries with `ORDER BY` on more than 3 columns combined with `LIMIT`\nwould fall back to\nNormalScan + external sort instead of using the optimized parallel TopN\ncustom scan. This\nwas because `MAX_TOPN_FEATURES` was limited to 3 and the\n`top_in_segments` match block\nonly handled up to 2 erased features.\n\nUsers with multi-column tiebreaker sorts (common in pagination) were\nhitting this limit\nand seeing degraded performance — the index had to scan all matching\nrows instead of\nefficiently returning only the top N.\n\n## How\n\n- Bumped `MAX_TOPN_FEATURES` from `3` to `5` in\n`pg_search/src/index/reader/index.rs`\n- Added match arms for `3` and `4` erased features in\n`SearchIndexReader::top_in_segments`, following the existing pattern of\npopping features, passing tuples to `order_by()`, and unpacking in the\niterator map\n- Depends on https://github.com/paradedb/tantivy/pull/108 for 5-element\ntuple `SortKeyComputer` and `Comparator` implementations\n\n## Tests\n\n- Added regression tests for 4-column, 5-column, and 6-column (exceeds\nlimit) `ORDER BY` in `top_n_scan.sql`\n- 4 and 5 columns: verified `TopNScanExecState` is selected\n- 6 columns: verified fallback to `NormalScanExecState` with appropriate\nwarning\n- Updated expected outputs for `topn_scores`, `topn_validation`, and \n  `mixedff_advanced_06_score_function` where TopN now correctly kicks in\n- All `cargo pgrx regress` tests pass",
+          "timestamp": "2026-02-24T13:33:45-08:00",
+          "tree_id": "6934e0a0eb026304429e57c9959a3ef4b2e3ae46",
+          "url": "https://github.com/paradedb/paradedb/commit/6cc572cc3f0652124c683623984819ec67bbdc59"
+        },
+        "date": 1771971114714,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.972564197092602, max cpu: 42.942345, count: 57857"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 236.20468096449002, max mem: 237.80078125, count: 57857"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.502283701642323, max cpu: 33.267326, count: 57857"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.29046601426793, max mem: 175.75, count: 57857"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34034,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33517.31863041637, max block_count: 36109.0, count: 57857"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.07948908515823, max segment_count: 132.0, count: 57857"
           }
         ]
       }

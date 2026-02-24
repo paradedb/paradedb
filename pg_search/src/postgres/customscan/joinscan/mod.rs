@@ -393,14 +393,17 @@ impl CustomScan for JoinScan {
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
             if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
-                if is_interesting {
+                let is_user_visible_jointype =
+                    (jointype as u32) <= (pg_sys::JoinType::JOIN_ANTI as u32);
+
+                if is_interesting && is_user_visible_jointype {
                     Self::add_planner_warning(
-                        format!(
-                            "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
-                            jointype
-                        ),
-                        (),
-                    );
+                            format!(
+                                "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
+                                jointype
+                            ),
+                            &aliases,
+                        );
                 }
                 return Vec::new();
             }
@@ -921,10 +924,11 @@ impl CustomScan for JoinScan {
                 &PgSearchExtensionCodec::default(),
             )
             .expect("Failed to deserialize logical plan");
-            let physical_plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
-                Ok(plan) => plan,
-                Err(e) => panic!("Failed to create execution plan: {e}"),
-            };
+            let physical_plan =
+                match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
+                    Ok(plan) => plan,
+                    Err(e) => panic!("Failed to create execution plan: {e}"),
+                };
             let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
             for line in displayable.indent(false).to_string().lines() {
@@ -1000,7 +1004,8 @@ impl CustomScan for JoinScan {
                 .expect("Failed to deserialize logical plan");
 
                 // Convert logical plan to physical plan
-                let plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan)) {
+                let plan = match runtime.block_on(build_joinscan_physical_plan(&ctx, logical_plan))
+                {
                     Ok(plan) => plan,
                     Err(e) => panic!("Failed to create execution plan: {e}"),
                 };

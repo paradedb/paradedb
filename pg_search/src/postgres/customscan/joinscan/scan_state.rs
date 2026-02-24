@@ -443,7 +443,9 @@ fn build_clause_df<'a>(
             let mut left_exprs = Vec::new();
             for f in &left_source.scan_info.fields {
                 match &f.field {
-                    WhichFastField::Ctid => left_exprs.push(col(&left_ctid).alias(left_ctid.clone())),
+                    WhichFastField::Ctid => {
+                        left_exprs.push(col(&left_ctid).alias(left_ctid.clone()))
+                    }
                     WhichFastField::Score => left_exprs.push(
                         make_col(&left_alias, SCORE_COL_NAME).alias(SCORE_COL_NAME.to_string()),
                     ),

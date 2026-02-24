@@ -222,12 +222,10 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
  fi
 
 # In order for a user to manually install third party Postgres extensions (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not
-# ship with by default, it is necessary to fetch the PostgreSQL APT repository key and add the repository to the list of sources.
-# To minimize the burden on the user, we pre-fetch the key and the repository, but do not run `apt-get update` to avoid unnecessarily
-# downloading the packages. The user can run `apt-get update` themselves to fetch the package lists and install the desired third party
-# extension(s) if/when the time comes. This keeps the image as small as possible for each user's specific use case.
+# ship with by default, we ensure the PostgreSQL APT repository is present in the image. The upstream `postgres` image already
+# includes the PGDG signing key, so we only need to add the repository entry. We do not run `apt-get update` here to avoid
+# unnecessarily downloading package indexes. The user can run `apt-get update` themselves before installing extensions.
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ trixie-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list && \
-    wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - && \
     apt-get purge -y wget && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

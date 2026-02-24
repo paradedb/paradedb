@@ -301,6 +301,7 @@ mod tests {
                 heap_rti: 1,
                 heaprelid: heap_oid,
                 indexrelid: index_oid,
+                query: crate::query::SearchQueryInput::All,
                 ..Default::default()
             };
 

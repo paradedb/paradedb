@@ -63,7 +63,7 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) => {
+                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _, _) => {
                             lookup.push((name.to_string(), OnceLock::default()))
                         }
                         WhichFastField::Ctid
@@ -246,6 +246,7 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
+    Deferred(String, SearchFieldType, bool),
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -276,6 +277,7 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
+            WhichFastField::Deferred(s, _, _) => s.clone(),
         }
     }
 
@@ -283,6 +285,7 @@ impl WhichFastField {
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
+            WhichFastField::Deferred(_, field_type, _) => Some(field_type),
             _ => None,
         }
     }
@@ -296,6 +299,7 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
+            WhichFastField::Deferred(_, _, _) => DataType::UInt64,
         }
     }
 }

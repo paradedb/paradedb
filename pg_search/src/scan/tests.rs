@@ -92,13 +92,7 @@ mod tests {
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 
-        let scanner = Scanner::new(
-            search_results,
-            None,
-            fields.clone(),
-            heap_oid.into(),
-            Default::default(),
-        );
+        let scanner = Scanner::new(search_results, None, fields.clone(), heap_oid.into());
 
         let plan = PgSearchScanPlan::new(
             vec![(scanner, ffhelper.into(), Box::new(visibility))],

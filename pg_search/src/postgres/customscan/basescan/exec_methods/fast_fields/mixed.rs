@@ -422,7 +422,6 @@ impl MixedFastFieldExecState {
             self.batch_size_hint,
             self.scanner_fast_fields.clone(),
             heaprel.oid().into(),
-            Default::default(),
         );
 
         // Clone visibility checker for the plan
@@ -520,7 +519,6 @@ impl MixedFastFieldExecState {
                     self.batch_size_hint,
                     self.scanner_fast_fields.clone(),
                     heaprel.oid().into(),
-                    Default::default(),
                 );
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
@@ -558,7 +556,6 @@ impl MixedFastFieldExecState {
                         self.batch_size_hint,
                         self.scanner_fast_fields.clone(),
                         heaprel.oid().into(),
-                        Default::default(),
                     );
                     let visibility = visibility_checker.clone();
                     (

@@ -400,27 +400,24 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY has 5 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: score_test)
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: title, author, rating, views, (pdb.score(id)) DESC
-         ->  Custom Scan (ParadeDB Scan) on score_test
-               Table: score_test
-               Index: score_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: author, id, rating, title, views
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+   ->  Custom Scan (ParadeDB Scan) on score_test
+         Table: score_test
+         Index: score_test_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            TopN Order By: title asc, author asc, rating asc, views asc, pdb.score() desc
+            TopN Limit: 5
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
 
 SELECT title, author, rating, views, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, pdb.score(id) DESC
 LIMIT 5;
-WARNING:  Query has LIMIT 5 but is not using TopN scan (using FastFieldMixed instead). Reason: ORDER BY has 5 columns but TopN supports maximum 3. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 3 or fewer. To disable this warning: SET paradedb.check_topn_scan = false (table: score_test)
            title           |    author     | rating | views |    score    
 ---------------------------+---------------+--------+-------+-------------
  Advanced Science Research | Author Expert |      5 |  8888 | 0.022842946

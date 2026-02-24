@@ -55,7 +55,7 @@ use tantivy::{
 
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_n_in_segments`.
-pub const MAX_TOPN_FEATURES: usize = 3;
+pub const MAX_TOPN_FEATURES: usize = 5;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -866,6 +866,60 @@ impl SearchIndexReader {
                         .into_iter()
                         .map(|((f, erased1, erased2), doc)| {
                             let maybe_score = erased_features.try_get_score(&[erased1, erased2]);
+                            ((f, maybe_score), doc)
+                        })
+                        .collect(),
+                    aggregation_results,
+                )
+            }
+            3 => {
+                let erased_feature3 = erased_features.pop().unwrap();
+                let erased_feature2 = erased_features.pop().unwrap();
+                let erased_feature1 = erased_features.pop().unwrap();
+                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by((
+                    first_feature,
+                    erased_feature1,
+                    erased_feature2,
+                    erased_feature3,
+                ));
+
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
+
+                (
+                    top_docs
+                        .into_iter()
+                        .map(|((f, erased1, erased2, erased3), doc)| {
+                            let maybe_score =
+                                erased_features.try_get_score(&[erased1, erased2, erased3]);
+                            ((f, maybe_score), doc)
+                        })
+                        .collect(),
+                    aggregation_results,
+                )
+            }
+            4 => {
+                let erased_feature4 = erased_features.pop().unwrap();
+                let erased_feature3 = erased_features.pop().unwrap();
+                let erased_feature2 = erased_features.pop().unwrap();
+                let erased_feature1 = erased_features.pop().unwrap();
+                let top_docs_collector = TopDocs::with_limit(n).and_offset(offset).order_by((
+                    first_feature,
+                    erased_feature1,
+                    erased_feature2,
+                    erased_feature3,
+                    erased_feature4,
+                ));
+
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
+
+                (
+                    top_docs
+                        .into_iter()
+                        .map(|((f, erased1, erased2, erased3, erased4), doc)| {
+                            let maybe_score = erased_features
+                                .try_get_score(&[erased1, erased2, erased3, erased4]);
                             ((f, maybe_score), doc)
                         })
                         .collect(),

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771968155087,
+  "lastUpdate": 1771969095050,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13016,6 +13016,60 @@ window.BENCHMARK_DATA = {
             "value": 15.153111061100626,
             "unit": "median tps",
             "extra": "avg tps: 14.978329582211488, max tps: 18.450638959465145, count: 55509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6",
+          "message": "refactor: Split up `JoinSource` into `JoinSourceCandidate` (#4214)\n\n# Ticket(s) Closed\n\n- Closes #4153 \n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-02-24T12:30:34-08:00",
+          "tree_id": "7da091c988f50b5ff88711269df44f457f87f592",
+          "url": "https://github.com/paradedb/paradedb/commit/4c6e6a4c2b7d80bfe6b0f865ce193adea54954b6"
+        },
+        "date": 1771969090936,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.99814356688157,
+            "unit": "median tps",
+            "extra": "avg tps: 31.623477727297985, max tps: 34.437812299403326, count: 55441"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.2603628828155,
+            "unit": "median tps",
+            "extra": "avg tps: 265.4602124449605, max tps: 2610.901256083093, count: 55441"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1877.7801113038493,
+            "unit": "median tps",
+            "extra": "avg tps: 1874.2147938768512, max tps: 2211.536707194439, count: 55441"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 169.11335115093118,
+            "unit": "median tps",
+            "extra": "avg tps: 203.0709722617073, max tps: 1646.634942509539, count: 110882"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.23521465076744,
+            "unit": "median tps",
+            "extra": "avg tps: 15.26463828521074, max tps: 22.991617675792426, count: 55441"
           }
         ]
       }

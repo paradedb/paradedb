@@ -232,8 +232,7 @@ fn build_clause_df<'a>(
         let partitioning_idx = join_clause.partitioning_source_index();
         let df_join_type = match join_clause.join_type {
             JoinScanJoinType::Inner => JoinType::Inner,
-            // Emulate semi semantics via Inner + left-side dedup.
-            JoinScanJoinType::Semi => JoinType::Inner,
+            JoinScanJoinType::Semi => JoinType::LeftSemi,
             other => {
                 return Err(DataFusionError::Internal(format!(
                     "JoinScan runtime: unsupported join type {:?}",
@@ -269,15 +268,7 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let mut effective_right_source = right_source.clone();
-            if join_clause.join_type == JoinScanJoinType::Semi {
-                effective_right_source
-                    .scan_info
-                    .fields
-                    .retain(|f| f.field.name() != "ctid");
-            }
-            let mut right_df =
-                build_source_df(ctx, &effective_right_source, partitioning_idx == i).await?;
+            let mut right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -432,33 +423,6 @@ fn build_clause_df<'a>(
             df = df.filter(filter_expr)?;
         }
 
-        // Emulate SEMI semantics: keep only left-side rows and collapse duplicates
-        // before ORDER BY/LIMIT so one left row is emitted even with many right matches.
-        if join_clause.join_type == JoinScanJoinType::Semi {
-            let left_source = &join_clause.sources[0];
-            let left_alias = left_source.execution_alias(0);
-            let left_rti = left_source.scan_info.heap_rti.unwrap_or(0);
-            let left_ctid = format!("ctid_{}", left_rti);
-
-            let mut left_exprs = Vec::new();
-            for f in &left_source.scan_info.fields {
-                match &f.field {
-                    WhichFastField::Ctid => {
-                        left_exprs.push(col(&left_ctid).alias(left_ctid.clone()))
-                    }
-                    WhichFastField::Score => left_exprs.push(
-                        make_col(&left_alias, SCORE_COL_NAME).alias(SCORE_COL_NAME.to_string()),
-                    ),
-                    _ => {
-                        let n = f.field.name();
-                        left_exprs.push(make_col(&left_alias, &n).alias(n));
-                    }
-                }
-            }
-            df = df.select(left_exprs)?;
-            df = df.distinct()?;
-        }
-
         // 4. Apply Sort
         if !join_clause.order_by.is_empty() {
             let mut sort_exprs = Vec::new();
@@ -492,12 +456,8 @@ fn build_clause_df<'a>(
                         for (i, source) in join_clause.sources.iter().enumerate() {
                             if let Some(mapped_attno) = source.map_var(*rti, *attno) {
                                 if let Some(field_name) = source.column_name(mapped_attno) {
-                                    if join_clause.join_type == JoinScanJoinType::Semi && i == 0 {
-                                        resolved_expr = Some(col(&field_name));
-                                    } else {
-                                        let alias = source.execution_alias(i);
-                                        resolved_expr = Some(make_col(&alias, &field_name));
-                                    }
+                                    let alias = source.execution_alias(i);
+                                    resolved_expr = Some(make_col(&alias, &field_name));
                                     break;
                                 }
                             }
@@ -572,34 +532,21 @@ fn build_projection_expr(
     proj: &crate::postgres::customscan::joinscan::build::ChildProjection,
     join_clause: &JoinCSClause,
 ) -> Expr {
-    let is_semi = join_clause.join_type == JoinScanJoinType::Semi;
     for (i, source) in join_clause.sources.iter().enumerate() {
         let alias = source.execution_alias(i);
 
         if proj.is_score {
             if let Some(attno) = source.map_var(proj.rti, 0) {
                 if let Some(name) = source.column_name(attno) {
-                    if is_semi && i == 0 {
-                        return col(&name);
-                    }
                     return make_col(&alias, &name);
                 } else {
-                    if is_semi && i == 0 {
-                        return col(SCORE_COL_NAME);
-                    }
                     return make_col(&alias, SCORE_COL_NAME);
                 }
             } else if source.contains_rti(proj.rti) {
-                if is_semi && i == 0 {
-                    return col(SCORE_COL_NAME);
-                }
                 return make_col(&alias, SCORE_COL_NAME);
             }
         } else if let Some(attno) = source.map_var(proj.rti, proj.attno) {
             if let Some(field_name) = source.column_name(attno) {
-                if is_semi && i == 0 {
-                    return col(&field_name);
-                }
                 return make_col(&alias, &field_name);
             }
         }

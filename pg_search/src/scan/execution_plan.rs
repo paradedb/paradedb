@@ -228,9 +228,9 @@ impl ExecutionPlan for PgSearchScanPlan {
         &self.properties
     }
 
-    fn statistics(&self) -> Result<Statistics> {
-        self.partition_statistics(None)
-    }
+    // fn statistics(&self) -> Result<Statistics> {
+    //     self.partition_statistics(None)
+    // }
 
     fn partition_statistics(&self, partition: Option<usize>) -> Result<Statistics> {
         let num_rows = match partition {

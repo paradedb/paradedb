@@ -82,6 +82,14 @@ impl TantivyLookupExec {
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
+
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    pub fn ffhelper(&self) -> &Arc<FFHelper> {
+        &self.ffhelper
+    }
 }
 
 #[derive(Clone, Debug)]

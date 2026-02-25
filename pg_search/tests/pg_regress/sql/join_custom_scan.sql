@@ -2215,7 +2215,7 @@ SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
-ORDER BY t1.val DESC NULLS FIRST
+ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -2223,14 +2223,14 @@ SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
-ORDER BY t1.val DESC NULLS FIRST
+ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
 SELECT t1.id, t1.val
 FROM null_val_t1 t1
 JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
-ORDER BY t1.val DESC NULLS FIRST
+ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
 
 -- =============================================================================

@@ -53,3 +53,16 @@ WHERE
 ORDER BY
     f.title ASC                       -- Single Feature Sort (Local Fast Field)
 LIMIT 25;
+
+-- Lower bound: uses denormalized matview
+SELECT
+    fid.file_id AS id,
+    fid.file_title AS title,
+    fid.file_created_at AS "createdAt"
+FROM files_inner_join_documents fid
+WHERE
+    fid.doc_parents @@@ 'PROJECT_ALPHA'
+    AND fid.doc_title @@@ 'Document Title 1'
+ORDER BY
+    fid.file_title ASC
+LIMIT 25;

@@ -210,6 +210,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
+            print_query_explain(&args.url, &query);
             let (runtimes_ms, num_results) =
                 execute_query_multiple_times(&args.url, &query, args.runs);
             println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
@@ -658,13 +659,54 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
         if i == 0 {
             num_results = output_str
                 .lines()
-                .filter(|line| !line.contains("Time") && !line.trim().is_empty())
-                .count()
-                - 1;
+                .filter(|line| {
+                    let trimmed = line.trim();
+                    !trimmed.is_empty()
+                        && !trimmed.contains("Time")
+                        && !trimmed.starts_with("SET")
+                        && !trimmed.starts_with("RESET")
+                })
+                .count();
         }
     }
 
     (results, num_results)
+}
+
+fn print_query_explain(url: &str, query: &str) {
+    let statements = query
+        .split(';')
+        .map(str::trim)
+        .filter(|stmt| !stmt.is_empty())
+        .collect::<Vec<_>>();
+
+    if statements.is_empty() {
+        println!("EXPLAIN: skipped (empty query)\n");
+        return;
+    }
+
+    let mut command = base_psql_command(url);
+    for setup_statement in &statements[..statements.len().saturating_sub(1)] {
+        command.arg("-c").arg(setup_statement);
+    }
+
+    let explain_statement = format!(
+        "EXPLAIN (FORMAT TEXT, COSTS true, VERBOSE false) {}",
+        statements[statements.len() - 1]
+    );
+    let output = command
+        .arg("-c")
+        .arg(&explain_statement)
+        .output()
+        .expect("Failed to run EXPLAIN");
+
+    if output.status.success() {
+        let explain_output = String::from_utf8_lossy(&output.stdout);
+        println!("EXPLAIN:\n{}\n", explain_output.trim());
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("EXPLAIN failed:\n{}\n", stderr.trim());
+    }
 }
 
 fn base_psql_command(url: &str) -> Command {

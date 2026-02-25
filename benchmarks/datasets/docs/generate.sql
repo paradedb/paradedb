@@ -357,7 +357,7 @@ INSERT INTO pages (
 SELECT
     uuid_text(s.id) AS "id",
     uuid_text(ceil(random() * :rows / 8.0)::integer) AS "fileId", -- A random file in the range that we know exists.
-    CASE (random() * 10)::INT -- Introduce 'Single Number Reach' in roughly 10% of rows
+    CASE (random() * 25)::INT -- Introduce 'Single Number Reach' in roughly 4% of rows
         WHEN 0 THEN 'Single Number Reach configuration details: ' || md5(random()::text) || E'\nInstructions for setup: ' || md5(random()::text)
         WHEN 1 THEN 'Page Chapter 1: Introduction - ' || md5(random()::text) || E'\nKey Points: ' || md5(random()::text)
         ELSE 'Page Content block Alpha: ' || md5(random()::text) || E'\nPage Content block Beta: ' || md5(random()::text) || E'\nPage Content block Gamma. Ref ID: ' || (random()*100000)::INT
@@ -396,3 +396,92 @@ SELECT
     md5(random()::text) "fill27",
     md5(random()::text) "fill28"
 FROM generate_series(1, :rows) s(id);
+
+-- Materialized views for join patterns used in benchmark queries.
+-- These allow comparing query performance against pre-joined data.
+-- Each view has a synthetic row_id for use as bm25 key_field.
+DROP MATERIALIZED VIEW IF EXISTS files_inner_join_pages CASCADE;
+CREATE MATERIALIZED VIEW files_inner_join_pages AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    p.id AS page_id,
+    p."fileId" AS page_file_id,
+    p.content AS page_content,
+    p.title AS page_title,
+    p.parents AS page_parents,
+    p."sizeInBytes" AS page_size_in_bytes,
+    p."createdAt" AS page_created_at
+FROM files f
+JOIN pages p ON f.id = p."fileId";
+
+DROP MATERIALIZED VIEW IF EXISTS files_left_join_documents CASCADE;
+CREATE MATERIALIZED VIEW files_left_join_documents AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at
+FROM files f
+LEFT JOIN documents d ON f."documentId" = d.id;
+
+DROP MATERIALIZED VIEW IF EXISTS documents_inner_join_files_inner_join_pages CASCADE;
+CREATE MATERIALIZED VIEW documents_inner_join_files_inner_join_pages AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    p.id AS page_id,
+    p."fileId" AS page_file_id,
+    p.content AS page_content,
+    p.title AS page_title,
+    p.parents AS page_parents,
+    p."sizeInBytes" AS page_size_in_bytes,
+    p."createdAt" AS page_created_at
+FROM documents d
+JOIN files f ON d.id = f."documentId"
+JOIN pages p ON f.id = p."fileId";
+
+DROP MATERIALIZED VIEW IF EXISTS files_inner_join_documents CASCADE;
+CREATE MATERIALIZED VIEW files_inner_join_documents AS
+SELECT
+    ROW_NUMBER() OVER () AS row_id,
+    f.id AS file_id,
+    f."documentId" AS file_document_id,
+    f.content AS file_content,
+    f.title AS file_title,
+    f.parents AS file_parents,
+    f."sizeInBytes" AS file_size_in_bytes,
+    f."createdAt" AS file_created_at,
+    d.id AS doc_id,
+    d.parents AS doc_parents,
+    d.content AS doc_content,
+    d.title AS doc_title,
+    d."createdAt" AS doc_created_at
+FROM files f
+JOIN documents d ON f."documentId" = d.id;

@@ -30,24 +30,18 @@
 //! top rows, reducing input to `TantivyLookupExec` from N to at most
 //! `K * num_segments`.
 //!
-//! # Dynamic filter tradeoff
-//!
-//! `SegmentedTopKExec` uses `EmissionType::Final` (collects all input before
-//! emitting), which blocks the `SortExec` → `PgSearchScan` dynamic filter
-//! feedback loop for the sort column. This means the scan reads all rows rather
-//! than pruning progressively. The tradeoff is favorable when dictionary
-//! decoding dominates (many rows, wide strings), but may regress when scan-level
-//! pruning would be aggressive. Use `SET paradedb.enable_segmented_topk = off`
-//! to disable if needed.
+//! The node uses `EmissionType::Incremental` — each input batch is filtered and
+//! emitted immediately using persistent per-segment heaps. This allows the
+//! downstream `SortExec` to start processing early and enables its dynamic
+//! filter feedback loop for progressive scan pruning.
 
 use std::any::Any;
-use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use arrow_array::{BooleanArray, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{Array, BooleanArray, RecordBatch, UInt64Array, UnionArray};
 use arrow_schema::SchemaRef;
 use arrow_select::filter::filter_record_batch;
 use datafusion::common::{DataFusionError, Result};
@@ -63,9 +57,6 @@ use futures::Stream;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
-
-/// segment_ord -> Vec<(batch_idx, row_idx, term_ord)>
-type ExtractedRows = crate::api::HashMap<u32, Vec<(usize, usize, u64)>>;
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
@@ -114,7 +105,7 @@ impl SegmentedTopKExec {
         let properties = PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
-            EmissionType::Final,
+            EmissionType::Incremental,
             Boundedness::Bounded,
         );
         Self {
@@ -196,7 +187,7 @@ impl ExecutionPlan for SegmentedTopKExec {
                 k: self.k,
                 descending: self.descending,
                 schema: self.properties.eq_properties.schema().clone(),
-                state: StreamState::Collecting(Vec::new()),
+                segment_heaps: crate::api::HashMap::default(),
                 rows_input,
                 rows_output,
                 segments_seen,
@@ -210,18 +201,6 @@ impl ExecutionPlan for SegmentedTopKExec {
     }
 }
 
-enum StreamState {
-    /// Collecting input batches.
-    Collecting(Vec<RecordBatch>),
-    /// Emitting filtered batches.
-    Emitting {
-        batches: Vec<RecordBatch>,
-        survivors: crate::api::HashSet<(usize, usize)>,
-        next_batch: usize,
-    },
-    Done,
-}
-
 struct SegmentedTopKStream {
     input: SendableRecordBatchStream,
     sort_col_idx: usize,
@@ -230,7 +209,9 @@ struct SegmentedTopKStream {
     k: usize,
     descending: bool,
     schema: SchemaRef,
-    state: StreamState,
+    /// Persistent per-segment heaps. Each heap stores at most K ordinals
+    /// (transformed via `heap_ord` for unified max-heap comparison).
+    segment_heaps: crate::api::HashMap<u32, BinaryHeap<u64>>,
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
@@ -238,129 +219,101 @@ struct SegmentedTopKStream {
     segments_seen: Count,
 }
 
-/// Entry in the per-segment bounded heap.
-/// Stores (term_ordinal, batch_idx, row_idx).
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-struct HeapEntry {
-    term_ord: u64,
-    batch_idx: usize,
-    row_idx: usize,
-}
-
-impl Ord for HeapEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.term_ord
-            .cmp(&other.term_ord)
-            .then(self.batch_idx.cmp(&other.batch_idx))
-            .then(self.row_idx.cmp(&other.row_idx))
-    }
-}
-
-impl PartialOrd for HeapEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 impl SegmentedTopKStream {
-    /// Extract rows from the deferred UnionArray column, grouping by segment.
-    ///
-    /// Returns `(by_segment, always_keep)` where:
-    /// - `by_segment`: segment_ord -> Vec<(batch_idx, row_idx, term_ord)> for rows
-    ///   that have ordinals (State 0 after FFHelper lookup, or State 1 directly).
-    /// - `always_keep`: rows that must survive regardless (State 2 = already materialized).
-    fn extract_rows(
-        &self,
-        batches: &[RecordBatch],
-    ) -> Result<(ExtractedRows, Vec<(usize, usize)>)> {
-        // State 0 rows need FFHelper lookup: segment_ord -> Vec<(batch_idx, row_idx, doc_id)>
-        let mut state0_by_seg: crate::api::HashMap<u32, Vec<(usize, usize, u32)>> =
+    /// Process a single batch: filter rows against persistent per-segment heaps and return
+    /// only the surviving rows.
+    fn process_batch(&mut self, batch: &RecordBatch) -> Result<RecordBatch> {
+        let num_rows = batch.num_rows();
+        let mut keep = vec![false; num_rows];
+
+        let union_col = batch
+            .column(self.sort_col_idx)
+            .as_any()
+            .downcast_ref::<UnionArray>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
+                )
+            })?;
+
+        let type_ids = union_col.type_ids();
+        let doc_addr_child = union_col
+            .child(0)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
+                )
+            })?;
+
+        let term_ord_child = union_col
+            .child(1)
+            .as_any()
+            .downcast_ref::<arrow_array::StructArray>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
+                )
+            })?;
+        let seg_ord_array = term_ord_child
+            .column(0)
+            .as_any()
+            .downcast_ref::<arrow_array::UInt32Array>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
+                )
+            })?;
+        let ord_array = term_ord_child
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
+                )
+            })?;
+
+        // State 0 rows need FFHelper lookup: segment_ord -> Vec<(row_idx, doc_id)>
+        let mut state0_by_seg: crate::api::HashMap<u32, Vec<(usize, u32)>> =
             crate::api::HashMap::default();
-        // State 1 rows already have ordinals: segment_ord -> Vec<(batch_idx, row_idx, term_ord)>
-        let mut with_ords: crate::api::HashMap<u32, Vec<(usize, usize, u64)>> =
+        // State 1 rows already have ordinals: segment_ord -> Vec<(row_idx, term_ord)>
+        let mut with_ords: crate::api::HashMap<u32, Vec<(usize, u64)>> =
             crate::api::HashMap::default();
-        // State 2 rows are already materialized — always keep.
-        let mut always_keep = Vec::new();
 
-        for (batch_idx, batch) in batches.iter().enumerate() {
-            let union_col = batch
-                .column(self.sort_col_idx)
-                .as_any()
-                .downcast_ref::<UnionArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
-                    )
-                })?;
-
-            let type_ids = union_col.type_ids();
-            let doc_addr_child = union_col
-                .child(0)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
-                    )
-                })?;
-
-            let term_ord_child = union_col
-                .child(1)
-                .as_any()
-                .downcast_ref::<arrow_array::StructArray>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
-                    )
-                })?;
-            let seg_ord_array = term_ord_child
-                .column(0)
-                .as_any()
-                .downcast_ref::<arrow_array::UInt32Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
-                    )
-                })?;
-            let ord_array = term_ord_child
-                .column(1)
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
-                    )
-                })?;
-
-            for row_idx in 0..batch.num_rows() {
-                match type_ids[row_idx] {
-                    0 => {
-                        let packed = doc_addr_child.value(row_idx);
-                        let (seg_ord, doc_id) = unpack_doc_address(packed);
-                        state0_by_seg
-                            .entry(seg_ord)
-                            .or_default()
-                            .push((batch_idx, row_idx, doc_id));
-                    }
-                    1 => {
-                        let seg_ord = seg_ord_array.value(row_idx);
-                        let term_ord = ord_array.value(row_idx);
-                        with_ords
-                            .entry(seg_ord)
-                            .or_default()
-                            .push((batch_idx, row_idx, term_ord));
-                    }
-                    2 => {
-                        always_keep.push((batch_idx, row_idx));
-                    }
-                    _ => unreachable!("Invalid Union state"),
+        for row_idx in 0..num_rows {
+            match type_ids[row_idx] {
+                0 => {
+                    let packed = doc_addr_child.value(row_idx);
+                    let (seg_ord, doc_id) = unpack_doc_address(packed);
+                    state0_by_seg
+                        .entry(seg_ord)
+                        .or_default()
+                        .push((row_idx, doc_id));
                 }
+                1 => {
+                    let seg_ord = seg_ord_array.value(row_idx);
+                    let term_ord = if ord_array.is_null(row_idx) {
+                        NULL_TERM_ORDINAL
+                    } else {
+                        ord_array.value(row_idx)
+                    };
+                    with_ords
+                        .entry(seg_ord)
+                        .or_default()
+                        .push((row_idx, term_ord));
+                }
+                2 => {
+                    keep[row_idx] = true;
+                }
+                _ => unreachable!("Invalid Union state"),
             }
         }
 
         // Bulk-fetch term ordinals for State 0 rows via FFHelper.
         for (seg_ord, rows) in state0_by_seg {
-            let doc_ids: Vec<u32> = rows.iter().map(|(_, _, doc_id)| *doc_id).collect();
+            let doc_ids: Vec<u32> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
             let mut term_ords: Vec<Option<u64>> = vec![None; doc_ids.len()];
 
             let col = self.ffhelper.column(seg_ord, self.ff_index);
@@ -373,95 +326,56 @@ impl SegmentedTopKStream {
                 }
                 _ => {
                     // Not a dictionary column; keep all rows from this segment.
-                    for (batch_idx, row_idx, _) in rows {
-                        always_keep.push((batch_idx, row_idx));
+                    for (row_idx, _) in rows {
+                        keep[row_idx] = true;
                     }
                     continue;
                 }
             }
 
             let entries = with_ords.entry(seg_ord).or_default();
-            for (i, (batch_idx, row_idx, _)) in rows.into_iter().enumerate() {
+            for (i, (row_idx, _)) in rows.into_iter().enumerate() {
                 let ord = term_ords[i].unwrap_or(NULL_TERM_ORDINAL);
-                entries.push((batch_idx, row_idx, ord));
+                entries.push((row_idx, ord));
             }
         }
 
-        Ok((with_ords, always_keep))
-    }
+        // Track newly seen segments.
+        let new_segments = with_ords
+            .keys()
+            .filter(|seg| !self.segment_heaps.contains_key(seg))
+            .count();
+        self.segments_seen.add(new_segments);
 
-    /// Build per-segment bounded heaps and return the set of surviving (batch_idx, row_idx) pairs.
-    fn compute_survivors(
-        &self,
-        batches: &[RecordBatch],
-    ) -> Result<crate::api::HashSet<(usize, usize)>> {
-        let (by_segment, always_keep) = self.extract_rows(batches)?;
+        // Filter rows against persistent per-segment heaps.
+        let descending = self.descending;
+        let k = self.k;
+        for (seg_ord, rows) in with_ords {
+            let heap = self.segment_heaps.entry(seg_ord).or_default();
 
-        let mut survivors = crate::api::HashSet::default();
-
-        // Always-keep rows (State 2) bypass the heap.
-        for (batch_idx, row_idx) in always_keep {
-            survivors.insert((batch_idx, row_idx));
-        }
-
-        self.segments_seen.add(by_segment.len());
-
-        for rows in by_segment.values() {
-            if self.descending {
-                // DESC: keep K largest ordinals → use min-heap (evict smallest).
-                let mut heap: BinaryHeap<Reverse<HeapEntry>> =
-                    BinaryHeap::with_capacity(self.k + 1);
-                for &(batch_idx, row_idx, ord) in rows {
-                    if ord == NULL_TERM_ORDINAL {
-                        survivors.insert((batch_idx, row_idx));
-                        continue;
-                    }
-                    let entry = HeapEntry {
-                        term_ord: ord,
-                        batch_idx,
-                        row_idx,
-                    };
-                    if heap.len() < self.k {
-                        heap.push(Reverse(entry));
-                    } else if let Some(&Reverse(min)) = heap.peek() {
-                        if ord > min.term_ord {
-                            heap.pop();
-                            heap.push(Reverse(entry));
-                        }
-                    }
+            for (row_idx, ord) in rows {
+                if ord == NULL_TERM_ORDINAL {
+                    keep[row_idx] = true;
+                    continue;
                 }
-                for Reverse(entry) in heap {
-                    survivors.insert((entry.batch_idx, entry.row_idx));
-                }
-            } else {
-                // ASC: keep K smallest ordinals → use max-heap (evict largest).
-                let mut heap: BinaryHeap<HeapEntry> = BinaryHeap::with_capacity(self.k + 1);
-                for &(batch_idx, row_idx, ord) in rows {
-                    if ord == NULL_TERM_ORDINAL {
-                        survivors.insert((batch_idx, row_idx));
-                        continue;
+
+                let heap_val = if descending { !ord } else { ord };
+                if heap.len() < k {
+                    heap.push(heap_val);
+                    keep[row_idx] = true;
+                } else if let Some(&worst) = heap.peek() {
+                    if heap_val < worst {
+                        heap.pop();
+                        heap.push(heap_val);
+                        keep[row_idx] = true;
                     }
-                    let entry = HeapEntry {
-                        term_ord: ord,
-                        batch_idx,
-                        row_idx,
-                    };
-                    if heap.len() < self.k {
-                        heap.push(entry);
-                    } else if let Some(&max) = heap.peek() {
-                        if ord < max.term_ord {
-                            heap.pop();
-                            heap.push(entry);
-                        }
-                    }
-                }
-                for entry in heap {
-                    survivors.insert((entry.batch_idx, entry.row_idx));
                 }
             }
         }
 
-        Ok(survivors)
+        let mask: BooleanArray = keep.into_iter().map(Some).collect();
+        filter_record_batch(batch, &mask)
+            .map_err(|e| datafusion::common::DataFusionError::ArrowError(Box::new(e), None))
     }
 }
 
@@ -472,60 +386,22 @@ impl Stream for SegmentedTopKStream {
         let this = self.get_mut();
 
         loop {
-            match &mut this.state {
-                StreamState::Collecting(batches) => {
-                    match Pin::new(&mut this.input).poll_next(cx) {
-                        Poll::Ready(Some(Ok(batch))) => {
-                            this.rows_input.add(batch.num_rows());
-                            batches.push(batch);
-                        }
-                        Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
-                        Poll::Ready(None) => {
-                            // Input exhausted — compute survivors and transition to emitting.
-                            let batches = std::mem::take(batches);
-                            // segments_seen is counted inside compute_survivors.
-                            let survivors = match this.compute_survivors(&batches) {
-                                Ok(s) => s,
-                                Err(e) => return Poll::Ready(Some(Err(e))),
-                            };
-
-                            this.state = StreamState::Emitting {
-                                batches,
-                                survivors,
-                                next_batch: 0,
-                            };
-                        }
-                        Poll::Pending => return Poll::Pending,
+            match Pin::new(&mut this.input).poll_next(cx) {
+                Poll::Ready(Some(Ok(batch))) => {
+                    this.rows_input.add(batch.num_rows());
+                    let filtered = match this.process_batch(&batch) {
+                        Ok(f) => f,
+                        Err(e) => return Poll::Ready(Some(Err(e))),
+                    };
+                    if filtered.num_rows() > 0 {
+                        this.rows_output.add(filtered.num_rows());
+                        return Poll::Ready(Some(Ok(filtered)));
                     }
+                    // All rows pruned in this batch — try next.
                 }
-                StreamState::Emitting {
-                    batches,
-                    survivors,
-                    next_batch,
-                } => {
-                    while *next_batch < batches.len() {
-                        let batch_idx = *next_batch;
-                        *next_batch += 1;
-                        let batch = &batches[batch_idx];
-                        let num_rows = batch.num_rows();
-
-                        let mask: BooleanArray = (0..num_rows)
-                            .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
-                            .collect();
-
-                        let filtered = filter_record_batch(batch, &mask).map_err(|e| {
-                            datafusion::common::DataFusionError::ArrowError(Box::new(e), None)
-                        })?;
-
-                        if filtered.num_rows() > 0 {
-                            this.rows_output.add(filtered.num_rows());
-                            return Poll::Ready(Some(Ok(filtered)));
-                        }
-                    }
-                    this.state = StreamState::Done;
-                    return Poll::Ready(None);
-                }
-                StreamState::Done => return Poll::Ready(None),
+                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
             }
         }
     }

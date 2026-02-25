@@ -129,6 +129,7 @@ FROM generate_series(1, current_setting('myvars.total_contacts')::int - current_
 
 DROP TABLE IF EXISTS contact_list;
 CREATE TABLE contact_list (
+    id serial primary key,
     list_id character varying,
     original_value jsonb,
     ldf_id bigint,
@@ -155,6 +156,7 @@ FROM
 
 DROP TABLE IF EXISTS company_list;
 CREATE TABLE company_list (
+    id serial primary key,
     list_id character varying,
     original_value jsonb,
     ldf_id bigint, -- Maps to company_id
@@ -169,7 +171,7 @@ SELECT
     '2543',
     (random() * current_setting('myvars.healthcare_company_count')::int)::int + 1
 FROM
-    generate_series(1, 1000000) AS series;
+    generate_series(1, 5000000) AS series;
 
 
 ------------------------------------------------------------------
@@ -356,6 +358,8 @@ CREATE INDEX contact_list_list_id_ldf_id_idx ON contact_list USING btree (list_i
 --
 CREATE INDEX contacts_companies_combined_full_company_id ON contacts_companies_combined_full USING btree (company_id);
 
+CREATE INDEX contact_list_search_idx ON contact_list USING bm25 (id, list_id, ldf_id) WITH (key_field = 'id');
+CREATE INDEX company_list_search_idx ON company_list USING bm25 (id, list_id, ldf_id) WITH (key_field = 'id');
 
 --
 -- Additional BM25 Indexes for autocomplete tables

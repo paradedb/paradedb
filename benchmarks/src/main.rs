@@ -170,6 +170,10 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
+    if let Err(err) = ensure_pg_buffercache_extension(&args.url) {
+        eprintln!("WARNING: Failed to initialize pg_buffercache extension: {err}");
+    }
+
     // Locate all query paths, and sort them for stability in the output.
     let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     let mut query_paths = std::fs::read_dir(queries_dir)
@@ -209,8 +213,8 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
                 .collect::<Vec<_>>()
         })
         .map(|(query_type, query)| {
-            if let Err(err) = drop_os_page_cache() {
-                eprintln!("WARNING: Failed to drop OS page cache: {err}");
+            if let Err(err) = clear_caches(&args.url) {
+                eprintln!("WARNING: Failed to clear caches before query: {err}");
             }
             println!("Query Type: {query_type}\nQuery: {query}");
             let (runtimes_ms, num_results) =
@@ -697,6 +701,68 @@ fn drop_os_page_cache() -> Result<(), String> {
         // No portable equivalent in this benchmark runner today.
         Err("unsupported platform (cache-drop is only implemented on Linux)".to_string())
     }
+}
+
+fn clear_caches(url: &str) -> Result<(), String> {
+    let mut errors = Vec::new();
+
+    if let Err(err) = drop_os_page_cache() {
+        errors.push(format!("OS page cache: {err}"));
+    }
+    if let Err(err) = evict_postgres_buffer_cache(url) {
+        errors.push(format!("PostgreSQL buffer cache: {err}"));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join(" | "))
+    }
+}
+
+fn ensure_pg_buffercache_extension(url: &str) -> Result<(), String> {
+    let output = base_psql_command(url)
+        .arg("-c")
+        .arg("CREATE EXTENSION IF NOT EXISTS pg_buffercache;")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() { stderr } else { stdout };
+    Err(format!(
+        "failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache;`): {details}"
+    ))
+}
+
+fn evict_postgres_buffer_cache(url: &str) -> Result<(), String> {
+    let sql = "DO $$ \
+               BEGIN \
+                   PERFORM pg_buffercache_evict(bufferid) \
+                   FROM pg_buffercache \
+                   WHERE relfilenode IS NOT NULL; \
+               END \
+               $$;";
+    let output = base_psql_command(url)
+        .arg("-c")
+        .arg(sql)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let details = if !stderr.is_empty() { stderr } else { stdout };
+    Err(format!(
+        "failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {details}"
+    ))
 }
 
 fn base_psql_command(url: &str) -> Command {

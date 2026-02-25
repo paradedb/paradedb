@@ -264,12 +264,33 @@ fn build_clause_df<'a>(
 
         let partitioning_idx = join_clause.partitioning_source_index();
 
+        // Collect column names that appear in 2+ sources.
+        // Columns with duplicate names must not be deferred to avoid
+        // TantivyLookupExec resolving by unqualified name to the wrong source.
+        let duplicate_columns: std::collections::HashSet<String> = {
+            let mut counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for source in &join_clause.sources {
+                for fi in &source.scan_info.fields {
+                    if matches!(fi.field, WhichFastField::Named(_, _)) {
+                        *counts.entry(fi.field.name()).or_default() += 1;
+                    }
+                }
+            }
+            counts
+                .into_iter()
+                .filter(|(_, c)| *c > 1)
+                .map(|(n, _)| n)
+                .collect()
+        };
+
         // 1. Start with the first source
         let mut df = build_source_df(
             ctx,
             &join_clause.sources[0],
             join_clause,
             partitioning_idx == 0,
+            &duplicate_columns,
         )
         .await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
@@ -282,8 +303,14 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df =
-                build_source_df(ctx, right_source, join_clause, partitioning_idx == i).await?;
+            let right_df = build_source_df(
+                ctx,
+                right_source,
+                join_clause,
+                partitioning_idx == i,
+                &duplicate_columns,
+            )
+            .await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -565,6 +592,7 @@ fn build_source_df<'a>(
     source: &'a JoinSource,
     join_clause: &'a JoinCSClause,
     is_parallel: bool,
+    duplicate_columns: &'a std::collections::HashSet<String>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         let scan_info = &source.scan_info;
@@ -586,6 +614,27 @@ fn build_source_df<'a>(
         }
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
+
+        // Add columns referenced by multi-table predicates to required_early
+        // to prevent deferral of columns that cross-table filters compare.
+        for mtp in &join_clause.multi_table_predicates {
+            for (rti, col_name) in &mtp.referenced_columns {
+                if source.contains_rti(*rti) {
+                    required_early.insert(col_name.clone());
+                }
+            }
+        }
+
+        // Add columns whose names appear in multiple sources to required_early.
+        // This prevents TantivyLookupExec from resolving by unqualified name
+        // and picking the wrong column when two tables share a column name.
+        for fi in &scan_info.fields {
+            if matches!(fi.field, WhichFastField::Named(_, _))
+                && duplicate_columns.contains(&fi.field.name())
+            {
+                required_early.insert(fi.field.name());
+            }
+        }
 
         if let Some(ref sort_order) = scan_info.sort_order {
             required_early.insert(sort_order.field_name.as_ref().to_string());

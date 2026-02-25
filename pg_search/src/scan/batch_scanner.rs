@@ -334,7 +334,7 @@ impl Scanner {
                 // Apply filter
                 let mask = pre_filter
                     .apply_arrow(ffhelper, segment_ord, &memoized_columns, schema, ids.len())
-                    .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
+                    .unwrap_or_else(|e| pgrx::error!("Pre-filter failed: {e}"));
 
                 // Compact state
                 compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);

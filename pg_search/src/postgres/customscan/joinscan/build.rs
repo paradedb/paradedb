@@ -383,6 +383,10 @@ pub struct MultiTablePredicateInfo {
     pub description: String,
     /// Index of this condition in the restrictlist (for runtime extraction).
     pub restrictinfo_index: usize,
+    /// Columns referenced by this predicate: (RTI, column_name).
+    /// Used to prevent late materialization of these columns.
+    #[serde(default)]
+    pub referenced_columns: Vec<(pg_sys::Index, String)>,
 }
 
 /// A boolean expression tree for join-level conditions.
@@ -486,11 +490,13 @@ impl JoinCSClause {
         &mut self,
         description: String,
         restrictinfo_index: usize,
+        referenced_columns: Vec<(pg_sys::Index, String)>,
     ) -> usize {
         let idx = self.multi_table_predicates.len();
         self.multi_table_predicates.push(MultiTablePredicateInfo {
             description,
             restrictinfo_index,
+            referenced_columns,
         });
         idx
     }

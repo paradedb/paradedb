@@ -122,8 +122,12 @@ pub(super) unsafe fn extract_join_level_conditions(
 
             // Create a MultiTablePredicate leaf node
             let description = format_expr_for_explain(clause.cast());
-            let predicate_idx = join_clause
-                .add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+            let referenced_columns = collect_referenced_columns(clause.cast(), sources);
+            let predicate_idx = join_clause.add_multi_table_predicate(
+                description,
+                multi_table_predicate_clauses.len(),
+                referenced_columns,
+            );
             multi_table_predicate_clauses.push(clause);
             expr_trees.push(JoinLevelExpr::MultiTablePredicate { predicate_idx });
         }
@@ -205,8 +209,12 @@ pub(super) unsafe fn transform_to_search_expr(
         translator.translate(node)?;
 
         let description = format_expr_for_explain(node);
-        let predicate_idx =
-            join_clause.add_multi_table_predicate(description, multi_table_predicate_clauses.len());
+        let referenced_columns = collect_referenced_columns(node, sources);
+        let predicate_idx = join_clause.add_multi_table_predicate(
+            description,
+            multi_table_predicate_clauses.len(),
+            referenced_columns,
+        );
         multi_table_predicate_clauses.push(node as *mut pg_sys::Expr);
         return Some(JoinLevelExpr::MultiTablePredicate { predicate_idx });
     }
@@ -354,6 +362,29 @@ unsafe fn all_vars_are_fast_fields_recursive(
     }
 
     true
+}
+
+/// Collect all (RTI, column_name) pairs referenced by a multi-table predicate expression.
+///
+/// This uses `expr_collect_vars()` to find all Var nodes and resolves each to its
+/// source column name — the same pattern used for join keys in `build_source_df`.
+unsafe fn collect_referenced_columns(
+    node: *mut pg_sys::Node,
+    sources: &[JoinSource],
+) -> Vec<(pg_sys::Index, String)> {
+    let vars = expr_collect_vars(node, false);
+    let mut result = Vec::new();
+    for var_ref in &vars {
+        for source in sources {
+            if source.contains_rti(var_ref.rti) {
+                if let Some(col_name) = source.column_name(var_ref.attno) {
+                    result.push((var_ref.rti, col_name));
+                }
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// Check if a specific column is available as a fast field in the relation's BM25 index.

@@ -142,41 +142,76 @@ impl CustomScanState for JoinScanState {
     }
 }
 
+fn base_session_config() -> SessionConfig {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
+    config
+}
+
+/// Adds the shared physical optimizer rules to a builder.
+fn add_physical_optimizer_rules(mut builder: SessionStateBuilder) -> SessionStateBuilder {
+    if crate::gucs::is_mixed_fast_field_sort_enabled() {
+        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
+        builder =
+            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+    }
+    builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::late_materialization_rule::LateMaterializationRule,
+    ))
+}
+
 /// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
 ///
 /// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
 /// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
 /// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
 /// in a compatible way.
+///
+/// This is the **planning** context — no visibility rule.
 pub fn create_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
-    config
-        .options_mut()
-        .optimizer
-        .enable_topk_dynamic_filter_pushdown = true;
+    let config = base_session_config();
+    let builder = SessionStateBuilder::new().with_config(config);
+    let builder = add_physical_optimizer_rules(builder);
+    SessionContext::new_with_state(builder.build())
+}
 
+/// Creates a DataFusion SessionContext for **execution** with visibility filtering.
+///
+/// Called at execution time (in `exec_custom_scan`). Deferred visibility is
+/// always enabled for joins — this context includes the visibility pipeline
+/// that resolves packed DocAddresses to real ctids and checks visibility.
+///
+/// This context includes:
+/// - Same physical optimizer rules as planning context
+/// - `VisibilityFilterOptimizerRule` as a logical optimizer rule (inserts VisibilityFilterNode)
+/// - `VisibilityExtensionPlanner` to convert VisibilityFilterNode → VisibilityFilterExec
+/// - `LateMaterializationRule` which sees VisibilityFilterExec as an anchor
+pub fn create_execution_session_context(
+    join_clause: &JoinCSClause,
+    snapshot: pg_sys::Snapshot,
+) -> SessionContext {
+    use crate::postgres::customscan::joinscan::visibility_filter::{
+        VisibilityExtensionPlanner, VisibilityFilterOptimizerRule, VisibilityQueryPlanner,
+    };
+    use datafusion::physical_planner::DefaultPhysicalPlanner;
+
+    let config = base_session_config();
     let mut builder = SessionStateBuilder::new().with_config(config);
+    builder = add_physical_optimizer_rules(builder);
 
-    if crate::gucs::is_mixed_fast_field_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    }
+    // Visibility: logical rule + extension planner
+    builder = builder.with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new(
+        join_clause.clone(),
+    )));
 
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    let ext_planner = Arc::new(VisibilityExtensionPlanner::new(snapshot));
+    let phys_planner = DefaultPhysicalPlanner::with_extension_planners(vec![ext_planner]);
+    builder = builder.with_query_planner(Arc::new(VisibilityQueryPlanner { phys_planner }));
+
+    SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -229,8 +264,35 @@ fn build_clause_df<'a>(
 
         let partitioning_idx = join_clause.partitioning_source_index();
 
+        // Collect column names that appear in 2+ sources.
+        // Columns with duplicate names must not be deferred to avoid
+        // TantivyLookupExec resolving by unqualified name to the wrong source.
+        let duplicate_columns: std::collections::HashSet<String> = {
+            let mut counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for source in &join_clause.sources {
+                for fi in &source.scan_info.fields {
+                    if matches!(fi.field, WhichFastField::Named(_, _)) {
+                        *counts.entry(fi.field.name()).or_default() += 1;
+                    }
+                }
+            }
+            counts
+                .into_iter()
+                .filter(|(_, c)| *c > 1)
+                .map(|(n, _)| n)
+                .collect()
+        };
+
         // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
+        let mut df = build_source_df(
+            ctx,
+            &join_clause.sources[0],
+            join_clause,
+            partitioning_idx == 0,
+            &duplicate_columns,
+        )
+        .await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
         df = df.alias(&alias0)?;
 
@@ -241,7 +303,14 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let right_df = build_source_df(
+                ctx,
+                right_source,
+                join_clause,
+                partitioning_idx == i,
+                &duplicate_columns,
+            )
+            .await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -521,39 +590,82 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
+    join_clause: &'a JoinCSClause,
     is_parallel: bool,
+    duplicate_columns: &'a std::collections::HashSet<String>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
-        let scan_info = source.scan_info.clone();
-        let source_alias = source.scan_info.alias.clone();
-        let alias = source_alias.as_deref().unwrap_or("base");
-        let fields: Vec<WhichFastField> = source
-            .scan_info
-            .fields
-            .iter()
-            .map(|f| f.field.clone())
-            .collect();
-        let provider = Arc::new(PgSearchTableProvider::new(
-            scan_info,
-            fields.clone(),
-            None,
-            is_parallel,
-        ));
-        ctx.register_table(alias, provider)?;
+        let scan_info = &source.scan_info;
+        let alias = scan_info.alias.as_deref().unwrap_or("base");
+        let fields: Vec<WhichFastField> =
+            scan_info.fields.iter().map(|f| f.field.clone()).collect();
+        let mut required_early: crate::api::HashSet<String> = Default::default();
+        for jk in &join_clause.join_keys {
+            if source.contains_rti(jk.outer_rti) {
+                if let Some(col) = source.column_name(jk.outer_attno) {
+                    required_early.insert(col);
+                }
+            }
+            if source.contains_rti(jk.inner_rti) {
+                if let Some(col) = source.column_name(jk.inner_attno) {
+                    required_early.insert(col);
+                }
+            }
+        }
+        let mut provider =
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
+
+        // Add columns referenced by multi-table predicates to required_early
+        // to prevent deferral of columns that cross-table filters compare.
+        for mtp in &join_clause.multi_table_predicates {
+            for (rti, col_name) in &mtp.referenced_columns {
+                if source.contains_rti(*rti) {
+                    required_early.insert(col_name.clone());
+                }
+            }
+        }
+
+        // Add columns whose names appear in multiple sources to required_early.
+        // This prevents TantivyLookupExec from resolving by unqualified name
+        // and picking the wrong column when two tables share a column name.
+        for fi in &scan_info.fields {
+            if matches!(fi.field, WhichFastField::Named(_, _))
+                && duplicate_columns.contains(&fi.field.name())
+            {
+                required_early.insert(fi.field.name());
+            }
+        }
+
+        if let Some(ref sort_order) = scan_info.sort_order {
+            required_early.insert(sort_order.field_name.as_ref().to_string());
+        }
+        provider.try_enable_late_materialization(&required_early);
+
+        let provider = Arc::new(provider);
+        ctx.register_table(
+            alias,
+            provider.clone() as Arc<dyn datafusion::catalog::TableProvider>,
+        )?;
 
         let mut df = ctx.table(alias).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();
-        for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
-            let expr = match field_type {
-                WhichFastField::Ctid => {
-                    let rti = source.scan_info.heap_rti;
-                    make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
+        for df_field in df.schema().fields().iter() {
+            let name = df_field.name();
+
+            let expr = match fields.iter().find(|w| w.name() == *name) {
+                Some(WhichFastField::Ctid) => {
+                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
                 }
-                WhichFastField::Score => make_col(alias, df_field.name()).alias(SCORE_COL_NAME),
-                _ => make_col(alias, df_field.name()),
+                Some(WhichFastField::DeferredCtid(_)) => {
+                    // Name already carries the alias "ctid_{rti}", no extra aliasing needed
+                    make_col(alias, name)
+                }
+                Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
+                _ => make_col(alias, name),
             };
+
             exprs.push(expr);
         }
         df = df.select(exprs)?;

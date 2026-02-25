@@ -19,7 +19,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::{Arc, OnceLock};
 
-use arrow_schema::{Field, Schema, SchemaRef};
+use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
 use datafusion::common::{DataFusionError, Result, Statistics};
@@ -40,6 +40,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
+use crate::scan::tantivy_lookup_exec::{DeferredField, DeferredKind};
 use crate::scan::Scanner;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,10 +85,45 @@ impl PgSearchTableProvider {
         assert!(self.is_parallel);
         self.parallel_state = parallel_state;
     }
+    pub fn try_enable_late_materialization(
+        &mut self,
+        required_early_columns: &crate::api::HashSet<String>,
+    ) {
+        let rti = self.scan_info.heap_rti;
+        for wff in self.fields.iter_mut() {
+            match wff {
+                WhichFastField::Named(name, field_type) => {
+                    let is_string_or_bytes = matches!(
+                        field_type.arrow_data_type(),
+                        arrow_schema::DataType::Utf8View
+                            | arrow_schema::DataType::BinaryView
+                            | arrow_schema::DataType::LargeUtf8
+                            | arrow_schema::DataType::LargeBinary
+                    );
+                    if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
+                        let is_bytes = matches!(
+                            field_type.arrow_data_type(),
+                            arrow_schema::DataType::BinaryView
+                                | arrow_schema::DataType::LargeBinary
+                        );
+                        *wff = WhichFastField::Deferred {
+                            name: name.clone(),
+                            field_type: *field_type,
+                            is_bytes,
+                        };
+                    }
+                }
+                WhichFastField::Ctid => {
+                    *wff = WhichFastField::DeferredCtid(format!("ctid_{}", rti));
+                }
+                _ => {}
+            }
+        }
+    }
 
     fn get_schema(&self) -> SchemaRef {
         self.schema
-            .get_or_init(|| build_schema(&self.fields))
+            .get_or_init(|| crate::index::fast_fields_helper::build_arrow_schema(&self.fields))
             .clone()
     }
 
@@ -145,13 +181,38 @@ impl PgSearchTableProvider {
             Box::new(visibility.clone()) as Box<VisibilityChecker>,
         )
     }
-
+    pub fn deferred_fields(&self) -> Vec<DeferredField> {
+        let mut deferred = Vec::new();
+        for (ff_index, wff) in self.fields.iter().enumerate() {
+            match wff {
+                WhichFastField::Deferred { name, is_bytes, .. } => {
+                    deferred.push(DeferredField {
+                        field_name: name.clone(),
+                        kind: if *is_bytes {
+                            DeferredKind::Bytes { ff_index }
+                        } else {
+                            DeferredKind::Text { ff_index }
+                        },
+                    });
+                }
+                WhichFastField::DeferredCtid(alias) => {
+                    deferred.push(DeferredField {
+                        field_name: alias.clone(),
+                        kind: DeferredKind::Ctid,
+                    });
+                }
+                _ => {}
+            }
+        }
+        deferred
+    }
     /// Creates a PgSearchScanPlan from a list of segments.
     fn create_scan(
         &self,
         segments: Vec<ScanState>,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
+        ffhelper: Arc<FFHelper>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // Only declare sort order if the field exists in the schema
         let actual_sort_order = sort_order.and_then(|so| {
@@ -163,11 +224,21 @@ impl PgSearchTableProvider {
             }
         });
 
+        let deferred = self.deferred_fields();
+
+        let maybe_ff = if deferred.is_empty() {
+            None
+        } else {
+            Some(Arc::clone(&ffhelper))
+        };
+
         Ok(Arc::new(PgSearchScanPlan::new(
             segments,
             self.get_schema(),
             query_for_display,
             actual_sort_order,
+            deferred,
+            maybe_ff,
         )))
     }
 
@@ -201,12 +272,17 @@ impl PgSearchTableProvider {
             let mut partition =
                 self.create_scan_partition(reader, segment_id, &ffhelper, &visibility, heap_relid);
             // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
+            partition.0.prefetch_next(
+                &ffhelper,
+                &mut partition.2,
+                &[],
+                &std::sync::Arc::new(arrow_schema::Schema::empty()),
+            );
 
             segments.push(partition);
         }
 
-        self.create_scan(segments, query_for_display, sort_order)
+        self.create_scan(segments, query_for_display, sort_order, ffhelper)
     }
 
     /// Creates a PgSearchScanPlan for eager scans (or fully replicated parallel joins).
@@ -237,16 +313,8 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        self.create_scan(segments, query_for_display, sort_order)
+        self.create_scan(segments, query_for_display, sort_order, ffhelper)
     }
-}
-
-fn build_schema(fields: &[WhichFastField]) -> SchemaRef {
-    let arrow_fields: Vec<Field> = fields
-        .iter()
-        .map(|f| Field::new(f.name(), f.arrow_data_type(), true))
-        .collect();
-    Arc::new(Schema::new(arrow_fields))
 }
 
 #[async_trait]

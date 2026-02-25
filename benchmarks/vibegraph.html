@@ -64,6 +64,55 @@
     let allRawData = {};
     let hashInfo = {};
 
+    // Finds the longest continuous substring that is present in all provided strings.
+    // This is used to extract the shared portion of metadata across benchmark variants
+    // so it can be displayed once in the tooltip footer.
+    function getCommonSubstring(strings) {
+        if (!strings || strings.length === 0) return "";
+        if (strings.length === 1) return strings[0];
+        let first = strings[0];
+        let longest = "";
+        for (let i = 0; i < first.length; i++) {
+            for (let j = i + longest.length + 1; j <= first.length; j++) {
+                let substr = first.substring(i, j);
+                if (strings.every(s => s.includes(substr))) {
+                    longest = substr;
+                } else {
+                    break;
+                }
+            }
+        }
+        return longest.length > 5 ? longest : "";
+    }
+
+    // Wraps text to a specified maximum line length, breaking at spaces when possible.
+    function wordWrap(str, maxLen) {
+        if (!str) return [];
+        const lines = [];
+        let currentLine = "";
+        
+        for (const word of str.split(' ')) {
+            if (!currentLine) {
+                currentLine = word;
+            } else if (currentLine.length + word.length + 1 <= maxLen) {
+                currentLine += " " + word;
+            } else {
+                lines.push(currentLine);
+                currentLine = word;
+            }
+            
+            // Handle extremely long words without spaces
+            while (currentLine.length > maxLen) {
+                lines.push(currentLine.substring(0, maxLen));
+                currentLine = currentLine.substring(maxLen);
+            }
+        }
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+        return lines;
+    }
+
     // Parse dataset identifier from entry key
     // e.g., "pg_search 'logs' (100K rows)" -> "logs (100K rows)"
     // e.g., "pg_search 'logs' Query Performance" -> "logs"
@@ -142,7 +191,8 @@
                 timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
                 run: ent.date,
                 short: ent.commit.id.slice(0, 7),
-                value: b.value
+                value: b.value,
+                extra: b.extra || ""
             })));
             benches.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -172,13 +222,17 @@
 
                 // Build datasets
                 const seriesMap = {};
+                const extraMap = {};
                 group.forEach(d => {
-                    (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short)] = d.value;
+                    const idx = runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short);
+                    (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[idx] = d.value;
+                    (extraMap[d.name] = extraMap[d.name] || Array(runs.length).fill(null))[idx] = d.extra;
                 });
                 const datasets = Object.entries(seriesMap).map(([name, data]) => ({
                     label: name,
                     data: data.slice(),
                     original: data.slice(),
+                    extras: extraMap[name].slice(),
                     fill: false,
                     tension: 0.4,
                     borderWidth: 2,
@@ -258,6 +312,24 @@
                                         const lines = [`${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '–'}`];
                                         const arr = ctx.dataset.original;
                                         const i = ctx.dataIndex;
+                                        
+                                        // Extract the 'extra' metadata for all currently hovered datapoints
+                                        const allExtras = ctx.chart.data.datasets
+                                            .filter(ds => ds.data[i] !== null && ds.extras && ds.extras[i])
+                                            .map(ds => ds.extras[i]);
+                                        const common = getCommonSubstring(allExtras);
+                                        const extra = ctx.dataset.extras && ctx.dataset.extras[i];
+                                        
+                                        // If this datapoint has extra metadata, strip out the common portion
+                                        // to isolate the variant-specific differences.
+                                        if (extra) {
+                                            const uniqueExtra = common ? extra.replace(common, '').trim() : extra.trim();
+                                            if (uniqueExtra) {
+                                                const wrapped = wordWrap(uniqueExtra, 80);
+                                                wrapped.forEach(line => lines.push(`  ${line}`));
+                                            }
+                                        }
+
                                         if (chart.normalized) {
                                             const pct = (v * 100) - 100;
                                             lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
@@ -269,6 +341,25 @@
                                             lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
                                         }
                                         return lines;
+                                    },
+                                    footer: ctxs => {
+                                        if (!ctxs.length) return null;
+                                        const i = ctxs[0].dataIndex;
+                                        const allExtras = ctxs[0].chart.data.datasets
+                                            .filter(ds => ds.data[i] !== null && ds.extras && ds.extras[i])
+                                            .map(ds => ds.extras[i]);
+                                        const common = getCommonSubstring(allExtras);
+                                        
+                                        // If the hovered items share a common metadata substring,
+                                        // display it once at the bottom of the tooltip, wrapping it if necessary.
+                                        if (common) {
+                                            const commonStr = common.trim();
+                                            const lines = ['Details:'];
+                                            const wrapped = wordWrap(commonStr, 80);
+                                            wrapped.forEach(line => lines.push(line));
+                                            return lines;
+                                        }
+                                        return null;
                                     }
                                 }
                             }

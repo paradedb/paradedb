@@ -63,7 +63,9 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
+use crate::postgres::customscan::joinscan::build::{
+    JoinCSClause, JoinSource, JoinType as JoinScanJoinType,
+};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -210,7 +212,7 @@ pub async fn build_joinscan_physical_plan(
 ///
 /// This function constructs the logical plan for a join by:
 /// 1. Building DataFrames for the left (outer) and right (inner) sources.
-/// 2. Performing an inner join on the specified equi-join keys.
+/// 2. Performing the configured join type on the specified equi-join keys.
 /// 3. Applying join-level filters (both search predicates and heap conditions).
 /// 4. Applying sorting and limits if specified.
 /// 5. Projecting the final output columns as defined by the join's output projection.
@@ -228,6 +230,16 @@ fn build_clause_df<'a>(
         }
 
         let partitioning_idx = join_clause.partitioning_source_index();
+        let df_join_type = match join_clause.join_type {
+            JoinScanJoinType::Inner => JoinType::Inner,
+            JoinScanJoinType::Semi => JoinType::LeftSemi,
+            other => {
+                return Err(DataFusionError::Internal(format!(
+                    "JoinScan runtime: unsupported join type {:?}",
+                    other
+                )));
+            }
+        };
 
         // 1. Start with the first source
         let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
@@ -313,9 +325,16 @@ fn build_clause_df<'a>(
                 // Step 2: Join B. No keys A=B? Cross join?
                 // Or we rely on the planner having ordered them such that there is connectivity.
                 // If not connected, it's a cross join.
-                df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
+
+                // TODO: review this
+                if join_clause.join_type == JoinScanJoinType::Semi {
+                    return Err(DataFusionError::Internal(
+                        "JoinScan runtime: SEMI JOIN requires equi-join keys".into(),
+                    ));
+                }
+                df = df.join(right_df, df_join_type, &[], &[], None)?;
             } else {
-                df = df.join_on(right_df, JoinType::Inner, on)?;
+                df = df.join_on(right_df, df_join_type, on)?;
             }
 
             left_rtis.insert(right_rti);

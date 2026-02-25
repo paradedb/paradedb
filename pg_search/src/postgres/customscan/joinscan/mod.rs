@@ -335,6 +335,9 @@ impl CustomScan for JoinScan {
                 } else {
                     return Vec::new();
                 };
+            let outer_source_count = source_candidates.len();
+            let inner_source_count = inner_candidates.len();
+
             source_candidates.extend(inner_candidates);
             join_keys.extend(inner_keys);
 
@@ -392,12 +395,16 @@ impl CustomScan for JoinScan {
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
-            if jointype != pg_sys::JoinType::JOIN_INNER {
-                if is_interesting {
+            if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
+                let is_user_visible_jointype = jointype <= pg_sys::JoinType::JOIN_ANTI;
+                if is_interesting && is_user_visible_jointype {
                     Self::add_planner_warning(
-                        "JoinScan not used: only INNER JOIN is currently supported",
-                        (),
-                    );
+                            format!(
+                                "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
+                                jointype
+                            ),
+                            &aliases,
+                        );
                 }
                 return Vec::new();
             }
@@ -448,6 +455,32 @@ impl CustomScan for JoinScan {
                 .with_join_type(jointype.into())
                 .with_limit(limit);
             join_clause.sources = sources;
+
+            // The current parallel strategy partitions exactly one source and replicates all
+            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
+            // We currently enforce a conservative subset: binary base-table joins only.
+            if jointype == pg_sys::JoinType::JOIN_SEMI {
+                if outer_source_count != 1 || inner_source_count != 1 {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: SEMI JOIN currently supports only binary base-table joins",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+
+                let partitioning_idx = join_clause.partitioning_source_index();
+                if partitioning_idx != 0 {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+            }
 
             // Validate ONLY the new keys added at this level (the recursive ones were validated during collection)
             for jk in &join_conditions.equi_keys {
@@ -1118,7 +1151,6 @@ impl JoinScan {
                         .expect("ctid should be u64")
                         .value(row_idx)
                 };
-
                 // Fetch the tuple from the heap using the CTID
                 let rel_state = state.custom_state_mut().relations.get_mut(&rti)?;
                 if !rel_state
@@ -1132,7 +1164,6 @@ impl JoinScan {
                 fetched_rtis.insert(rti);
             }
         }
-
         // Get the result tuple descriptor from the result slot
         let result_tupdesc = (*result_slot).tts_tupleDescriptor;
         let natts = (*result_tupdesc).natts as usize;

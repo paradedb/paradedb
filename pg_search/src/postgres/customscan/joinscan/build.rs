@@ -436,11 +436,6 @@ impl JoinCSClause {
         Self::default()
     }
 
-    pub fn add_source(mut self, source: JoinSource) -> Self {
-        self.sources.push(source);
-        self
-    }
-
     pub fn with_join_type(mut self, join_type: JoinType) -> Self {
         self.join_type = join_type;
         self

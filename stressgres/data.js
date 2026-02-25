@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771980813050,
+  "lastUpdate": 1771981752409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14024,6 +14024,60 @@ window.BENCHMARK_DATA = {
             "value": 14.960035438680675,
             "unit": "median tps",
             "extra": "avg tps: 14.954137392200513, max tps: 19.073491785094774, count: 55530"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21b5d32c021128289f07948f7f5c340781d5d9f4",
+          "message": "chore: Dedupe `ScanInfo` and `JoinSource` (#4230)\n\n## What\n\nMakes the fields of `ScanInfo` non-optional, and then restores\n`JoinSource` as a wrapper around `ScanInfo`.\n\n## Why\n\nAfter #4214 they were redundant with one another. The theory behind\n`ScanInfo` is that it should always represent a scan over our index, so\nhaving any of the index-related fields be optional didn't make sense.\nLikewise, `JoinSource` is the \"we have validated all requirements\"\ncounterpart of `JoinSourceCandidate`.\n\nI believe that `JoinSource` and `ScanInfo` should stay independent for\nnow, because `ScanInfo` might eventually be used in non-join related\nscans (i.e., behind `MixedFastField`).",
+          "timestamp": "2026-02-24T16:01:13-08:00",
+          "tree_id": "aaa4fe5fe79f442d3d1f167a688fed297ecfcbe6",
+          "url": "https://github.com/paradedb/paradedb/commit/21b5d32c021128289f07948f7f5c340781d5d9f4"
+        },
+        "date": 1771981748273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.177283532383708,
+            "unit": "median tps",
+            "extra": "avg tps: 30.924303426292358, max tps: 35.12085366713691, count: 55570"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 233.70429683088457,
+            "unit": "median tps",
+            "extra": "avg tps: 254.57825925307708, max tps: 2657.5076829945806, count: 55570"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1865.5181150501248,
+            "unit": "median tps",
+            "extra": "avg tps: 1852.5025490448024, max tps: 2349.384165552667, count: 55570"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 164.49296677221594,
+            "unit": "median tps",
+            "extra": "avg tps: 197.40766574742207, max tps: 1672.4499441850426, count: 111140"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.582121307605307,
+            "unit": "median tps",
+            "extra": "avg tps: 15.672185617347552, max tps: 20.54491736310341, count: 55570"
           }
         ]
       }

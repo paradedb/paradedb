@@ -171,6 +171,10 @@ impl JoinSourceCandidate {
 
     pub fn with_query(mut self, query: SearchQueryInput) -> Self {
         self.query = Some(query);
+        self
+    }
+
+    pub fn with_search_predicate(mut self) -> Self {
         self.has_search_predicate = true;
         self
     }

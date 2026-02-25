@@ -129,6 +129,8 @@ pub struct Scanner {
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
+    /// When true, skip ctid fetch and visibility check — emit packed DocAddresses instead.
+    defer_visibility: bool,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
@@ -157,6 +159,12 @@ impl Scanner {
         let batch_size = batch_size_hint
             .unwrap_or(MAX_BATCH_SIZE)
             .min(MAX_BATCH_SIZE);
+        // DeferredCtid is only added by try_enable_late_materialization in the
+        // joinscan path. Its presence is the authoritative signal that visibility
+        // is deferred to VisibilityFilterExec rather than checked here per-row.
+        let defer_visibility = which_fast_fields
+            .iter()
+            .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
         Self {
             search_results,
             batch_size,
@@ -165,6 +173,7 @@ impl Scanner {
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             prefetched: None,
+            defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
             segmented_thresholds: None,
@@ -313,7 +322,13 @@ impl Scanner {
         }
 
         // Batch lookup the ctids and visibility check them.
-        let ctids: Vec<u64> = {
+        let ctids: Vec<Option<u64>> = if self.defer_visibility {
+            // Deferred visibility: skip ctid fetch and visibility check.
+            // Real ctids will be resolved later by VisibilityFilterExec from the
+            // DeferredCtid Arrow column.  The Option wrapper forces any downstream
+            // consumer to handle the absence at compile time.
+            vec![None; ids.len()]
+        } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
                 .ctid(segment_ord)
@@ -328,7 +343,7 @@ impl Scanner {
             for maybe_visible_ctid in self.visibility_results.drain(..) {
                 if let Some(visible_ctid) = maybe_visible_ctid {
                     visibility_mask_builder.append_value(true);
-                    ctids.push(visible_ctid);
+                    ctids.push(Some(visible_ctid));
                 } else {
                     visibility_mask_builder.append_value(false);
                 }
@@ -398,11 +413,18 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
+                WhichFastField::DeferredCtid(_) => {
+                    // Emit packed DocAddress for deferred ctid resolution
+                    Some(Arc::new(crate::scan::deferred_encode::pack_doc_addresses(
+                        segment_ord,
+                        &ids,
+                    )) as ArrayRef)
+                }
                 // Determine which union state to emit for the deferred column:
                 // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
                 // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
                 // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
-                WhichFastField::Deferred(_, _, is_bytes) => {
+                WhichFastField::Deferred { is_bytes, .. } => {
                     use arrow_schema::DataType;
 
                     match &memoized_columns[ff_index] {
@@ -435,6 +457,11 @@ impl Scanner {
                 .zip(scores)
                 .zip(ctids)
                 .map(|((id, score), ctid)| {
+                    // Note: Batch.ids (and SearchIndexScore) is not read by any
+                    // downstream consumer in the DataFusion path. Ctid and score
+                    // reach DataFusion through Arrow columns in Batch.fields.
+                    // In defer mode, ctid is None since the real ctid will
+                    // be resolved by VisibilityFilterExec from the DeferredCtid column.
                     (
                         SearchIndexScore::new(ctid, score),
                         DocAddress::new(segment_ord, id),

@@ -456,7 +456,9 @@ impl ExecMethod for TopNScanExecState {
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
                     return ExecState::FromHeap {
-                        ctid: scored.ctid,
+                        ctid: scored
+                            .ctid
+                            .expect("ctid must be resolved in non-join scan path"),
                         score: scored.bm25,
                         doc_address,
                     };

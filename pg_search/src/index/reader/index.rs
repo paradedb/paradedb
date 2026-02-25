@@ -61,13 +61,16 @@ pub const MAX_TOPN_FEATURES: usize = 5;
 /// Item alongside the originating tantivy [`DocAddress`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SearchIndexScore {
-    pub ctid: u64,
+    /// `None` in deferred-visibility mode (DataFusion/join path) where the real
+    /// ctid is resolved later by `VisibilityFilterExec`.  `Some(ctid)` in the
+    /// resolved (non-join) path where it is read by downstream consumers.
+    pub ctid: Option<u64>,
     pub bm25: f32,
 }
 
 impl SearchIndexScore {
     #[inline]
-    pub fn new(ctid: u64, score: Score) -> Self {
+    pub fn new(ctid: Option<u64>, score: Score) -> Self {
         Self { ctid, bm25: score }
     }
 }
@@ -133,7 +136,10 @@ impl TopNSearchResults {
                         .as_u64(doc_address.doc_id)
                         .expect("ctid should be present");
 
-                    let scored = SearchIndexScore { ctid, bm25: score };
+                    let scored = SearchIndexScore {
+                        ctid: Some(ctid),
+                        bm25: score,
+                    };
                     (scored, doc_address)
                 })
                 .collect(),
@@ -269,9 +275,11 @@ impl Iterator for MultiSegmentSearchResults {
                         )
                     });
                     let scored = SearchIndexScore {
-                        ctid: ctid_ff
-                            .as_u64(doc_address.doc_id)
-                            .expect("ctid should be present"),
+                        ctid: Some(
+                            ctid_ff
+                                .as_u64(doc_address.doc_id)
+                                .expect("ctid should be present"),
+                        ),
                         bm25: score,
                     };
 

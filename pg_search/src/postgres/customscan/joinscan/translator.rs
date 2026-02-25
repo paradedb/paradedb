@@ -61,6 +61,7 @@ impl<'a> PredicateTranslator<'a> {
         custom_exprs: &[Expr],
         ctid_map: &HashMap<pg_sys::Index, Expr>,
         predicates: &[JoinLevelSearchPredicate],
+        deferred_visibility: bool,
     ) -> Option<Expr> {
         match expr {
             JoinLevelExpr::SingleTablePredicate {
@@ -76,6 +77,7 @@ impl<'a> PredicateTranslator<'a> {
                     predicate.heaprelid,
                     predicate.query.clone(),
                     predicate.display_string.clone(),
+                    deferred_visibility,
                 );
                 Some(udf.into_expr(col.clone()))
             }
@@ -91,10 +93,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_visibility,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_visibility,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::And,
@@ -112,10 +120,16 @@ impl<'a> PredicateTranslator<'a> {
                     custom_exprs,
                     ctid_map,
                     predicates,
+                    deferred_visibility,
                 )?;
                 for child in &children[1..] {
-                    let right =
-                        Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                    let right = Self::translate_join_level_expr(
+                        child,
+                        custom_exprs,
+                        ctid_map,
+                        predicates,
+                        deferred_visibility,
+                    )?;
                     result = Expr::BinaryExpr(BinaryExpr::new(
                         Box::new(result),
                         Operator::Or,
@@ -125,8 +139,13 @@ impl<'a> PredicateTranslator<'a> {
                 Some(result)
             }
             JoinLevelExpr::Not(child) => {
-                let inner =
-                    Self::translate_join_level_expr(child, custom_exprs, ctid_map, predicates)?;
+                let inner = Self::translate_join_level_expr(
+                    child,
+                    custom_exprs,
+                    ctid_map,
+                    predicates,
+                    deferred_visibility,
+                )?;
                 Some(Expr::Not(Box::new(inner)))
             }
         }

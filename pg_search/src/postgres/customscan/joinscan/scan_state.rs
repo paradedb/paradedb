@@ -144,46 +144,85 @@ impl CustomScanState for JoinScanState {
     }
 }
 
-/// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
-///
-/// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
-/// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
-/// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
-/// in a compatible way.
-pub fn create_session_context() -> SessionContext {
+fn base_session_config() -> SessionConfig {
     let mut config = SessionConfig::new().with_target_partitions(1);
     config
         .options_mut()
         .optimizer
         .enable_topk_dynamic_filter_pushdown = true;
+    config
+}
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
-
+/// Adds the shared physical optimizer rules to a builder.
+fn add_physical_optimizer_rules(mut builder: SessionStateBuilder) -> SessionStateBuilder {
     if crate::gucs::is_mixed_fast_field_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
+        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
+    // Rule ordering matters:
+    //   1. LateMaterializationRule — creates TantivyLookupExec (text/bytes only, ctid excluded)
+    //   2. ReorderLookupAboveVisibilityRule — moves TantivyLookupExec above VisibilityFilterExec
+    //   3. VisibilityCtidResolverRule — wires FFHelper into VisibilityFilterExec for ctid resolution
+    //   4. SegmentedTopKRule — rewrites TopK patterns
     builder = builder.with_physical_optimizer_rule(Arc::new(
         crate::scan::late_materialization_rule::LateMaterializationRule,
     ));
     builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::segmented_topk_rule::SegmentedTopKRule,
+        crate::scan::reorder_lookup_above_visibility_rule::ReorderLookupAboveVisibilityRule,
     ));
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    builder = builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule,
+    ));
+    builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::segmented_topk_rule::SegmentedTopKRule,
+    ))
+}
+
+/// Creates a DataFusion SessionContext for **planning** (no visibility rule).
+///
+/// Registers the shared physical optimizer rules from `add_physical_optimizer_rules`
+/// with `target_partitions = 1` for deterministic EXPLAIN output.
+pub fn create_session_context() -> SessionContext {
+    let config = base_session_config();
+    let builder = SessionStateBuilder::new().with_config(config);
+    let builder = add_physical_optimizer_rules(builder);
+    SessionContext::new_with_state(builder.build())
+}
+
+/// Creates a DataFusion SessionContext for **execution** with visibility filtering.
+///
+/// Called at execution time (in `exec_custom_scan`). Deferred visibility is
+/// always enabled for joins — this context includes the visibility pipeline
+/// that resolves packed DocAddresses to real ctids and checks visibility.
+///
+/// This context includes:
+/// - Same physical optimizer rules as planning context (via `add_physical_optimizer_rules`)
+/// - `VisibilityFilterOptimizerRule` as a logical optimizer rule (inserts VisibilityFilterNode)
+/// - `VisibilityExtensionPlanner` to convert VisibilityFilterNode → VisibilityFilterExec
+pub fn create_execution_session_context(
+    join_clause: &JoinCSClause,
+    snapshot: pg_sys::Snapshot,
+) -> SessionContext {
+    use crate::postgres::customscan::joinscan::visibility_filter::{
+        VisibilityExtensionPlanner, VisibilityFilterOptimizerRule, VisibilityQueryPlanner,
+    };
+    use datafusion::physical_planner::DefaultPhysicalPlanner;
+
+    let config = base_session_config();
+    let mut builder = SessionStateBuilder::new().with_config(config);
+    builder = add_physical_optimizer_rules(builder);
+
+    // Visibility: logical rule + extension planner
+    builder = builder.with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new(
+        join_clause.clone(),
+    )));
+
+    let ext_planner = Arc::new(VisibilityExtensionPlanner::new(snapshot));
+    let phys_planner = DefaultPhysicalPlanner::with_extension_planners(vec![ext_planner]);
+    builder = builder.with_query_planner(Arc::new(VisibilityQueryPlanner { phys_planner }));
+
+    SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -258,7 +297,7 @@ fn build_clause_df<'a>(
         df = df.alias(&alias0)?;
 
         // Maintain a set of RTIs that are currently in 'df' (the left side)
-        let mut left_rtis = std::collections::HashSet::new();
+        let mut left_rtis = crate::api::HashSet::default();
         left_rtis.insert(join_clause.sources[0].scan_info.heap_rti);
 
         // 2. Iteratively join subsequent sources
@@ -391,7 +430,7 @@ fn build_clause_df<'a>(
 
                 for base in base_relations {
                     let rti = base.heap_rti;
-                    let ctid_name = format!("ctid_{}", rti);
+                    let ctid_name = crate::scan::ctid_column_name(rti);
                     let expr = make_col(&alias, &ctid_name);
                     ctid_map.insert(rti, expr);
                 }
@@ -400,12 +439,19 @@ fn build_clause_df<'a>(
             // Translate join-level expression to DataFusion filter.
             // Single-table predicates use SearchPredicateUDF which can be pushed down
             // to PgSearchTableProvider via DataFusion's filter pushdown mechanism.
+            // For inner joins, the UDF runs below VisibilityFilterExec (which wraps
+            // the entire plan), so incoming ctids are packed DocAddresses.
+            // For semi joins, VisibilityFilterExec is inserted per-child below the
+            // join, so incoming ctids are already real (visibility-resolved).
+            let deferred_visibility = join_clause.join_type == JoinScanJoinType::Inner;
+
             let filter_expr = unsafe {
                 crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
                     join_level_expr,
                     &translated_exprs,
                     &ctid_map,
                     &join_clause.join_level_predicates,
+                    deferred_visibility,
                 )
             }
             .ok_or_else(|| {
@@ -494,7 +540,7 @@ fn build_clause_df<'a>(
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
                 let rti = base.heap_rti;
-                let ctid_name = format!("ctid_{}", rti);
+                let ctid_name = crate::scan::ctid_column_name(rti);
                 // Check if it already exists in df schema (it should)
                 if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
                     // Carry it.
@@ -597,7 +643,11 @@ fn build_source_df<'a>(
             // the field list order doesn't match the DataFrame schema field order.
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
+                    make_col(alias, name).alias(crate::scan::ctid_column_name(scan_info.heap_rti))
+                }
+                Some(WhichFastField::DeferredCtid(_)) => {
+                    // Name already carries the alias "ctid_{rti}", no extra aliasing needed
+                    make_col(alias, name)
                 }
                 Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
                 _ => make_col(alias, name),

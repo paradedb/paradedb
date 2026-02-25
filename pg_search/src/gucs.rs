@@ -368,10 +368,8 @@ pub fn init() {
         c"Enable SegmentedTopK optimization for TopK queries on deferred columns",
         c"When enabled, ORDER BY on a late-materialized string/bytes column with LIMIT \
           uses per-segment ordinal pruning to reduce dictionary decoding. \
-          Note: this buffers all input rows (EmissionType::Final), which disables the \
-          SortExec dynamic filter feedback loop for the sort column. The net effect is \
-          positive when dictionary decoding dominates, but can be disabled if scan-level \
-          dynamic filter pruning is more beneficial for your workload.",
+          Rows are filtered incrementally as batches arrive, allowing the downstream \
+          SortExec dynamic filter feedback loop to remain active.",
         &ENABLE_SEGMENTED_TOPK,
         GucContext::Userset,
         GucFlags::default(),

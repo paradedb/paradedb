@@ -120,17 +120,6 @@ impl SemiJoinExpr {
     pub fn join_column(&self) -> &str {
         &self.join_column
     }
-
-    pub fn exists_predicate(&self) -> String {
-        format!(
-            "EXISTS (SELECT 1 FROM {} WHERE {}.{} = {}.{})",
-            self.inner_table,
-            self.inner_table,
-            self.join_column,
-            self.outer_table,
-            self.join_column
-        )
-    }
 }
 
 ///

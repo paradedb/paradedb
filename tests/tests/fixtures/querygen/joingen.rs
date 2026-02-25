@@ -101,6 +101,38 @@ impl Debug for JoinExpr {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SemiJoinExpr {
+    outer_table: String,
+    inner_table: String,
+    join_column: String,
+}
+
+impl SemiJoinExpr {
+    pub fn outer_table(&self) -> &str {
+        &self.outer_table
+    }
+
+    pub fn inner_table(&self) -> &str {
+        &self.inner_table
+    }
+
+    pub fn join_column(&self) -> &str {
+        &self.join_column
+    }
+
+    pub fn exists_predicate(&self) -> String {
+        format!(
+            "EXISTS (SELECT 1 FROM {} WHERE {}.{} = {}.{})",
+            self.inner_table,
+            self.inner_table,
+            self.join_column,
+            self.outer_table,
+            self.join_column
+        )
+    }
+}
+
 ///
 /// Generate all possible joins involving exactly the given tables.
 ///
@@ -163,5 +195,32 @@ pub fn arb_joins(
                 initial_table,
                 steps,
             }
+        })
+}
+
+///
+/// Generate EXISTS-based semi joins using two distinct tables and one join column.
+///
+pub fn arb_semi_joins(
+    tables_to_join: Vec<impl AsRef<str>>,
+    columns: Vec<impl AsRef<str>>,
+) -> impl Strategy<Value = SemiJoinExpr> {
+    let tables_to_join = tables_to_join
+        .into_iter()
+        .map(|tn| tn.as_ref().to_string())
+        .collect::<Vec<_>>();
+    let join_columns = columns
+        .into_iter()
+        .map(|cn| cn.as_ref().to_string())
+        .collect::<Vec<_>>();
+
+    (
+        sample::subsequence(tables_to_join, 2),
+        sample::select(join_columns),
+    )
+        .prop_map(|(tables, join_column)| SemiJoinExpr {
+            outer_table: tables[0].clone(),
+            inner_table: tables[1].clone(),
+            join_column,
         })
 }

@@ -3,7 +3,7 @@
 
 -- NOTES
 -- 2/24 (ming): Requires semi join support https://github.com/paradedb/paradedb/pull/4226 for join custom scan pushdown
--- 2/25 (ming): At 2 workers we're 2-3X faster hot, but at 8 workers we're similar
+-- 2/25 (ming): We're 2-3X faster with join custom scan pushdown
 
 SET work_mem = '1GB';
 SET max_parallel_workers_per_gather = 8;

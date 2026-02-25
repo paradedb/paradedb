@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771981757850,
+  "lastUpdate": 1771982746108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18394,6 +18394,54 @@ window.BENCHMARK_DATA = {
             "value": 548.107760491787,
             "unit": "median tps",
             "extra": "avg tps: 507.0977434458944, max tps: 674.4178256724339, count: 107724"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21b5d32c021128289f07948f7f5c340781d5d9f4",
+          "message": "chore: Dedupe `ScanInfo` and `JoinSource` (#4230)\n\n## What\n\nMakes the fields of `ScanInfo` non-optional, and then restores\n`JoinSource` as a wrapper around `ScanInfo`.\n\n## Why\n\nAfter #4214 they were redundant with one another. The theory behind\n`ScanInfo` is that it should always represent a scan over our index, so\nhaving any of the index-related fields be optional didn't make sense.\nLikewise, `JoinSource` is the \"we have validated all requirements\"\ncounterpart of `JoinSourceCandidate`.\n\nI believe that `JoinSource` and `ScanInfo` should stay independent for\nnow, because `ScanInfo` might eventually be used in non-join related\nscans (i.e., behind `MixedFastField`).",
+          "timestamp": "2026-02-24T16:01:13-08:00",
+          "tree_id": "aaa4fe5fe79f442d3d1f167a688fed297ecfcbe6",
+          "url": "https://github.com/paradedb/paradedb/commit/21b5d32c021128289f07948f7f5c340781d5d9f4"
+        },
+        "date": 1771982742013,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 626.9848402418709,
+            "unit": "median tps",
+            "extra": "avg tps: 626.2469180921312, max tps: 745.2038187954486, count: 53864"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 673.7004605131106,
+            "unit": "median tps",
+            "extra": "avg tps: 673.9703721445281, max tps: 786.7978666059549, count: 53864"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 83.99974835977147,
+            "unit": "median tps",
+            "extra": "avg tps: 84.08494162784159, max tps: 91.95491535886661, count: 53864"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 541.3842234613996,
+            "unit": "median tps",
+            "extra": "avg tps: 491.6905549613665, max tps: 702.0223559162512, count: 107728"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772063257458,
+  "lastUpdate": 1772063263587,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5760,6 +5760,138 @@ window.BENCHMARK_DATA = {
             "value": 54.72265625,
             "unit": "median mem",
             "extra": "avg mem: 53.71390988748501, max mem: 66.44921875, count: 55026"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9814b4b0bd6e3ed11bec9227717448867ebc25ce",
+          "message": "feat: Enable pushdown of semi joins to datafusion (#4226)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds supports for specific semi joins where there are two tables and\nthe left table is the larger source\n- Also needed to support pushing down projections to the table provider\n-- without it, semi joins could fail due to schema inconsistency between\na table provider's `scan` and `schema`\n\n## Why\n\n## How\n\n## Tests\n\nAdded semi join proptesting",
+          "timestamp": "2026-02-25T15:27:53-08:00",
+          "tree_id": "6fe358c5a99f0a5f1cf03b9bc678389509c72083",
+          "url": "https://github.com/paradedb/paradedb/commit/9814b4b0bd6e3ed11bec9227717448867ebc25ce"
+        },
+        "date": 1772063259362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.441372675605884, max cpu: 23.575638, count: 55255"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 63.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.06807585286399, max mem: 74.5625, count: 55255"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58069761306096, max cpu: 4.7524753, count: 55255"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.01634283662112, max mem: 36.5546875, count: 55255"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.601073154252701, max cpu: 9.239654, count: 55255"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.05230218136368, max mem: 73.00390625, count: 55255"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.703178003927735, max cpu: 9.338522, count: 110510"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.46118019579676, max mem: 60.765625, count: 110510"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.225275184466608, max cpu: 14.0214205, count: 55255"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 62.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.209326786037465, max mem: 73.65625, count: 55255"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1774,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1795.9952221518415, max block_count: 3175.0, count: 55255"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.936168672518324, max segment_count: 30.0, count: 55255"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.475746768357738, max cpu: 18.550726, count: 55255"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 62.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.15259097027418, max mem: 73.55859375, count: 55255"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.597725725735246, max cpu: 9.320388, count: 55255"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.10474278345851, max mem: 63.21484375, count: 55255"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.095693189900202, max cpu: 4.7244096, count: 55255"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.36519050877749, max mem: 67.61328125, count: 55255"
           }
         ]
       }

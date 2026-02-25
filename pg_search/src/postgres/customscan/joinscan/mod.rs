@@ -335,6 +335,9 @@ impl CustomScan for JoinScan {
                 } else {
                     return Vec::new();
                 };
+            let outer_source_count = source_candidates.len();
+            let inner_source_count = inner_candidates.len();
+
             source_candidates.extend(inner_candidates);
             join_keys.extend(inner_keys);
 

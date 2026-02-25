@@ -34,12 +34,12 @@ pub(super) trait ColumnMapper {
 
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub(super) struct PredicateTranslator<'a> {
-    pub sources: &'a [JoinSource],
+    pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
 impl<'a> PredicateTranslator<'a> {
-    pub fn new(sources: &'a [JoinSource]) -> Self {
+    pub fn new(sources: &'a [&'a JoinSource]) -> Self {
         Self {
             sources,
             mapper: None,
@@ -310,7 +310,7 @@ pub(super) fn make_col(relation: &str, name: &str) -> Expr {
 }
 
 pub(super) struct CombinedMapper<'a> {
-    pub sources: &'a [JoinSource],
+    pub sources: &'a [&'a JoinSource],
     pub output_columns: &'a [OutputColumnInfo],
 }
 

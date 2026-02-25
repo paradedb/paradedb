@@ -9,7 +9,7 @@ use crate::index::fast_fields_helper::{
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
-use arrow_array::{ArrayRef, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
 use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
@@ -262,24 +262,39 @@ fn materialize_deferred_column(
         .child(0)
         .as_any()
         .downcast_ref::<UInt64Array>()
-        .unwrap();
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected UInt64Array for doc_address child in deferred union".into(),
+            )
+        })?;
+
     let term_ord_child = union_array
         .child(1)
         .as_any()
         .downcast_ref::<StructArray>()
-        .unwrap();
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected StructArray for term_ord child in deferred union".into(),
+            )
+        })?;
+
     let materialized_child = union_array.child(2);
 
     let seg_ord_array = term_ord_child
         .column(0)
         .as_any()
         .downcast_ref::<UInt32Array>()
-        .unwrap();
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+        })?;
+
     let ord_array = term_ord_child
         .column(1)
         .as_any()
         .downcast_ref::<UInt64Array>()
-        .unwrap();
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt64Array for term_ord column".into())
+        })?;
 
     // 1. Group requests by segment ordinal to process one segment at a time.
     // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
@@ -301,7 +316,12 @@ fn materialize_deferred_column(
             }
             1 => {
                 let seg_ord = seg_ord_array.value(row);
-                let term_ord = ord_array.value(row);
+                // manually adding null ordinal as arrow silently removes them
+                let term_ord = if ord_array.is_null(row) {
+                    crate::index::fast_fields_helper::NULL_TERM_ORDINAL
+                } else {
+                    ord_array.value(row)
+                };
                 state_1_by_seg
                     .entry(seg_ord)
                     .or_default()
@@ -347,7 +367,7 @@ fn materialize_deferred_column(
                 "Expected Text column for index {}",
                 ff_index
             )));
-        };
+        }?;
 
         segment_arrays.push(array);
         let array_idx = segment_arrays.len() - 1;
@@ -365,7 +385,9 @@ fn materialize_deferred_column(
     seg_ords_0.sort_unstable();
 
     for seg_ord in seg_ords_0 {
-        let mut rows = state_0_by_seg.remove(&seg_ord).unwrap();
+        let mut rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
+            DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
+        })?;
         // 2. Sort doc_ids within each segment for sequential access (first_vals efficiency).
         rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
 
@@ -380,11 +402,13 @@ fn materialize_deferred_column(
             str_col.ords().first_vals(&ids, &mut term_ords);
         }
 
-        let rows_with_ords = rows
+        let mut rows_with_ords: Vec<_> = rows
             .into_iter()
             .zip(term_ords)
             .map(|((row_idx, _), ord)| (row_idx, ord.unwrap_or(NULL_TERM_ORDINAL)))
             .collect();
+        //ord to str loop assumes sorted ordinals
+        rows_with_ords.sort_unstable_by_key(|(_, ord)| *ord);
 
         process_ordinals(seg_ord, rows_with_ords)?;
     }
@@ -393,7 +417,9 @@ fn materialize_deferred_column(
     seg_ords_1.sort_unstable();
 
     for seg_ord in seg_ords_1 {
-        let mut rows = state_1_by_seg.remove(&seg_ord).unwrap();
+        let mut rows = state_1_by_seg.remove(&seg_ord).ok_or_else(|| {
+            DataFusionError::Execution(format!("Segment {} missing from state 1 map", seg_ord))
+        })?;
         // 2. Sort term ordinals within each segment for sequential access (dictionary decode efficiency).
         rows.sort_unstable_by_key(|(_, ord)| *ord);
 

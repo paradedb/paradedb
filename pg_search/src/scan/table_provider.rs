@@ -87,7 +87,7 @@ impl PgSearchTableProvider {
     }
     pub fn try_enable_late_materialization(
         &mut self,
-        required_early_columns: &std::collections::HashSet<String>,
+        required_early_columns: &crate::api::HashSet<String>,
     ) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {

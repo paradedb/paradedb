@@ -403,28 +403,38 @@ impl Scanner {
                                 .as_any()
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Text ordinals");
-                            Some(ords_to_string_array(
-                                str_column.clone(),
-                                ords_array
-                                    .into_iter()
-                                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-                            ))
+                            Some(
+                                ords_to_string_array(
+                                    str_column.clone(),
+                                    ords_array
+                                        .into_iter()
+                                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+                                )
+                                .expect("Failed to decode text dictionary"),
+                            )
                         }
                         FFType::Bytes(bytes_column) => {
                             let ords_array = col_array
                                 .as_any()
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Bytes ordinals");
-                            Some(ords_to_bytes_array(
-                                bytes_column.clone(),
-                                ords_array
-                                    .into_iter()
-                                    .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-                            ))
+                            Some(
+                                ords_to_bytes_array(
+                                    bytes_column.clone(),
+                                    ords_array
+                                        .into_iter()
+                                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
+                                )
+                                .expect("Failed to decode bytes dictionary"),
+                            )
                         }
                         _ => Some(col_array),
                     }
                 }
+                // Determine which union state to emit for the deferred column:
+                // 1. Some(UInt64) -> The pre-filter already fetched ordinals. Emit State 1 (Term Ordinals).
+                // 2. Some(other)  -> The pre-filter fully materialized the column. Emit State 2 (Materialized).
+                // 3. None         -> The pre-filter didn't touch this column. Emit State 0 (DocAddress).
                 WhichFastField::Deferred(_, _, is_bytes) => {
                     use arrow_schema::DataType;
 

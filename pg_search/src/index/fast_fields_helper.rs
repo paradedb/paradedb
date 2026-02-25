@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::OnceLock;
-
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tantivy::columnar::{BytesColumn, StrColumn};
@@ -32,7 +32,8 @@ use tantivy::{DocAddress, DocId};
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::ArrayRef;
 use arrow_buffer::Buffer;
-
+use datafusion::common::Result;
+use datafusion::error::DataFusionError;
 /// A fast-field index position value.
 pub type FFIndex = usize;
 
@@ -327,7 +328,7 @@ pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 pub(crate) fn ords_to_string_array(
     str_ff: StrColumn,
     term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> ArrayRef {
+) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
     let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
@@ -379,7 +380,11 @@ pub(crate) fn ords_to_string_array(
             current_sstable_delta_reader = str_ff
                 .dictionary()
                 .sstable_delta_reader_block(current_block_addr.clone())
-                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+                .map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to fetch next dictionary block: {e}"
+                    ))
+                })?;
             bytes.clear();
         }
 
@@ -388,10 +393,14 @@ pub(crate) fn ords_to_string_array(
             match current_sstable_delta_reader.advance() {
                 Ok(true) => {}
                 Ok(false) => {
-                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                    return Err(DataFusionError::Execution(format!(
+                        "Term ordinal {ord} did not exist in the dictionary."
+                    )));
                 }
                 Err(e) => {
-                    panic!("Failed to decode dictionary block: {e}")
+                    return Err(DataFusionError::Execution(format!(
+                        "Failed to decode dictionary block: {e}"
+                    )));
                 }
             }
             bytes.truncate(current_sstable_delta_reader.common_prefix_len());
@@ -425,7 +434,7 @@ pub(crate) fn ords_to_string_array(
         }
     }
 
-    std::sync::Arc::new(builder.finish())
+    Ok(Arc::new(builder.finish()) as ArrayRef)
 }
 
 /// Given an unordered collection of TermOrdinals for the given BytesColumn, return a
@@ -437,7 +446,7 @@ pub(crate) fn ords_to_string_array(
 pub(crate) fn ords_to_bytes_array(
     bytes_ff: BytesColumn,
     term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> ArrayRef {
+) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
     let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
@@ -489,7 +498,11 @@ pub(crate) fn ords_to_bytes_array(
             current_sstable_delta_reader = bytes_ff
                 .dictionary()
                 .sstable_delta_reader_block(current_block_addr.clone())
-                .unwrap_or_else(|e| panic!("Failed to fetch next dictionary block: {e}"));
+                .map_err(|e| {
+                    DataFusionError::Execution(format!(
+                        "Failed to fetch next dictionary block: {e}"
+                    ))
+                })?;
             bytes.clear();
         }
 
@@ -498,10 +511,14 @@ pub(crate) fn ords_to_bytes_array(
             match current_sstable_delta_reader.advance() {
                 Ok(true) => {}
                 Ok(false) => {
-                    panic!("Term ordinal {ord} did not exist in the dictionary.");
+                    return Err(DataFusionError::Execution(format!(
+                        "Term ordinal {ord} did not exist in the dictionary."
+                    )));
                 }
                 Err(e) => {
-                    panic!("Failed to decode dictionary block: {e}")
+                    return Err(DataFusionError::Execution(format!(
+                        "Failed to decode dictionary block: {e}"
+                    )));
                 }
             }
             bytes.truncate(current_sstable_delta_reader.common_prefix_len());
@@ -535,5 +552,5 @@ pub(crate) fn ords_to_bytes_array(
         }
     }
 
-    std::sync::Arc::new(builder.finish())
+    Ok(Arc::new(builder.finish()) as ArrayRef)
 }

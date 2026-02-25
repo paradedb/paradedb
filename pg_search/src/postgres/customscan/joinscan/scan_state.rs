@@ -544,7 +544,7 @@ fn build_source_df<'a>(
         let alias = scan_info.alias.as_deref().unwrap_or("base");
         let fields: Vec<WhichFastField> =
             scan_info.fields.iter().map(|f| f.field.clone()).collect();
-        let mut required_early: std::collections::HashSet<String> = Default::default();
+        let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in &join_clause.join_keys {
             if source.contains_rti(jk.outer_rti) {
                 if let Some(col) = source.column_name(jk.outer_attno) {

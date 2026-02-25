@@ -16,6 +16,9 @@ impl PhysicalOptimizerRule for LateMaterializationRule {
         "LateMaterialization"
     }
     fn schema_check(&self) -> bool {
+        // Disabled because this rule temporarily changes column types
+        // (Utf8View -> UnionArray) between PgSearchScan and TantivyLookupExec.
+        // The final output schema is correct after TantivyLookupExec restores types.
         false
     }
 

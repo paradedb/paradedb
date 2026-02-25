@@ -53,3 +53,17 @@ WHERE
 ORDER BY
     f.title ASC                       -- Single Feature Sort (Local Fast Field)
 LIMIT 25;
+
+-- term_set workaround, no join
+SET paradedb.enable_mixed_fast_field_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT
+    f.id,
+    f.title,
+    f."createdAt"
+FROM files f
+WHERE
+    f."documentId" @@@ pdb.term_set((
+        SELECT array_agg(id) FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1'
+    ))
+ORDER BY
+    f.title ASC
+LIMIT 25;

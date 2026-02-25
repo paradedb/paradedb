@@ -40,7 +40,7 @@ use std::task::{Context, Poll};
 use arrow_array::{BooleanArray, RecordBatch, UInt64Array, UnionArray};
 use arrow_schema::SchemaRef;
 use arrow_select::filter::filter_record_batch;
-use datafusion::common::Result;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
@@ -52,6 +52,7 @@ use futures::Stream;
 
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::execution_plan::UnsafeSendStream;
 
 /// segment_ord -> Vec<(batch_idx, row_idx, term_ord)>
 type ExtractedRows = crate::api::HashMap<u32, Vec<(usize, usize, u64)>>;
@@ -71,6 +72,8 @@ pub struct SegmentedTopKExec {
     /// true = DESC, false = ASC.
     descending: bool,
     /// true = BytesColumn, false = StrColumn.
+    /// Only used for plan reconstruction in `with_new_children`; execution logic
+    /// dynamically matches on `FFType::Text` vs `FFType::Bytes`.
     is_bytes: bool,
     properties: PlanProperties,
     metrics: ExecutionPlanMetricsSet,
@@ -254,7 +257,10 @@ impl SegmentedTopKStream {
     /// - `by_segment`: segment_ord -> Vec<(batch_idx, row_idx, term_ord)> for rows
     ///   that have ordinals (State 0 after FFHelper lookup, or State 1 directly).
     /// - `always_keep`: rows that must survive regardless (State 2 = already materialized).
-    fn extract_rows(&self, batches: &[RecordBatch]) -> (ExtractedRows, Vec<(usize, usize)>) {
+    fn extract_rows(
+        &self,
+        batches: &[RecordBatch],
+    ) -> Result<(ExtractedRows, Vec<(usize, usize)>)> {
         // State 0 rows need FFHelper lookup: segment_ord -> Vec<(batch_idx, row_idx, doc_id)>
         let mut state0_by_seg: crate::api::HashMap<u32, Vec<(usize, usize, u32)>> =
             crate::api::HashMap::default();
@@ -269,30 +275,50 @@ impl SegmentedTopKStream {
                 .column(self.sort_col_idx)
                 .as_any()
                 .downcast_ref::<UnionArray>()
-                .expect("sort column should be a deferred UnionArray");
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: sort column should be a deferred UnionArray".into(),
+                    )
+                })?;
 
             let type_ids = union_col.type_ids();
             let doc_addr_child = union_col
                 .child(0)
                 .as_any()
                 .downcast_ref::<UInt64Array>()
-                .expect("child 0 should be UInt64 doc addresses");
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: child 0 should be UInt64 doc addresses".into(),
+                    )
+                })?;
 
             let term_ord_child = union_col
                 .child(1)
                 .as_any()
                 .downcast_ref::<arrow_array::StructArray>()
-                .expect("child 1 should be StructArray of term ordinals");
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: child 1 should be StructArray of term ordinals".into(),
+                    )
+                })?;
             let seg_ord_array = term_ord_child
                 .column(0)
                 .as_any()
                 .downcast_ref::<arrow_array::UInt32Array>()
-                .expect("term_ordinal.segment_ord should be UInt32");
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: term_ordinal.segment_ord should be UInt32".into(),
+                    )
+                })?;
             let ord_array = term_ord_child
                 .column(1)
                 .as_any()
                 .downcast_ref::<UInt64Array>()
-                .expect("term_ordinal.term_ord should be UInt64");
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "SegmentedTopKExec: term_ordinal.term_ord should be UInt64".into(),
+                    )
+                })?;
 
             for row_idx in 0..batch.num_rows() {
                 match type_ids[row_idx] {
@@ -349,12 +375,15 @@ impl SegmentedTopKStream {
             }
         }
 
-        (with_ords, always_keep)
+        Ok((with_ords, always_keep))
     }
 
     /// Build per-segment bounded heaps and return the set of surviving (batch_idx, row_idx) pairs.
-    fn compute_survivors(&self, batches: &[RecordBatch]) -> crate::api::HashSet<(usize, usize)> {
-        let (by_segment, always_keep) = self.extract_rows(batches);
+    fn compute_survivors(
+        &self,
+        batches: &[RecordBatch],
+    ) -> Result<crate::api::HashSet<(usize, usize)>> {
+        let (by_segment, always_keep) = self.extract_rows(batches)?;
 
         let mut survivors = crate::api::HashSet::default();
 
@@ -420,7 +449,7 @@ impl SegmentedTopKStream {
             }
         }
 
-        survivors
+        Ok(survivors)
     }
 }
 
@@ -443,7 +472,10 @@ impl Stream for SegmentedTopKStream {
                             // Input exhausted — compute survivors and transition to emitting.
                             let batches = std::mem::take(batches);
                             // segments_seen is counted inside compute_survivors.
-                            let survivors = this.compute_survivors(&batches);
+                            let survivors = match this.compute_survivors(&batches) {
+                                Ok(s) => s,
+                                Err(e) => return Poll::Ready(Some(Err(e))),
+                            };
 
                             this.state = StreamState::Emitting {
                                 batches,
@@ -490,24 +522,5 @@ impl Stream for SegmentedTopKStream {
 impl RecordBatchStream for SegmentedTopKStream {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
-    }
-}
-
-struct UnsafeSendStream<T>(T);
-impl<T> UnsafeSendStream<T> {
-    unsafe fn new(t: T) -> Self {
-        Self(t)
-    }
-}
-unsafe impl<T> Send for UnsafeSendStream<T> {}
-impl<T: Stream> Stream for UnsafeSendStream<T> {
-    type Item = T::Item;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().0).poll_next(cx) }
-    }
-}
-impl<T: RecordBatchStream> RecordBatchStream for UnsafeSendStream<T> {
-    fn schema(&self) -> SchemaRef {
-        self.0.schema()
     }
 }

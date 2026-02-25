@@ -63,9 +63,7 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{
-    JoinCSClause, JoinSource, JoinType as JoinScanJoinType,
-};
+use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource, RelNode};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -208,6 +206,162 @@ pub async fn build_joinscan_physical_plan(
     }
 }
 
+/// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
+///
+/// This traversal maps the abstract relation operators (Scan, Join, Filter) onto DataFusion's
+/// logical planning APIs:
+/// - **Scan**: Instantiates a `PgSearchTableProvider` containing the Tantivy index boundaries and
+///   the set of required fields for a single relation, wrapping it in an aliased context.
+/// - **Join**: Recursively executes left/right sub-trees, collecting separated `equi_keys` and
+///   dynamically ensuring `Expr::eq(Expr)` assignments map left-bound columns to the left side
+///   of the equality expression to avoid `SchemaError`s in DataFusion.
+/// - **Filter**: Maps complex, cross-table PostgreSQL scalar expressions down to the DataFusion
+///   engine using a pre-constructed `ctid_map` for row-level execution.
+fn build_relnode_df<'a>(
+    ctx: &'a SessionContext,
+    node: &'a RelNode,
+    partitioning_rti: pg_sys::Index,
+    join_clause: &'a JoinCSClause,
+    translated_exprs: &'a [Expr],
+    ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+) -> LocalBoxFuture<'a, Result<DataFrame>> {
+    let f = async move {
+        match node {
+            RelNode::Scan(source) => {
+                let is_parallel = source.scan_info.heap_rti == partitioning_rti;
+                let mut df = build_source_df(ctx, source, is_parallel).await?;
+
+                let plan_sources = join_clause.plan.sources();
+                let source_idx = plan_sources
+                    .iter()
+                    .position(|s| s.scan_info.heap_rti == source.scan_info.heap_rti)
+                    .unwrap();
+                let alias = source.execution_alias(source_idx);
+                df = df.alias(&alias)?;
+                Ok(df)
+            }
+            RelNode::Join(join) => {
+                let left_df = build_relnode_df(
+                    ctx,
+                    &join.left,
+                    partitioning_rti,
+                    join_clause,
+                    translated_exprs,
+                    ctid_map,
+                )
+                .await?;
+                let right_df = build_relnode_df(
+                    ctx,
+                    &join.right,
+                    partitioning_rti,
+                    join_clause,
+                    translated_exprs,
+                    ctid_map,
+                )
+                .await?;
+
+                let mut on: Vec<Expr> = Vec::new();
+                for jk in &join.equi_keys {
+                    let plan_sources = join_clause.plan.sources();
+                    let outer_entry = plan_sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(jk.outer_rti))
+                        .unwrap();
+                    let inner_entry = plan_sources
+                        .iter()
+                        .enumerate()
+                        .find(|(_, s)| s.contains_rti(jk.inner_rti))
+                        .unwrap();
+
+                    let outer_alias = outer_entry.1.execution_alias(outer_entry.0);
+                    let inner_alias = inner_entry.1.execution_alias(inner_entry.0);
+
+                    let outer_col_name = outer_entry
+                        .1
+                        .column_name(jk.outer_attno)
+                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
+                    let inner_col_name = inner_entry
+                        .1
+                        .column_name(jk.inner_attno)
+                        .ok_or_else(|| DataFusionError::Internal("Missing column name".into()))?;
+
+                    let outer_expr = make_col(&outer_alias, &outer_col_name);
+                    let inner_expr = make_col(&inner_alias, &inner_col_name);
+
+                    // Ensure that the left side of `eq()` corresponds to a column from `join.left`
+                    if join.left.contains_rti(jk.outer_rti) {
+                        on.push(outer_expr.eq(inner_expr));
+                    } else {
+                        on.push(inner_expr.eq(outer_expr));
+                    }
+                }
+
+                let df_join_type = match join.join_type {
+                    crate::postgres::customscan::joinscan::build::JoinType::Inner => {
+                        JoinType::Inner
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::Left => JoinType::Left,
+                    crate::postgres::customscan::joinscan::build::JoinType::Full => JoinType::Full,
+                    crate::postgres::customscan::joinscan::build::JoinType::Right => {
+                        JoinType::Right
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::Semi => {
+                        JoinType::LeftSemi
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::Anti => {
+                        JoinType::LeftAnti
+                    }
+                };
+
+                let df = if on.is_empty() {
+                    left_df.join(right_df, df_join_type, &[], &[], None)?
+                } else {
+                    left_df.join_on(right_df, df_join_type, on)?
+                };
+
+                if join.filter.is_some() {
+                    return Err(DataFusionError::NotImplemented(
+                        "Non-equi join filters are not yet implemented".into(),
+                    ));
+                }
+
+                Ok(df)
+            }
+            RelNode::Filter(filter) => {
+                let mut df = build_relnode_df(
+                    ctx,
+                    &filter.input,
+                    partitioning_rti,
+                    join_clause,
+                    translated_exprs,
+                    ctid_map,
+                )
+                .await?;
+
+                let filter_expr = unsafe {
+                    crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
+                        &filter.predicate,
+                        translated_exprs,
+                        ctid_map,
+                        &join_clause.join_level_predicates,
+                    )
+                }
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Failed to translate join level expression tree: {:?}",
+                        filter.predicate
+                    ))
+                })?;
+
+                df = df.filter(filter_expr)?;
+                Ok(df)
+            }
+        }
+    };
+    f.boxed_local()
+}
+
 /// Recursively builds a DataFusion `DataFrame` for a given join clause.
 ///
 /// This function constructs the logical plan for a join by:
@@ -223,188 +377,68 @@ fn build_clause_df<'a>(
     custom_exprs: *mut pg_sys::List,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     let f = async move {
-        if join_clause.sources.len() < 2 {
+        let plan_sources = join_clause.plan.sources();
+        if plan_sources.len() < 2 {
             return Err(DataFusionError::Internal(
                 "JoinScan requires at least 2 sources".into(),
             ));
         }
 
-        let partitioning_idx = join_clause.partitioning_source_index();
-        let df_join_type = match join_clause.join_type {
-            JoinScanJoinType::Inner => JoinType::Inner,
-            JoinScanJoinType::Semi => JoinType::LeftSemi,
-            other => {
-                return Err(DataFusionError::Internal(format!(
-                    "JoinScan runtime: unsupported join type {:?}",
-                    other
-                )));
-            }
+        let plan = &join_clause.plan;
+
+        let partitioning_rti = join_clause.partitioning_source().scan_info.heap_rti;
+
+        let mapper = CombinedMapper {
+            sources: &plan_sources,
+            output_columns: &private_data.output_columns,
         };
 
-        // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
-        let alias0 = join_clause.sources[0].execution_alias(0);
-        df = df.alias(&alias0)?;
+        let translator =
+            crate::postgres::customscan::joinscan::translator::PredicateTranslator::new(
+                &plan_sources,
+            )
+            .with_mapper(Box::new(mapper));
 
-        // Maintain a set of RTIs that are currently in 'df' (the left side)
-        let mut left_rtis = std::collections::HashSet::new();
-        left_rtis.insert(join_clause.sources[0].scan_info.heap_rti);
-
-        // 2. Iteratively join subsequent sources
-        for i in 1..join_clause.sources.len() {
-            let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
-            let alias_right = right_source.execution_alias(i);
-            let right_df = right_df.alias(&alias_right)?;
-
-            let right_rti = right_source.scan_info.heap_rti;
-
-            // Find join keys connecting 'df' (left) and 'right_df' (right)
-            let mut on: Vec<Expr> = Vec::new();
-
-            for jk in &join_clause.join_keys {
-                // Case 1: Key connects Left(outer) -> Right(inner)
-                if left_rtis.contains(&jk.outer_rti) && jk.inner_rti == right_rti {
-                    let left_source = join_clause
-                        .sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(jk.outer_rti));
-                    if let Some((left_idx, left_src)) = left_source {
-                        let left_alias = left_src.execution_alias(left_idx);
-                        let left_col_name =
-                            left_src.column_name(jk.outer_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
-                            })?;
-
-                        let right_col_name =
-                            right_source.column_name(jk.inner_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
-                            })?;
-
-                        on.push(
-                            make_col(&left_alias, &left_col_name)
-                                .eq(make_col(&alias_right, &right_col_name)),
-                        );
-                    }
-                }
-                // Case 2: Key connects Left(inner) -> Right(outer) (swap)
-                // The JoinKeyPair stores 'outer' and 'inner' from Postgres perspective, but for our join chain:
-                // One side must be in 'left_rtis', the other must be 'right_rti'.
-                else if left_rtis.contains(&jk.inner_rti) && jk.outer_rti == right_rti {
-                    let left_source = join_clause
-                        .sources
-                        .iter()
-                        .enumerate()
-                        .find(|(_, s)| s.contains_rti(jk.inner_rti));
-                    if let Some((left_idx, left_src)) = left_source {
-                        let left_alias = left_src.execution_alias(left_idx);
-                        let left_col_name =
-                            left_src.column_name(jk.inner_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
-                            })?;
-
-                        let right_col_name =
-                            right_source.column_name(jk.outer_attno).ok_or_else(|| {
-                                DataFusionError::Internal("Missing column name".into())
-                            })?;
-
-                        on.push(
-                            make_col(&left_alias, &left_col_name)
-                                .eq(make_col(&alias_right, &right_col_name)),
-                        );
-                    }
-                }
+        // Translate all custom_exprs first
+        let mut translated_exprs = Vec::new();
+        unsafe {
+            use pgrx::PgList;
+            let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
+            for (i, expr_node) in expr_list.iter_ptr().enumerate() {
+                let expr = translator.translate(expr_node).ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "Failed to translate custom expression at index {}",
+                        i
+                    ))
+                })?;
+                translated_exprs.push(expr);
             }
-
-            if on.is_empty() {
-                // Fallback: cross join if no keys found?
-                // But JoinScan requires equi-keys.
-                // If we have (A,B,C) and A=C, B=C.
-                // Step 1: A.
-                // Step 2: Join B. No keys A=B? Cross join?
-                // Or we rely on the planner having ordered them such that there is connectivity.
-                // If not connected, it's a cross join.
-
-                // TODO: review this
-                if join_clause.join_type == JoinScanJoinType::Semi {
-                    return Err(DataFusionError::Internal(
-                        "JoinScan runtime: SEMI JOIN requires equi-join keys".into(),
-                    ));
-                }
-                df = df.join(right_df, df_join_type, &[], &[], None)?;
-            } else {
-                df = df.join_on(right_df, df_join_type, on)?;
-            }
-
-            left_rtis.insert(right_rti);
         }
 
-        // 3. Apply Filter
-        if let Some(ref join_level_expr) = join_clause.join_level_expr {
-            let mapper = CombinedMapper {
-                sources: &join_clause.sources,
-                output_columns: &private_data.output_columns,
-            };
+        let mut ctid_map = crate::api::HashMap::default();
+        for (i, source) in plan_sources.iter().enumerate() {
+            let alias = source.execution_alias(i);
 
-            let translator =
-                crate::postgres::customscan::joinscan::translator::PredicateTranslator::new(
-                    &join_clause.sources,
-                )
-                .with_mapper(Box::new(mapper));
+            let mut base_relations = Vec::new();
+            source.collect_base_relations(&mut base_relations);
 
-            // Translate all custom_exprs first
-            let mut translated_exprs = Vec::new();
-            unsafe {
-                use pgrx::PgList;
-                let expr_list = PgList::<pg_sys::Node>::from_pg(custom_exprs);
-                for (i, expr_node) in expr_list.iter_ptr().enumerate() {
-                    let expr = translator.translate(expr_node).ok_or_else(|| {
-                        DataFusionError::Internal(format!(
-                            "Failed to translate custom expression at index {}",
-                            i
-                        ))
-                    })?;
-                    translated_exprs.push(expr);
-                }
+            for base in base_relations {
+                let rti = base.heap_rti;
+                let ctid_name = format!("ctid_{}", rti);
+                let expr = make_col(&alias, &ctid_name);
+                ctid_map.insert(rti, expr);
             }
-
-            // Create a map of RTI -> CTID column expression for join-level predicates
-            let mut ctid_map = crate::api::HashMap::default();
-            for (i, source) in join_clause.sources.iter().enumerate() {
-                let alias = source.execution_alias(i);
-
-                let mut base_relations = Vec::new();
-                source.collect_base_relations(&mut base_relations);
-
-                for base in base_relations {
-                    let rti = base.heap_rti;
-                    let ctid_name = format!("ctid_{}", rti);
-                    let expr = make_col(&alias, &ctid_name);
-                    ctid_map.insert(rti, expr);
-                }
-            }
-
-            // Translate join-level expression to DataFusion filter.
-            // Single-table predicates use SearchPredicateUDF which can be pushed down
-            // to PgSearchTableProvider via DataFusion's filter pushdown mechanism.
-            let filter_expr = unsafe {
-                crate::postgres::customscan::joinscan::translator::PredicateTranslator::translate_join_level_expr(
-                    join_level_expr,
-                    &translated_exprs,
-                    &ctid_map,
-                    &join_clause.join_level_predicates,
-                )
-            }
-            .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "Failed to translate join level expression tree: {:?}",
-                    join_level_expr
-                ))
-            })?;
-
-            df = df.filter(filter_expr)?;
         }
+
+        let mut df = build_relnode_df(
+            ctx,
+            plan,
+            partitioning_rti,
+            join_clause,
+            &translated_exprs,
+            &ctid_map,
+        )
+        .await?;
 
         // 4. Apply Sort
         if !join_clause.order_by.is_empty() {
@@ -416,7 +450,7 @@ fn build_clause_df<'a>(
                         // We need the index of the ordering side.
                         let ordering_idx = join_clause.ordering_side_index();
                         if let Some(idx) = ordering_idx {
-                            let source = &join_clause.sources[idx];
+                            let source = &plan_sources[idx];
                             let alias = source.execution_alias(idx);
 
                             // Try to find the score column
@@ -436,7 +470,8 @@ fn build_clause_df<'a>(
                     } => {
                         // Resolve RTI/Attno to column expression
                         let mut resolved_expr = None;
-                        for (i, source) in join_clause.sources.iter().enumerate() {
+                        let plan_sources = join_clause.plan.sources();
+                        for (i, source) in plan_sources.iter().enumerate() {
                             if let Some(mapped_attno) = source.map_var(*rti, *attno) {
                                 if let Some(field_name) = source.column_name(mapped_attno) {
                                     let alias = source.execution_alias(i);
@@ -510,7 +545,8 @@ fn build_projection_expr(
     proj: &crate::postgres::customscan::joinscan::build::ChildProjection,
     join_clause: &JoinCSClause,
 ) -> Expr {
-    for (i, source) in join_clause.sources.iter().enumerate() {
+    let plan_sources = join_clause.plan.sources();
+    for (i, source) in plan_sources.iter().enumerate() {
         let alias = source.execution_alias(i);
 
         if proj.is_score {
@@ -552,6 +588,7 @@ fn build_source_df<'a>(
             .iter()
             .map(|f| f.field.clone())
             .collect();
+
         let provider = Arc::new(PgSearchTableProvider::new(
             scan_info,
             fields.clone(),

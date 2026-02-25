@@ -80,9 +80,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -97,7 +95,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -128,9 +126,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor OR webcam","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"display OR premium","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -145,7 +141,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -178,9 +174,7 @@ LIMIT 10;
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -195,7 +189,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -228,9 +222,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"monitor","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -245,7 +237,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -278,9 +270,7 @@ LIMIT 10;
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR monitor OR headphones","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio OR display","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -295,7 +285,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -332,9 +322,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -350,7 +338,7 @@ LIMIT 10;
            :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(22 rows)
+(20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -383,9 +371,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}} OR p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} OR (s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"professional","lenient":null,"conjunction_mode":null}}}} AND p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}}))
          Limit: 10
@@ -401,7 +387,7 @@ LIMIT 10;
            :         ProjectionExec: expr=[ctid@0 as ctid_2, id@1 as id]
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(22 rows)
+(20 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -434,9 +420,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 10
          Order By: p.id asc
@@ -450,7 +434,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR headphones","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -483,9 +467,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: ((p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}) OR (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}} AND s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"audio","lenient":null,"conjunction_mode":null}}}}))
          Limit: 10
@@ -500,7 +482,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"headphones","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -532,9 +514,7 @@ LIMIT 10;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Join Predicate: (p:{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}]}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}})
          Limit: 10
@@ -549,7 +529,7 @@ LIMIT 10;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(21 rows)
+(19 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p

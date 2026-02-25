@@ -23,7 +23,7 @@
 //! - Collect required fields to ensure availability during execution
 //! - Handle ORDER BY score pathkeys
 
-use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate};
+use super::build::{JoinCSClause, JoinKeyPair, JoinSource, JoinSourceCandidate, RelNode};
 use super::predicate::{find_base_info_recursive, is_column_fast_field};
 use super::privdat::{OutputColumnInfo, PrivateData, SCORE_COL_NAME};
 use crate::api::operator::anyelement_query_input_opoid;
@@ -108,34 +108,6 @@ pub(super) struct JoinConditions {
     pub has_search_predicate: bool,
 }
 
-trait JoinSourceLookup {
-    fn heap_rti(&self) -> pg_sys::Index;
-
-    fn map_var(
-        &self,
-        varno: pg_sys::Index,
-        attno: pg_sys::AttrNumber,
-    ) -> Option<pg_sys::AttrNumber> {
-        if self.heap_rti() == varno {
-            Some(attno)
-        } else {
-            None
-        }
-    }
-}
-
-impl JoinSourceLookup for JoinSource {
-    fn heap_rti(&self) -> pg_sys::Index {
-        self.scan_info.heap_rti
-    }
-}
-
-impl JoinSourceLookup for JoinSourceCandidate {
-    fn heap_rti(&self) -> pg_sys::Index {
-        self.heap_rti
-    }
-}
-
 /// Extract join conditions from the restrict list.
 ///
 /// Analyzes the join's restrict list to identify:
@@ -144,7 +116,7 @@ impl JoinSourceLookup for JoinSourceCandidate {
 /// - Whether any condition contains our @@@ search operator
 pub(super) unsafe fn extract_join_conditions(
     extra: *mut pg_sys::JoinPathExtraData,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
 ) -> JoinConditions {
     let result = JoinConditions {
         equi_keys: Vec::new(),
@@ -177,7 +149,7 @@ pub(super) unsafe fn get_type_info(type_oid: pg_sys::Oid) -> (i16, bool) {
 pub(super) unsafe fn collect_join_sources(
     root: *mut pg_sys::PlannerInfo,
     rel: *mut pg_sys::RelOptInfo,
-) -> Option<(Vec<JoinSourceCandidate>, Vec<JoinKeyPair>)> {
+) -> Option<(RelNode, Vec<JoinKeyPair>)> {
     if rel.is_null() {
         return None;
     }
@@ -253,7 +225,10 @@ pub(super) unsafe fn collect_join_sources(
             }
         }
 
-        return Some((vec![side_info], Vec::new()));
+        side_info.estimate_rows();
+        let source = JoinSource::try_from(side_info).ok()?;
+
+        return Some((RelNode::Scan(Box::new(source)), Vec::new()));
     }
 
     // Case 2: Join Relation (multiple relids)
@@ -275,16 +250,10 @@ pub(super) unsafe fn collect_join_sources(
                 let private_list = PgList::<pg_sys::Node>::from_pg((*custom_path).custom_private);
                 if !private_list.is_empty() {
                     let private_data = PrivateData::from((*custom_path).custom_private);
-                    // Return all sources and keys from the existing JoinScan
-                    return Some((
-                        private_data
-                            .join_clause
-                            .sources
-                            .into_iter()
-                            .map(JoinSourceCandidate::from)
-                            .collect(),
-                        private_data.join_clause.join_keys,
-                    ));
+                    // Return the plan from the existing JoinScan
+                    let plan = private_data.join_clause.plan.clone();
+                    let join_keys = plan.join_keys();
+                    return Some((plan, join_keys));
                 }
             }
         }
@@ -298,14 +267,17 @@ pub(super) unsafe fn collect_join_sources(
             let outer_rel = (*outer_path).parent;
             let inner_rel = (*inner_path).parent;
 
-            let (mut sources, mut keys) = collect_join_sources(root, outer_rel)?;
-            let (inner_sources, inner_keys) = collect_join_sources(root, inner_rel)?;
-            sources.extend(inner_sources);
+            let (outer_node, mut keys) = collect_join_sources(root, outer_rel)?;
+            let (inner_node, inner_keys) = collect_join_sources(root, inner_rel)?;
             keys.extend(inner_keys);
+
+            let mut all_sources = outer_node.sources();
+            all_sources.extend(inner_node.sources());
 
             // Extract keys for this level
             let join_restrict_info = (*join_path).joinrestrictinfo;
-            let join_conditions = extract_join_conditions_from_list(join_restrict_info, &sources);
+            let join_conditions =
+                extract_join_conditions_from_list(join_restrict_info, &all_sources);
 
             // Only support Inner Join for reconstruction for now
             let jointype = (*join_path).jointype;
@@ -325,21 +297,15 @@ pub(super) unsafe fn collect_join_sources(
             // Validate that all join keys are fast fields.
             for jk in &join_conditions.equi_keys {
                 // Find source by RTI
-                let outer_source = sources.iter().find(|s| s.contains_rti(jk.outer_rti));
-                let inner_source = sources.iter().find(|s| s.contains_rti(jk.inner_rti));
+                let outer_source = all_sources.iter().find(|s| s.contains_rti(jk.outer_rti));
+                let inner_source = all_sources.iter().find(|s| s.contains_rti(jk.inner_rti));
 
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
-                        let (Some(outer_heaprelid), Some(outer_indexrelid)) =
-                            (outer.heaprelid, outer.indexrelid)
-                        else {
-                            return None;
-                        };
-                        let (Some(inner_heaprelid), Some(inner_indexrelid)) =
-                            (inner.heaprelid, inner.indexrelid)
-                        else {
-                            return None;
-                        };
+                        let outer_heaprelid = outer.scan_info.heaprelid;
+                        let outer_indexrelid = outer.scan_info.indexrelid;
+                        let inner_heaprelid = inner.scan_info.heaprelid;
+                        let inner_indexrelid = inner.scan_info.indexrelid;
 
                         if !is_column_fast_field(outer_heaprelid, outer_indexrelid, jk.outer_attno)
                             || !is_column_fast_field(
@@ -355,9 +321,17 @@ pub(super) unsafe fn collect_join_sources(
                 }
             }
 
+            let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
+                join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
+                left: outer_node,
+                right: inner_node,
+                equi_keys: join_conditions.equi_keys.clone(),
+                filter: None,
+            };
+
             keys.extend(join_conditions.equi_keys);
 
-            return Some((sources, keys));
+            return Some((RelNode::Join(Box::new(join_node)), keys));
         }
     }
 
@@ -373,7 +347,7 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
 
 unsafe fn extract_join_conditions_from_list(
     restrictlist: *mut pg_sys::List,
-    sources: &[impl JoinSourceLookup],
+    sources: &[&JoinSource],
 ) -> JoinConditions {
     let mut result = JoinConditions {
         equi_keys: Vec::new(),
@@ -458,7 +432,7 @@ unsafe fn extract_join_conditions_from_list(
 }
 
 fn find_source_for_var(
-    sources: &[impl JoinSourceLookup],
+    sources: &[&JoinSource],
     varno: pg_sys::Index,
     attno: pg_sys::AttrNumber,
 ) -> Option<(pg_sys::Index, pg_sys::AttrNumber)> {
@@ -483,13 +457,16 @@ pub(super) unsafe fn collect_required_fields(
     output_columns: &[OutputColumnInfo],
     custom_exprs: *mut pg_sys::List,
 ) {
-    for source in &mut join_clause.sources {
+    let join_keys = join_clause.plan.join_keys();
+    let mut plan_sources = join_clause.plan.sources_mut();
+
+    for source in &mut plan_sources {
         ensure_ctid(source);
     }
 
-    if join_clause.sources.len() >= 2 {
-        for jk in &join_clause.join_keys {
-            for source in &mut join_clause.sources {
+    if plan_sources.len() >= 2 {
+        for jk in &join_keys {
+            for source in &mut plan_sources {
                 ensure_column(source, jk.outer_rti, jk.outer_attno);
                 ensure_column(source, jk.inner_rti, jk.inner_attno);
             }
@@ -504,13 +481,13 @@ pub(super) unsafe fn collect_required_fields(
                 let idx = (var.attno - 1) as usize;
                 if let Some(info) = output_columns.get(idx) {
                     if info.original_attno > 0 {
-                        for source in &mut join_clause.sources {
+                        for source in &mut plan_sources {
                             ensure_column(source, info.rti, info.original_attno);
                         }
                     }
                 }
             } else {
-                for source in &mut join_clause.sources {
+                for source in &mut plan_sources {
                     ensure_column(source, var.rti, var.attno);
                 }
             }
@@ -520,7 +497,7 @@ pub(super) unsafe fn collect_required_fields(
     for info in &join_clause.order_by {
         match &info.feature {
             OrderByFeature::Var { rti, attno, .. } => {
-                for source in &mut join_clause.sources {
+                for source in &mut plan_sources {
                     ensure_column(source, *rti, *attno);
                 }
             }
@@ -528,7 +505,7 @@ pub(super) unsafe fn collect_required_fields(
                 let name = name_wrapper.as_ref();
                 if let Some((alias, col_name)) = name.split_once('.') {
                     let raw_col_name = col_name.trim_matches('"');
-                    for source in &mut join_clause.sources {
+                    for source in &mut plan_sources {
                         if source.scan_info.alias.as_deref() == Some(alias) {
                             if let Some(attno) = get_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
@@ -600,7 +577,7 @@ unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::Att
 /// Returns false if any ORDER BY column is not a fast field.
 pub(super) unsafe fn order_by_columns_are_fast_fields(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
 ) -> bool {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
@@ -769,7 +746,7 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
 /// Extract ORDER BY information for DataFusion execution.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
-    sources: &[JoinSource],
+    sources: &[&JoinSource],
     ordering_side_index: Option<usize>,
 ) -> Vec<OrderByInfo> {
     let mut result = Vec::new();

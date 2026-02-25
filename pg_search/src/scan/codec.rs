@@ -40,31 +40,6 @@ pub struct PgSearchExtensionCodec {
 unsafe impl Send for PgSearchExtensionCodec {}
 unsafe impl Sync for PgSearchExtensionCodec {}
 
-/// Generated code for `try_decode_udf` for a list of UDF types.
-macro_rules! decode_udfs {
-    ($($name:literal => $ty:ty),* $(,)?) => {
-        fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
-            match name {
-                $(
-                    $name => {
-                        let udf: $ty = serde_json::from_slice(buf).map_err(|e| {
-                            DataFusionError::Internal(format!(
-                                "Failed to deserialize {}: {e}",
-                                stringify!($ty)
-                            ))
-                        })?;
-                        Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
-                    }
-                )*
-                _ => Err(DataFusionError::NotImplemented(format!(
-                    "UDF '{}' deserialization not implemented",
-                    name
-                ))),
-            }
-        }
-    };
-}
-
 /// Generated code for `try_encode_udf` for a list of UDF types.
 macro_rules! encode_udfs {
     ($($name:literal => $ty:ty),* $(,)?) => {
@@ -160,8 +135,21 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         Ok(())
     }
 
-    decode_udfs! {
-        "pdb_search_predicate" => SearchPredicateUDF,
+    fn try_decode_udf(&self, name: &str, buf: &[u8]) -> Result<Arc<ScalarUDF>> {
+        match name {
+            "pdb_search_predicate" => {
+                let udf: SearchPredicateUDF = serde_json::from_slice(buf).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "Failed to deserialize SearchPredicateUDF: {e}"
+                    ))
+                })?;
+                Ok(Arc::new(ScalarUDF::new_from_impl(udf)))
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "UDF '{}' deserialization not implemented",
+                name
+            ))),
+        }
     }
 
     encode_udfs! {

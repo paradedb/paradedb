@@ -1,5 +1,5 @@
+use crate::api::HashMap;
 use std::any::Any;
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -20,19 +20,34 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+
+use arrow_array::Array as _;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, serde::Serialize, serde::Deserialize)]
+pub enum DeferredKind {
+    /// Text column deferred for late materialization.
+    /// `ff_index` is the index into the FFHelper columns array.
+    Text { ff_index: usize },
+    /// Bytes column deferred for late materialization.
+    /// `ff_index` is the index into the FFHelper columns array.
+    Bytes { ff_index: usize },
+    /// Ctid column deferred for late visibility checking.
+    /// Uses `ffhelper.ctid()` instead of `ffhelper.column()`.
+    Ctid,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct DeferredField {
     pub field_name: String,
-    pub is_bytes: bool,
-    pub ff_index: usize,
+    pub kind: DeferredKind,
 }
 
 impl DeferredField {
     pub fn output_data_type(&self) -> DataType {
-        if self.is_bytes {
-            DataType::BinaryView
-        } else {
-            DataType::Utf8View
+        match self.kind {
+            DeferredKind::Text { .. } => DataType::Utf8View,
+            DeferredKind::Bytes { .. } => DataType::BinaryView,
+            DeferredKind::Ctid => DataType::UInt64,
         }
     }
 }
@@ -210,23 +225,39 @@ impl LookupStream {
                 .position(|d| &d.field_name == name)
             {
                 let field = &self.deferred_fields[d_idx];
-                let union_array = batch
-                    .column(self.deferred_col_indices[d_idx])
-                    .as_any()
-                    .downcast_ref::<arrow_array::UnionArray>()
-                    .ok_or_else(|| {
-                        DataFusionError::Execution(format!(
-                            "expected UnionArray for deferred column '{}'",
-                            name
-                        ))
-                    })?;
-                output_columns.push(materialize_deferred_column(
-                    &self.ffhelper,
-                    union_array,
-                    field.ff_index,
-                    field.is_bytes,
-                    num_rows,
-                )?);
+                let col = batch.column(self.deferred_col_indices[d_idx]);
+
+                let materialized = match &field.kind {
+                    DeferredKind::Ctid => {
+                        // Ctid columns are plain UInt64 (packed DocAddress), not UnionArrays.
+                        let doc_addr_array =
+                            col.as_any().downcast_ref::<UInt64Array>().ok_or_else(|| {
+                                DataFusionError::Execution(format!(
+                                    "expected UInt64Array for deferred ctid column '{}'",
+                                    name
+                                ))
+                            })?;
+                        materialize_deferred_ctid(&self.ffhelper, doc_addr_array, num_rows)?
+                    }
+                    DeferredKind::Text { ff_index } | DeferredKind::Bytes { ff_index } => {
+                        // Text/Bytes columns use the 3-way UnionArray encoding.
+                        let union_array =
+                            col.as_any().downcast_ref::<UnionArray>().ok_or_else(|| {
+                                DataFusionError::Execution(format!(
+                                    "expected UnionArray for deferred column '{}'",
+                                    name
+                                ))
+                            })?;
+                        materialize_deferred_column(
+                            &self.ffhelper,
+                            union_array,
+                            *ff_index,
+                            matches!(field.kind, DeferredKind::Bytes { .. }),
+                            num_rows,
+                        )?
+                    }
+                };
+                output_columns.push(materialized);
             } else {
                 let (col_idx, _) = batch.schema().column_with_name(name).ok_or_else(|| {
                     DataFusionError::Execution(format!("missing column '{}'", name))
@@ -315,6 +346,8 @@ fn materialize_deferred_column(
     }
 
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    // Default (0, 0) for null rows is safe: null rows are masked out after
+    // interleave, so the value at segment_arrays[0][0] is never used in output.
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
 
     // Map pre-materialized rows (State 2) directly.
@@ -406,6 +439,104 @@ fn materialize_deferred_column(
         segment_arrays.iter().map(|a| a.as_ref()).collect();
     interleave(&segment_arrays_refs, &indices)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+/// Materializes deferred ctid columns: unpacks DocAddresses and resolves to real ctids.
+///
+/// Takes a UInt64Array of packed DocAddresses (segment_ord << 32 | doc_id) and uses
+/// the FFHelper to look up the real ctid for each document. Null entries pass through
+/// as nulls in the output.
+fn materialize_deferred_ctid(
+    ffhelper: &FFHelper,
+    doc_addr_array: &UInt64Array,
+    num_rows: usize,
+) -> Result<ArrayRef> {
+    // Group by segment, tracking null rows separately.
+    let mut by_seg: crate::api::HashMap<u32, Vec<(usize, tantivy::DocId)>> =
+        crate::api::HashMap::default();
+    let mut null_indices: Vec<usize> = Vec::new();
+
+    for row in 0..num_rows {
+        if doc_addr_array.is_null(row) {
+            null_indices.push(row);
+            continue;
+        }
+        let packed = doc_addr_array.value(row);
+        let (seg_ord, doc_id) = unpack_doc_address(packed);
+        by_seg.entry(seg_ord).or_default().push((row, doc_id));
+    }
+
+    let mut segment_arrays: Vec<ArrayRef> = Vec::new();
+    // Default (0, 0) for null rows is safe: null rows are masked out after
+    // interleave, so the value at segment_arrays[0][0] is never used in output.
+    // segment_arrays[0] is guaranteed to exist when there are any non-null rows.
+    let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
+
+    let mut seg_ords: Vec<u32> = by_seg.keys().copied().collect();
+    seg_ords.sort_unstable();
+
+    for seg_ord in seg_ords {
+        // Safe: seg_ords was derived from by_seg.keys() above.
+        let mut rows = by_seg.remove(&seg_ord).unwrap();
+        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
+
+        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut ctid_results: Vec<Option<u64>> = vec![None; ids.len()];
+        ffhelper.ctid(seg_ord).as_u64s(&ids, &mut ctid_results);
+
+        let mut builder = arrow_array::builder::UInt64Builder::with_capacity(ids.len());
+        for val in &ctid_results {
+            match val {
+                Some(v) => builder.append_value(*v),
+                None => builder.append_null(),
+            }
+        }
+        let array = Arc::new(builder.finish()) as ArrayRef;
+
+        segment_arrays.push(array);
+        let array_idx = segment_arrays.len() - 1;
+        for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+            indices[original_row_idx] = (array_idx, idx_within_segment);
+        }
+    }
+
+    // If all rows are null, return a null UInt64 array.
+    if segment_arrays.is_empty() {
+        return Ok(arrow_array::new_null_array(&DataType::UInt64, num_rows));
+    }
+
+    let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
+        segment_arrays.iter().map(|a| a.as_ref()).collect();
+    let mut result = interleave(&segment_arrays_refs, &indices)
+        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+    // Apply null mask for rows that had null packed addresses.
+    if !null_indices.is_empty() {
+        let existing_nulls = result.nulls().cloned();
+        let mut null_buf = arrow_buffer::BooleanBufferBuilder::new(num_rows);
+        null_buf.append_n(num_rows, true);
+        for &idx in &null_indices {
+            null_buf.set_bit(idx, false);
+        }
+        let new_nulls = arrow_buffer::NullBuffer::from(null_buf.finish());
+        let combined = match existing_nulls {
+            Some(existing) => {
+                let combined_buf = existing.inner() & new_nulls.inner();
+                arrow_buffer::NullBuffer::from(combined_buf)
+            }
+            None => new_nulls,
+        };
+        result = arrow_array::make_array(
+            result
+                .to_data()
+                .into_builder()
+                .nulls(Some(combined))
+                .build()
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?,
+        );
+    }
+
+    Ok(result)
 }
 
 impl Stream for LookupStream {

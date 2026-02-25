@@ -425,6 +425,7 @@ pub fn is_all_special_or_junk_fields<'a>(
             WhichFastField::Junk(_)
                 | WhichFastField::TableOid
                 | WhichFastField::Ctid
+                | WhichFastField::DeferredCtid(_)
                 | WhichFastField::Score
         )
     })

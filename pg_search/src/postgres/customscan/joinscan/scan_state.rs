@@ -142,43 +142,76 @@ impl CustomScanState for JoinScanState {
     }
 }
 
+fn base_session_config() -> SessionConfig {
+    let mut config = SessionConfig::new().with_target_partitions(1);
+    config
+        .options_mut()
+        .optimizer
+        .enable_topk_dynamic_filter_pushdown = true;
+    config
+}
+
+/// Adds the shared physical optimizer rules to a builder.
+fn add_physical_optimizer_rules(mut builder: SessionStateBuilder) -> SessionStateBuilder {
+    if crate::gucs::is_mixed_fast_field_sort_enabled() {
+        builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
+        builder =
+            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
+    }
+    builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::late_materialization_rule::LateMaterializationRule,
+    ))
+}
+
 /// Creates a DataFusion SessionContext with our custom SortMergeJoinEnforcer physical optimizer rule.
 ///
 /// We set `target_partitions = 1` to ensure deterministic EXPLAIN output.
 /// The `SortMergeJoinEnforcer` rule runs after the initial execution plan is built
 /// and replaces `HashJoinExec` with `SortMergeJoinExec` if the inputs are already sorted
 /// in a compatible way.
+///
+/// This is the **planning** context — no visibility rule.
 pub fn create_session_context() -> SessionContext {
-    let mut config = SessionConfig::new().with_target_partitions(1);
-    config
-        .options_mut()
-        .optimizer
-        .enable_topk_dynamic_filter_pushdown = true;
+    let config = base_session_config();
+    let builder = SessionStateBuilder::new().with_config(config);
+    let builder = add_physical_optimizer_rules(builder);
+    SessionContext::new_with_state(builder.build())
+}
 
+/// Creates a DataFusion SessionContext for **execution** with visibility filtering.
+///
+/// Called at execution time (in `exec_custom_scan`). Deferred visibility is
+/// always enabled for joins — this context includes the visibility pipeline
+/// that resolves packed DocAddresses to real ctids and checks visibility.
+///
+/// This context includes:
+/// - Same physical optimizer rules as planning context
+/// - `VisibilityFilterOptimizerRule` as a logical optimizer rule (inserts VisibilityFilterNode)
+/// - `VisibilityExtensionPlanner` to convert VisibilityFilterNode → VisibilityFilterExec
+/// - `LateMaterializationRule` which sees VisibilityFilterExec as an anchor
+pub fn create_execution_session_context(
+    join_clause: &JoinCSClause,
+    snapshot: pg_sys::Snapshot,
+) -> SessionContext {
+    use crate::postgres::customscan::joinscan::visibility_filter::{
+        VisibilityExtensionPlanner, VisibilityFilterOptimizerRule, VisibilityQueryPlanner,
+    };
+    use datafusion::physical_planner::DefaultPhysicalPlanner;
+
+    let config = base_session_config();
     let mut builder = SessionStateBuilder::new().with_config(config);
+    builder = add_physical_optimizer_rules(builder);
 
-    if crate::gucs::is_mixed_fast_field_sort_enabled() {
-        let rule = Arc::new(SortMergeJoinEnforcer::new());
-        builder = builder.with_physical_optimizer_rule(rule);
-        // Re-run dynamic filter pushdown after the enforcer. The enforcer's
-        // transform_up causes `with_new_children` on ancestor nodes, which in
-        // SortExec's case creates a new DynamicFilterPhysicalExpr that hasn't
-        // been pushed to PgSearchScan yet. This second pass establishes the
-        // connection.
-        //
-        // NOTE: Inserting the enforcer before the default FilterPushdown(Post)
-        // rule (rather than appending a second pass) was considered, but the
-        // enforcer relies on detecting CoalescePartitionsExec on HashJoin
-        // children — the plan structure at that earlier pipeline point differs,
-        // causing missing SortPreservingMergeExec and incorrect join results.
-        builder =
-            builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
-    }
-    builder = builder.with_physical_optimizer_rule(Arc::new(
-        crate::scan::late_materialization_rule::LateMaterializationRule,
-    ));
-    let state = builder.build();
-    SessionContext::new_with_state(state)
+    // Visibility: logical rule + extension planner
+    builder = builder.with_optimizer_rule(Arc::new(VisibilityFilterOptimizerRule::new(
+        join_clause.clone(),
+    )));
+
+    let ext_planner = Arc::new(VisibilityExtensionPlanner::new(snapshot));
+    let phys_planner = DefaultPhysicalPlanner::with_extension_planners(vec![ext_planner]);
+    builder = builder.with_query_planner(Arc::new(VisibilityQueryPlanner { phys_planner }));
+
+    SessionContext::new_with_state(builder.build())
 }
 
 /// Build the DataFusion logical plan for the join.
@@ -538,7 +571,7 @@ fn build_source_df<'a>(
         let alias = scan_info.alias.as_deref().unwrap_or("base");
         let fields: Vec<WhichFastField> =
             scan_info.fields.iter().map(|f| f.field.clone()).collect();
-        let mut required_early: std::collections::HashSet<String> = Default::default();
+        let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in &join_clause.join_keys {
             if source.contains_rti(jk.outer_rti) {
                 if let Some(col) = source.column_name(jk.outer_attno) {
@@ -575,6 +608,10 @@ fn build_source_df<'a>(
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
                     make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
+                }
+                Some(WhichFastField::DeferredCtid(_)) => {
+                    // Name already carries the alias "ctid_{rti}", no extra aliasing needed
+                    make_col(alias, name)
                 }
                 Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
                 _ => make_col(alias, name),

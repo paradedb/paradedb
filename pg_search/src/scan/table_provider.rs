@@ -40,7 +40,7 @@ use crate::query::SearchQueryInput;
 use crate::scan::execution_plan::{PgSearchScanPlan, ScanState};
 use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
-use crate::scan::tantivy_lookup_exec::DeferredField;
+use crate::scan::tantivy_lookup_exec::{DeferredField, DeferredKind};
 use crate::scan::Scanner;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,24 +87,36 @@ impl PgSearchTableProvider {
     }
     pub fn try_enable_late_materialization(
         &mut self,
-        required_early_columns: &std::collections::HashSet<String>,
+        required_early_columns: &crate::api::HashSet<String>,
     ) {
+        let rti = self.scan_info.heap_rti;
         for wff in self.fields.iter_mut() {
-            if let WhichFastField::Named(name, field_type) = wff {
-                let is_string_or_bytes = matches!(
-                    field_type.arrow_data_type(),
-                    arrow_schema::DataType::Utf8View
-                        | arrow_schema::DataType::BinaryView
-                        | arrow_schema::DataType::LargeUtf8
-                        | arrow_schema::DataType::LargeBinary
-                );
-                if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
-                    let is_bytes = matches!(
+            match wff {
+                WhichFastField::Named(name, field_type) => {
+                    let is_string_or_bytes = matches!(
                         field_type.arrow_data_type(),
-                        arrow_schema::DataType::BinaryView | arrow_schema::DataType::LargeBinary
+                        arrow_schema::DataType::Utf8View
+                            | arrow_schema::DataType::BinaryView
+                            | arrow_schema::DataType::LargeUtf8
+                            | arrow_schema::DataType::LargeBinary
                     );
-                    *wff = WhichFastField::Deferred(name.clone(), *field_type, is_bytes);
+                    if is_string_or_bytes && !required_early_columns.contains(name.as_str()) {
+                        let is_bytes = matches!(
+                            field_type.arrow_data_type(),
+                            arrow_schema::DataType::BinaryView
+                                | arrow_schema::DataType::LargeBinary
+                        );
+                        *wff = WhichFastField::Deferred {
+                            name: name.clone(),
+                            field_type: *field_type,
+                            is_bytes,
+                        };
+                    }
                 }
+                WhichFastField::Ctid => {
+                    *wff = WhichFastField::DeferredCtid(format!("ctid_{}", rti));
+                }
+                _ => {}
             }
         }
     }
@@ -172,12 +184,24 @@ impl PgSearchTableProvider {
     pub fn deferred_fields(&self) -> Vec<DeferredField> {
         let mut deferred = Vec::new();
         for (ff_index, wff) in self.fields.iter().enumerate() {
-            if let WhichFastField::Deferred(name, _, is_bytes) = wff {
-                deferred.push(DeferredField {
-                    field_name: name.clone(),
-                    is_bytes: *is_bytes,
-                    ff_index,
-                });
+            match wff {
+                WhichFastField::Deferred { name, is_bytes, .. } => {
+                    deferred.push(DeferredField {
+                        field_name: name.clone(),
+                        kind: if *is_bytes {
+                            DeferredKind::Bytes { ff_index }
+                        } else {
+                            DeferredKind::Text { ff_index }
+                        },
+                    });
+                }
+                WhichFastField::DeferredCtid(alias) => {
+                    deferred.push(DeferredField {
+                        field_name: alias.clone(),
+                        kind: DeferredKind::Ctid,
+                    });
+                }
+                _ => {}
             }
         }
         deferred

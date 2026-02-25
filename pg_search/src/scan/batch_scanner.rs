@@ -145,6 +145,8 @@ pub struct Scanner {
     maybe_ctids: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
     prefetched: Option<Batch>,
+    /// When true, skip ctid fetch and visibility check — emit packed DocAddresses instead.
+    defer_visibility: bool,
     /// Rows entering the pre-materialization filter stage (after visibility).
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
@@ -171,6 +173,9 @@ impl Scanner {
         let batch_size = batch_size_hint
             .unwrap_or(MAX_BATCH_SIZE)
             .min(MAX_BATCH_SIZE);
+        let defer_visibility = which_fast_fields
+            .iter()
+            .any(|wff| matches!(wff, WhichFastField::DeferredCtid(_)));
         Self {
             search_results,
             batch_size,
@@ -179,6 +184,7 @@ impl Scanner {
             maybe_ctids: Vec::new(),
             visibility_results: Vec::new(),
             prefetched: None,
+            defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
         }
@@ -338,7 +344,13 @@ impl Scanner {
         }
 
         // Batch lookup the ctids and visibility check them.
-        let ctids: Vec<u64> = {
+        let ctids: Vec<u64> = if self.defer_visibility {
+            // Deferred visibility: skip ctid fetch and visibility check.
+            // Real ctids will be resolved later by TantivyLookupExec from the
+            // DeferredCtid Arrow column. This vec only feeds SearchIndexScore.ctid
+            // which is not read downstream, so we avoid the redundant computation.
+            vec![0u64; ids.len()]
+        } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
                 .ctid(segment_ord)
@@ -425,7 +437,14 @@ impl Scanner {
                         _ => Some(col_array),
                     }
                 }
-                WhichFastField::Deferred(_, _, is_bytes) => {
+                WhichFastField::DeferredCtid(_) => {
+                    // Emit packed DocAddress for deferred ctid resolution
+                    Some(Arc::new(crate::scan::deferred_encode::pack_doc_addresses(
+                        segment_ord,
+                        &ids,
+                    )) as ArrayRef)
+                }
+                WhichFastField::Deferred { is_bytes, .. } => {
                     use arrow_schema::DataType;
 
                     match &memoized_columns[ff_index] {
@@ -458,6 +477,11 @@ impl Scanner {
                 .zip(scores)
                 .zip(ctids)
                 .map(|((id, score), ctid)| {
+                    // Note: Batch.ids (and SearchIndexScore) is not read by any
+                    // downstream consumer in the DataFusion path. Ctid and score
+                    // reach DataFusion through Arrow columns in Batch.fields.
+                    // In defer mode, ctid is 0 (dummy) since the real ctid will
+                    // be resolved by TantivyLookupExec from the DeferredCtid column.
                     (
                         SearchIndexScore::new(ctid, score),
                         DocAddress::new(segment_ord, id),

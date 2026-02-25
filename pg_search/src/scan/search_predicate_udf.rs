@@ -51,6 +51,7 @@
 //!   reference it as a CTE, avoiding repeated evaluation.
 
 use std::any::Any;
+use std::hash::Hash;
 use std::sync::Arc;
 
 use arrow_array::builder::BooleanBuilder;
@@ -79,7 +80,7 @@ pub const SEARCH_PREDICATE_UDF_NAME: &str = "pdb_search_predicate";
 /// - index_oid: UInt32 - OID of the BM25 index
 /// - heap_oid: UInt32 - OID of the heap table
 /// - query_json: Utf8 - JSON serialization of SearchQueryInput
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchPredicateUDF {
     /// OID of the BM25 index
     pub index_oid: pg_sys::Oid,
@@ -92,6 +93,26 @@ pub struct SearchPredicateUDF {
     display_string: String,
     #[serde(skip, default = "SearchPredicateUDF::make_signature")]
     signature: Signature,
+}
+
+// Manual PartialEq/Eq/Hash impls excluding `signature` (which doesn't implement
+// these traits). Only the semantically meaningful fields are compared.
+impl PartialEq for SearchPredicateUDF {
+    fn eq(&self, other: &Self) -> bool {
+        self.index_oid == other.index_oid
+            && self.heap_oid == other.heap_oid
+            && self.query_json == other.query_json
+            && self.display_string == other.display_string
+    }
+}
+impl Eq for SearchPredicateUDF {}
+impl Hash for SearchPredicateUDF {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.index_oid.hash(state);
+        self.heap_oid.hash(state);
+        self.query_json.hash(state);
+        self.display_string.hash(state);
+    }
 }
 
 impl SearchPredicateUDF {
@@ -254,9 +275,26 @@ impl SearchPredicateUDF {
         })?;
 
         let search_results = reader.search();
-        let fields = vec![WhichFastField::Ctid];
+
+        // Use DeferredCtid so the Scanner skips ctid fetch and visibility
+        // checking entirely. It emits packed DocAddresses (segment_ord << 32
+        // | doc_id) constructed directly from Tantivy's iterator output —
+        // no heap access needed.
+        //
+        // This must match what the scan emits: in join contexts (the only
+        // context where this UDF runs), deferred visibility is always on,
+        // so the incoming batch also has packed DocAddresses. The binary
+        // search in invoke_with_args compares packed vs packed.
+        let fields = vec![WhichFastField::DeferredCtid(format!(
+            "ctid_udf_{}",
+            self.heap_oid.to_u32()
+        ))];
         let ffhelper = FFHelper::with_fields(&reader, &fields);
 
+        // The VisibilityChecker is required by Scanner::next()'s signature but is
+        // never called when DeferredCtid is used (defer_visibility=true skips it).
+        // TODO: refactor Scanner::next() to accept Option<&mut VisibilityChecker>
+        // to avoid this allocation.
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 

@@ -24,12 +24,17 @@ pub fn term_ordinal_type() -> DataType {
     )
 }
 
+/// Packs a single segment ordinal and doc ID into a 64-bit integer.
+#[inline]
+pub fn pack_doc_address(segment_ord: SegmentOrdinal, doc_id: DocId) -> u64 {
+    ((segment_ord as u64) << 32) | (doc_id as u64)
+}
+
 /// Packs segment ordinals and doc IDs into a single 64-bit integer array.
 pub fn pack_doc_addresses(segment_ord: SegmentOrdinal, doc_ids: &[DocId]) -> UInt64Array {
     let mut b = arrow_array::builder::UInt64Builder::with_capacity(doc_ids.len());
     for doc_id in doc_ids {
-        let packed = ((segment_ord as u64) << 32) | (*doc_id as u64);
-        b.append_value(packed);
+        b.append_value(pack_doc_address(segment_ord, *doc_id));
     }
     b.finish()
 }

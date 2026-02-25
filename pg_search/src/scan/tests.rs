@@ -472,4 +472,47 @@ mod tests {
 
         pgrx::warning!("All DataFusion filter pushdown end-to-end tests passed!");
     }
+
+    #[pg_test]
+    fn test_filter_pushdown_with_deferred_text_field() {
+        use crate::scan::info::ScanInfo;
+        use crate::scan::table_provider::PgSearchTableProvider;
+        use datafusion::catalog::TableProvider;
+        use datafusion::logical_expr::{col, lit, TableProviderFilterPushDown};
+
+        let fields = vec![
+            WhichFastField::Ctid,
+            WhichFastField::Named(
+                "title".to_string(),
+                SearchFieldType::Text(pgrx::pg_sys::InvalidOid),
+            ),
+        ];
+
+        let scan_info = ScanInfo {
+            heap_rti: 1,
+            heaprelid: pgrx::pg_sys::InvalidOid,
+            indexrelid: pgrx::pg_sys::InvalidOid,
+            ..Default::default()
+        };
+
+        let mut provider = PgSearchTableProvider::new(scan_info, fields, None, false);
+        provider.try_enable_late_materialization(&Default::default());
+
+        // Ensure we are actually testing the deferred representation.
+        // Deferred text fields use the 3-way UnionArray type, not the original Utf8View.
+        let schema = provider.schema();
+        let (_, title_field) = schema
+            .column_with_name("title")
+            .expect("title field should exist");
+        let expected_type = crate::scan::deferred_encode::deferred_union_data_type(false);
+        assert_eq!(title_field.data_type(), &expected_type);
+
+        let filter = col("title").eq(lit("wireless"));
+        let results = provider.supports_filters_pushdown(&[&filter]).unwrap();
+        assert_eq!(
+            results,
+            vec![TableProviderFilterPushDown::Exact],
+            "deferred text fields should still support pushdown",
+        );
+    }
 }

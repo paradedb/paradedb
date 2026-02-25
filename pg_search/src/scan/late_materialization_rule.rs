@@ -96,6 +96,7 @@ fn is_anchor(plan: &dyn ExecutionPlan) -> bool {
             | "NestedLoopJoinExec"
             | "CrossJoinExec"
             | "SortMergeJoinExec"
+            | "VisibilityFilterExec"
     )
 }
 

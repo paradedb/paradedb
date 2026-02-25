@@ -148,6 +148,7 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
+pub mod visibility_filter;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
@@ -161,8 +162,8 @@ use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
-    JoinScanState,
+    build_joinscan_logical_plan, build_joinscan_physical_plan, create_execution_session_context,
+    create_session_context, JoinScanState,
 };
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
@@ -983,8 +984,8 @@ impl CustomScan for JoinScan {
                     .as_ref()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
-                let ctx = create_session_context();
+                // Always use the execution context with deferred visibility.
+                let ctx = create_execution_session_context(&join_clause, snapshot);
                 let codec = PgSearchExtensionCodec {
                     parallel_state: state.custom_state().parallel_state,
                 };

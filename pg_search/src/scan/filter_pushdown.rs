@@ -277,13 +277,14 @@ impl<'a> FilterAnalyzer<'a> {
     // -------------------------------------------------------------------------
 
     fn find_field(&self, name: &str) -> Option<&SearchFieldType> {
-        self.fields.iter().find_map(|field| {
-            if let WhichFastField::Named(field_name, field_type) = field {
-                if field_name == name {
-                    return Some(field_type);
-                }
-            }
-            None
+        self.fields.iter().find_map(|field| match field {
+            WhichFastField::Named(field_name, field_type)
+            | WhichFastField::Deferred {
+                name: field_name,
+                field_type,
+                ..
+            } if field_name == name => Some(field_type),
+            _ => None,
         })
     }
 }

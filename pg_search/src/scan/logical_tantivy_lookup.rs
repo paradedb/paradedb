@@ -23,12 +23,9 @@ impl LogicalTantivyLookup {
         for field in input_schema.fields() {
             let name = field.name();
             if let Some(deferred) = deferred_fields.iter().find(|d| d.field_name == *name) {
-                let output_type = if deferred.is_bytes {
-                    arrow_schema::DataType::BinaryView
-                } else {
-                    arrow_schema::DataType::Utf8View
-                };
-                new_fields.push(Field::new(name, output_type, true).into());
+                new_fields.push(
+                    Field::new(name, deferred.output_data_type(), true).into(),
+                );
             } else {
                 new_fields.push(field.clone());
             }

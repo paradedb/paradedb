@@ -63,10 +63,11 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _, _) => {
+                        WhichFastField::Named(name, _) | WhichFastField::Deferred { name, .. } => {
                             lookup.push((name.to_string(), OnceLock::default()))
                         }
                         WhichFastField::Ctid
+                        | WhichFastField::DeferredCtid(_)
                         | WhichFastField::TableOid
                         | WhichFastField::Score
                         | WhichFastField::Junk(_) => {
@@ -246,7 +247,12 @@ pub enum WhichFastField {
     TableOid,
     Score,
     Named(String, SearchFieldType),
-    Deferred(String, SearchFieldType, bool),
+    Deferred {
+        name: String,
+        field_type: SearchFieldType,
+        is_bytes: bool,
+    },
+    DeferredCtid(String),
 }
 
 impl<S: AsRef<str>> From<(S, SearchFieldType)> for WhichFastField {
@@ -277,7 +283,8 @@ impl WhichFastField {
             WhichFastField::TableOid => "tableoid".into(),
             WhichFastField::Score => "pdb.score()".into(),
             WhichFastField::Named(s, _) => s.clone(),
-            WhichFastField::Deferred(s, _, _) => s.clone(),
+            WhichFastField::Deferred { name, .. } => name.clone(),
+            WhichFastField::DeferredCtid(alias) => alias.clone(),
         }
     }
 
@@ -285,7 +292,8 @@ impl WhichFastField {
     pub fn field_type(&self) -> Option<&SearchFieldType> {
         match self {
             WhichFastField::Named(_, field_type) => Some(field_type),
-            WhichFastField::Deferred(_, field_type, _) => Some(field_type),
+            WhichFastField::Deferred { field_type, .. } => Some(field_type),
+            WhichFastField::DeferredCtid(_) => None,
             _ => None,
         }
     }
@@ -299,9 +307,10 @@ impl WhichFastField {
             WhichFastField::Score => DataType::Float32,
             WhichFastField::Named(_, field_type) => field_type.arrow_data_type(),
             WhichFastField::Junk(_) => DataType::Null,
-            WhichFastField::Deferred(_, _, is_bytes) => {
+            WhichFastField::Deferred { is_bytes, .. } => {
                 crate::scan::deferred_encode::deferred_union_data_type(*is_bytes)
             }
+            WhichFastField::DeferredCtid(_) => DataType::UInt64,
         }
     }
 }

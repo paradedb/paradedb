@@ -1,0 +1,149 @@
+-- Tests for Semi and Anti Joins with Join Custom Scan
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS table_a CASCADE;
+CREATE TABLE table_a (
+    id bigint NOT NULL PRIMARY KEY,
+    category character varying
+);
+INSERT INTO table_a (id, category)
+SELECT
+    i,
+    CASE WHEN i % 2 = 0 THEN 'target_category' ELSE 'other_category' END
+FROM generate_series(1, 2000) as i;
+DROP TABLE IF EXISTS table_b CASCADE;
+CREATE TABLE table_b (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    group_id character varying,
+    a_id bigint
+);
+INSERT INTO table_b (group_id, a_id)
+SELECT
+    CASE WHEN i % 10 = 0 THEN 'group_1' ELSE 'group_2' END,
+    i
+FROM generate_series(1, 2000) as i;
+CREATE INDEX table_a_idx ON table_a
+USING bm25 (id, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+CREATE INDEX table_b_group_id_idx ON table_b USING btree (group_id);
+CREATE INDEX table_b_group_id_a_id_idx ON table_b USING btree (group_id, a_id);
+CREATE INDEX table_b_idx ON table_b
+USING bm25 (id, group_id, a_id)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "group_id": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }',
+    numeric_fields = '{
+        "a_id": {"fast": true}
+    }'
+);
+-- Query execution
+SET paradedb.enable_join_custom_scan TO on;
+-- =====================================================================
+-- 1. Semi Join Only
+-- =====================================================================
+EXPLAIN
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+WARNING:  JoinScan not used: SEMI JOIN requires the left side to be the largest source (tables: table_a, table_b)
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=35.52..35.53 rows=5 width=40)
+   ->  Sort  (cost=35.52..35.53 rows=5 width=40)
+         Sort Key: table_a.id
+         ->  Hash Semi Join  (cost=27.78..35.46 rows=5 width=40)
+               Hash Cond: (table_a.id = table_b.a_id)
+               ->  Custom Scan (ParadeDB Scan) on table_a  (cost=10.00..15.00 rows=1000 width=40)
+                     Table: table_a
+                     Index: table_a_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: category, id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+               ->  Hash  (cost=17.65..17.65 rows=10 width=8)
+                     ->  Bitmap Heap Scan on table_b  (cost=4.36..17.65 rows=10 width=8)
+                           Recheck Cond: ((group_id)::text = 'group_1'::text)
+                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx  (cost=0.00..4.35 rows=10 width=0)
+                                 Index Cond: ((group_id)::text = 'group_1'::text)
+(18 rows)
+
+-- =====================================================================
+-- 2. Anti Join Only
+-- =====================================================================
+-- TODO: This query only triggers set_rel_pathlist_hook and not set_join_pathlist_hook, and so does
+-- not render our warning. See https://github.com/paradedb/paradedb/issues/4236 about resolving this.
+SELECT id, category
+FROM table_a
+WHERE id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+ id |    category     
+----+-----------------
+  2 | target_category
+  4 | target_category
+  6 | target_category
+  8 | target_category
+ 10 | target_category
+ 12 | target_category
+ 14 | target_category
+ 16 | target_category
+ 18 | target_category
+ 20 | target_category
+(10 rows)
+
+-- =====================================================================
+-- 3. Both Semi and Anti Join
+-- =====================================================================
+-- This query should produce a warning because neither are supported.
+SELECT id, category
+FROM table_a
+WHERE id IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_1')
+)
+AND id NOT IN (
+    SELECT a_id
+    FROM table_b
+    WHERE group_id IN ('group_3', 'group_4')
+)
+AND id @@@ 'category:"target_category"'
+ORDER BY id ASC
+LIMIT 10;
+ id  |    category     
+-----+-----------------
+  10 | target_category
+  20 | target_category
+  30 | target_category
+  40 | target_category
+  50 | target_category
+  60 | target_category
+  70 | target_category
+  80 | target_category
+  90 | target_category
+ 100 | target_category
+(10 rows)
+
+-- Cleanup
+DROP TABLE table_a CASCADE;
+DROP TABLE table_b CASCADE;
+RESET paradedb.enable_join_custom_scan;

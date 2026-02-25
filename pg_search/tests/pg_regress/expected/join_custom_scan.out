@@ -2681,8 +2681,8 @@ WHERE p.description @@@ 'wireless'
   AND p.price >= s.min_order_value
 ORDER BY p.id
 LIMIT 10;
-                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2691,7 +2691,7 @@ LIMIT 10;
          Relation 0: suppliers (s)
          Relation 1: products (p)
          Join Cond: p.supplier_id = s.id
-         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
+         Join Predicate: heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1}
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -2716,8 +2716,8 @@ JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'cable'
    OR p.price >= s.min_order_value
 LIMIT 10;
-                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, p.price, s.name, s.min_order_value
    ->  Custom Scan (ParadeDB Join Scan)
@@ -2726,7 +2726,7 @@ LIMIT 10;
          Relation 0: suppliers (s)
          Relation 1: products (p)
          Join Cond: p.supplier_id = s.id
-         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
+         Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"cable","lenient":null,"conjunction_mode":null}}}} OR heap:{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 5 :location -1} {VAR :varno 2 :varattno 5 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 5 :location -1}) :location -1})
          Limit: 10
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, NULL as col_2, price@5 as col_3, NULL as col_4, min_order_value@2 as col_5, ctid_2@0 as ctid_2, ctid_1@3 as ctid_1]
@@ -3701,8 +3701,8 @@ ORDER BY t1.val ASC
 LIMIT 10;
                                                                                                                                 QUERY PLAN                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10 loops=1)
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Join Type: Inner
          Relation 0: dyn_filter_t2 (t2)
          Relation 1: dyn_filter_t1 (t1)
@@ -3834,11 +3834,11 @@ ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
                                                                                                                                                                            QUERY PLAN                                                                                                                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=25 loops=1)
-   ->  Sort (actual rows=25 loops=1)
+ Limit (actual rows=25.00 loops=1)
+   ->  Sort (actual rows=25.00 loops=1)
          Sort Key: t1.val DESC, t1.id
          Sort Method: quicksort  Memory: 26kB
-         ->  Custom Scan (ParadeDB Join Scan) (actual rows=25 loops=1)
+         ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
                Join Type: Inner
                Relation 0: null_val_t2 (t2)
                Relation 1: null_val_t1 (t1)

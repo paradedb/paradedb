@@ -1684,9 +1684,9 @@ dependencies = [
 
 [[package]]
 name = "datafusion"
-version = "52.1.0"
+version = "52.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d12ee9fdc6cdb5898c7691bb994f0ba606c4acc93a2258d78bb9f26ff8158bb3"
+checksum = "f02e9a7e70f214e5282db11c8effba173f4e25a00977e520c6b811817e3a082b"
 dependencies = [
  "arrow",
  "arrow-schema",
@@ -2208,9 +2208,9 @@ dependencies = [
 
 [[package]]
 name = "datafusion-proto"
-version = "52.1.0"
+version = "52.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cf75daf56aa6b1c6867cc33ff0fb035d517d6d06737fd355a3e1ef67cba6e7a"
+checksum = "a0a96a57f60a53041c6d275dc46313bbe34f07ed51c4cea3557b321d4f3da7e0"
 dependencies = [
  "arrow",
  "chrono",

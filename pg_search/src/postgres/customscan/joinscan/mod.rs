@@ -396,9 +396,7 @@ impl CustomScan for JoinScan {
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
             if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
-                let is_user_visible_jointype =
-                    (jointype as u32) <= (pg_sys::JoinType::JOIN_ANTI as u32);
-
+                let is_user_visible_jointype = jointype <= pg_sys::JoinType::JOIN_ANTI;
                 if is_interesting && is_user_visible_jointype {
                     Self::add_planner_warning(
                             format!(

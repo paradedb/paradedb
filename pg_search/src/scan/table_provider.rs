@@ -246,6 +246,7 @@ impl PgSearchTableProvider {
     ///
     /// This method opens all segments upfront as separate partitions, allowing DataFusion
     /// to treat them as distinct streams (sorted or not).
+    #[allow(clippy::too_many_arguments)]
     fn create_eager_scan(
         &self,
         reader: &SearchIndexReader,

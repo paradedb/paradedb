@@ -35,7 +35,7 @@ use std::ptr::NonNull;
 
 /// Represents the join type for serialization.
 ///
-/// Note: Currently only Inner join is supported, but other variants are
+/// Note: Currently INNER and SEMI joins are supported. Other variants are
 /// defined for future extensibility and to match PostgreSQL's JoinType enum.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub enum JoinType {
@@ -416,7 +416,7 @@ pub enum JoinLevelExpr {
 pub struct JoinCSClause {
     /// Information about the sources involved in the join (N-way).
     pub sources: Vec<JoinSource>,
-    /// The type of join (Currently implicitly inner for all).
+    /// The type of join (INNER or SEMI).
     pub join_type: JoinType,
     /// The join key column pairs (for equi-joins).
     pub join_keys: Vec<JoinKeyPair>,
@@ -456,6 +456,12 @@ impl JoinCSClause {
 
     pub fn with_output_projection(mut self, projection: Vec<ChildProjection>) -> Self {
         self.output_projection = Some(projection);
+        self
+    }
+
+    /// Add a source to this join clause (builder pattern).
+    pub fn add_source(mut self, source: JoinSource) -> Self {
+        self.sources.push(source);
         self
     }
 

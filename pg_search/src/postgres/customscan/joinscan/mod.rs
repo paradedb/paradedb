@@ -148,6 +148,7 @@ mod predicate;
 mod privdat;
 mod scan_state;
 mod translator;
+pub mod visibility_filter;
 
 use self::build::JoinCSClause;
 use self::explain::{format_join_level_expr, get_attname_safe};
@@ -161,7 +162,7 @@ use self::predicate::{extract_join_level_conditions, is_column_fast_field};
 use self::privdat::PrivateData;
 
 use self::scan_state::{
-    build_joinscan_logical_plan, build_joinscan_physical_plan, create_session_context,
+    build_joinscan_logical_plan, build_joinscan_physical_plan, create_execution_session_context,
     JoinScanState,
 };
 use crate::api::OrderByFeature;
@@ -384,12 +385,11 @@ impl CustomScan for JoinScan {
                 }
             }
 
-            // TODO(join-types): Currently only INNER JOIN is supported.
+            // TODO(join-types): Currently only INNER and SEMI JOIN are supported.
             // Future work should add:
             // - LEFT JOIN: Return NULL for non-matching non-ordering rows; track matched ordering rows
             // - RIGHT JOIN: Swap ordering/non-ordering sides, then use LEFT logic
             // - FULL OUTER JOIN: Track unmatched rows on both sides; two-pass or marking approach
-            // - SEMI JOIN: Stop after first match per ordering row (benefits EXISTS queries)
             // - ANTI JOIN: Return only ordering rows with no matches (benefits NOT EXISTS)
             //
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
@@ -958,8 +958,12 @@ impl CustomScan for JoinScan {
                 }
             }
         } else if let Some(ref logical_plan) = state.custom_state().logical_plan {
-            // For plain EXPLAIN, reconstruct the plan from the serialized logical plan.
-            let ctx = create_session_context();
+            // For plain EXPLAIN, reconstruct the plan using the same visibility-aware
+            // execution context as runtime so the displayed physical plan matches execution.
+            let snapshot = unsafe { state.csstate.ss.ps.state.as_ref() }
+                .map(|estate| estate.es_snapshot)
+                .unwrap_or_else(|| unsafe { pg_sys::GetActiveSnapshot() });
+            let ctx = create_execution_session_context(join_clause, snapshot);
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1034,8 +1038,8 @@ impl CustomScan for JoinScan {
                     .as_ref()
                     .expect("Logical plan is required");
 
-                // Deserialize the logical plan
-                let ctx = create_session_context();
+                // Always use the execution context with deferred visibility.
+                let ctx = create_execution_session_context(&join_clause, snapshot);
                 let codec = PgSearchExtensionCodec {
                     parallel_state: state.custom_state().parallel_state,
                 };

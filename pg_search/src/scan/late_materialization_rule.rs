@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::index::fast_fields_helper::FFHelper;
 use crate::scan::execution_plan::PgSearchScanPlan;
-use crate::scan::tantivy_lookup_exec::{DeferredField, TantivyLookupExec};
+use crate::scan::tantivy_lookup_exec::{DeferredField, DeferredKind, TantivyLookupExec};
 
 #[derive(Debug)]
 pub struct LateMaterializationRule;
@@ -46,10 +46,24 @@ fn rewrite(
 ) -> Result<(Arc<dyn ExecutionPlan>, Option<PendingLookup>)> {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
         if !scan.deferred_fields().is_empty() {
+            // Filter out Ctid fields — TantivyLookupExec performs dictionary-based
+            // text/bytes materialization via term ordinals, which is incompatible with
+            // ctid resolution (requires FFHelper::ctid() per-segment, not dictionary lookup).
+            // VisibilityFilterExec handles ctid resolution through its own pipeline.
+            let non_ctid_fields: Vec<DeferredField> = scan
+                .deferred_fields()
+                .iter()
+                .filter(|d| !matches!(d.kind, DeferredKind::Ctid))
+                .cloned()
+                .collect();
+            if non_ctid_fields.is_empty() {
+                // Only ctid was deferred — no TantivyLookupExec needed.
+                return Ok((plan.clone(), None));
+            }
             return Ok((
                 plan.clone(),
                 Some(PendingLookup {
-                    deferred_fields: scan.deferred_fields().to_vec(),
+                    deferred_fields: non_ctid_fields,
                     ffhelper: Arc::clone(scan.ffhelper()),
                 }),
             ));

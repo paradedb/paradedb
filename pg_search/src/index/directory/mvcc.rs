@@ -497,12 +497,14 @@ impl Directory for MVCCDirectory {
                     // way to identify a `SegmentReader` as being in-memory, then we could put it
                     // back in parallel worker initialization.
                     loaded.meta.segments.sort_unstable_by_key(|meta| {
-                        match all_entries.get(&meta.id()).unwrap() {
+                        let id = meta.id();
+                        let doc_count = match all_entries.get(&id).unwrap() {
                             LoadedSegmentMetaEntry::Persisted { meta, .. } => meta.num_docs(),
                             LoadedSegmentMetaEntry::Memory { meta, .. } => {
                                 (u32::MAX as usize) + meta.num_docs()
                             }
-                        }
+                        };
+                        (doc_count, id)
                     });
 
                     *self.all_entries.lock() = all_entries;

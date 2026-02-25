@@ -151,6 +151,8 @@ fn try_inject_below_lookup(
                 .find(|d| d.field_name == sort_col_name);
 
             if let Some(field) = matching_field {
+                let (ff_index, is_bytes) = field.kind.ff_index_and_is_bytes();
+
                 // Found a match. Inject SegmentedTopKExec below TantivyLookupExec.
                 let lookup_child = &lookup.children()[0];
 
@@ -161,17 +163,17 @@ fn try_inject_below_lookup(
                     None => return Ok(None),
                 };
 
-                let thresholds = Arc::new(SegmentedThresholds::new(descending, field.ff_index));
+                let thresholds = Arc::new(SegmentedThresholds::new(descending, ff_index));
 
                 let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
                     sort_col_name.to_string(),
                     sort_col_idx,
-                    field.ff_index,
+                    ff_index,
                     Arc::clone(lookup.ffhelper()),
                     k,
                     descending,
-                    field.is_bytes,
+                    is_bytes,
                     Arc::clone(&thresholds),
                 ));
 

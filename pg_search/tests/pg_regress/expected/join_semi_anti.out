@@ -58,29 +58,7 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: SEMI JOIN requires the left side to be the largest source (tables: table_a, table_b)
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=35.52..35.53 rows=5 width=40)
-   ->  Sort  (cost=35.52..35.53 rows=5 width=40)
-         Sort Key: table_a.id
-         ->  Hash Semi Join  (cost=27.78..35.46 rows=5 width=40)
-               Hash Cond: (table_a.id = table_b.a_id)
-               ->  Custom Scan (ParadeDB Scan) on table_a  (cost=10.00..15.00 rows=1000 width=40)
-                     Table: table_a
-                     Index: table_a_idx
-                     Segment Count: 1
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: category, id
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash  (cost=17.65..17.65 rows=10 width=8)
-                     ->  Bitmap Heap Scan on table_b  (cost=4.36..17.65 rows=10 width=8)
-                           Recheck Cond: ((group_id)::text = 'group_1'::text)
-                           ->  Bitmap Index Scan on table_b_group_id_a_id_idx  (cost=0.00..4.35 rows=10 width=0)
-                                 Index Cond: ((group_id)::text = 'group_1'::text)
-(18 rows)
-
+ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "table_b" }), name: "a_id" }, valid_fields: [Column { relation: Some(Bare { table: "table_a" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "table_a" }), name: "id" }] }, Some(""))
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
@@ -129,6 +107,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
+WARNING:  JoinScan not used: SEMI JOIN currently supports only binary base-table joins (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

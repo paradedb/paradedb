@@ -209,6 +209,9 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
                 .collect::<Vec<_>>()
         })
         .map(|(query_type, query)| {
+            if let Err(err) = drop_os_page_cache() {
+                eprintln!("WARNING: Failed to drop OS page cache: {err}");
+            }
             println!("Query Type: {query_type}\nQuery: {query}");
             let (runtimes_ms, num_results) =
                 execute_query_multiple_times(&args.url, &query, args.runs);
@@ -665,6 +668,35 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     }
 
     (results, num_results)
+}
+
+fn drop_os_page_cache() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("sh")
+            .arg("-c")
+            // Use non-interactive sudo so local runs don't hang on a password prompt.
+            .arg("sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null")
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let details = if !stderr.is_empty() { stderr } else { stdout };
+        return Err(format!(
+            "linux cache-drop command failed (`sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null`): {details}"
+        ));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        // No portable equivalent in this benchmark runner today.
+        Err("unsupported platform (cache-drop is only implemented on Linux)".to_string())
+    }
 }
 
 fn base_psql_command(url: &str) -> Command {

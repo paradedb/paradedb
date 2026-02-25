@@ -48,6 +48,7 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::ExecutionPlan;
 
+use crate::gucs;
 use crate::scan::segmented_topk_exec::SegmentedTopKExec;
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
@@ -68,6 +69,9 @@ impl PhysicalOptimizerRule for SegmentedTopKRule {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        if !gucs::enable_segmented_topk() {
+            return Ok(plan);
+        }
         rewrite_plan(plan)
     }
 }

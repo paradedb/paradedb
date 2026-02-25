@@ -29,6 +29,16 @@
 //! For States 0 and 1, a per-segment bounded heap of size K retains only the
 //! top rows, reducing input to `TantivyLookupExec` from N to at most
 //! `K * num_segments`.
+//!
+//! # Dynamic filter tradeoff
+//!
+//! `SegmentedTopKExec` uses `EmissionType::Final` (collects all input before
+//! emitting), which blocks the `SortExec` → `PgSearchScan` dynamic filter
+//! feedback loop for the sort column. This means the scan reads all rows rather
+//! than pruning progressively. The tradeoff is favorable when dictionary
+//! decoding dominates (many rows, wide strings), but may regress when scan-level
+//! pruning would be aggressive. Use `SET paradedb.enable_segmented_topk = off`
+//! to disable if needed.
 
 use std::any::Any;
 use std::cmp::Reverse;
@@ -223,6 +233,8 @@ struct SegmentedTopKStream {
     state: StreamState,
     rows_input: Count,
     rows_output: Count,
+    /// Counts segments that had rows participating in ordinal comparison (States 0+1).
+    /// Segments with only State 2 (materialized) or only NULLs are not counted.
     segments_seen: Count,
 }
 

@@ -342,6 +342,12 @@ impl CustomScan for JoinScan {
             for source in &mut source_candidates {
                 source.estimate_rows();
             }
+            let partitioning_idx = sources
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.scan_info.estimate.cmp(&b.scan_info.estimate))
+                .map(|(i, _)| i)
+                .expect("JoinScan requires at least one source");
 
             // Collect aliases for warnings
             let aliases: Vec<String> = source_candidates
@@ -406,6 +412,31 @@ impl CustomScan for JoinScan {
                         );
                 }
                 return Vec::new();
+            }
+
+            // The current parallel strategy partitions exactly one source and replicates all
+            // others. For SEMI JOIN correctness, the partitioned source must be the left side.
+            // We currently enforce a conservative subset: binary base-table joins only.
+            if jointype == pg_sys::JoinType::JOIN_SEMI {
+                if outer_source_count != 1 || inner_source_count != 1 {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: SEMI JOIN currently supports only binary base-table joins",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+
+                if partitioning_idx != 0 {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: SEMI JOIN requires the left side to be the largest source",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
             }
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a

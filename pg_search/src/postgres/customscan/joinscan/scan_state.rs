@@ -241,19 +241,6 @@ fn build_clause_df<'a>(
             }
         };
 
-        if join_clause.join_type == JoinScanJoinType::Semi {
-            if join_clause.sources.len() != 2 {
-                return Err(DataFusionError::Internal(
-                    "JoinScan runtime: SEMI JOIN requires exactly 2 sources".into(),
-                ));
-            }
-            if partitioning_idx != 0 {
-                return Err(DataFusionError::Internal(
-                    "JoinScan runtime: SEMI JOIN requires partitioning the left source".into(),
-                ));
-            }
-        }
-
         // 1. Start with the first source
         let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
         let alias0 = join_clause.sources[0].execution_alias(0);

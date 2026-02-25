@@ -270,7 +270,7 @@ pub(super) unsafe fn find_base_info_recursive(
     rti: pg_sys::Index,
 ) -> Option<ScanInfo> {
     if source.contains_rti(rti) {
-        Some(source.scan_info())
+        Some(source.scan_info.clone())
     } else {
         None
     }
@@ -285,8 +285,8 @@ pub(super) unsafe fn extract_single_table_predicate(
     expr: *mut pg_sys::Node,
     join_clause: &mut JoinCSClause,
 ) -> Option<usize> {
-    let indexrelid = side.indexrelid?;
-    let heaprelid = side.heaprelid?;
+    let indexrelid = side.indexrelid;
+    let heaprelid = side.heaprelid;
     let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
 
     // Create a RestrictInfo wrapping the expression for extract_quals
@@ -337,11 +337,7 @@ unsafe fn all_vars_are_fast_fields_recursive(
         for source in sources {
             if source.contains_rti(var_ref.rti) {
                 if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
-                    let (Some(heaprelid), Some(indexrelid)) =
-                        (base_info.heaprelid, base_info.indexrelid)
-                    else {
-                        return false;
-                    };
+                    let (heaprelid, indexrelid) = (base_info.heaprelid, base_info.indexrelid);
                     if !is_column_fast_field(heaprelid, indexrelid, var_ref.attno) {
                         return false;
                     }

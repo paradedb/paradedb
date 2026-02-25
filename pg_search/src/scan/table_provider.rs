@@ -96,12 +96,7 @@ impl PgSearchTableProvider {
         // applied at the base relation level. The filters we analyze here are join-level
         // predicates that couldn't be applied earlier - they are different predicates,
         // not duplicates.
-        FilterAnalyzer::new(
-            &self.fields,
-            self.scan_info
-                .indexrelid
-                .expect("PgSearchTableProvider requires indexrelid to be set"),
-        )
+        FilterAnalyzer::new(&self.fields, self.scan_info.indexrelid)
     }
 
     /// Combine the base query with any pushed-down filters.
@@ -272,8 +267,8 @@ impl TableProvider for PgSearchTableProvider {
         use datafusion::common::stats::{ColumnStatistics, Precision};
 
         let num_rows = match self.scan_info.estimate {
-            Some(RowEstimate::Known(n)) => Precision::Inexact(n as usize),
-            _ => Precision::Absent,
+            RowEstimate::Known(n) => Precision::Inexact(n as usize),
+            RowEstimate::Unknown => Precision::Absent,
         };
 
         let column_statistics = self
@@ -318,24 +313,14 @@ impl TableProvider for PgSearchTableProvider {
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
-        let heap_relid = self
-            .scan_info
-            .heaprelid
-            .ok_or_else(|| DataFusionError::Internal("Missing heaprelid".into()))?;
-        let index_relid = self
-            .scan_info
-            .indexrelid
-            .ok_or_else(|| DataFusionError::Internal("Missing indexrelid".into()))?;
+        let heap_relid = self.scan_info.heaprelid;
+        let index_relid = self.scan_info.indexrelid;
 
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
 
         // Start with the base query from scan_info
-        let base_query = self
-            .scan_info
-            .query
-            .clone()
-            .unwrap_or(SearchQueryInput::All);
+        let base_query = self.scan_info.query.clone();
 
         // Convert pushed-down filters to SearchQueryInput and combine with base query
         let query = self.combine_query_with_filters(base_query, filters);

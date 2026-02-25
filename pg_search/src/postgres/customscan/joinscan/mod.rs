@@ -204,7 +204,7 @@ impl ParallelQueryCapable for JoinScan {
         // We only partition the largest source
         let join_clause = &state.custom_state().join_clause;
         let source = join_clause.partitioning_source();
-        let segment_count = source.segment_count();
+        let segment_count = source.scan_info.segment_count;
 
         // JoinScan doesn't currently support aggregates in the scan
         ParallelScanState::size_of(segment_count, &[], false)
@@ -221,8 +221,8 @@ impl ParallelQueryCapable for JoinScan {
         // Initialize shared state with segments from the largest source
         let join_clause = &state.custom_state().join_clause;
         let source = join_clause.partitioning_source();
-        let index_relid = source.indexrelid();
-        let query = source.query();
+        let index_relid = source.scan_info.indexrelid;
+        let query = source.scan_info.query.clone();
 
         let index_rel = PgSearchRelation::open(index_relid);
         let reader = SearchIndexReader::open_with_context(
@@ -465,12 +465,12 @@ impl CustomScan for JoinScan {
                 match (outer_source, inner_source) {
                     (Some(outer), Some(inner)) => {
                         if !is_column_fast_field(
-                            outer.heaprelid(),
-                            outer.indexrelid(),
+                            outer.scan_info.heaprelid,
+                            outer.scan_info.indexrelid,
                             jk.outer_attno,
                         ) || !is_column_fast_field(
-                            inner.heaprelid(),
-                            inner.indexrelid(),
+                            inner.scan_info.heaprelid,
+                            inner.scan_info.indexrelid,
                             jk.inner_attno,
                         ) {
                             if is_interesting {
@@ -573,10 +573,9 @@ impl CustomScan for JoinScan {
             // Calculate parallel workers based on the largest source, which we will partition.
             let (segment_count, row_estimate) = {
                 let largest_source = join_clause.partitioning_source();
+                let segment_count = largest_source.scan_info.segment_count;
 
-                let segment_count = largest_source.segment_count();
-
-                let row_estimate = largest_source.estimate();
+                let row_estimate = largest_source.scan_info.estimate;
 
                 (segment_count, row_estimate)
             };
@@ -809,10 +808,7 @@ impl CustomScan for JoinScan {
         join_clause.collect_base_relations(&mut base_relations);
 
         for (i, base) in base_relations.iter().enumerate() {
-            let rel_name = base
-                .heaprelid
-                .map(|oid| PgSearchRelation::open(oid).name().to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
+            let rel_name = PgSearchRelation::open(base.heaprelid).name().to_string();
             let alias = base.alias.as_ref().unwrap_or(&rel_name);
             explainer.add_text(
                 &format!("Relation {}", i),
@@ -834,7 +830,7 @@ impl CustomScan for JoinScan {
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.outer_rti))
-                        .map(|(i, s)| (Some(s.heaprelid()), s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
                         .expect("Outer source not found");
 
                     let (inner_relid, inner_alias_name) = join_clause
@@ -842,7 +838,7 @@ impl CustomScan for JoinScan {
                         .iter()
                         .enumerate()
                         .find(|(_, s)| s.contains_rti(k.inner_rti))
-                        .map(|(i, s)| (Some(s.heaprelid()), s.execution_alias(i)))
+                        .map(|(i, s)| (Some(s.scan_info.heaprelid), s.execution_alias(i)))
                         .expect("Inner source not found");
 
                     format!(
@@ -872,11 +868,9 @@ impl CustomScan for JoinScan {
                     .map(|oi| match &oi.feature {
                         OrderByFeature::Field(f) => format!("{} {}", f, oi.direction.as_ref()),
                         OrderByFeature::Var { rti, attno, name } => {
-                            if let Some(info) =
-                                base_relations.iter().find(|i| i.heap_rti == Some(*rti))
-                            {
+                            if let Some(info) = base_relations.iter().find(|i| i.heap_rti == *rti) {
                                 let col_name = get_attname_safe(
-                                    info.heaprelid,
+                                    Some(info.heaprelid),
                                     *attno,
                                     info.alias.as_deref().unwrap_or("?"),
                                 );
@@ -964,24 +958,22 @@ impl CustomScan for JoinScan {
                 let mut base_relations = Vec::new();
                 join_clause.collect_base_relations(&mut base_relations);
                 for base in base_relations {
-                    if let (Some(rti), Some(heaprelid)) = (base.heap_rti, base.heaprelid) {
-                        let heaprel = PgSearchRelation::open(heaprelid);
-                        let visibility_checker =
-                            VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
-                        let fetch_slot = pg_sys::MakeTupleTableSlot(
-                            heaprel.rd_att,
-                            &pg_sys::TTSOpsBufferHeapTuple,
-                        );
-                        state.custom_state_mut().relations.insert(
-                            rti,
-                            scan_state::RelationState {
-                                _heaprel: heaprel,
-                                visibility_checker,
-                                fetch_slot,
-                                ctid_col_idx: None,
-                            },
-                        );
-                    }
+                    let rti = base.heap_rti;
+                    let heaprelid = base.heaprelid;
+                    let heaprel = PgSearchRelation::open(heaprelid);
+                    let visibility_checker =
+                        VisibilityChecker::with_rel_and_snap(&heaprel, snapshot);
+                    let fetch_slot =
+                        pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+                    state.custom_state_mut().relations.insert(
+                        rti,
+                        scan_state::RelationState {
+                            _heaprel: heaprel,
+                            visibility_checker,
+                            fetch_slot,
+                            ctid_col_idx: None,
+                        },
+                    );
                 }
 
                 // Deserialize the logical plan and convert to execution plan

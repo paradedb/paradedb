@@ -126,7 +126,7 @@ trait JoinSourceLookup {
 
 impl JoinSourceLookup for JoinSource {
     fn heap_rti(&self) -> pg_sys::Index {
-        self.heap_rti
+        self.scan_info.heap_rti
     }
 }
 
@@ -529,7 +529,7 @@ pub(super) unsafe fn collect_required_fields(
                 if let Some((alias, col_name)) = name.split_once('.') {
                     let raw_col_name = col_name.trim_matches('"');
                     for source in &mut join_clause.sources {
-                        if source.alias().as_deref() == Some(alias) {
+                        if source.scan_info.alias.as_deref() == Some(alias) {
                             if let Some(attno) = get_attno_by_name(source, raw_col_name) {
                                 ensure_field(source, attno);
                             }
@@ -550,35 +550,35 @@ unsafe fn ensure_column(source: &mut JoinSource, rti: pg_sys::Index, attno: pg_s
 }
 
 unsafe fn ensure_ctid(source: &mut JoinSource) {
-    source.add_field(
+    source.scan_info.add_field(
         pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber,
         WhichFastField::Ctid,
     );
 }
 
 unsafe fn ensure_field(side: &mut JoinSource, attno: pg_sys::AttrNumber) {
-    if side.fields().iter().any(|f| f.attno == attno) {
+    if side.scan_info.fields.iter().any(|f| f.attno == attno) {
         return;
     }
 
-    let heaprel = PgSearchRelation::open(side.heaprelid());
-    let indexrel = PgSearchRelation::open(side.indexrelid());
+    let heaprel = PgSearchRelation::open(side.scan_info.heaprelid);
+    let indexrel = PgSearchRelation::open(side.scan_info.indexrelid);
     let tupdesc = heaprel.tuple_desc();
 
     if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, &indexrel) {
-        side.add_field(attno, field);
+        side.scan_info.add_field(attno, field);
         return;
     }
 
     pgrx::warning!(
         "ensure_field: failed for attno {} in relation {:?}",
         attno,
-        side.alias()
+        side.scan_info.alias.clone()
     );
 }
 
 unsafe fn get_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
-    let rel = PgSearchRelation::open(side.heaprelid());
+    let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
     for (i, att) in tupdesc.iter().enumerate() {
         if att.name() == name {
@@ -629,8 +629,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                 let mut found = false;
                 for source in sources {
                     if source.contains_rti(varno) {
-                        if !is_column_fast_field(source.heaprelid(), source.indexrelid(), varattno)
-                        {
+                        if !is_column_fast_field(
+                            source.scan_info.heaprelid,
+                            source.scan_info.indexrelid,
+                            varattno,
+                        ) {
                             return false;
                         }
                         found = true;
@@ -737,9 +740,9 @@ pub(super) unsafe fn get_score_func_rti(expr: *mut pg_sys::Expr) -> Option<pg_sy
 /// Sets `score_needed` on the ordering base relation.
 /// Returns the RTI of the ordering base relation if found.
 pub(super) fn ensure_score_bubbling(source: &mut JoinSource) -> Option<pg_sys::Index> {
-    source.set_score_needed(true);
-    source.add_field(0, WhichFastField::Score);
-    Some(source.heap_rti)
+    source.scan_info.score_needed = true;
+    source.scan_info.add_field(0, WhichFastField::Score);
+    Some(source.scan_info.heap_rti)
 }
 
 /// Check if an expression is a `paradedb.score()` call referencing a relation in the given source.
@@ -848,9 +851,7 @@ pub(super) unsafe fn extract_orderby(
                     if source.contains_rti(varno) {
                         // Try to find a display name (optional)
                         let name = find_base_info_recursive(source, varno).and_then(|info| {
-                            info.heaprelid.and_then(|relid| {
-                                fieldname_from_var(relid, var, varattno).map(|f| f.to_string())
-                            })
+                            fieldname_from_var(info.heaprelid, var, varattno).map(|f| f.to_string())
                         });
 
                         result.push(OrderByInfo {

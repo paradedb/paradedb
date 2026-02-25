@@ -37,6 +37,11 @@
             # Provides a system-specific, configured Nixpkgs
             pkgs = import inputs.nixpkgs {
               inherit system;
+              # This "allow broken" setting is necessary because *all* PostgreSQL plugins
+              # based on Nixpkgs are technically broken from Nix's standpoint because tests
+              # require a running instance of PostgreSQL in the Nix sandbox, which is
+              # generally infeasible. But the resulting extensions do work just fine in Postgres.
+              config.allowBroken = true;
               overlays = [ self.overlays.default ];
             };
           }
@@ -45,13 +50,9 @@
     {
       # Package outputs
       # To build pg_search for the most recent supported version of Postgres:
-      # NIXPKGS_ALLOW_BROKEN=1 nix build --impure
-      # The "allow broken" setting is necessary because *all* PostgreSQL plugins based on Nixpkgs
-      # are technically broken from Nix's standpoing because tests require a running instance of
-      # PostgreSQL in the Nix sandbox, which is generally infeasible. But the resulting extensions
-      # do work just fine in Postgres.
+      # nix build
       # You can also build the extension for specific versions of Postgres. Example:
-      # NIXPKGS_ALLOW_BROKEN=1 nix build --impure .#pg_search-pg17
+      # nix build --impure .#pg_search-pg17
       packages = forEachSupportedSystem (
         { pkgs, system }:
         let
@@ -131,7 +132,7 @@
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt);
 
       # Flake checks
-      # To run all checks: NIXPKGS_ALLOW_BROKEN=1 nix flake check --impure
+      # To run all checks: nix flake check
       checks = forEachSupportedSystem (
         { pkgs, system }:
         {

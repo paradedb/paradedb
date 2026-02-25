@@ -234,8 +234,7 @@ LEFT JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 10;
-WARNING:  JoinScan not used: only INNER/SEMI JOIN is currently supported, got 1 (tables: p, s)
-WARNING:  JoinScan not used: only INNER/SEMI JOIN is currently supported, got 3 (tables: p, s)
+WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -724,7 +723,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: join key columns must be fast fields (table: c)
                                                                                                          QUERY PLAN                                                                                                          
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -765,7 +764,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.id
 LIMIT 5;
-WARNING:  JoinScan not used: join key columns must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: join key columns must be fast fields (table: c)
  id  |      name      | supplier_name | category_name 
 -----+----------------+---------------+---------------
  201 | Wireless Mouse | TechCorp      | Electronics

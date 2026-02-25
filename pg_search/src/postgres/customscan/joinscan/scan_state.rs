@@ -312,6 +312,15 @@ fn build_relnode_df<'a>(
                     crate::postgres::customscan::joinscan::build::JoinType::Anti => {
                         JoinType::LeftAnti
                     }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightSemi => {
+                        JoinType::RightSemi
+                    }
+                    crate::postgres::customscan::joinscan::build::JoinType::RightAnti => {
+                        JoinType::RightAnti
+                    }
+                    unsupported => {
+                        panic!("Join type {} is unsupported during execution", unsupported)
+                    }
                 };
 
                 let df = if on.is_empty() {

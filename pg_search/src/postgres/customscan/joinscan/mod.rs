@@ -377,19 +377,6 @@ impl CustomScan for JoinScan {
             // WARNING: If enabling other join types, you MUST review the parallel partitioning
             // strategy documentation in `pg_search/src/postgres/customscan/joinscan/scan_state.rs`.
             // The current "Partition Outer / Replicate Inner" strategy is incorrect for Right/Full joins.
-            if jointype != pg_sys::JoinType::JOIN_INNER && jointype != pg_sys::JoinType::JOIN_SEMI {
-                let is_user_visible_jointype = jointype <= pg_sys::JoinType::JOIN_ANTI;
-                if is_interesting && is_user_visible_jointype {
-                    Self::add_planner_warning(
-                            format!(
-                                "JoinScan not used: only INNER/SEMI JOIN is currently supported, got {:?}",
-                                jointype
-                            ),
-                            &aliases,
-                        );
-                }
-                return Vec::new();
-            }
 
             // JoinScan requires a LIMIT clause. This restriction exists because we gain a
             // significant benefit from using the column store when it enables late-materialization
@@ -427,7 +414,7 @@ impl CustomScan for JoinScan {
                 if is_interesting {
                     Self::add_planner_warning(
                         "JoinScan not used: all ORDER BY columns must be fast fields in the BM25 index",
-                        (),
+                        &aliases,
                     );
                 }
                 return Vec::new();
@@ -467,13 +454,36 @@ impl CustomScan for JoinScan {
             // Add current level keys
             join_keys.extend(join_conditions.equi_keys.clone());
 
+            let parsed_jointype = match build::JoinType::try_from(jointype) {
+                Ok(jt) => jt,
+                Err(e) => {
+                    Self::add_planner_warning(e.to_string(), ());
+                    return Vec::new();
+                }
+            };
+
             let plan = RelNode::Join(Box::new(build::JoinNode {
-                join_type: jointype.into(),
+                join_type: parsed_jointype,
                 left: outer_node,
                 right: inner_node,
                 equi_keys: join_conditions.equi_keys,
                 filter: None,
             }));
+
+            let unsupported = plan.unsupported_join_types();
+            if !unsupported.is_empty() {
+                if is_interesting {
+                    Self::add_detailed_planner_warning(
+                        "JoinScan not used: only INNER and SEMI JOIN are currently supported",
+                        &aliases,
+                        unsupported
+                            .iter()
+                            .map(|t| t.to_string().to_uppercase())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                return Vec::new();
+            }
 
             let mut join_clause = JoinCSClause::new(plan).with_limit(limit);
 
@@ -672,7 +682,7 @@ impl CustomScan for JoinScan {
             // We successfully created a JoinScan path for these tables, so we can clear any
             // "failure" warnings that might have been generated for them (e.g. from failed
             // attempts with different join orders or conditions).
-            Self::clear_planner_warnings_for_contexts(&aliases);
+            Self::mark_contexts_successful(&aliases);
 
             vec![custom_path]
         }

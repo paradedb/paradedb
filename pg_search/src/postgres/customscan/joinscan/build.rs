@@ -46,6 +46,10 @@ pub enum JoinType {
     Right,
     Semi,
     Anti,
+    RightSemi,
+    RightAnti,
+    UniqueOuter,
+    UniqueInner,
 }
 
 impl fmt::Display for JoinType {
@@ -57,21 +61,33 @@ impl fmt::Display for JoinType {
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
             JoinType::Anti => "Anti",
+            JoinType::RightSemi => "RightSemi",
+            JoinType::RightAnti => "RightAnti",
+            JoinType::UniqueOuter => "UniqueOuter",
+            JoinType::UniqueInner => "UniqueInner",
         };
         write!(f, "{}", s)
     }
 }
 
-impl From<pg_sys::JoinType::Type> for JoinType {
-    fn from(jt: pg_sys::JoinType::Type) -> Self {
+impl TryFrom<pg_sys::JoinType::Type> for JoinType {
+    type Error = anyhow::Error;
+
+    fn try_from(jt: pg_sys::JoinType::Type) -> Result<Self, Self::Error> {
         match jt {
-            pg_sys::JoinType::JOIN_INNER => JoinType::Inner,
-            pg_sys::JoinType::JOIN_LEFT => JoinType::Left,
-            pg_sys::JoinType::JOIN_FULL => JoinType::Full,
-            pg_sys::JoinType::JOIN_RIGHT => JoinType::Right,
-            pg_sys::JoinType::JOIN_SEMI => JoinType::Semi,
-            pg_sys::JoinType::JOIN_ANTI => JoinType::Anti,
-            other => panic!("JoinScan: unsupported join type {:?}", other),
+            pg_sys::JoinType::JOIN_INNER => Ok(JoinType::Inner),
+            pg_sys::JoinType::JOIN_LEFT => Ok(JoinType::Left),
+            pg_sys::JoinType::JOIN_FULL => Ok(JoinType::Full),
+            pg_sys::JoinType::JOIN_RIGHT => Ok(JoinType::Right),
+            pg_sys::JoinType::JOIN_SEMI => Ok(JoinType::Semi),
+            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti),
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
+            #[cfg(feature = "pg18")]
+            pg_sys::JoinType::JOIN_RIGHT_SEMI => Ok(JoinType::RightSemi),
+            pg_sys::JoinType::JOIN_UNIQUE_OUTER => Ok(JoinType::UniqueOuter),
+            pg_sys::JoinType::JOIN_UNIQUE_INNER => Ok(JoinType::UniqueInner),
+            other => Err(anyhow::anyhow!("JoinScan: unknown join type {}", other)),
         }
     }
 }
@@ -443,6 +459,29 @@ pub struct FilterNode {
 // expressions) into relational `SemiJoin` or `AntiJoin` nodes in the IR tree.
 
 impl RelNode {
+    /// Recursively collects all unsupported join types found in the tree.
+    pub fn unsupported_join_types(&self) -> Vec<JoinType> {
+        let mut unsupported = Vec::new();
+        self.collect_unsupported_join_types(&mut unsupported);
+        unsupported.sort_by_key(|t| t.to_string());
+        unsupported.dedup_by_key(|t| t.to_string());
+        unsupported
+    }
+
+    fn collect_unsupported_join_types(&self, acc: &mut Vec<JoinType>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                if !matches!(j.join_type, JoinType::Inner | JoinType::Semi) {
+                    acc.push(j.join_type);
+                }
+                j.left.collect_unsupported_join_types(acc);
+                j.right.collect_unsupported_join_types(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_unsupported_join_types(acc),
+        }
+    }
+
     pub fn contains_rti(&self, rti: pg_sys::Index) -> bool {
         match self {
             RelNode::Scan(s) => s.scan_info.heap_rti == rti,

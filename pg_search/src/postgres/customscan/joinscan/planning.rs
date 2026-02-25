@@ -38,6 +38,7 @@ use crate::postgres::customscan::pullup::resolve_fast_field;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::range_table::{bms_iter, get_plain_relation_relid};
 use crate::postgres::customscan::score_funcoids;
+use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
@@ -369,11 +370,18 @@ unsafe fn collect_join_sources_join_rel(
         let join_restrict_info = (*join_path).joinrestrictinfo;
         let join_conditions = extract_join_conditions_from_list(join_restrict_info, &all_sources);
 
-        // Only support Inner Join for reconstruction for now
         let jointype = (*join_path).jointype;
-        if jointype != pg_sys::JoinType::JOIN_INNER {
-            return None;
-        }
+        let parsed_jointype =
+            match crate::postgres::customscan::joinscan::build::JoinType::try_from(jointype) {
+                Ok(jt) => jt,
+                Err(e) => {
+                    crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                        e.to_string(),
+                        (),
+                    );
+                    return None;
+                }
+            };
 
         if join_conditions.equi_keys.is_empty() {
             return None;
@@ -408,7 +416,7 @@ unsafe fn collect_join_sources_join_rel(
         }
 
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
-            join_type: crate::postgres::customscan::joinscan::build::JoinType::Inner,
+            join_type: parsed_jointype,
             left: outer_node,
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),

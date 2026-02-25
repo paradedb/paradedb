@@ -107,7 +107,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: SEMI JOIN currently supports only binary base-table joins (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER and SEMI JOIN are currently supported (types: ANTI, RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

@@ -159,8 +159,8 @@ ORDER BY p.id
 LIMIT 3;
                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Join Type: Inner
          Relation 0: suppliers (s)
          Relation 1: products (p)
@@ -493,8 +493,8 @@ ORDER BY f.title ASC
 LIMIT 3;
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Join Type: Inner
          Relation 0: bench_documents (d)
          Relation 1: bench_files (f)
@@ -544,8 +544,8 @@ ORDER BY f.title ASC
 LIMIT 3;
                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Join Type: Inner
          Relation 0: bench_documents (d)
          Relation 1: bench_files (f)

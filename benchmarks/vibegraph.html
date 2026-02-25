@@ -313,6 +313,17 @@
                                         const arr = ctx.dataset.original;
                                         const i = ctx.dataIndex;
                                         
+                                        if (chart.normalized) {
+                                            const pct = (v * 100) - 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
+                                        }
+                                        if (i > 0 && arr[i - 1] != null) {
+                                            const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
+                                            const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
+                                            const pct = ((curr - prev) / prev) * 100;
+                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
+                                        }
+
                                         // Extract the 'extra' metadata for all currently hovered datapoints
                                         const allExtras = ctx.chart.data.datasets
                                             .filter(ds => ds.data[i] !== null && ds.extras && ds.extras[i])
@@ -330,16 +341,6 @@
                                             }
                                         }
 
-                                        if (chart.normalized) {
-                                            const pct = (v * 100) - 100;
-                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
-                                        }
-                                        if (i > 0 && arr[i - 1] != null) {
-                                            const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
-                                            const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
-                                            const pct = ((curr - prev) / prev) * 100;
-                                            lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
-                                        }
                                         return lines;
                                     },
                                     footer: ctxs => {
@@ -353,7 +354,8 @@
                                         // If the hovered items share a common metadata substring,
                                         // display it once at the bottom of the tooltip, wrapping it if necessary.
                                         if (common) {
-                                            const commonStr = common.trim();
+                                            // Clean up stray leading/trailing punctuation that might result from the split
+                                            const commonStr = common.replace(/^[;,\s]+|[;,\s]+$/g, '');
                                             const lines = ['Details:'];
                                             const wrapped = wordWrap(commonStr, 80);
                                             wrapped.forEach(line => lines.push(line));

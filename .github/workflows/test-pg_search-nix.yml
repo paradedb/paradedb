@@ -43,19 +43,15 @@ jobs:
 
       # https://nix.dev/manual/nix/latest/command-ref/new-cli/nix3-flake-check
       - name: Run Flake Checks
-        run: NIXPKGS_ALLOW_BROKEN=1 nix flake check --impure
+        run: nix flake check
 
       # If this step fails due to an incorrect hash in flake.nix, the error will
       # provide the correct hash
       - name: Build pg_search for Nix
-        env:
-          # This is necessary due to longstanding issues surrounding running Postgres
-          # in Nix's tightly controlled sandbox
-          NIXPKGS_ALLOW_BROKEN: 1
         run: |
           system=$(nix eval --raw --impure --expr builtins.currentSystem)
           nix flake show --json 2>/dev/null \
             | jq -r --arg s "$system" '.packages[$s] | keys[] | ".#\(.)"' \
-            | xargs -L1 nix build --impure
+            | xargs -L1 nix build
 
           echo "All pg_search packages built successfully."

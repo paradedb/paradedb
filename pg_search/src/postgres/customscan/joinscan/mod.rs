@@ -950,6 +950,7 @@ impl CustomScan for JoinScan {
                 &PgSearchExtensionCodec::default(),
             )
             .expect("Failed to deserialize logical plan");
+            pgrx::info!("logical plan {:?}", logical_plan);
             let physical_plan = runtime
                 .block_on(build_joinscan_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");

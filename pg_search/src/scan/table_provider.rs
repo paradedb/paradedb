@@ -91,6 +91,29 @@ impl PgSearchTableProvider {
             .clone()
     }
 
+    fn projected_fields_and_schema(
+        &self,
+        projection: Option<&Vec<usize>>,
+    ) -> Result<(Vec<WhichFastField>, SchemaRef)> {
+        match projection {
+            None => Ok((self.fields.clone(), self.get_schema())),
+            Some(indices) => {
+                let mut fields = Vec::with_capacity(indices.len());
+                for &idx in indices {
+                    let field = self.fields.get(idx).ok_or_else(|| {
+                        DataFusionError::Execution(format!(
+                            "Projection index {idx} out of bounds for {} fields",
+                            self.fields.len()
+                        ))
+                    })?;
+                    fields.push(field.clone());
+                }
+                let schema = build_schema(&fields);
+                Ok((fields, schema))
+            }
+        }
+    }
+
     fn analyzer(&self) -> FilterAnalyzer<'_> {
         // Note: baserestrictinfo predicates (in scan_info.query) are single-table predicates
         // applied at the base relation level. The filters we analyze here are join-level
@@ -133,12 +156,13 @@ impl PgSearchTableProvider {
         &self,
         reader: &SearchIndexReader,
         segment_id: SegmentId,
+        fields: &[WhichFastField],
         ffhelper: &Arc<FFHelper>,
         visibility: &VisibilityChecker,
         heap_relid: pg_sys::Oid,
     ) -> ScanState {
         let search_results = reader.search_segments(std::iter::once(segment_id));
-        let scanner = Scanner::new(search_results, None, self.fields.clone(), heap_relid.into());
+        let scanner = Scanner::new(search_results, None, fields.to_vec(), heap_relid.into());
         (
             scanner,
             Arc::clone(ffhelper),
@@ -150,13 +174,14 @@ impl PgSearchTableProvider {
     fn create_scan(
         &self,
         segments: Vec<ScanState>,
+        schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // Only declare sort order if the field exists in the schema
         let actual_sort_order = sort_order.and_then(|so| {
             let field_name = so.field_name.as_ref();
-            if self.get_schema().column_with_name(field_name).is_some() {
+            if schema.column_with_name(field_name).is_some() {
                 Some(so)
             } else {
                 None
@@ -165,7 +190,7 @@ impl PgSearchTableProvider {
 
         Ok(Arc::new(PgSearchScanPlan::new(
             segments,
-            self.get_schema(),
+            schema,
             query_for_display,
             actual_sort_order,
         )))
@@ -181,9 +206,11 @@ impl PgSearchTableProvider {
         &self,
         parallel_state: *mut ParallelScanState,
         reader: &SearchIndexReader,
+        fields: &[WhichFastField],
         ffhelper: FFHelper,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
+        schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -198,15 +225,21 @@ impl PgSearchTableProvider {
                 break;
             };
 
-            let mut partition =
-                self.create_scan_partition(reader, segment_id, &ffhelper, &visibility, heap_relid);
+            let mut partition = self.create_scan_partition(
+                reader,
+                segment_id,
+                fields,
+                &ffhelper,
+                &visibility,
+                heap_relid,
+            );
             // Do real work between checkouts to avoid one worker claiming all segments.
             partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
 
             segments.push(partition);
         }
 
-        self.create_scan(segments, query_for_display, sort_order)
+        self.create_scan(segments, schema, query_for_display, sort_order)
     }
 
     /// Creates a PgSearchScanPlan for eager scans (or fully replicated parallel joins).
@@ -216,9 +249,11 @@ impl PgSearchTableProvider {
     fn create_eager_scan(
         &self,
         reader: &SearchIndexReader,
+        fields: &[WhichFastField],
         ffhelper: FFHelper,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
+        schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
@@ -230,6 +265,7 @@ impl PgSearchTableProvider {
                 self.create_scan_partition(
                     reader,
                     r.segment_id(),
+                    fields,
                     &ffhelper,
                     &visibility,
                     heap_relid,
@@ -237,7 +273,7 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        self.create_scan(segments, query_for_display, sort_order)
+        self.create_scan(segments, schema, query_for_display, sort_order)
     }
 }
 
@@ -306,13 +342,14 @@ impl TableProvider for PgSearchTableProvider {
     async fn scan(
         &self,
         _state: &dyn Session,
-        _projection: Option<&Vec<usize>>,
+        projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
+        let (projected_fields, projected_schema) = self.projected_fields_and_schema(projection)?;
         let heap_relid = self.scan_info.heaprelid;
         let index_relid = self.scan_info.indexrelid;
 
@@ -350,7 +387,7 @@ impl TableProvider for PgSearchTableProvider {
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        let ffhelper = FFHelper::with_fields(&reader, &self.fields);
+        let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();
@@ -361,9 +398,11 @@ impl TableProvider for PgSearchTableProvider {
             self.create_throttled_scan(
                 parallel_state,
                 &reader,
+                &projected_fields,
                 ffhelper,
                 visibility,
                 heap_relid,
+                projected_schema,
                 query,
                 sort_order,
             )
@@ -371,9 +410,11 @@ impl TableProvider for PgSearchTableProvider {
             // Serial sorted scan (or replicated source with sorting)
             self.create_eager_scan(
                 &reader,
+                &projected_fields,
                 ffhelper,
                 visibility,
                 heap_relid,
+                projected_schema,
                 query,
                 Some(sort_order),
             )
@@ -384,7 +425,16 @@ impl TableProvider for PgSearchTableProvider {
             // Exposing segments as partitions to DataFusion allows parallel processing within
             // the DataFusion executor if we configured target_partitions > 1 (though
             // currently joinscan uses 1). It also unifies the code path.
-            self.create_eager_scan(&reader, ffhelper, visibility, heap_relid, query, None)
+            self.create_eager_scan(
+                &reader,
+                &projected_fields,
+                ffhelper,
+                visibility,
+                heap_relid,
+                projected_schema,
+                query,
+                None,
+            )
         }
     }
 }

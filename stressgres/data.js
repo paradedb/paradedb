@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1771981752409,
+  "lastUpdate": 1771981757850,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16992,6 +16992,114 @@ window.BENCHMARK_DATA = {
             "value": 173.13671875,
             "unit": "median mem",
             "extra": "avg mem: 169.4038637617054, max mem: 173.8671875, count: 55530"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21b5d32c021128289f07948f7f5c340781d5d9f4",
+          "message": "chore: Dedupe `ScanInfo` and `JoinSource` (#4230)\n\n## What\n\nMakes the fields of `ScanInfo` non-optional, and then restores\n`JoinSource` as a wrapper around `ScanInfo`.\n\n## Why\n\nAfter #4214 they were redundant with one another. The theory behind\n`ScanInfo` is that it should always represent a scan over our index, so\nhaving any of the index-related fields be optional didn't make sense.\nLikewise, `JoinSource` is the \"we have validated all requirements\"\ncounterpart of `JoinSourceCandidate`.\n\nI believe that `JoinSource` and `ScanInfo` should stay independent for\nnow, because `ScanInfo` might eventually be used in non-join related\nscans (i.e., behind `MixedFastField`).",
+          "timestamp": "2026-02-24T16:01:13-08:00",
+          "tree_id": "aaa4fe5fe79f442d3d1f167a688fed297ecfcbe6",
+          "url": "https://github.com/paradedb/paradedb/commit/21b5d32c021128289f07948f7f5c340781d5d9f4"
+        },
+        "date": 1771981753596,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.750493615545295, max cpu: 46.28737, count: 55570"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 134.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 131.60579196283967, max mem: 176.4609375, count: 55570"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.733158349039098, max cpu: 27.961164, count: 55570"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.37476838053357, max mem: 119.73046875, count: 55570"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.821303247913836, max cpu: 9.430255, count: 55570"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 117.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 113.26153247030771, max mem: 159.46875, count: 55570"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13275,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13505.794835342811, max block_count: 24044.0, count: 55570"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.586419968102121, max cpu: 4.669261, count: 55570"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 90.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 88.60051399136225, max mem: 133.9453125, count: 55570"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 23,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 23.52078459600504, max segment_count: 34.0, count: 55570"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.704590390626173, max cpu: 28.070175, count: 111140"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 160.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.95660720009673, max mem: 164.9296875, count: 111140"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.967659454879927, max cpu: 28.402367, count: 55570"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.07167473175724, max mem: 172.30078125, count: 55570"
           }
         ]
       }

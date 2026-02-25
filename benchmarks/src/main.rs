@@ -132,12 +132,17 @@ struct JSONBenchmarkResult {
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
         let median = median(res.runtimes_ms.iter());
+        let cold_query_extra = res
+            .runtimes_ms
+            .first()
+            .map(|ms| format!("cold_query_ms={ms:.3}; query={}", res.query))
+            .unwrap_or_else(|| format!("cold_query_ms=NA; query={}", res.query));
 
         Self {
             name: res.query_type,
             unit: "median ms",
             value: median,
-            extra: res.query,
+            extra: cold_query_extra,
         }
     }
 }
@@ -691,9 +696,9 @@ fn drop_os_page_cache() -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let details = if !stderr.is_empty() { stderr } else { stdout };
-        return Err(format!(
+        Err(format!(
             "linux cache-drop command failed (`sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null`): {details}"
-        ));
+        ))
     }
 
     #[cfg(not(target_os = "linux"))]

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772132770758,
+  "lastUpdate": 1772137137939,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2222,6 +2222,78 @@ window.BENCHMARK_DATA = {
             "value": 40.894094290143215,
             "unit": "median tps",
             "extra": "avg tps: 49.611519535141916, max tps: 708.2830157274244, count: 55008"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5007b6201cc3c959f36dd197df2b10363d39c179",
+          "message": "chore: Execute dynamic filters earlier (#4200)\n\n## What\n\nMove pre-filter/dynamic-filter execution before visibility filtering,\nand preserve filter columns once they have been loaded.\n\nAdditionally, move to evaluating filters directly as DataFusion\nexpressions on Arrow columns.\n\n## Why\n\nVisibility filters very rarely eliminate rows in a properly tuned\nsystem, and they are more expensive than any other type of filter that\nwe can execute (they require at least a lock on the visibility map, but\npossibly also heap access).\n\nAnd when we have executed filters, we have already loaded the columns\nfor those filters: we can hold on to them and reuse them if they survive\nuntil it is time to emit the batch.\n\nThis gives us a cleaner base for #4219 to re-use pre-filtered columns.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-02-26T11:59:21-08:00",
+          "tree_id": "caaea554684527467ea2ccc9b16bea5c2c366339",
+          "url": "https://github.com/paradedb/paradedb/commit/5007b6201cc3c959f36dd197df2b10363d39c179"
+        },
+        "date": 1772137133663,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.3989963118416,
+            "unit": "median tps",
+            "extra": "avg tps: 134.31877929610104, max tps: 149.16180449193698, count: 55196"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2946.7983931132694,
+            "unit": "median tps",
+            "extra": "avg tps: 2931.8935128734565, max tps: 2993.9807872046467, count: 55196"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 447.7225340727376,
+            "unit": "median tps",
+            "extra": "avg tps: 453.4190556448934, max tps: 566.1627036760216, count: 55196"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3077.495514708553,
+            "unit": "median tps",
+            "extra": "avg tps: 3070.5057982003464, max tps: 3099.876282605568, count: 110392"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 503.3619072368367,
+            "unit": "median tps",
+            "extra": "avg tps: 505.7474837940313, max tps: 595.3529192073642, count: 55196"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 532.6857295114969,
+            "unit": "median tps",
+            "extra": "avg tps: 535.1545550817423, max tps: 609.3492207195309, count: 55196"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1974.2910323322833,
+            "unit": "median tps",
+            "extra": "avg tps: 1954.7425197219004, max tps: 1979.8918540037942, count: 55196"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 91.91381821661435,
+            "unit": "median tps",
+            "extra": "avg tps: 90.03005572805276, max tps: 230.15948959371266, count: 55196"
           }
         ]
       }

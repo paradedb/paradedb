@@ -23,10 +23,10 @@ use crate::postgres::locks::AdvisoryLock;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -223,8 +223,9 @@ fn need_backpressure(style: MergeStyle, segment_metas: LinkedItemList<SegmentMet
     }
 
     let mut count = 0usize;
-    unsafe { segment_metas.list(None).into_iter().for_each(|entry| {
-        if entry.visible() && entry.is_mutable() {
+    unsafe {
+        segment_metas.list(None).into_iter().for_each(|entry| {
+            if entry.visible() && entry.is_mutable() {
                 count += 1;
             }
         });

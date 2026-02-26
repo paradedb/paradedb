@@ -54,8 +54,48 @@ use futures::Stream;
 use std::any::Any;
 use std::collections::BinaryHeap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+
+/// Shared per-segment ordinal thresholds, written by `SegmentedTopKExec`
+/// and read by the scanner for early row pruning.
+///
+/// As the exec builds up its per-segment heaps, it publishes the "worst"
+/// ordinal still in the top-K for each segment. The scanner can then skip
+/// rows whose ordinal cannot beat that threshold, avoiding ctid lookups,
+/// visibility checks, and dictionary materialisation.
+pub struct SegmentedThresholds {
+    /// segment_ord → threshold ordinal.
+    inner: Mutex<HashMap<u32, u64>>,
+    descending: bool,
+    ff_index: usize,
+}
+
+impl SegmentedThresholds {
+    pub fn new(descending: bool, ff_index: usize) -> Self {
+        Self {
+            inner: Mutex::new(HashMap::default()),
+            descending,
+            ff_index,
+        }
+    }
+
+    pub fn set_threshold(&self, seg_ord: u32, threshold: u64) {
+        self.inner.lock().unwrap().insert(seg_ord, threshold);
+    }
+
+    pub fn get_threshold(&self, seg_ord: u32) -> Option<u64> {
+        self.inner.lock().unwrap().get(&seg_ord).copied()
+    }
+
+    pub fn descending(&self) -> bool {
+        self.descending
+    }
+
+    pub fn ff_index(&self) -> usize {
+        self.ff_index
+    }
+}
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
@@ -75,6 +115,8 @@ pub struct SegmentedTopKExec {
     /// Only used for plan reconstruction in `with_new_children`; execution logic
     /// dynamically matches on `FFType::Text` vs `FFType::Bytes`.
     is_bytes: bool,
+    /// Shared thresholds published back to the scanner for early pruning.
+    thresholds: Arc<SegmentedThresholds>,
     properties: PlanProperties,
     metrics: ExecutionPlanMetricsSet,
 }
@@ -99,6 +141,7 @@ impl SegmentedTopKExec {
         k: usize,
         descending: bool,
         is_bytes: bool,
+        thresholds: Arc<SegmentedThresholds>,
     ) -> Self {
         let eq_props = EquivalenceProperties::new(input.schema());
         let properties = PlanProperties::new(
@@ -116,6 +159,7 @@ impl SegmentedTopKExec {
             k,
             descending,
             is_bytes,
+            thresholds,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
         }
@@ -163,6 +207,7 @@ impl ExecutionPlan for SegmentedTopKExec {
             self.k,
             self.descending,
             self.is_bytes,
+            Arc::clone(&self.thresholds),
         )))
     }
 
@@ -187,6 +232,7 @@ impl ExecutionPlan for SegmentedTopKExec {
                 descending: self.descending,
                 schema: self.properties.eq_properties.schema().clone(),
                 segment_heaps: HashMap::default(),
+                thresholds: Arc::clone(&self.thresholds),
                 rows_input,
                 rows_output,
                 segments_seen,
@@ -211,6 +257,8 @@ struct SegmentedTopKStream {
     /// Persistent per-segment heaps. Each heap stores at most K ordinals
     /// (transformed via `heap_ord` for unified max-heap comparison).
     segment_heaps: HashMap<u32, BinaryHeap<u64>>,
+    /// Shared thresholds published back to the scanner for early pruning.
+    thresholds: Arc<SegmentedThresholds>,
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
@@ -367,6 +415,15 @@ impl SegmentedTopKStream {
                         keep[row_idx] = true;
                     }
                 }
+            }
+        }
+
+        // Publish thresholds for segments with full heaps.
+        for (seg_ord, heap) in &self.segment_heaps {
+            if heap.len() >= self.k {
+                let worst = *heap.peek().unwrap();
+                let threshold = if self.descending { !worst } else { worst };
+                self.thresholds.set_threshold(*seg_ord, threshold);
             }
         }
 

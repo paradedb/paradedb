@@ -49,7 +49,8 @@ use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crate::gucs;
-use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+use crate::scan::execution_plan::PgSearchScanPlan;
+use crate::scan::segmented_topk_exec::{SegmentedThresholds, SegmentedTopKExec};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 
 #[derive(Debug)]
@@ -159,6 +160,8 @@ fn try_inject_below_lookup(
                     None => return Ok(None),
                 };
 
+                let thresholds = Arc::new(SegmentedThresholds::new(descending, field.ff_index));
+
                 let segmented_topk = Arc::new(SegmentedTopKExec::new(
                     Arc::clone(lookup_child),
                     sort_col_name.to_string(),
@@ -168,7 +171,11 @@ fn try_inject_below_lookup(
                     k,
                     descending,
                     field.is_bytes,
+                    Arc::clone(&thresholds),
                 ));
+
+                // Wire thresholds to the PgSearchScanPlan in the subtree.
+                wire_thresholds_to_scan(lookup_child.as_ref(), &thresholds);
 
                 // Rebuild TantivyLookupExec with the new child.
                 let new_lookup = Arc::clone(child).with_new_children(vec![segmented_topk])?;
@@ -191,4 +198,17 @@ fn try_inject_below_lookup(
     }
 
     Ok(None)
+}
+
+/// Walk the plan tree to find a `PgSearchScanPlan` and wire the shared
+/// thresholds into it. This handles both direct children and plans behind
+/// intermediate nodes like `SortPreservingMergeExec`.
+fn wire_thresholds_to_scan(plan: &dyn ExecutionPlan, thresholds: &Arc<SegmentedThresholds>) {
+    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+        scan.set_segmented_thresholds(Arc::clone(thresholds));
+        return;
+    }
+    for child in plan.children() {
+        wire_thresholds_to_scan(child.as_ref(), thresholds);
+    }
 }

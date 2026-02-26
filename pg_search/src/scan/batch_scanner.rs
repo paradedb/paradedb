@@ -15,19 +15,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
-use arrow_array::builder::BooleanBuilder;
-use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
-use arrow_schema::SchemaRef;
-use datafusion::arrow::compute;
-use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
-
+use super::segmented_topk_exec::SegmentedThresholds;
 use crate::index::fast_fields_helper::{
     build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
+use arrow_array::builder::BooleanBuilder;
+use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_schema::SchemaRef;
+use datafusion::arrow::compute;
+use std::sync::Arc;
+use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -117,6 +116,8 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
+    /// Per-segment ordinal thresholds from `SegmentedTopKExec` for early pruning.
+    segmented_thresholds: Option<Arc<SegmentedThresholds>>,
 }
 
 impl Scanner {
@@ -149,6 +150,7 @@ impl Scanner {
             prefetched: None,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
+            segmented_thresholds: None,
         }
     }
 
@@ -161,6 +163,11 @@ impl Scanner {
     /// Override the batch size. Clamped to `MAX_BATCH_SIZE`.
     pub(crate) fn set_batch_size(&mut self, size: usize) {
         self.batch_size = size.min(MAX_BATCH_SIZE);
+    }
+
+    /// Set shared per-segment ordinal thresholds for early pruning.
+    pub(crate) fn set_segmented_thresholds(&mut self, thresholds: Arc<SegmentedThresholds>) {
+        self.segmented_thresholds = Some(thresholds);
     }
 
     /// Returns the estimated number of rows that will be produced by this scanner.
@@ -236,6 +243,46 @@ impl Scanner {
         // We must compact these arrays whenever we filter rows (pre-filtering or visibility)
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
+
+        // Apply segmented top-K ordinal thresholds before pre-filters and visibility.
+        if let Some(ref seg_thresholds) = self.segmented_thresholds {
+            if let Some(threshold) = seg_thresholds.get_threshold(segment_ord) {
+                let ff_idx = seg_thresholds.ff_index();
+
+                if memoized_columns[ff_idx].is_none() {
+                    memoized_columns[ff_idx] =
+                        Some(Self::fetch_column(ffhelper, segment_ord, ff_idx, &ids));
+                }
+
+                if let Some(ords) = memoized_columns[ff_idx]
+                    .as_ref()
+                    .and_then(|a| a.as_any().downcast_ref::<UInt64Array>())
+                {
+                    let descending = seg_thresholds.descending();
+                    let mask: BooleanArray = ords
+                        .iter()
+                        .map(|maybe_ord| {
+                            let ord = maybe_ord
+                                .unwrap_or(crate::index::fast_fields_helper::NULL_TERM_ORDINAL);
+                            Some(
+                                if ord == crate::index::fast_fields_helper::NULL_TERM_ORDINAL {
+                                    true
+                                } else if descending {
+                                    ord > threshold
+                                } else {
+                                    ord < threshold
+                                },
+                            )
+                        })
+                        .collect();
+
+                    let before = ids.len();
+                    compact_with_mask(&mut ids, &mut scores, &mut memoized_columns, &mask);
+                    self.pre_filter_rows_scanned += before;
+                    self.pre_filter_rows_pruned += before - ids.len();
+                }
+            }
+        }
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.

@@ -509,10 +509,10 @@ LIMIT 3;
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=130.6 KB, output_batches=1, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=190, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=37% (70/190)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: segments=1, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=190, output_bytes=11.5 KB, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=10, rows_scanned=200]
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=10, rows_scanned=200]
 (20 rows)
 
 SELECT f.id, f.title
@@ -560,10 +560,10 @@ LIMIT 3;
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_3@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.4 KB, output_batches=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
            :           ProjectionExec: expr=[ctid@0 as ctid_3, id@1 as id], metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}
+           :               PgSearchScan: segments=1, segmented_thresholds=true, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}
            :           ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=10, output_bytes=626.0 B, output_batches=1]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=190, rows_scanned=200]
+           :               PgSearchScan: segments=1, dynamic_filters=2, segmented_thresholds=true, query="all", metrics=[rows_pruned=190, rows_scanned=200]
 (20 rows)
 
 SELECT f.id, f.title

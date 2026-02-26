@@ -38,9 +38,10 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - family=z1d.metal
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+      - volume=500gb:gp3
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||

@@ -21,10 +21,10 @@ WHERE description ||| 'running shoes';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running shoes', operator='OR')
+    description=ParadeDB(Match('running shoes', operator='OR'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -80,10 +80,10 @@ WHERE description &&& 'running shoes';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running shoes')
+    description=ParadeDB(Match('running shoes', operator='AND'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -149,10 +149,10 @@ WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running shoes', operator='OR', tokenizer='whitespace')
+    description=ParadeDB(Match('running shoes', operator='OR', tokenizer='whitespace'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -171,10 +171,10 @@ WHERE description &&& ARRAY['running', 'shoes'];
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running', 'shoes')
+    description=ParadeDB(Match('running', 'shoes', operator='AND'))
 ).values('description', 'rating', 'category')
 ```
 

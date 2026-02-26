@@ -30,10 +30,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippet
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes')
+    description=ParadeDB(Match('shoes', operator='OR'))
 ).annotate(
     snippet=Snippet('description')
 ).values('id', 'snippet')[:5]
@@ -64,10 +64,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippet
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes')
+    description=ParadeDB(Match('shoes', operator='OR'))
 ).annotate(
     snippet=Snippet('description', start_sel='<i>', stop_sel='</i>')
 ).values('id', 'snippet')[:5]
@@ -89,10 +89,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippets
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('artistic vase')
+    description=ParadeDB(Match('artistic vase', operator='OR'))
 ).annotate(
     snippets=Snippets('description', max_num_chars=15)
 ).values('id', 'snippets')[:5]
@@ -146,10 +146,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippets
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running')
+    description=ParadeDB(Match('running', operator='OR'))
 ).annotate(
     snippets=Snippets('description', max_num_chars=15, limit=1)
 ).values('id', 'snippets')[:5]
@@ -169,10 +169,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippets
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running')
+    description=ParadeDB(Match('running', operator='OR'))
 ).annotate(
     snippets=Snippets('description', max_num_chars=15, limit=1, offset=1)
 ).values('id', 'snippets')[:5]
@@ -196,10 +196,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippets
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('artistic vase')
+    description=ParadeDB(Match('artistic vase', operator='OR'))
 ).annotate(
     snippets=Snippets('description', max_num_chars=15, sort_by='position')
 ).values('id', 'snippets')[:5]
@@ -221,10 +221,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Snippet, SnippetPositions
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes')
+    description=ParadeDB(Match('shoes', operator='OR'))
 ).annotate(
     snippet=Snippet('description'),
     snippet_positions=SnippetPositions('description')

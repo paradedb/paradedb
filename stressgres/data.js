@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772065277603,
+  "lastUpdate": 1772066218907,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14528,6 +14528,60 @@ window.BENCHMARK_DATA = {
             "value": 15.582121307605307,
             "unit": "median tps",
             "extra": "avg tps: 15.672185617347552, max tps: 20.54491736310341, count: 55570"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9814b4b0bd6e3ed11bec9227717448867ebc25ce",
+          "message": "feat: Enable pushdown of semi joins to datafusion (#4226)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds supports for specific semi joins where there are two tables and\nthe left table is the larger source\n- Also needed to support pushing down projections to the table provider\n-- without it, semi joins could fail due to schema inconsistency between\na table provider's `scan` and `schema`\n\n## Why\n\n## How\n\n## Tests\n\nAdded semi join proptesting",
+          "timestamp": "2026-02-25T15:27:53-08:00",
+          "tree_id": "6fe358c5a99f0a5f1cf03b9bc678389509c72083",
+          "url": "https://github.com/paradedb/paradedb/commit/9814b4b0bd6e3ed11bec9227717448867ebc25ce"
+        },
+        "date": 1772066214658,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.971309466621914,
+            "unit": "median tps",
+            "extra": "avg tps: 29.952353875372435, max tps: 33.776737252934545, count: 55487"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 237.74514652589448,
+            "unit": "median tps",
+            "extra": "avg tps: 258.1129430930328, max tps: 2741.683143917465, count: 55487"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1891.7845618339381,
+            "unit": "median tps",
+            "extra": "avg tps: 1870.024120889646, max tps: 2171.262804818836, count: 55487"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.41907116779868,
+            "unit": "median tps",
+            "extra": "avg tps: 198.29843003803694, max tps: 1730.1718960820212, count: 110974"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.880624077302729,
+            "unit": "median tps",
+            "extra": "avg tps: 14.823069846045307, max tps: 20.418134815635472, count: 55487"
           }
         ]
       }

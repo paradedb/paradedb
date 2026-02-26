@@ -22,7 +22,7 @@ use arrow_array::builder::{
     BinaryViewBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder,
     TimestampNanosecondBuilder, UInt64Builder,
 };
-use arrow_array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
@@ -78,7 +78,7 @@ fn compact_with_mask(
     memoized_columns: &mut Vec<Option<ArrayRef>>,
     mask: &BooleanArray,
 ) {
-    if mask.false_count() == 0 {
+    if mask.false_count() == 0 && mask.null_count() == 0 {
         return;
     }
 

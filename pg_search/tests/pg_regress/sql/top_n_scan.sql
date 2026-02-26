@@ -228,6 +228,33 @@ WHERE id @@@ paradedb.all()
 ORDER BY state, id
 LIMIT 10000;
 
+-- Test 12: 4-column ORDER BY uses TopN (issue #3148)
+\echo 'Test 12: 4-column ORDER BY uses TopN'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, id
+    LIMIT 25;
+
+-- Test 13: 5-column ORDER BY uses TopN (issue #3148)
+\echo 'Test 13: 5-column ORDER BY uses TopN'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code, tenant_id
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, tenant_id, id
+    LIMIT 25;
+
+-- Test 14: 6-column ORDER BY exceeds MAX_TOPN_FEATURES, falls back to NormalScan
+\echo 'Test 14: 6-column ORDER BY falls back to NormalScan'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, state, flow_type, currency_code, tenant_id, source_id
+FROM records
+WHERE id @@@ paradedb.all()
+ORDER BY state, flow_type, currency_code, tenant_id, source_id, id
+    LIMIT 25;
+
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;
 DROP TABLE IF EXISTS records;

@@ -49,18 +49,21 @@ LIMIT 5;
 -- Test 4: Too many ORDER BY columns
 DROP INDEX products_base_idx;
 CREATE INDEX products_multi_idx ON test_products
-USING bm25 (id, description, category, rating, created_at)
+USING bm25 (id, description, category, rating, created_at, last_updated_date)
 WITH (
     key_field='id',
-    text_fields='{"category": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    text_fields='{
+        "category": {"tokenizer": {"type": "keyword"}, "fast": true},
+        "description": {"tokenizer": {"type": "keyword"}, "fast": true}
+    }',
     numeric_fields='{"rating": {"fast": true}}',
-    datetime_fields='{"created_at": {"fast": true}}'
+    datetime_fields='{"created_at": {"fast": true}, "last_updated_date": {"fast": true}}'
 );
 
 \echo 'Test 4: Too many ORDER BY columns (warning expected)'
 SELECT id FROM test_products
 WHERE category @@@ 'electronics'
-ORDER BY rating DESC, created_at DESC, id DESC, category DESC  -- 4 columns, max is 3
+ORDER BY rating DESC, created_at DESC, id DESC, category DESC, description DESC, last_updated_date DESC  -- 6 columns, max is 5
 LIMIT 10;
 
 -- Test 5: Query with lower() mismatch

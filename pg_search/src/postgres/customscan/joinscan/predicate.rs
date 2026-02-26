@@ -184,7 +184,7 @@ pub(super) unsafe fn transform_to_search_expr(
         // Extract the Tantivy query for this expression
         if let Some(base_info) = find_base_info_recursive(source, rti) {
             if let Some(predicate_idx) =
-                extract_single_table_predicate(root, rti, base_info, node, join_clause)
+                extract_single_table_predicate(root, rti, &base_info, node, join_clause)
             {
                 return Some(JoinLevelExpr::SingleTablePredicate {
                     source_idx,
@@ -268,9 +268,9 @@ pub(super) unsafe fn transform_to_search_expr(
 pub(super) unsafe fn find_base_info_recursive(
     source: &JoinSource,
     rti: pg_sys::Index,
-) -> Option<&ScanInfo> {
+) -> Option<ScanInfo> {
     if source.contains_rti(rti) {
-        Some(&source.scan_info)
+        Some(source.scan_info.clone())
     } else {
         None
     }
@@ -285,8 +285,8 @@ pub(super) unsafe fn extract_single_table_predicate(
     expr: *mut pg_sys::Node,
     join_clause: &mut JoinCSClause,
 ) -> Option<usize> {
-    let indexrelid = side.indexrelid?;
-    let heaprelid = side.heaprelid?;
+    let indexrelid = side.indexrelid;
+    let heaprelid = side.heaprelid;
     let (_, bm25_idx) = rel_get_bm25_index(heaprelid)?;
 
     // Create a RestrictInfo wrapping the expression for extract_quals
@@ -337,7 +337,8 @@ unsafe fn all_vars_are_fast_fields_recursive(
         for source in sources {
             if source.contains_rti(var_ref.rti) {
                 if let Some(base_info) = find_base_info_recursive(source, var_ref.rti) {
-                    if !is_column_fast_field(base_info, var_ref.attno) {
+                    let (heaprelid, indexrelid) = (base_info.heaprelid, base_info.indexrelid);
+                    if !is_column_fast_field(heaprelid, indexrelid, var_ref.attno) {
                         return false;
                     }
                 } else {
@@ -360,14 +361,11 @@ unsafe fn all_vars_are_fast_fields_recursive(
 /// Returns true if:
 /// - The column is explicitly marked as a fast field in the index schema, OR
 /// - The column is the key_field (which is implicitly stored as a fast field in Tantivy)
-pub(super) unsafe fn is_column_fast_field(side: &ScanInfo, attno: pg_sys::AttrNumber) -> bool {
-    let Some(heaprelid) = side.heaprelid else {
-        return false;
-    };
-    let Some(indexrelid) = side.indexrelid else {
-        return false;
-    };
-
+pub(super) unsafe fn is_column_fast_field(
+    heaprelid: pg_sys::Oid,
+    indexrelid: pg_sys::Oid,
+    attno: pg_sys::AttrNumber,
+) -> bool {
     let heaprel = PgSearchRelation::open(heaprelid);
     let indexrel = PgSearchRelation::open(indexrelid);
     let tupdesc = heaprel.tuple_desc();

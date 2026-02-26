@@ -63,7 +63,9 @@ use pgrx::pg_sys;
 
 use crate::api::{OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinSource};
+use crate::postgres::customscan::joinscan::build::{
+    JoinCSClause, JoinSource, JoinType as JoinScanJoinType,
+};
 use crate::postgres::customscan::joinscan::planner::SortMergeJoinEnforcer;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
@@ -212,7 +214,7 @@ pub async fn build_joinscan_physical_plan(
 ///
 /// This function constructs the logical plan for a join by:
 /// 1. Building DataFrames for the left (outer) and right (inner) sources.
-/// 2. Performing an inner join on the specified equi-join keys.
+/// 2. Performing the configured join type on the specified equi-join keys.
 /// 3. Applying join-level filters (both search predicates and heap conditions).
 /// 4. Applying sorting and limits if specified.
 /// 5. Projecting the final output columns as defined by the join's output projection.
@@ -230,6 +232,16 @@ fn build_clause_df<'a>(
         }
 
         let partitioning_idx = join_clause.partitioning_source_index();
+        let df_join_type = match join_clause.join_type {
+            JoinScanJoinType::Inner => JoinType::Inner,
+            JoinScanJoinType::Semi => JoinType::LeftSemi,
+            other => {
+                return Err(DataFusionError::Internal(format!(
+                    "JoinScan runtime: unsupported join type {:?}",
+                    other
+                )));
+            }
+        };
 
         // 1. Start with the first source
         let mut df = build_source_df(
@@ -244,9 +256,7 @@ fn build_clause_df<'a>(
 
         // Maintain a set of RTIs that are currently in 'df' (the left side)
         let mut left_rtis = std::collections::HashSet::new();
-        if let Some(rti) = join_clause.sources[0].scan_info.heap_rti {
-            left_rtis.insert(rti);
-        }
+        left_rtis.insert(join_clause.sources[0].scan_info.heap_rti);
 
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
@@ -256,9 +266,7 @@ fn build_clause_df<'a>(
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
-            let right_rti = right_source.scan_info.heap_rti.ok_or_else(|| {
-                DataFusionError::Internal("JoinScan source missing heap_rti".into())
-            })?;
+            let right_rti = right_source.scan_info.heap_rti;
 
             // Find join keys connecting 'df' (left) and 'right_df' (right)
             let mut on: Vec<Expr> = Vec::new();
@@ -326,9 +334,16 @@ fn build_clause_df<'a>(
                 // Step 2: Join B. No keys A=B? Cross join?
                 // Or we rely on the planner having ordered them such that there is connectivity.
                 // If not connected, it's a cross join.
-                df = df.join(right_df, JoinType::Inner, &[], &[], None)?;
+
+                // TODO: review this
+                if join_clause.join_type == JoinScanJoinType::Semi {
+                    return Err(DataFusionError::Internal(
+                        "JoinScan runtime: SEMI JOIN requires equi-join keys".into(),
+                    ));
+                }
+                df = df.join(right_df, df_join_type, &[], &[], None)?;
             } else {
-                df = df.join_on(right_df, JoinType::Inner, on)?;
+                df = df.join_on(right_df, df_join_type, on)?;
             }
 
             left_rtis.insert(right_rti);
@@ -372,11 +387,10 @@ fn build_clause_df<'a>(
                 source.collect_base_relations(&mut base_relations);
 
                 for base in base_relations {
-                    if let Some(rti) = base.heap_rti {
-                        let ctid_name = format!("ctid_{}", rti);
-                        let expr = make_col(&alias, &ctid_name);
-                        ctid_map.insert(rti, expr);
-                    }
+                    let rti = base.heap_rti;
+                    let ctid_name = format!("ctid_{}", rti);
+                    let expr = make_col(&alias, &ctid_name);
+                    ctid_map.insert(rti, expr);
                 }
             }
 
@@ -476,13 +490,12 @@ fn build_clause_df<'a>(
             let mut base_relations = Vec::new();
             join_clause.collect_base_relations(&mut base_relations);
             for base in base_relations {
-                if let Some(rti) = base.heap_rti {
-                    let ctid_name = format!("ctid_{}", rti);
-                    // Check if it already exists in df schema (it should)
-                    if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
-                        // Carry it.
-                        final_cols.push(col(&ctid_name));
-                    }
+                let rti = base.heap_rti;
+                let ctid_name = format!("ctid_{}", rti);
+                // Check if it already exists in df schema (it should)
+                if df.schema().field_with_unqualified_name(&ctid_name).is_ok() {
+                    // Carry it.
+                    final_cols.push(col(&ctid_name));
                 }
             }
         } else {
@@ -580,7 +593,7 @@ fn build_source_df<'a>(
 
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
-                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti.unwrap_or(0)))
+                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
                 }
                 Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
                 _ => make_col(alias, name),

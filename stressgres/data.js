@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772066224651,
+  "lastUpdate": 1772067212296,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19054,6 +19054,54 @@ window.BENCHMARK_DATA = {
             "value": 541.3842234613996,
             "unit": "median tps",
             "extra": "avg tps: 491.6905549613665, max tps: 702.0223559162512, count: 107728"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9814b4b0bd6e3ed11bec9227717448867ebc25ce",
+          "message": "feat: Enable pushdown of semi joins to datafusion (#4226)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds supports for specific semi joins where there are two tables and\nthe left table is the larger source\n- Also needed to support pushing down projections to the table provider\n-- without it, semi joins could fail due to schema inconsistency between\na table provider's `scan` and `schema`\n\n## Why\n\n## How\n\n## Tests\n\nAdded semi join proptesting",
+          "timestamp": "2026-02-25T15:27:53-08:00",
+          "tree_id": "6fe358c5a99f0a5f1cf03b9bc678389509c72083",
+          "url": "https://github.com/paradedb/paradedb/commit/9814b4b0bd6e3ed11bec9227717448867ebc25ce"
+        },
+        "date": 1772067208024,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 571.0780169375863,
+            "unit": "median tps",
+            "extra": "avg tps: 574.1062554815904, max tps: 736.9517963361244, count: 53851"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 664.049344486692,
+            "unit": "median tps",
+            "extra": "avg tps: 669.8285751753942, max tps: 817.3669018945078, count: 53851"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 84.27570629780814,
+            "unit": "median tps",
+            "extra": "avg tps: 84.40931756239219, max tps: 89.97466226749266, count: 53851"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 547.1217606310411,
+            "unit": "median tps",
+            "extra": "avg tps: 495.576338563878, max tps: 682.6844570735234, count: 107702"
           }
         ]
       }

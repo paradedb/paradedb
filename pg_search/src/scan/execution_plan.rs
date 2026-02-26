@@ -431,7 +431,7 @@ impl ScanStream {
         for df in &self.dynamic_filters {
             if let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() {
                 if let Ok(current_expr) = dynamic.current() {
-                    collect_filters(&*current_expr, &self.schema, &mut filters);
+                    collect_filters(&current_expr, &self.schema, &mut filters);
                 }
             }
         }
@@ -445,10 +445,20 @@ impl Stream for ScanStream {
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let pre_filters = this.build_filters();
-        match this
-            .scanner
-            .next(&this.ffhelper, &mut this.visibility, &pre_filters)
-        {
+        let pre_filters_wrapper = if pre_filters.is_empty() {
+            None
+        } else {
+            Some(crate::scan::pre_filter::PreFilters {
+                filters: &pre_filters,
+                schema: &this.schema,
+            })
+        };
+
+        match this.scanner.next(
+            &this.ffhelper,
+            &mut this.visibility,
+            pre_filters_wrapper.as_ref(),
+        ) {
             Some(batch) => Poll::Ready(Some(Ok(batch.to_record_batch(&this.schema)))),
             None => {
                 // Flush pre-materialization filter stats from Scanner.

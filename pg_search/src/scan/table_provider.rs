@@ -234,7 +234,7 @@ impl PgSearchTableProvider {
                 heap_relid,
             );
             // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut partition.2, &[]);
+            partition.0.prefetch_next(&ffhelper, &mut partition.2, None);
 
             segments.push(partition);
         }

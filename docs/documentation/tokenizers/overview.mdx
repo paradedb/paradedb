@@ -8,16 +8,9 @@ Before text is indexed, it is first split into searchable units called tokens.
 
 The default tokenizer in ParadeDB is the [unicode tokenizer](/documentation/tokenizers/available-tokenizers/unicode). It splits text according to word boundaries defined by the Unicode Standard Annex #29 rules. All characters are lowercased by default. To visualize how this tokenizer works, you can cast a text string to the tokenizer type, and then to `text[]`:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Hello world!'::pdb.simple::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
      text
@@ -28,16 +21,9 @@ SELECT 'Hello world!'::pdb.simple::text[];
 
 On the other hand, the [ngrams](/documentation/tokenizers/available-tokenizers/ngrams) tokenizer splits text into "grams" of size `n`. In this example, `n = 3`:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Hello world!'::pdb.ngram(3,3)::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 {/* * codespell:ignore-begin * */}
 
@@ -54,31 +40,8 @@ Choosing the right tokenizer is crucial to getting the search results you want. 
 
 To configure a tokenizer for a column in the index, simply cast it to the desired tokenizer type:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.ngram(3,3)))
 WITH (key_field='id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'ngram', 'args': [3, 3]},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>

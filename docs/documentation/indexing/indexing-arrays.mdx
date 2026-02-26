@@ -6,8 +6,7 @@ canonical: https://docs.paradedb.com/documentation/indexing/indexing-arrays
 
 The BM25 index accepts arrays of type `text[]` or `varchar[]`.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE TABLE array_demo (id SERIAL PRIMARY KEY, categories TEXT[]);
 INSERT INTO array_demo (categories) VALUES
     ('{"food","groceries and produce"}'),
@@ -16,48 +15,14 @@ INSERT INTO array_demo (categories) VALUES
 
 CREATE INDEX ON array_demo USING bm25 (id, categories)
 WITH (key_field = 'id');
-
-````
-
-```python Django
-from django.contrib.postgres.fields import ArrayField
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class ArrayDemo(models.Model):
-    categories = ArrayField(models.TextField())
-
-    class Meta:
-        db_table = 'array_demo'
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'categories': {},
-                },
-                key_field='id',
-                name='array_demo_search_idx',
-            ),
-        ]
-````
-
-</CodeGroup>
+```
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
 match if **any** of its entries is a match.
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT * FROM array_demo WHERE categories === 'food';
 ```
-
-```python Django
-from paradedb.search import ParadeDB, Term
-
-ArrayDemo.objects.filter(categories=ParadeDB(Term('food')))
-```
-
-</CodeGroup>
 
 ```ini Expected Response
  id |           categories
@@ -68,32 +33,7 @@ ArrayDemo.objects.filter(categories=ParadeDB(Term('food')))
 
 Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered](/documentation/token-filters/overview) in the same way as text fields:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
 ```
-
-```python Django
-from django.contrib.postgres.fields import ArrayField
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class ArrayDemo(models.Model):
-    categories = ArrayField(models.TextField())
-
-    class Meta:
-        db_table = 'array_demo'
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'categories': {'tokenizer': 'literal'},
-                },
-                key_field='id',
-                name='array_demo_search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>

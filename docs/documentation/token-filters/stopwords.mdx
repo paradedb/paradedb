@@ -10,34 +10,11 @@ In English, for example, stopwords include "a", "and", "or", etc.
 All tokenizers besides the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer can be configured to automatically remove stopwords
 for one or more languages.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stopwords_language=english')))
 WITH (key_field='id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'simple', 'named_args': {'stopwords_language': 'english'}},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
 
 Valid languages are `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`, `Hungarian`, `Italian`, `Norwegian`, `Polish`, `Portuguese`, `Russian`, `Spanish`, and `Swedish`. Language names are case-insensitive.
 
@@ -45,45 +22,15 @@ Valid languages are `Danish`, `Dutch`, `English`, `Finnish`, `French`, `German`,
 
 For documents containing multiple languages, you can specify multiple stopword languages as a comma-separated list:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stopwords_language=English,French')))
 WITH (key_field='id');
 ```
 
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'simple', 'named_args': {'stopwords_language': 'English,French'}},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,French')::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
         text
@@ -96,18 +43,11 @@ SELECT 'the quick fox and le renard et'::pdb.simple('stopwords_language=English,
 
 To demonstrate this token filter, let's compare the output of the following two statements:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT
   'The cat in the hat'::pdb.simple::text[],
   'The cat in the hat'::pdb.simple('stopwords_language=English')::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
          text         |   text

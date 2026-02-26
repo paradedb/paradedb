@@ -10,8 +10,7 @@ rules. All characters are [lowercased](/documentation/token-filters/lowercase) b
 This tokenizer is the default text tokenizer. If no tokenizer is specified for a text field, the unicode tokenizer will be used
 (unless the text field is the [key field](/documentation/indexing/create-index#choosing-a-key-field), in which case the text is not tokenized).
 
-<CodeGroup>
-```sql SQL
+```sql
 -- The following two configurations are equivalent
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description)
@@ -20,56 +19,13 @@ WITH (key_field='id');
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.unicode_words))
 WITH (key_field='id');
-
-````
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-# The following two configurations are equivalent
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={'id': {}, 'description': {}},
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'unicode_words'},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-````
-
-</CodeGroup>
+```
 
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Tokenize me!'::pdb.unicode_words::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
      text
@@ -82,16 +38,9 @@ SELECT 'Tokenize me!'::pdb.unicode_words::text[];
 
 By default, emojis in the source text are preserved. To remove emojis, set `remove_emojis` to `true`.
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Tokenize me! 😊'::pdb.unicode_words('remove_emojis=true')::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
      text

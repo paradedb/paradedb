@@ -6,47 +6,17 @@ canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenize
 
 The ICU (International Components for Unicode) tokenizer breaks down text according to the Unicode standard. It can be used to tokenize most languages and recognizes the nuances in word boundaries across different languages.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu))
 WITH (key_field='id');
 ```
 
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'icu'},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Hello world! 你好!'::pdb.icu::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
         text

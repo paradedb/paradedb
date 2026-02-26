@@ -7,41 +7,11 @@ canonical: https://docs.paradedb.com/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-# 1. Define the index on your model.
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {},
-                    'category': {},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-
-# 2. Generate and apply the migration.
-# python manage.py makemigrations
-# python manage.py migrate
-```
-
-</CodeGroup>
 
 By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the
 Unicode segmentation standard. Because index creation is a time-consuming operation, we recommend experimenting with the [available tokenizers](/documentation/tokenizers/overview)
@@ -49,81 +19,20 @@ to find the most suitable one before running `CREATE INDEX`.
 
 For instance, if a column contains multiple languages, the ICU tokenizer may be more appropriate.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
 ```
 
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'icu'},
-                    'category': {},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
 Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
 including columns used for sorting, grouping, filtering, and aggregations.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
 ```
-
-```python Django
-from django.contrib.postgres.fields import IntegerRangeField
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-    rating = models.IntegerField()
-    in_stock = models.BooleanField()
-    created_at = models.DateTimeField()
-    metadata = models.JSONField()
-    weight_range = IntegerRangeField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {},
-                    'category': {},
-                    'rating': {},
-                    'in_stock': {},
-                    'created_at': {},
-                    'metadata': {},
-                    'weight_range': {},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
 
 Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
 
@@ -131,17 +40,10 @@ Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, a
 
 To monitor the progress of a long-running `CREATE INDEX`, open a separate Postgres connection and query `pg_stat_progress_create_index`:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT pid, phase, blocks_done, blocks_total
 FROM pg_stat_progress_create_index;
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 Comparing `blocks_done` to `blocks_total` will provide a good approximation of the progress so far. If `blocks_done` equals
 `blocks_total`, that means that all rows have been indexed and the index is being flushed to disk.
@@ -162,81 +64,8 @@ The `key_field` must:
 After tokens are created, [token filters](/documentation/token-filters/overview) can be configured to apply further processing like lowercasing, stemming, or unaccenting.
 For example, the following code block adds English stemming to `description`:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'simple', 'stemmer': 'english'},
-                    'category': {},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
-## Multiple Tokenizers Per Field
-
-A single field can be indexed with multiple tokenizers by using a `tokenizers` list.
-Each tokenizer entry supports `tokenizer`, `args`, `named_args`, and `alias`.
-
-<CodeGroup>
-```sql SQL
-CREATE INDEX search_idx ON mock_items
-USING bm25 (
-  id,
-  (description::pdb.literal),
-  (description::pdb.ngram(3,8,'alias=description_ngram,prefix_only=true'))
-)
-WITH (key_field='id');
-```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {
-                        'tokenizers': [
-                            {'tokenizer': 'literal'},
-                            {
-                                'tokenizer': 'ngram',
-                                'args': [3, 8],
-                                'named_args': {'prefix_only': True},
-                                'alias': 'description_ngram',
-                            },
-                        ],
-                    },
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>

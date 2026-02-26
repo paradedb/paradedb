@@ -21,47 +21,17 @@ All text is treated as a single token, regardless of how many words are containe
 However, unlike the literal tokenizer, this tokenizer allows [token filters](/documentation/token-filters/overview) to be applied. By default, the literal normalized tokenizer
 also [lowercases](/documentation/token-filters/lowercase) the text.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.literal_normalized))
 WITH (key_field='id');
 ```
 
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'literal_normalized'},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Tokenize me!'::pdb.literal_normalized::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
        text

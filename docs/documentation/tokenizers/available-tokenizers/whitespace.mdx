@@ -6,47 +6,17 @@ canonical: https://docs.paradedb.com/documentation/tokenizers/available-tokenize
 
 The whitespace tokenizer splits only on whitespace. It also [lowercases](/documentation/token-filters/lowercase) characters by default.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.whitespace))
 WITH (key_field='id');
 ```
 
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {'tokenizer': 'whitespace'},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
-
 To get a feel for this tokenizer, run the following command and replace the text with your own:
 
-<CodeGroup>
-```sql SQL
+```sql
 SELECT 'Tokenize me!'::pdb.whitespace::text[];
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 ```ini Expected Response
       text

@@ -70,7 +70,7 @@ buildPgrxExtension (finalAttrs: {
   # This hash needs to change any time the Rust dependencies are updated.
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
-  # error: hash mismatch in fixed-output derivation '/nix/store/7kdyfnwwfni20qzfr849fz3g4a1ssc50-pg_search-0.21.8-vendor-staging.drv'
+  # error: hash mismatch in fixed-output derivation '/nix/store/7kdyfnwwfni20qzfr849fz3g4a1ssc50-pg_search-0.21.9-vendor-staging.drv'
   cargoHash = "sha256-NRrDmswQ+oiVNeIbhfhDA7k4wOxotTLsOuT7WMewX6Y=";
 
   inherit cargo-pgrx postgresql;

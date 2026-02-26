@@ -33,19 +33,23 @@ pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) ->
 
         let config = search_field.field_config();
         if let Some(tokenizer) = config.tokenizer() {
-            tokenizers.push(tokenizer.clone());
+            let tokenizer = tokenizer
+                .clone()
+                .with_lindera_backwards_compatibility(index_relation.is_create_index());
 
             // <= `0.20.5`, `unicode_words` was accidentally named `remove_emojis`, so we need to register the old name for backwards compatibility
             if let SearchTokenizer::UnicodeWords {
                 remove_emojis,
                 filters,
-            } = tokenizer
+            } = &tokenizer
             {
                 tokenizers.push(SearchTokenizer::UnicodeWordsDeprecated {
                     remove_emojis: *remove_emojis,
                     filters: filters.clone(),
                 });
             }
+
+            tokenizers.push(tokenizer);
         }
     }
 

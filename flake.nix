@@ -30,7 +30,7 @@
       # A helper for providing system-specific attributes
       forEachSupportedSystem =
         f:
-        inputs.nixpkgs.lib.genAttrs supportedSystems (
+        lib.genAttrs supportedSystems (
           system:
           f {
             inherit system;
@@ -46,6 +46,14 @@
             };
           }
         );
+
+      # The PostgreSQL versions supported for pg_search (see ./pg_search/Cargo.toml)
+      supportedPgVersions = [
+        15
+        16
+        17
+        18
+      ];
     in
     {
       # Package outputs
@@ -56,14 +64,6 @@
       packages = forEachSupportedSystem (
         { pkgs, system }:
         let
-          # The PostgreSQL versions supported for pg_search (see ./pg_search/Cargo.toml)
-          supportedPgVersions = [
-            15
-            16
-            17
-            18
-          ];
-
           # A helper function for building Postgres-version-specific
           # variants of pg_search
           mkForPg =
@@ -104,7 +104,7 @@
               self.formatter.${system}
 
               # Adds PostgreSQL related tools to the environment (pg_ctl, psql, etc)
-              postgresql
+              postgresql_18
 
               # Makefile tools
               postgresql.pg_config
@@ -119,6 +119,31 @@
             shellHook = "";
           };
         }
+        # These development environments enable you to spin up a
+        # local Postgres 15 through 18 with the version-appropriate
+        # pg_search extension installed.
+
+        # Activate the environment from this repo: nix develop .#pg{version}
+        # Example: nix develop .#pg18
+        # Start Postgres: start-pg
+        # Connect to Postgres: psql
+
+        # To activate this environment outside of this repo:
+        # nix develop github:paradedb/paradedb#pg{version}
+        # Example:
+        # nix develop github:paradedb/paradedb#pg18
+
+        // (builtins.listToAttrs (
+          map (v: {
+            name = "pg${toString v}";
+            value = import ./nix/env.nix {
+              inherit pkgs;
+              postgresql = pkgs."postgresql_${toString v}";
+              pgVersion = v;
+              pg_search = self.packages.${system}."pg_search-pg${toString v}";
+            };
+          }) supportedPgVersions
+        ))
       );
 
       # Nix formatter

@@ -47,6 +47,7 @@ node_modules/
 
 # Nix artifacts
 result*
+.pg/
 
 # Cursor
 .cursor/

@@ -297,6 +297,8 @@ fn materialize_deferred_column(
         crate::api::HashMap::default();
     let mut pre_materialized_rows = Vec::new();
 
+    // TODO: Use Arrow to perform this unpacking directly into Arrow arrays, then use
+    // `FFType::fetch_values_or_ords_to_arrow` and `ords_to_{string|bytes}_array` directly on Arrow.
     for row in 0..num_rows {
         match type_ids[row] {
             0 => {
@@ -309,7 +311,6 @@ fn materialize_deferred_column(
             }
             1 => {
                 let seg_ord = seg_ord_array.value(row);
-                // manually adding null ordinal as arrow silently removes them
                 let term_ord = if ord_array.is_null(row) {
                     None
                 } else {

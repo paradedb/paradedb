@@ -618,12 +618,8 @@ fn build_source_df<'a>(
             }
         }
 
-        let mut provider = PgSearchTableProvider::new(
-            scan_info.clone(),
-            fields.clone(),
-            None,
-            is_parallel,
-        );
+        let mut provider =
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
 
         if let Some(ref sort_order) = scan_info.sort_order {
             required_early.insert(sort_order.field_name.as_ref().to_string());

@@ -20,8 +20,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Score
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Score
 
 MockItem.objects.filter(
     description=ParadeDB(Match('shoes', operator='OR'))
@@ -46,8 +45,7 @@ LIMIT 5;
 
 ```python Django
 from django.db.models import Q
-from paradedb.functions import Score
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Score
 
 MockItem.objects.filter(
     Q(description=ParadeDB(Match('keyboard', operator='OR'))) | Q(rating__lt=2)

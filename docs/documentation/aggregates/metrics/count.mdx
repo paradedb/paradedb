@@ -13,8 +13,7 @@ WHERE id @@@ pdb.all();
 ```
 
 ```python Django
-from paradedb.functions import Agg
-from paradedb.search import All, ParadeDB
+from paradedb import Agg, All, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(All())
@@ -50,7 +49,7 @@ WHERE id @@@ pdb.all();
 
 ```python Django
 from django.db.models import Count
-from paradedb.search import All, ParadeDB
+from paradedb import All, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(All())
@@ -68,7 +67,7 @@ WHERE id @@@ pdb.all();
 ```
 
 ```python Django
-from paradedb.search import All, ParadeDB
+from paradedb import All, ParadeDB
 
 MockItem.objects.filter(id=ParadeDB(All())).count()
 ```

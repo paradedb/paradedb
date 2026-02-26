@@ -25,7 +25,7 @@ LIMIT 3;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 # Returns (rows, facets) — facets contains {"value": 5.0}
 rows, facets = (
@@ -70,7 +70,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB
 
 # Returns (rows, facets) — facets contains the total count
 rows, facets = (

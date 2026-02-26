@@ -19,7 +19,7 @@ WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
@@ -53,7 +53,7 @@ WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes'], 1);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', slop=1))

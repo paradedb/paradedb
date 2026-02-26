@@ -27,7 +27,7 @@ WHERE description ### 'running shoes';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
@@ -89,7 +89,7 @@ WHERE description ### 'shoes running'::pdb.slop(2);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))
@@ -110,7 +110,7 @@ WHERE description ### 'running shoes'::pdb.whitespace;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
@@ -134,7 +134,7 @@ WHERE description ### ARRAY['running', 'shoes'];
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('running shoes'))
@@ -153,7 +153,7 @@ WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase
 
 MockItem.objects.filter(
     description=ParadeDB(Phrase('shoes running', slop=2))

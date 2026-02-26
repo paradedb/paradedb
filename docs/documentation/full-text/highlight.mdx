@@ -29,8 +29,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippet
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippet
 
 MockItem.objects.filter(
     description=ParadeDB(Match('shoes', operator='OR'))
@@ -63,8 +62,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippet
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippet
 
 MockItem.objects.filter(
     description=ParadeDB(Match('shoes', operator='OR'))
@@ -88,8 +86,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippets
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippets
 
 MockItem.objects.filter(
     description=ParadeDB(Match('artistic vase', operator='OR'))
@@ -145,8 +142,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippets
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippets
 
 MockItem.objects.filter(
     description=ParadeDB(Match('running', operator='OR'))
@@ -168,8 +164,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippets
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippets
 
 MockItem.objects.filter(
     description=ParadeDB(Match('running', operator='OR'))
@@ -195,8 +190,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippets
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippets
 
 MockItem.objects.filter(
     description=ParadeDB(Match('artistic vase', operator='OR'))
@@ -220,8 +214,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.functions import Snippet, SnippetPositions
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB, Snippet, SnippetPositions
 
 MockItem.objects.filter(
     description=ParadeDB(Match('shoes', operator='OR'))

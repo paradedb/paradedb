@@ -19,8 +19,7 @@ FROM mock_items;
 ```
 
 ```python Django
-from paradedb.functions import Agg
-from paradedb.search import ParadeDB, Term
+from paradedb import Agg, ParadeDB, Term
 
 electronics_count = MockItem.objects.filter(
     category=ParadeDB(Term('electronics'))

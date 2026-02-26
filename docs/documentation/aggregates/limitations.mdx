@@ -22,7 +22,7 @@ AND id @@@ pdb.all();
 ````
 
 ```python Django
-from paradedb.search import All, ParadeDB
+from paradedb import All, ParadeDB
 
 # Not pushed down — no ParadeDB operator
 MockItem.objects.filter(rating=5).count()

@@ -20,7 +20,7 @@ WHERE description @@@ pdb.regex('key.*rd');
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Regex
+from paradedb import ParadeDB, Regex
 
 MockItem.objects.filter(
     description=ParadeDB(Regex('key.*rd'))

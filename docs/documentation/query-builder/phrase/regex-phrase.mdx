@@ -17,7 +17,7 @@ WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, RegexPhrase
+from paradedb import ParadeDB, RegexPhrase
 
 MockItem.objects.filter(
     description=ParadeDB(RegexPhrase('ru.*', 'shoes'))

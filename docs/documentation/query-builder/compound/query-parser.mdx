@@ -16,7 +16,7 @@ WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3');
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Parse
+from paradedb import ParadeDB, Parse
 
 MockItem.objects.filter(
     id=ParadeDB(Parse('description:(sleek shoes) AND rating:>3'))
@@ -40,7 +40,7 @@ WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3', lenient => tru
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Parse
+from paradedb import ParadeDB, Parse
 
 MockItem.objects.filter(
     id=ParadeDB(Parse('description:(sleek shoes) AND rating:>3', lenient=True))

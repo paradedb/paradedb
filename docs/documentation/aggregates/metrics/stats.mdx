@@ -13,8 +13,7 @@ WHERE id @@@ pdb.all();
 ```
 
 ```python Django
-from paradedb.functions import Agg
-from paradedb.search import All, ParadeDB
+from paradedb import Agg, All, ParadeDB
 
 MockItem.objects.filter(
     id=ParadeDB(All())

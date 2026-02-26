@@ -22,7 +22,7 @@ USING bm25 (
 
 ```python Django
 from django.db import models
-from paradedb.indexes import BM25Index
+from paradedb import BM25Index
 
 class MockItem(models.Model):
     description = models.TextField()
@@ -104,8 +104,7 @@ LIMIT 5;
 
 ```python Django
 from django.db import models
-from paradedb.indexes import BM25Index
-from paradedb.search import ParadeDB, Parse
+from paradedb import BM25Index, ParadeDB, Parse
 
 class MockItem(models.Model):
     description = models.TextField()

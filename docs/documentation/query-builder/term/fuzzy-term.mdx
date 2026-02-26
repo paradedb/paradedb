@@ -21,7 +21,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     description=ParadeDB(Term('shoez', distance=2))

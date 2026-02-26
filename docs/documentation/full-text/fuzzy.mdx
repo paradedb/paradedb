@@ -43,7 +43,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB, Term
+from paradedb import Match, ParadeDB, Term
 
 # Fuzzy match disjunction
 MockItem.objects.filter(
@@ -94,7 +94,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     description=ParadeDB(Term('rann', distance=1, prefix=True))
@@ -119,7 +119,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
     description=ParadeDB(Match('slee', 'rann', operator='AND', distance=1, prefix=True))
@@ -142,7 +142,7 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     description=ParadeDB(Term('shose', distance=1, transposition_cost_one=True))

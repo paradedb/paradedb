@@ -14,7 +14,7 @@ WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PhrasePrefix
+from paradedb import ParadeDB, PhrasePrefix
 
 MockItem.objects.filter(
     description=ParadeDB(PhrasePrefix('running', 'sh'))

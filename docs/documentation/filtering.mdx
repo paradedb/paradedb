@@ -15,7 +15,7 @@ WHERE description ||| 'running shoes' AND rating > 2;
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
     description=ParadeDB(Match('running shoes', operator='OR')),
@@ -107,7 +107,7 @@ WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     description=ParadeDB(Term('shoes')),
@@ -135,7 +135,7 @@ WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     description=ParadeDB(Term('shoes')),

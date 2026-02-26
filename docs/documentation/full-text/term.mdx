@@ -27,7 +27,7 @@ WHERE description === 'RUNNING';
 ````
 
 ```python Django
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 # Term query 1
 MockItem.objects.filter(
@@ -99,7 +99,7 @@ WHERE description === ARRAY['shoes', 'running'];
 
 ```python Django
 from django.db.models import Q
-from paradedb.search import ParadeDB, Term
+from paradedb import ParadeDB, Term
 
 MockItem.objects.filter(
     Q(description=ParadeDB(Term('shoes'))) |

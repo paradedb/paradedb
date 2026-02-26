@@ -25,7 +25,7 @@ WHERE description @@@ pdb.match('running shoes');
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
     description=ParadeDB(Match('running shoes', operator='OR'))
@@ -86,7 +86,7 @@ WHERE description @@@ pdb.match('running shoes', conjunction_mode => true);
 ```
 
 ```python Django
-from paradedb.search import Match, ParadeDB
+from paradedb import Match, ParadeDB
 
 MockItem.objects.filter(
     description=ParadeDB(Match('running', 'shoes', operator='AND'))

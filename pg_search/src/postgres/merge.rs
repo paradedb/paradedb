@@ -202,10 +202,6 @@ impl IndexLayerSizes {
         self.user_configured_bg_layers
     }
 
-    fn foreground(&self) -> &[u64] {
-        &self.foreground_layer_sizes
-    }
-
     fn combined(&self) -> Vec<u64> {
         let mut combined = self.foreground_layer_sizes.clone();
         combined.extend_from_slice(&self.background_layer_sizes);
@@ -254,22 +250,6 @@ pub unsafe fn do_merge(
     // apply backpressure if there are too many mutable segments
     // this means forcing a foreground merge of the mutable segments
     let need_backpressure = need_backpressure(style, metadata.segment_metas());
-    if need_backpressure {
-        let cleanup_lock = metadata.cleanup_lock_shared();
-        let merge_lock = metadata.acquire_merge_lock();
-        let foreground_merge_policy = LayeredMergePolicy::new(vec![0]);
-        merge_index(
-            index,
-            foreground_merge_policy,
-            merge_lock,
-            cleanup_lock,
-            false,
-            false,
-            current_xid.expect("foreground merging requires a current transaction id"),
-            next_xid.expect("foreground merging requires a next transaction id"),
-        );
-    }
-
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
@@ -288,14 +268,21 @@ pub unsafe fn do_merge(
             (false, 0)
         };
 
-    if needs_background_merge {
+    if needs_background_merge && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
         drop(cleanup_lock);
 
         try_launch_background_merger(index, largest_layer_size);
-    } else if style == MergeStyle::Insert && !layer_sizes.foreground().is_empty() {
+    } else if style == MergeStyle::Insert
+        && (!foreground_layer_sizes.is_empty() || need_backpressure)
+    {
+        let foreground_layer_sizes = if foreground_layer_sizes.is_empty() {
+            vec![0]
+        } else {
+            foreground_layer_sizes
+        };
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layer_sizes);
         merge_index(
             index,

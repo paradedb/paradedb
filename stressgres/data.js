@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772071184998,
+  "lastUpdate": 1772072161469,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7138,6 +7138,42 @@ window.BENCHMARK_DATA = {
             "value": 5.421163940166239,
             "unit": "median tps",
             "extra": "avg tps: 4.835846725770692, max tps: 6.015903076132015, count: 57873"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c42d534131d9c15e915c0be9ac78c65caeedde5",
+          "message": "ci: Fix benchmarks to not cache entire dataset in memory (#4233)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nOur benchmarks were inadvertently ignoring disk I/O costs since we were\nusing huge machines with NVMe that were caching the entire dataset in\nmemory. To fix this:\n\n- Swapped to `r8g` instances which use GP3\n- Clear the OS page cache + Postgres buffer cache between each unique\nquery\n\nThis means that the first query time is the true \"cold run\" time. \n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-25T17:39:53-08:00",
+          "tree_id": "3d73d87fb6ea5201dfd797f58087396ff3758922",
+          "url": "https://github.com/paradedb/paradedb/commit/0c42d534131d9c15e915c0be9ac78c65caeedde5"
+        },
+        "date": 1772072157278,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.791201886168149,
+            "unit": "median tps",
+            "extra": "avg tps: 6.650761049099528, max tps: 10.003220630466041, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.346863862963672,
+            "unit": "median tps",
+            "extra": "avg tps: 4.805249543062978, max tps: 5.979383174739881, count: 57786"
           }
         ]
       }

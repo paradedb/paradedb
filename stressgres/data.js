@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772138171248,
+  "lastUpdate": 1772139205520,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11058,6 +11058,54 @@ window.BENCHMARK_DATA = {
             "value": 5.208948829143806,
             "unit": "median tps",
             "extra": "avg tps: 5.246491416295141, max tps: 9.177183795773155, count: 56215"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5007b6201cc3c959f36dd197df2b10363d39c179",
+          "message": "chore: Execute dynamic filters earlier (#4200)\n\n## What\n\nMove pre-filter/dynamic-filter execution before visibility filtering,\nand preserve filter columns once they have been loaded.\n\nAdditionally, move to evaluating filters directly as DataFusion\nexpressions on Arrow columns.\n\n## Why\n\nVisibility filters very rarely eliminate rows in a properly tuned\nsystem, and they are more expensive than any other type of filter that\nwe can execute (they require at least a lock on the visibility map, but\npossibly also heap access).\n\nAnd when we have executed filters, we have already loaded the columns\nfor those filters: we can hold on to them and reuse them if they survive\nuntil it is time to emit the batch.\n\nThis gives us a cleaner base for #4219 to re-use pre-filtered columns.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-02-26T11:59:21-08:00",
+          "tree_id": "caaea554684527467ea2ccc9b16bea5c2c366339",
+          "url": "https://github.com/paradedb/paradedb/commit/5007b6201cc3c959f36dd197df2b10363d39c179"
+        },
+        "date": 1772139200838,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1116.7853657720727,
+            "unit": "median tps",
+            "extra": "avg tps: 1121.8564955906088, max tps: 1174.7503544607089, count: 55839"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1246.6036052010925,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.3279367058194, max tps: 1257.2782117655725, count: 55839"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1860.5648752823467,
+            "unit": "median tps",
+            "extra": "avg tps: 1843.8224122694216, max tps: 2024.8138729077777, count: 55839"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.453635322340912,
+            "unit": "median tps",
+            "extra": "avg tps: 5.486872404350837, max tps: 7.725698696931895, count: 55839"
           }
         ]
       }

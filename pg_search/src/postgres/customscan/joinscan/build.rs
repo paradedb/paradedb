@@ -526,6 +526,32 @@ impl RelNode {
         }
     }
 
+    /// Recursively collects all output RTIs (ignoring pruned sides like the right side of SemiJoin).
+    pub fn output_rtis(&self) -> Vec<pg_sys::Index> {
+        let mut result = Vec::new();
+        self.collect_output_rtis(&mut result);
+        result
+    }
+
+    fn collect_output_rtis(&self, acc: &mut Vec<pg_sys::Index>) {
+        match self {
+            RelNode::Scan(s) => acc.push(s.scan_info.heap_rti),
+            RelNode::Join(j) => match j.join_type {
+                JoinType::Semi | JoinType::Anti => {
+                    j.left.collect_output_rtis(acc);
+                }
+                JoinType::RightSemi | JoinType::RightAnti => {
+                    j.right.collect_output_rtis(acc);
+                }
+                _ => {
+                    j.left.collect_output_rtis(acc);
+                    j.right.collect_output_rtis(acc);
+                }
+            },
+            RelNode::Filter(f) => f.input.collect_output_rtis(acc),
+        }
+    }
+
     /// Recursively collects all equi-join keys from this tree.
     pub fn join_keys(&self) -> Vec<JoinKeyPair> {
         let mut result = Vec::new();

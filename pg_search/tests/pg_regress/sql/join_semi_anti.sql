@@ -87,7 +87,7 @@ LIMIT 10;
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- This query should produce a warning because neither are supported.
+-- TODO: This query should produce a warning because Anti-Joins are not supported.
 SELECT id, category
 FROM table_a
 WHERE id IN (

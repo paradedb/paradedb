@@ -1004,17 +1004,48 @@ unsafe fn is_score_func_recursive(expr: *mut pg_sys::Expr, source: &JoinSource) 
     false
 }
 
-/// Extract ORDER BY information for DataFusion execution.
+/// Extract `ORDER BY` information from the Postgres query planner to pass down to the
+/// DataFusion execution plan.
+///
+/// This function translates PostgreSQL's `PathKey`s (which represent requested sort orders)
+/// into a format (`OrderByInfo`) that `JoinScan` and DataFusion can consume to construct a
+/// physical `Sort` node.
+///
+/// # Equivalence Classes
+/// In PostgreSQL, the planner bundles logically equivalent expressions into "Equivalence Classes"
+/// (`ec_members`). For example, if a query includes the equi-join condition `a.id = b.id`
+/// and orders by `b.id`, the planner considers sorting by `a.id` equally valid. Both variables
+/// will be present in the `ec_members` list for that `PathKey`.
+///
+/// # Interaction with Pruned Relations (e.g., `SEMI JOIN`)
+/// Certain join types, such as `LeftSemi` or `LeftAnti` joins, discard columns from one side
+/// of the join. Continuing the above example, if the relation `b` is on the right side of a
+/// Semi-Join, `b.id` will *not* be available in the output schema of the join operation.
+/// If DataFusion attempts to sort on `b.id`, it will panic with a `SchemaError(FieldNotFound)`.
+///
+/// To prevent this, this function accepts `output_rtis`, a list of the Range Table Identifiers
+/// (RTIs) that actually survive the entire relational tree defined in `JoinCSClause`.
+/// When inspecting an Equivalence Class, the function searches for *any* member that belongs
+/// to an RTI in `output_rtis`.
+///
+/// # Returns
+/// - `Some(Vec<OrderByInfo>)`: The translated sort instructions containing valid, available columns.
+/// - `None`: If the function encounters an `ORDER BY` pathkey where *none* of its Equivalence
+///   Class members belong to the `output_rtis` list. This can happen in edge cases or complex
+///   projections where Postgres asks for a sort on a variable not present in the local execution
+///   context. Returning `None` signals the planner to abandon `JoinScan` and fall back to native
+///   PostgreSQL execution.
 pub(super) unsafe fn extract_orderby(
     root: *mut pg_sys::PlannerInfo,
     sources: &[&JoinSource],
     ordering_side_index: Option<usize>,
-) -> Vec<OrderByInfo> {
+    output_rtis: &[pg_sys::Index],
+) -> Option<Vec<OrderByInfo>> {
     let mut result = Vec::new();
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
 
     if pathkeys.is_empty() || sources.is_empty() {
-        return result;
+        return Some(result);
     }
 
     for pathkey_ptr in pathkeys.iter_ptr() {
@@ -1043,6 +1074,8 @@ pub(super) unsafe fn extract_orderby(
             (false, false) => SortDirection::DescNullsLast,
         };
 
+        let mut pathkey_resolved = false;
+
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
@@ -1057,6 +1090,10 @@ pub(super) unsafe fn extract_orderby(
             let mut score_found = false;
             for (i, source) in sources.iter().enumerate() {
                 if is_score_func_recursive(check_expr.cast(), source) {
+                    if !output_rtis.contains(&source.scan_info.heap_rti) {
+                        continue;
+                    }
+
                     let is_ordering_source = Some(i) == ordering_side_index;
 
                     if is_ordering_source {
@@ -1078,12 +1115,17 @@ pub(super) unsafe fn extract_orderby(
                 }
             }
             if score_found {
+                pathkey_resolved = true;
                 break;
             }
 
             if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
+
+                if !output_rtis.contains(&varno) {
+                    continue;
+                }
 
                 for source in sources {
                     if source.contains_rti(varno) {
@@ -1100,12 +1142,20 @@ pub(super) unsafe fn extract_orderby(
                             },
                             direction,
                         });
+                        pathkey_resolved = true;
                         break;
                     }
                 }
             }
+            if pathkey_resolved {
+                break;
+            }
+        }
+
+        if !pathkey_resolved {
+            return None;
         }
     }
 
-    result
+    Some(result)
 }

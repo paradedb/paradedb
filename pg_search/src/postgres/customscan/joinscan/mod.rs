@@ -589,7 +589,24 @@ impl CustomScan for JoinScan {
             // the predicate extraction returns None and JoinScan won't be proposed.
 
             // Extract ORDER BY info for DataFusion execution
-            let order_by = extract_orderby(root, &current_sources_after_cond, ordering_idx);
+            let output_rtis = join_clause.plan.output_rtis();
+            let order_by = match extract_orderby(
+                root,
+                &current_sources_after_cond,
+                ordering_idx,
+                &output_rtis,
+            ) {
+                Some(ob) => ob,
+                None => {
+                    if is_interesting {
+                        Self::add_planner_warning(
+                            "JoinScan not used: ORDER BY column is not available in the joined output schema",
+                            &aliases,
+                        );
+                    }
+                    return Vec::new();
+                }
+            };
             join_clause = join_clause.with_order_by(order_by);
 
             // Use simple fixed costs since we force the path anyway.

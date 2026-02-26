@@ -58,7 +58,25 @@ WHERE id IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-ERROR:  Failed to create execution plan: SchemaError(FieldNotFound { field: Column { relation: Some(Bare { table: "table_b" }), name: "a_id" }, valid_fields: [Column { relation: Some(Bare { table: "table_a" }), name: "ctid_1" }, Column { relation: Some(Bare { table: "table_a" }), name: "id" }] }, Some(""))
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.00..11.00 rows=10 width=40)
+   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=10 width=40)
+         Relation Tree: table_a SEMI table_b
+         Join Cond: table_a.id = table_b.a_id
+         Limit: 10
+         Order By: table_a.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_1@0 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
+           :     HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :       ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
+
 -- =====================================================================
 -- 2. Anti Join Only
 -- =====================================================================
@@ -91,7 +109,7 @@ LIMIT 10;
 -- =====================================================================
 -- 3. Both Semi and Anti Join
 -- =====================================================================
--- This query should produce a warning because neither are supported.
+-- TODO: This query should produce a warning because Anti-Joins are not supported.
 SELECT id, category
 FROM table_a
 WHERE id IN (

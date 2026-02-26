@@ -15,13 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::identity;
 use std::sync::Arc;
 
-use arrow_array::builder::{
-    BinaryViewBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder,
-    TimestampNanosecondBuilder, UInt64Builder,
-};
+use arrow_array::builder::{BinaryViewBuilder, BooleanBuilder, StringViewBuilder};
 use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_buffer::Buffer;
 use arrow_schema::SchemaRef;
@@ -33,7 +29,6 @@ use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, WhichFastField};
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::types_arrow::date_time_to_ts_nanos;
 
 use super::pre_filter::PreFilter;
 
@@ -45,31 +40,6 @@ use super::pre_filter::PreFilter;
 const MAX_BATCH_SIZE: usize = 128_000;
 
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
-
-/// A macro to fetch values for the given ids into an Arrow array.
-macro_rules! fetch_ff_column {
-    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
-        match $col {
-            $(
-                FFType::$ff_type(col) => {
-                    let mut column_results = Vec::with_capacity($ids.len());
-                    column_results.resize($ids.len(), None);
-                    col.first_vals(&$ids, &mut column_results);
-                    let mut builder = $builder::with_capacity($ids.len());
-                    for maybe_val in column_results {
-                        if let Some(val) = maybe_val {
-                            builder.append_value($conversion(val));
-                        } else {
-                            builder.append_null();
-                        }
-                    }
-                    Arc::new(builder.finish()) as ArrayRef
-                }
-            )*
-            x => panic!("Unhandled column type {x:?}"),
-        }
-    };
-}
 
 /// Compact `ids` and `scores` in-place based on a boolean mask.
 fn compact_with_mask(
@@ -208,47 +178,9 @@ impl Scanner {
         ff_index: usize,
         ids: &[u32],
     ) -> ArrayRef {
-        match ffhelper.column(segment_ord, ff_index) {
-            FFType::Text(col) => {
-                let mut term_ords = Vec::with_capacity(ids.len());
-                term_ords.resize(ids.len(), None);
-                col.ords().first_vals(ids, &mut term_ords);
-                let mut builder = UInt64Builder::with_capacity(ids.len());
-                for maybe_ord in term_ords {
-                    if let Some(ord) = maybe_ord {
-                        builder.append_value(ord);
-                    } else {
-                        builder.append_null();
-                    }
-                }
-                Arc::new(builder.finish())
-            }
-            FFType::Bytes(col) => {
-                let mut term_ords = Vec::with_capacity(ids.len());
-                term_ords.resize(ids.len(), None);
-                col.ords().first_vals(ids, &mut term_ords);
-                let mut builder = UInt64Builder::with_capacity(ids.len());
-                for maybe_ord in term_ords {
-                    if let Some(ord) = maybe_ord {
-                        builder.append_value(ord);
-                    } else {
-                        builder.append_null();
-                    }
-                }
-                Arc::new(builder.finish())
-            }
-            FFType::Junk => Arc::new(arrow_array::new_null_array(
-                &arrow_schema::DataType::Null,
-                ids.len(),
-            )),
-            numeric_column => fetch_ff_column!(numeric_column, ids,
-                I64  => identity => Int64Builder,
-                F64  => identity => Float64Builder,
-                U64  => identity => UInt64Builder,
-                Bool => identity => BooleanBuilder,
-                Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
-            ),
-        }
+        ffhelper
+            .column(segment_ord, ff_index)
+            .fetch_values_or_ords_to_arrow(ids)
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {

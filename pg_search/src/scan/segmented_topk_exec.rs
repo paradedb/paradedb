@@ -35,12 +35,10 @@
 //! downstream `SortExec` to start processing early and enables its dynamic
 //! filter feedback loop for progressive scan pruning.
 
-use std::any::Any;
-use std::collections::BinaryHeap;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-
+use crate::api::HashMap;
+use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::scan::deferred_encode::unpack_doc_address;
+use crate::scan::execution_plan::UnsafeSendStream;
 use arrow_array::{Array, BooleanArray, RecordBatch, UInt64Array, UnionArray};
 use arrow_schema::SchemaRef;
 use arrow_select::filter::filter_record_batch;
@@ -53,10 +51,11 @@ use datafusion::physical_plan::metrics::{
 };
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
-
-use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
-use crate::scan::deferred_encode::unpack_doc_address;
-use crate::scan::execution_plan::UnsafeSendStream;
+use std::any::Any;
+use std::collections::BinaryHeap;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
@@ -187,7 +186,7 @@ impl ExecutionPlan for SegmentedTopKExec {
                 k: self.k,
                 descending: self.descending,
                 schema: self.properties.eq_properties.schema().clone(),
-                segment_heaps: crate::api::HashMap::default(),
+                segment_heaps: HashMap::default(),
                 rows_input,
                 rows_output,
                 segments_seen,
@@ -211,7 +210,7 @@ struct SegmentedTopKStream {
     schema: SchemaRef,
     /// Persistent per-segment heaps. Each heap stores at most K ordinals
     /// (transformed via `heap_ord` for unified max-heap comparison).
-    segment_heaps: crate::api::HashMap<u32, BinaryHeap<u64>>,
+    segment_heaps: HashMap<u32, BinaryHeap<u64>>,
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
@@ -276,11 +275,9 @@ impl SegmentedTopKStream {
             })?;
 
         // State 0 rows need FFHelper lookup: segment_ord -> Vec<(row_idx, doc_id)>
-        let mut state0_by_seg: crate::api::HashMap<u32, Vec<(usize, u32)>> =
-            crate::api::HashMap::default();
+        let mut state0_by_seg: HashMap<u32, Vec<(usize, u32)>> = HashMap::default();
         // State 1 rows already have ordinals: segment_ord -> Vec<(row_idx, term_ord)>
-        let mut with_ords: crate::api::HashMap<u32, Vec<(usize, u64)>> =
-            crate::api::HashMap::default();
+        let mut with_ords: HashMap<u32, Vec<(usize, u64)>> = HashMap::default();
 
         for row_idx in 0..num_rows {
             match type_ids[row_idx] {

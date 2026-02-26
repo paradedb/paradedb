@@ -263,12 +263,7 @@ impl SearchPredicateUDF {
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());
 
         let mut ctids = Vec::new();
-        while let Some(batch) = scanner.next(
-            &ffhelper,
-            &mut visibility,
-            &[],
-            &std::sync::Arc::new(arrow_schema::Schema::empty()),
-        ) {
+        while let Some(batch) = scanner.next(&ffhelper, &mut visibility, None) {
             if let Some(Some(col)) = batch.fields.first() {
                 let array = col
                     .as_any()

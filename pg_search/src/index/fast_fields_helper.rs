@@ -15,12 +15,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::identity;
+use std::sync::{Arc, OnceLock};
+
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::types_arrow::date_time_to_ts_nanos;
 use crate::schema::SearchFieldType;
-use std::sync::Arc;
-use std::sync::OnceLock;
 
+use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
+use arrow_array::builder::{
+    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
+};
+use arrow_array::{ArrayRef, UInt64Array};
+use arrow_buffer::Buffer;
+use datafusion::common::Result;
+use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
@@ -29,11 +39,6 @@ use tantivy::termdict::TermOrdinal;
 use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
 
-use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
-use arrow_array::ArrayRef;
-use arrow_buffer::Buffer;
-use datafusion::common::Result;
-use datafusion::error::DataFusionError;
 /// A fast-field index position value.
 pub type FFIndex = usize;
 
@@ -103,6 +108,49 @@ impl FFHelper {
                 .value(doc_address.doc_id),
         )
     }
+}
+
+/// A macro to fetch values for the given ids into an Arrow array.
+macro_rules! fetch_ff_column {
+    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
+        match $col {
+            $(
+                FFType::$ff_type(col) => {
+                    let mut column_results = Vec::with_capacity($ids.len());
+                    column_results.resize($ids.len(), None);
+                    col.first_vals($ids, &mut column_results);
+                    let mut builder = $builder::with_capacity($ids.len());
+                    for maybe_val in column_results {
+                        if let Some(val) = maybe_val {
+                            builder.append_value($conversion(val));
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish()) as ArrayRef
+                }
+            )*
+            x => panic!("Unhandled column type {x:?}"),
+        }
+    };
+}
+
+/// A macro to deduplicate fetching term ordinals for String/Bytes columns.
+macro_rules! fetch_term_ords {
+    ($ords:expr, $ids:expr) => {{
+        let mut term_ords = Vec::with_capacity($ids.len());
+        term_ords.resize($ids.len(), None);
+        $ords.first_vals($ids, &mut term_ords);
+        let mut builder = UInt64Builder::with_capacity($ids.len());
+        for maybe_ord in term_ords {
+            if let Some(ord) = maybe_ord {
+                builder.append_value(ord);
+            } else {
+                builder.append_null();
+            }
+        }
+        Arc::new(builder.finish()) as ArrayRef
+    }};
 }
 
 /// Helper for working with different "fast field" types as if they're all one type.
@@ -228,6 +276,26 @@ impl FFType {
         };
         ff.first_vals(docs, output);
     }
+
+    /// Fetches the batch of fast field values (or term ordinals for Text/Bytes)
+    /// as an Arrow array.
+    pub fn fetch_values_or_ords_to_arrow(&self, ids: &[u32]) -> ArrayRef {
+        match self {
+            FFType::Text(col) => fetch_term_ords!(col.ords(), ids),
+            FFType::Bytes(col) => fetch_term_ords!(col.ords(), ids),
+            FFType::Junk => Arc::new(arrow_array::new_null_array(
+                &arrow_schema::DataType::Null,
+                ids.len(),
+            )),
+            numeric_column => fetch_ff_column!(numeric_column, ids,
+                I64  => identity => Int64Builder,
+                F64  => identity => Float64Builder,
+                U64  => identity => UInt64Builder,
+                Bool => identity => BooleanBuilder,
+                Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
+            ),
+        }
+    }
 }
 
 /// A request for a specific fast field, used *before* the column is open.
@@ -325,12 +393,13 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-pub(crate) fn ords_to_string_array(
-    str_ff: StrColumn,
-    term_ords: impl IntoIterator<Item = TermOrdinal>,
-) -> Result<ArrayRef> {
+pub(crate) fn ords_to_string_array(str_ff: StrColumn, term_ords: &UInt64Array) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
-    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    let mut term_ords = term_ords
+        .iter()
+        .enumerate()
+        .map(|(i, maybe_ord)| (i, maybe_ord.unwrap_or(NULL_TERM_ORDINAL)))
+        .collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
     // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
@@ -445,10 +514,14 @@ pub(crate) fn ords_to_string_array(
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
 pub(crate) fn ords_to_bytes_array(
     bytes_ff: BytesColumn,
-    term_ords: impl IntoIterator<Item = TermOrdinal>,
+    term_ords: &UInt64Array,
 ) -> Result<ArrayRef> {
     // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
-    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    let mut term_ords = term_ords
+        .iter()
+        .enumerate()
+        .map(|(i, maybe_ord)| (i, maybe_ord.unwrap_or(NULL_TERM_ORDINAL)))
+        .collect::<Vec<_>>();
     term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
     // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the

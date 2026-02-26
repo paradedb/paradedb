@@ -97,7 +97,7 @@ use datafusion::physical_expr::expressions::{BinaryExpr, Column, IsNullExpr, Lit
 use datafusion::physical_expr::PhysicalExpr;
 use tantivy::SegmentOrdinal;
 
-use crate::index::fast_fields_helper::{FFHelper, FFType};
+use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -108,6 +108,12 @@ pub struct PreFilter {
     pub expr: Arc<dyn PhysicalExpr>,
     /// The indices of the fast fields this expression requires.
     pub required_columns: Vec<usize>,
+}
+
+/// A wrapper bundling a list of `PreFilter`s with the schema they apply to.
+pub struct PreFilters<'a> {
+    pub filters: &'a [PreFilter],
+    pub schema: &'a SchemaRef,
 }
 
 impl PreFilter {
@@ -123,6 +129,9 @@ impl PreFilter {
     ) -> Result<BooleanArray, String> {
         // 1. Rewrite the expression for the current segment.
         // String literal comparisons are rewritten to ordinal comparisons.
+        // NOTE: This runs two `transform()` passes on every batch. If this shows up in
+        // profiling, the rewritten expression could be cached per-segment to reduce
+        // allocation overhead for small batch sizes.
         let rewritten_string_expr = self
             .expr
             .clone()
@@ -196,15 +205,8 @@ impl PreFilter {
         let bool_array = array
             .as_any()
             .downcast_ref::<BooleanArray>()
-            .ok_or_else(|| "Result is not a BooleanArray".to_string())?;
-
-        // SQL 3VL: a NULL predicate result means the row is not selected.
-        // Coalesce NULLs to false so downstream consumers get a clean mask.
-        let bool_array = if bool_array.null_count() > 0 {
-            datafusion::arrow::compute::prep_null_mask_filter(bool_array)
-        } else {
-            bool_array.clone()
-        };
+            .ok_or_else(|| "Result is not a BooleanArray".to_string())?
+            .clone();
 
         Ok(bool_array)
     }
@@ -238,6 +240,10 @@ pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &m
 }
 
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
+///
+/// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
+/// traversal across the entire expression tree. If an OR branch contains an unsupported
+/// child, the entire expression is rejected.
 fn is_supported(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,
@@ -343,6 +349,20 @@ fn rewrite_col_op_lit(
         _ => return None, // Not a string/bytes column. Leave for native DataFusion eval over numerics.
     };
 
+    if op == &Operator::NotEq {
+        let ord_opt = dict.term_ord(bytes).ok().flatten();
+        // If the term does not exist, all non-null values match.
+        // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the data.
+        let target_ord = ord_opt.unwrap_or(NULL_TERM_ORDINAL);
+
+        let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
+        let lit_expr =
+            Arc::new(Literal::new(ScalarValue::UInt64(Some(target_ord)))) as Arc<dyn PhysicalExpr>;
+        return Some(
+            Arc::new(BinaryExpr::new(col_expr, Operator::NotEq, lit_expr)) as Arc<dyn PhysicalExpr>,
+        );
+    }
+
     // Convert string bounds to native string bounds.
     let (lower, upper) = match op {
         Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
@@ -422,6 +442,8 @@ fn flip_operator(op: &Operator) -> Option<Operator> {
         Operator::LtEq => Some(Operator::GtEq),
         Operator::Gt => Some(Operator::Lt),
         Operator::GtEq => Some(Operator::LtEq),
+        Operator::Eq => Some(Operator::Eq),
+        Operator::NotEq => Some(Operator::NotEq),
         _ => None,
     }
 }

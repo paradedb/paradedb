@@ -15,26 +15,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::identity;
 use std::sync::Arc;
 
-use arrow_array::builder::{
-    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
-};
-use arrow_array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
+use arrow_array::builder::BooleanBuilder;
+use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
 use tantivy::{DocAddress, DocId, Score, SegmentOrdinal};
 
 use crate::index::fast_fields_helper::{
-    build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
-    WhichFastField, NULL_TERM_ORDINAL,
+    build_arrow_schema, ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, WhichFastField,
 };
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
-use crate::postgres::types_arrow::date_time_to_ts_nanos;
-
-use super::pre_filter::PreFilter;
 
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
@@ -43,31 +36,6 @@ use super::pre_filter::PreFilter;
 /// be held in memory at a time.
 const MAX_BATCH_SIZE: usize = 128_000;
 
-/// A macro to fetch values for the given ids into an Arrow array.
-macro_rules! fetch_ff_column {
-    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
-        match $col {
-            $(
-                FFType::$ff_type(col) => {
-                    let mut column_results = Vec::with_capacity($ids.len());
-                    column_results.resize($ids.len(), None);
-                    col.first_vals(&$ids, &mut column_results);
-                    let mut builder = $builder::with_capacity($ids.len());
-                    for maybe_val in column_results {
-                        if let Some(val) = maybe_val {
-                            builder.append_value($conversion(val));
-                        } else {
-                            builder.append_null();
-                        }
-                    }
-                    Arc::new(builder.finish()) as ArrayRef
-                }
-            )*
-            x => panic!("Unhandled column type {x:?}"),
-        }
-    };
-}
-
 /// Compact `ids` and `scores` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
@@ -75,7 +43,7 @@ fn compact_with_mask(
     memoized_columns: &mut Vec<Option<ArrayRef>>,
     mask: &BooleanArray,
 ) {
-    if mask.false_count() == 0 {
+    if mask.false_count() == 0 && mask.null_count() == 0 {
         return;
     }
 
@@ -206,47 +174,9 @@ impl Scanner {
         ff_index: usize,
         ids: &[u32],
     ) -> ArrayRef {
-        match ffhelper.column(segment_ord, ff_index) {
-            FFType::Text(col) => {
-                let mut term_ords = Vec::with_capacity(ids.len());
-                term_ords.resize(ids.len(), None);
-                col.ords().first_vals(ids, &mut term_ords);
-                let mut builder = UInt64Builder::with_capacity(ids.len());
-                for maybe_ord in term_ords {
-                    if let Some(ord) = maybe_ord {
-                        builder.append_value(ord);
-                    } else {
-                        builder.append_null();
-                    }
-                }
-                Arc::new(builder.finish())
-            }
-            FFType::Bytes(col) => {
-                let mut term_ords = Vec::with_capacity(ids.len());
-                term_ords.resize(ids.len(), None);
-                col.ords().first_vals(ids, &mut term_ords);
-                let mut builder = UInt64Builder::with_capacity(ids.len());
-                for maybe_ord in term_ords {
-                    if let Some(ord) = maybe_ord {
-                        builder.append_value(ord);
-                    } else {
-                        builder.append_null();
-                    }
-                }
-                Arc::new(builder.finish())
-            }
-            FFType::Junk => Arc::new(arrow_array::new_null_array(
-                &arrow_schema::DataType::Null,
-                ids.len(),
-            )),
-            numeric_column => fetch_ff_column!(numeric_column, ids,
-                I64  => identity => Int64Builder,
-                F64  => identity => Float64Builder,
-                U64  => identity => UInt64Builder,
-                Bool => identity => BooleanBuilder,
-                Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
-            ),
-        }
+        ffhelper
+            .column(segment_ord, ff_index)
+            .fetch_values_or_ords_to_arrow(ids)
     }
 
     fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<Score>, Vec<DocId>)> {
@@ -290,8 +220,7 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
-        pre_filters: &[PreFilter],
-        schema: &SchemaRef,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -310,9 +239,9 @@ impl Scanner {
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
-        if !pre_filters.is_empty() {
+        if let Some(pre_filters) = pre_filters {
             let before = ids.len();
-            for pre_filter in pre_filters {
+            for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
                 }
@@ -327,7 +256,13 @@ impl Scanner {
 
                 // Apply filter
                 let mask = pre_filter
-                    .apply_arrow(ffhelper, segment_ord, &memoized_columns, schema, ids.len())
+                    .apply_arrow(
+                        ffhelper,
+                        segment_ord,
+                        &memoized_columns,
+                        pre_filters.schema,
+                        ids.len(),
+                    )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
 
                 // Compact state
@@ -404,13 +339,8 @@ impl Scanner {
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Text ordinals");
                             Some(
-                                ords_to_string_array(
-                                    str_column.clone(),
-                                    ords_array
-                                        .into_iter()
-                                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-                                )
-                                .expect("Failed to decode text dictionary"),
+                                ords_to_string_array(str_column.clone(), ords_array)
+                                    .expect("Failed to lookup ordinals"),
                             )
                         }
                         FFType::Bytes(bytes_column) => {
@@ -419,13 +349,8 @@ impl Scanner {
                                 .downcast_ref::<UInt64Array>()
                                 .expect("Expected UInt64Array for Bytes ordinals");
                             Some(
-                                ords_to_bytes_array(
-                                    bytes_column.clone(),
-                                    ords_array
-                                        .into_iter()
-                                        .map(|o| o.unwrap_or(NULL_TERM_ORDINAL)),
-                                )
-                                .expect("Failed to decode bytes dictionary"),
+                                ords_to_bytes_array(bytes_column.clone(), ords_array)
+                                    .expect("Failed to lookup ordinals"),
                             )
                         }
                         _ => Some(col_array),
@@ -486,11 +411,10 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
-        pre_filters: &[PreFilter],
-        schema: &SchemaRef,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters, schema) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
                 self.prefetched = Some(batch);
             }
         }

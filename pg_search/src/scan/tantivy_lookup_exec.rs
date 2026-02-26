@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType, NULL_TERM_ORDINAL,
+    ords_to_bytes_array, ords_to_string_array, FFHelper, FFType,
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
@@ -289,7 +289,7 @@ fn materialize_deferred_column(
     // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
     let mut state_0_by_seg: crate::api::HashMap<u32, Vec<(usize, tantivy::DocId)>> =
         crate::api::HashMap::default();
-    let mut state_1_by_seg: crate::api::HashMap<u32, Vec<(usize, u64)>> =
+    let mut state_1_by_seg: crate::api::HashMap<u32, Vec<(usize, Option<u64>)>> =
         crate::api::HashMap::default();
     let mut pre_materialized_rows = Vec::new();
 
@@ -307,9 +307,9 @@ fn materialize_deferred_column(
                 let seg_ord = seg_ord_array.value(row);
                 // manually adding null ordinal as arrow silently removes them
                 let term_ord = if ord_array.is_null(row) {
-                    crate::index::fast_fields_helper::NULL_TERM_ORDINAL
+                    None
                 } else {
-                    ord_array.value(row)
+                    Some(ord_array.value(row))
                 };
                 state_1_by_seg
                     .entry(seg_ord)
@@ -336,13 +336,14 @@ fn materialize_deferred_column(
     }
 
     // Helper closure to handle Step 3 and Step 4 cleanly for both State 0 and State 1
-    let mut process_ordinals = |seg_ord: u32, rows: Vec<(usize, u64)>| -> Result<()> {
-        let ords: Vec<u64> = rows.iter().map(|(_, ord)| *ord).collect();
+    let mut process_ordinals = |seg_ord: u32, rows: Vec<(usize, Option<u64>)>| -> Result<()> {
+        let ords: Vec<Option<u64>> = rows.iter().map(|(_, ord)| *ord).collect();
+        let ords_array = UInt64Array::from(ords);
 
         // 3. Perform a bulk dictionary lookup for the entire segment.
         let array = if is_bytes {
             if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                ords_to_bytes_array(bytes_col.clone(), ords)
+                ords_to_bytes_array(bytes_col.clone(), &ords_array)
             } else {
                 return Err(DataFusionError::Execution(format!(
                     "Expected Bytes column for index {}",
@@ -350,7 +351,7 @@ fn materialize_deferred_column(
                 )));
             }
         } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            ords_to_string_array(str_col.clone(), ords)
+            ords_to_string_array(str_col.clone(), &ords_array)
         } else {
             return Err(DataFusionError::Execution(format!(
                 "Expected Text column for index {}",
@@ -374,11 +375,9 @@ fn materialize_deferred_column(
     seg_ords_0.sort_unstable();
 
     for seg_ord in seg_ords_0 {
-        let mut rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
+        let rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
             DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
         })?;
-        // 2. Sort doc_ids within each segment for sequential access (first_vals efficiency).
-        rows.sort_unstable_by_key(|(_, doc_id)| *doc_id);
 
         let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
@@ -391,13 +390,11 @@ fn materialize_deferred_column(
             str_col.ords().first_vals(&ids, &mut term_ords);
         }
 
-        let mut rows_with_ords: Vec<_> = rows
+        let rows_with_ords: Vec<_> = rows
             .into_iter()
             .zip(term_ords)
-            .map(|((row_idx, _), ord)| (row_idx, ord.unwrap_or(NULL_TERM_ORDINAL)))
+            .map(|((row_idx, _), ord)| (row_idx, ord))
             .collect();
-        //ord to str loop assumes sorted ordinals
-        rows_with_ords.sort_unstable_by_key(|(_, ord)| *ord);
 
         process_ordinals(seg_ord, rows_with_ords)?;
     }
@@ -406,11 +403,9 @@ fn materialize_deferred_column(
     seg_ords_1.sort_unstable();
 
     for seg_ord in seg_ords_1 {
-        let mut rows = state_1_by_seg.remove(&seg_ord).ok_or_else(|| {
+        let rows = state_1_by_seg.remove(&seg_ord).ok_or_else(|| {
             DataFusionError::Execution(format!("Segment {} missing from state 1 map", seg_ord))
         })?;
-        // 2. Sort term ordinals within each segment for sequential access (dictionary decode efficiency).
-        rows.sort_unstable_by_key(|(_, ord)| *ord);
 
         process_ordinals(seg_ord, rows)?;
     }

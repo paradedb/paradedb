@@ -65,9 +65,7 @@ LIMIT 3;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
@@ -81,7 +79,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -115,9 +113,7 @@ LIMIT 3;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
@@ -131,7 +127,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -161,9 +157,7 @@ LIMIT 3;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
@@ -177,7 +171,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id], metrics=[output_rows=6, output_bytes=144.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]
-(18 rows)
+(16 rows)
 
 -- =============================================================================
 -- TEST 3: ORDER BY DESC + LIMIT
@@ -195,9 +189,7 @@ LIMIT 2;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.id desc
@@ -211,7 +203,7 @@ LIMIT 2;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -241,9 +233,7 @@ LIMIT 2;
    Output: p.id, p.name, p.price, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 2
          Order By: p.price asc
@@ -257,7 +247,7 @@ LIMIT 2;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, price@2 as price]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, p.price, s.name AS supplier_name
 FROM products p
@@ -288,9 +278,7 @@ LIMIT 5;
    Output: p.id, p.name, s.name
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, s.name
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 5
          Order By: p.id asc
@@ -304,7 +292,7 @@ LIMIT 5;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, s.name AS supplier_name
 FROM products p
@@ -345,9 +333,7 @@ LIMIT 3;
    Output: p.id, p.name, p.price
    ->  Custom Scan (ParadeDB Join Scan)
          Output: p.id, p.name, p.price
-         Join Type: Inner
-         Relation 0: suppliers (s)
-         Relation 1: products (p)
+         Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
          Order By: p.id asc
@@ -361,7 +347,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all"
-(20 rows)
+(18 rows)
 
 SELECT p.id, p.name, p.price
 FROM products p
@@ -495,9 +481,7 @@ LIMIT 3;
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: bench_documents (d)
-         Relation 1: bench_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
@@ -511,7 +495,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=190, output_bytes=11.0 KB, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=10, rows_scanned=200]
-(18 rows)
+(16 rows)
 
 SELECT f.id, f.title
 FROM bench_files f
@@ -544,9 +528,7 @@ LIMIT 3;
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit (actual rows=3.00 loops=1)
    ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
-         Join Type: Inner
-         Relation 0: bench_documents (d)
-         Relation 1: bench_files (f)
+         Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
          Order By: f.title asc
@@ -560,7 +542,7 @@ LIMIT 3;
            :       ProjectionExec: expr=[ctid@0 as ctid_1, document_id@1 as document_id, title@2 as title], metrics=[output_rows=10, output_bytes=632.0 B, output_batches=1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=190, rows_scanned=200]
-(18 rows)
+(16 rows)
 
 SELECT f.id, f.title
 FROM bench_files f

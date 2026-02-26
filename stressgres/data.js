@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772074154225,
+  "lastUpdate": 1772075104596,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19714,6 +19714,54 @@ window.BENCHMARK_DATA = {
             "value": 547.1217606310411,
             "unit": "median tps",
             "extra": "avg tps: 495.576338563878, max tps: 682.6844570735234, count: 107702"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c42d534131d9c15e915c0be9ac78c65caeedde5",
+          "message": "ci: Fix benchmarks to not cache entire dataset in memory (#4233)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nOur benchmarks were inadvertently ignoring disk I/O costs since we were\nusing huge machines with NVMe that were caching the entire dataset in\nmemory. To fix this:\n\n- Swapped to `r8g` instances which use GP3\n- Clear the OS page cache + Postgres buffer cache between each unique\nquery\n\nThis means that the first query time is the true \"cold run\" time. \n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-25T17:39:53-08:00",
+          "tree_id": "3d73d87fb6ea5201dfd797f58087396ff3758922",
+          "url": "https://github.com/paradedb/paradedb/commit/0c42d534131d9c15e915c0be9ac78c65caeedde5"
+        },
+        "date": 1772075100243,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 644.6331863914551,
+            "unit": "median tps",
+            "extra": "avg tps: 641.7691578281066, max tps: 700.9665159978083, count: 53577"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 582.8365339217253,
+            "unit": "median tps",
+            "extra": "avg tps: 584.7075588995093, max tps: 837.18217306808, count: 53577"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.79732558489867,
+            "unit": "median tps",
+            "extra": "avg tps: 90.62960602674447, max tps: 93.28376221771249, count: 53577"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 488.18405929770074,
+            "unit": "median tps",
+            "extra": "avg tps: 448.1568616377551, max tps: 730.8934199408302, count: 107154"
           }
         ]
       }

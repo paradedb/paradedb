@@ -98,13 +98,10 @@ class Order(models.Model):
     class Meta:
         indexes = [
             BM25Index(
-                fields={
-                    'order_id': {},
-                    'product_id': {},
-                    'order_quantity': {},
-                    'order_total': {},
-                    'customer_name': {},
-                },
+                fields={f: {} for f in [
+                    'order_id', 'product_id', 'order_quantity',
+                    'order_total', 'customer_name',
+                ]},
                 key_field='order_id',
                 name='orders_idx',
             ),

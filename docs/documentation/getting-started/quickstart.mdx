@@ -68,16 +68,24 @@ WITH (key_field='id');
 ```
 
 ```python Django
-from django.db import connection
+from paradedb.indexes import BM25Index
 
-with connection.cursor() as cursor:
-    cursor.execute(
-        """
-        CREATE INDEX search_idx ON mock_items
-        USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-        WITH (key_field='id');
-        """
-    )
+class MockItem(models.Model):
+    # ... field definitions ...
+
+    class Meta:
+        indexes = [
+            BM25Index(
+                fields={f: {} for f in [
+                    'id', 'description', 'category', 'rating',
+                    'in_stock', 'created_at', 'metadata', 'weight_range',
+                ]},
+                key_field='id',
+                name='search_idx',
+            ),
+        ]
+
+# python manage.py makemigrations && python manage.py migrate
 ```
 
 </CodeGroup>

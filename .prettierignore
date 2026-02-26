@@ -1,4 +1,7 @@
-docs/documentation/**/*.mdx
+/docs/documentation/aggregates/limitations.mdx
+/docs/documentation/full-text/term.mdx
+/docs/documentation/query-builder/compound/all.mdx
+/docs/documentation/tokenizers/multiple-per-field.mdx
 **/*.csv
 **/*.csv.gz
 **/*.json

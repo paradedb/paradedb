@@ -44,7 +44,7 @@ use super::pre_filter::PreFilter;
 /// be held in memory at a time.
 const MAX_BATCH_SIZE: usize = 128_000;
 
-const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
+pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// A macro to fetch values for the given ids into an Arrow array.
 macro_rules! fetch_ff_column {

@@ -336,6 +336,20 @@ fn rewrite_col_op_lit(
         _ => return None, // Not a string/bytes column. Leave for native DataFusion eval over numerics.
     };
 
+    if op == &Operator::NotEq {
+        let ord_opt = dict.term_ord(bytes).ok().flatten();
+        // If the term does not exist, all non-null values match.
+        // We use NULL_TERM_ORDINAL to represent an ordinal that does not exist in the data.
+        let target_ord = ord_opt.unwrap_or(crate::scan::batch_scanner::NULL_TERM_ORDINAL);
+
+        let col_expr = Arc::new(col.clone()) as Arc<dyn PhysicalExpr>;
+        let lit_expr =
+            Arc::new(Literal::new(ScalarValue::UInt64(Some(target_ord)))) as Arc<dyn PhysicalExpr>;
+        return Some(
+            Arc::new(BinaryExpr::new(col_expr, Operator::NotEq, lit_expr)) as Arc<dyn PhysicalExpr>,
+        );
+    }
+
     // Convert string bounds to native string bounds.
     let (lower, upper) = match op {
         Operator::Lt => (Bound::Unbounded, Bound::Excluded(bytes)),
@@ -415,6 +429,8 @@ fn flip_operator(op: &Operator) -> Option<Operator> {
         Operator::LtEq => Some(Operator::GtEq),
         Operator::Gt => Some(Operator::Lt),
         Operator::GtEq => Some(Operator::LtEq),
+        Operator::Eq => Some(Operator::Eq),
+        Operator::NotEq => Some(Operator::NotEq),
         _ => None,
     }
 }

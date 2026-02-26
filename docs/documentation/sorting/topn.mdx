@@ -16,10 +16,10 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
+    description=ParadeDB(Match('running shoes', operator='OR'))
 ).order_by('rating').values('description', 'rating', 'category')[:5]
 ```
 
@@ -76,10 +76,10 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
+    description=ParadeDB(Match('running shoes', operator='OR'))
 ).order_by('rating', 'id').values('description', 'rating', 'category')[:5]
 ```
 
@@ -98,18 +98,11 @@ If a text field is present in the `ORDER BY` clause, it must be indexed with the
 Sorting by lowercase text using `lower(<text_field>)` is also supported. To enable this, the expression `lower(<text_field>)` must be indexed
 with either the literal or literal normalized tokenizer. See [indexing expressions](/documentation/indexing/indexing-expressions) for more information.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (lower(description)::pdb.literal))
 WITH (key_field='id');
 ```
-
-```python Django
-# Coming soon
-```
-
-</CodeGroup>
 
 This allows sorting by lowercase to be optimized.
 
@@ -124,10 +117,10 @@ LIMIT 5;
 
 ```python Django
 from django.db.models.functions import Lower
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(PQ('sleek') | PQ('running') | PQ('shoes'))
+    description=ParadeDB(Match('sleek running shoes', operator='OR'))
 ).order_by(Lower('description')).values('description', 'rating', 'category')[:5]
 ```
 

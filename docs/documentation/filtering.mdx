@@ -15,10 +15,10 @@ WHERE description ||| 'running shoes' AND rating > 2;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running shoes', operator='OR'),
+    description=ParadeDB(Match('running shoes', operator='OR')),
     rating__gt=2
 ).values('description', 'rating', 'category')
 ```
@@ -35,33 +35,11 @@ This can result in faster query execution over large datasets.
 
 For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25(id, description, rating, created_at)
 WITH (key_field = 'id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-    rating = models.IntegerField()
-    created_at = models.DateTimeField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={'id': {}, 'description': {}, 'rating': {}, 'created_at': {}},
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
 
 Filter pushdown is currently supported for the following combinations of types and operators:
 
@@ -129,10 +107,10 @@ WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes'),
+    description=ParadeDB(Term('shoes')),
     category='Footwear'
 ).values('description', 'rating', 'category')
 ```
@@ -141,36 +119,11 @@ MockItem.objects.filter(
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25(id, description, (category::pdb.literal))
 WITH (key_field = 'id');
 ```
-
-```python Django
-from django.db import models
-from paradedb.indexes import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-    category = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {},
-                    'category': {'tokenizer': 'literal'},
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
 
 Pushdown of set filters over text fields also requires the literal tokenizer:
 
@@ -182,10 +135,10 @@ WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes'),
+    description=ParadeDB(Term('shoes')),
     category__in=['Footwear', 'Apparel']
 ).values('description', 'rating', 'category')
 ```

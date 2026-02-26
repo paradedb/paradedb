@@ -25,11 +25,10 @@ WHERE description @@@ pdb.match('running shoes');
 ```
 
 ```python Django
-from paradedb.search import PQ, ParadeDB
+from paradedb.search import Match, ParadeDB
 
-# Equivalent behavior via match-disjunction operator syntax.
 MockItem.objects.filter(
-    description=ParadeDB(PQ('running') | PQ('shoes'))
+    description=ParadeDB(Match('running shoes', operator='OR'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -87,10 +86,10 @@ WHERE description @@@ pdb.match('running shoes', conjunction_mode => true);
 ```
 
 ```python Django
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('running', 'shoes')
+    description=ParadeDB(Match('running', 'shoes', operator='AND'))
 ).values('description', 'rating', 'category')
 ```
 

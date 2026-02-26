@@ -23,10 +23,11 @@ LIMIT 5;
 ```python Django
 from django.db.models import Q
 from paradedb.functions import Score
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    Q(description=ParadeDB('shoes', boost=2)) | Q(category=ParadeDB('footwear'))
+    Q(description=ParadeDB(Match('shoes', operator='OR', boost=2))) |
+    Q(category=ParadeDB(Match('footwear', operator='OR')))
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
@@ -73,10 +74,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Score
-from paradedb.search import Fuzzy, ParadeDB
+from paradedb.search import ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB(Fuzzy('shose', distance=2, boost=2))
+    description=ParadeDB(Term('shose', distance=2, boost=2))
 ).annotate(
     score=Score()
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
@@ -102,10 +103,10 @@ LIMIT 5;
 
 ```python Django
 from paradedb.functions import Score
-from paradedb.search import ParadeDB
+from paradedb.search import Match, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB('shoes', const=1)
+    description=ParadeDB(Match('shoes', operator='OR', const=1))
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]

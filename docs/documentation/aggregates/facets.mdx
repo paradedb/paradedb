@@ -70,11 +70,11 @@ LIMIT 5;
 ```
 
 ```python Django
-from paradedb.search import ParadeDB, PQ
+from paradedb.search import Match, ParadeDB
 
 # Returns (rows, facets) — facets contains the total count
 rows, facets = (
-    MockItem.objects.filter(description=ParadeDB(PQ('running') | PQ('shoes')))
+    MockItem.objects.filter(description=ParadeDB(Match('running shoes', operator='OR')))
     .order_by('rating')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')
 )

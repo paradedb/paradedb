@@ -13,21 +13,11 @@ that the query specifies.
 
 Enter the `###` phrase operator:
 
-<CodeGroup>
-```sql SQL
+```sql
 INSERT INTO mock_items (description, rating, category) VALUES
 ('running sleek shoes', 5, 'Footwear'),
 ('shoes running', 5, 'Footwear');
 ```
-
-```python Django
-MockItem.objects.bulk_create([
-    MockItem(description='running sleek shoes', rating=5, category='Footwear'),
-    MockItem(description='shoes running', rating=5, category='Footwear'),
-])
-```
-
-</CodeGroup>
 
 <CodeGroup>
 ```sql SQL

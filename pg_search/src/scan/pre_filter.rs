@@ -110,6 +110,12 @@ pub struct PreFilter {
     pub required_columns: Vec<usize>,
 }
 
+/// A wrapper bundling a list of `PreFilter`s with the schema they apply to.
+pub struct PreFilters<'a> {
+    pub filters: &'a [PreFilter],
+    pub schema: &'a SchemaRef,
+}
+
 impl PreFilter {
     /// Evaluate the pre-filter against a batch of memoized fast-field columns.
     /// Returns a boolean mask of rows that pass the filter.
@@ -234,6 +240,10 @@ pub fn collect_filters(expr: &Arc<dyn PhysicalExpr>, schema: &SchemaRef, out: &m
 }
 
 /// Validates that an expression only contains nodes we can evaluate during pre-filtering.
+///
+/// NOTE: When this function returns `TreeNodeRecursion::Stop`, it correctly halts *all*
+/// traversal across the entire expression tree. If an OR branch contains an unsupported
+/// child, the entire expression is rejected.
 fn is_supported(
     expr: &Arc<dyn PhysicalExpr>,
     schema: &SchemaRef,

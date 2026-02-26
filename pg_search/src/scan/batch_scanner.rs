@@ -30,8 +30,6 @@ use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, FFType, Whi
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexScore};
 use crate::postgres::heap::VisibilityChecker;
 
-use super::pre_filter::PreFilter;
-
 /// The maximum number of rows to batch materialize in memory while iterating over a result set.
 ///
 /// Setting this value larger reduces the cost of our joins to the term dictionary by allowing more
@@ -224,8 +222,7 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
-        pre_filters: &[PreFilter],
-        schema: &SchemaRef,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) -> Option<Batch> {
         if let Some(batch) = self.prefetched.take() {
             return Some(batch);
@@ -244,9 +241,9 @@ impl Scanner {
 
         // Apply pre-materialization filters before visibility checks (which require the ctid), and
         // before dictionary lookups.
-        if !pre_filters.is_empty() {
+        if let Some(pre_filters) = pre_filters {
             let before = ids.len();
-            for pre_filter in pre_filters {
+            for pre_filter in pre_filters.filters {
                 if ids.is_empty() {
                     break;
                 }
@@ -261,7 +258,13 @@ impl Scanner {
 
                 // Apply filter
                 let mask = pre_filter
-                    .apply_arrow(ffhelper, segment_ord, &memoized_columns, schema, ids.len())
+                    .apply_arrow(
+                        ffhelper,
+                        segment_ord,
+                        &memoized_columns,
+                        pre_filters.schema,
+                        ids.len(),
+                    )
                     .unwrap_or_else(|e| panic!("Pre-filter failed: {e}"));
 
                 // Compact state
@@ -376,11 +379,10 @@ impl Scanner {
         &mut self,
         ffhelper: &FFHelper,
         visibility: &mut VisibilityChecker,
-        pre_filters: &[PreFilter],
-        schema: &SchemaRef,
+        pre_filters: Option<&crate::scan::pre_filter::PreFilters<'_>>,
     ) {
         if self.prefetched.is_none() {
-            if let Some(batch) = self.next(ffhelper, visibility, pre_filters, schema) {
+            if let Some(batch) = self.next(ffhelper, visibility, pre_filters) {
                 self.prefetched = Some(batch);
             }
         }

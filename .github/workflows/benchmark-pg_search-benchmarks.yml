@@ -38,7 +38,7 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=r8g.2xlarge
+      - family=r8g.metal-24xl
       - image=ubuntu24-full-arm64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
       - volume=500gb:gp3
@@ -185,6 +185,19 @@ jobs:
 
       - name: Running for ${{ steps.pr_label.outputs.result }}"
         run: echo ${{ steps.pr_label.outputs.result }}
+
+      - name: Mount gp3 Volume for PostgreSQL Data
+        run: |
+          # Find the extra gp3 EBS volume — not the root device
+          ROOT_DEV=$(lsblk -no PKNAME "$(df / | tail -1 | awk '{print $1}')")
+          GP3_DEV=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print $1}' | grep -v "^${ROOT_DEV}$" | head -1)
+          sudo mkfs.ext4 -F "/dev/${GP3_DEV}"
+          sudo mkdir -p /data
+          sudo mount "/dev/${GP3_DEV}" /data
+          sudo chown runner:runner /data
+          mkdir -p /data/.pgrx
+          # Symlink so all existing ~/.pgrx paths resolve to the gp3 volume
+          ln -s /data/.pgrx /home/runner/.pgrx
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

@@ -123,6 +123,9 @@ impl PreFilter {
     ) -> Result<BooleanArray, String> {
         // 1. Rewrite the expression for the current segment.
         // String literal comparisons are rewritten to ordinal comparisons.
+        // NOTE: This runs two `transform()` passes on every batch. If this shows up in
+        // profiling, the rewritten expression could be cached per-segment to reduce
+        // allocation overhead for small batch sizes.
         let rewritten_string_expr = self
             .expr
             .clone()

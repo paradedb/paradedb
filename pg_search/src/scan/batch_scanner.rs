@@ -82,7 +82,7 @@ fn compact_with_mask(
     // Compact ids and scores.
     let mut write_idx = 0;
     for (read_idx, valid) in mask.iter().enumerate() {
-        if valid.expect("Predicate mask contained NULLs") {
+        if valid == Some(true) {
             if read_idx != write_idx {
                 ids[write_idx] = ids[read_idx];
                 scores[write_idx] = scores[read_idx];

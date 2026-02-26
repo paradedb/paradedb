@@ -87,7 +87,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
-use datafusion::arrow::array::{ArrayRef, BooleanArray};
+use datafusion::arrow::array::{Array, ArrayRef, BooleanArray};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::tree_node::{Transformed, TransformedResult, TreeNode};
@@ -196,8 +196,15 @@ impl PreFilter {
         let bool_array = array
             .as_any()
             .downcast_ref::<BooleanArray>()
-            .ok_or_else(|| "Result is not a BooleanArray".to_string())?
-            .clone();
+            .ok_or_else(|| "Result is not a BooleanArray".to_string())?;
+
+        // SQL 3VL: a NULL predicate result means the row is not selected.
+        // Coalesce NULLs to false so downstream consumers get a clean mask.
+        let bool_array = if bool_array.null_count() > 0 {
+            datafusion::arrow::compute::prep_null_mask_filter(bool_array)
+        } else {
+            bool_array.clone()
+        };
 
         Ok(bool_array)
     }

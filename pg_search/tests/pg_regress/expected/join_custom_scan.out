@@ -3938,7 +3938,20 @@ JOIN null_val_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val' OR t1.val IS NULL
 ORDER BY t1.val ASC NULLS LAST
 LIMIT 10;
-ERROR:  Predicate mask contained NULLs
+  id   |    val    
+-------+-----------
+     1 | val 1
+    10 | val 10
+   100 | val 100
+  1000 | val 1000
+ 10000 | val 10000
+ 10001 | val 10001
+ 10002 | val 10002
+ 10003 | val 10003
+ 10004 | val 10004
+ 10005 | val 10005
+(10 rows)
+
 -- TEST 40B: WHERE val IS NULL alone (no BM25 predicate)
 -- Should fetch exactly the 10 NULL rows. 
 -- Verifies the scanner can yield rows when the only filter is a NULL check.

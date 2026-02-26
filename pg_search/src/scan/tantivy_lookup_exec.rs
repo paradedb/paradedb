@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -40,6 +39,7 @@ impl DeferredField {
 pub struct TantivyLookupExec {
     input: Arc<dyn ExecutionPlan>,
     deferred_fields: Vec<DeferredField>,
+    decoders: Vec<DecoderInfo>,
     ffhelper: Arc<FFHelper>,
     properties: PlanProperties,
     metrics: ExecutionPlanMetricsSet,
@@ -60,7 +60,8 @@ impl TantivyLookupExec {
         deferred_fields: Vec<DeferredField>,
         ffhelper: Arc<FFHelper>,
     ) -> Result<Self> {
-        let output_schema = build_output_schema(input.schema(), &deferred_fields)?;
+        let (output_schema, decoders) =
+            build_schema_and_decoders(input.schema(), &deferred_fields)?;
         let eq_props = EquivalenceProperties::new(output_schema);
         let properties = PlanProperties::new(
             eq_props,
@@ -71,6 +72,7 @@ impl TantivyLookupExec {
         Ok(Self {
             input,
             deferred_fields,
+            decoders,
             ffhelper,
             properties,
             metrics: ExecutionPlanMetricsSet::new(),
@@ -78,31 +80,46 @@ impl TantivyLookupExec {
     }
 }
 
-fn build_output_schema(input_schema: SchemaRef, deferred: &[DeferredField]) -> Result<SchemaRef> {
-    let decode_map: HashMap<String, Field> = deferred
-        .iter()
-        .map(|d| {
-            (
-                d.field_name.clone(),
-                Field::new(&d.field_name, d.output_data_type(), true),
-            )
-        })
-        .collect();
+#[derive(Clone, Debug)]
+pub struct DecoderInfo {
+    pub col_idx: usize,
+    pub is_bytes: bool,
+    pub ff_index: usize,
+}
 
-    let fields: Vec<Field> = input_schema
-        .fields()
-        .iter()
-        .map(|f| {
-            let name = f.name().as_str();
-            if let Some(decoded) = decode_map.get(name) {
-                decoded.clone()
-            } else {
-                f.as_ref().clone()
+fn build_schema_and_decoders(
+    input_schema: SchemaRef,
+    deferred: &[DeferredField],
+) -> Result<(SchemaRef, Vec<DecoderInfo>)> {
+    let mut fields: Vec<Field> = Vec::with_capacity(input_schema.fields().len());
+    let mut decoders = Vec::new();
+    let mut deferred_pool = deferred.to_vec();
+
+    // Iterate through the input schema exactly once.
+    // This pairs the first "description" in the schema with the first "description"
+    // in the deferred pool, removing it so the second one pairs correctly.
+    for (col_idx, field) in input_schema.fields().iter().enumerate() {
+        let name = field.name();
+        let is_union = matches!(field.data_type(), DataType::Union(_, _));
+
+        if is_union {
+            if let Some(pos) = deferred_pool.iter().position(|d| &d.field_name == name) {
+                let d = deferred_pool.remove(pos);
+                fields.push(Field::new(&d.field_name, d.output_data_type(), true));
+                decoders.push(DecoderInfo {
+                    col_idx,
+                    is_bytes: d.is_bytes,
+                    ff_index: d.ff_index,
+                });
+                continue;
             }
-        })
-        .collect();
+        }
 
-    Ok(Arc::new(Schema::new(fields)))
+        // Pass through fields that are not unions or not in our deferred pool
+        fields.push(field.as_ref().clone());
+    }
+
+    Ok((Arc::new(Schema::new(fields)), decoders))
 }
 
 impl DisplayAs for TantivyLookupExec {
@@ -157,28 +174,11 @@ impl ExecutionPlan for TantivyLookupExec {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let input_stream = self.input.execute(partition, context)?;
-        let input_schema = self.input.schema();
-        let deferred_col_indices: Vec<usize> = self
-            .deferred_fields
-            .iter()
-            .map(|d| {
-                input_schema
-                    .column_with_name(&d.field_name)
-                    .map(|(i, _)| i)
-                    .ok_or_else(|| {
-                        DataFusionError::Execution(format!(
-                            "TantivyLookupExec: missing deferred column '{}'",
-                            d.field_name
-                        ))
-                    })
-            })
-            .collect::<Result<Vec<_>>>()?;
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let stream = unsafe {
             UnsafeSendStream::new(LookupStream {
                 input: input_stream,
-                deferred_col_indices,
-                deferred_fields: self.deferred_fields.clone(),
+                decoders: self.decoders.clone(),
                 ffhelper: Arc::clone(&self.ffhelper),
                 schema: self.properties.eq_properties.schema().clone(),
                 baseline_metrics,
@@ -190,8 +190,7 @@ impl ExecutionPlan for TantivyLookupExec {
 
 struct LookupStream {
     input: SendableRecordBatchStream,
-    deferred_col_indices: Vec<usize>,
-    deferred_fields: Vec<DeferredField>,
+    decoders: Vec<DecoderInfo>,
     ffhelper: Arc<FFHelper>,
     schema: SchemaRef,
     baseline_metrics: BaselineMetrics,
@@ -200,40 +199,30 @@ struct LookupStream {
 impl LookupStream {
     fn enrich_batch(&self, batch: RecordBatch) -> Result<RecordBatch> {
         let num_rows = batch.num_rows();
-        let mut output_columns: Vec<ArrayRef> = Vec::with_capacity(self.schema.fields().len());
+        // Clone the input arrays. We will overwrite the deferred ones by exact index.
+        let mut output_columns: Vec<ArrayRef> = batch.columns().to_vec();
 
-        for output_field in self.schema.fields() {
-            let name = output_field.name();
-            if let Some(d_idx) = self
-                .deferred_fields
-                .iter()
-                .position(|d| &d.field_name == name)
-            {
-                let field = &self.deferred_fields[d_idx];
-                let union_array = batch
-                    .column(self.deferred_col_indices[d_idx])
-                    .as_any()
-                    .downcast_ref::<arrow_array::UnionArray>()
-                    .ok_or_else(|| {
-                        DataFusionError::Execution(format!(
-                            "expected UnionArray for deferred column '{}'",
-                            name
-                        ))
-                    })?;
-                output_columns.push(materialize_deferred_column(
-                    &self.ffhelper,
-                    union_array,
-                    field.ff_index,
-                    field.is_bytes,
-                    num_rows,
-                )?);
-            } else {
-                let (col_idx, _) = batch.schema().column_with_name(name).ok_or_else(|| {
-                    DataFusionError::Execution(format!("missing column '{}'", name))
+        for decoder in &self.decoders {
+            let union_array = output_columns[decoder.col_idx]
+                .as_any()
+                .downcast_ref::<arrow_array::UnionArray>()
+                .ok_or_else(|| {
+                    DataFusionError::Execution(format!(
+                        "expected UnionArray for deferred column at index {}",
+                        decoder.col_idx
+                    ))
                 })?;
-                output_columns.push(batch.column(col_idx).clone());
-            }
+
+            // Replace the raw UnionArray with the decoded String/Binary array
+            output_columns[decoder.col_idx] = materialize_deferred_column(
+                &self.ffhelper,
+                union_array,
+                decoder.ff_index,
+                decoder.is_bytes,
+                num_rows,
+            )?;
         }
+
         RecordBatch::try_new(self.schema.clone(), output_columns)
             .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
     }

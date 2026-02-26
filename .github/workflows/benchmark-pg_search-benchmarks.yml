@@ -186,43 +186,6 @@ jobs:
       - name: Running for ${{ steps.pr_label.outputs.result }}"
         run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Mount gp3 Volume for PostgreSQL Data
-        run: |
-          set -euo pipefail
-          lsblk
-          # Identify the root device (handle both whole-disk and partition roots)
-          ROOT_PART=$(findmnt -n -o SOURCE /)
-          ROOT_DEV=$(lsblk -no PKNAME "$ROOT_PART" 2>/dev/null || true)
-          [ -z "$ROOT_DEV" ] && ROOT_DEV=$(echo "$ROOT_PART" | sed 's|/dev/||')
-          echo "Root device: ${ROOT_DEV}"
-
-          # Find the extra EBS device: disk type, non-zero size, not the root disk
-          GP3_DEV=$(lsblk -ndo NAME,TYPE,SIZE | awk -v root="$ROOT_DEV" \
-            '$2=="disk" && $3!="0B" && $1!=root {print $1}' | head -1)
-          echo "GP3 device: ${GP3_DEV:-(none found)}"
-
-          if [ -z "$GP3_DEV" ]; then
-            echo "ERROR: could not find extra EBS device"; lsblk; exit 1
-          fi
-
-          # Check if runs-on already mounted it
-          GP3_MOUNT=$(lsblk -no MOUNTPOINT "/dev/${GP3_DEV}" | grep -v '^$' | head -1 || true)
-          if [ -n "$GP3_MOUNT" ]; then
-            echo "Volume already mounted at ${GP3_MOUNT}"
-            DATA_DIR="$GP3_MOUNT"
-          else
-            echo "Formatting and mounting /dev/${GP3_DEV} at /data"
-            sudo mkfs.ext4 -F "/dev/${GP3_DEV}"
-            sudo mkdir -p /data
-            sudo mount "/dev/${GP3_DEV}" /data
-            sudo chown runner:runner /data
-            DATA_DIR=/data
-          fi
-
-          mkdir -p "${DATA_DIR}/.pgrx"
-          # Symlink so all existing ~/.pgrx paths resolve to the gp3 volume
-          ln -s "${DATA_DIR}/.pgrx" /home/runner/.pgrx
-
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772071178751,
+  "lastUpdate": 1772071184998,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5964,6 +5964,138 @@ window.BENCHMARK_DATA = {
             "value": 55.26171875,
             "unit": "median mem",
             "extra": "avg mem: 54.36519050877749, max mem: 67.61328125, count: 55255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c42d534131d9c15e915c0be9ac78c65caeedde5",
+          "message": "ci: Fix benchmarks to not cache entire dataset in memory (#4233)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nOur benchmarks were inadvertently ignoring disk I/O costs since we were\nusing huge machines with NVMe that were caching the entire dataset in\nmemory. To fix this:\n\n- Swapped to `r8g` instances which use GP3\n- Clear the OS page cache + Postgres buffer cache between each unique\nquery\n\nThis means that the first query time is the true \"cold run\" time. \n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-25T17:39:53-08:00",
+          "tree_id": "3d73d87fb6ea5201dfd797f58087396ff3758922",
+          "url": "https://github.com/paradedb/paradedb/commit/0c42d534131d9c15e915c0be9ac78c65caeedde5"
+        },
+        "date": 1772071180685,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.201174181033196, max cpu: 23.952095, count: 55080"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.47542672306191, max mem: 73.78125, count: 55080"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.583675479901116, max cpu: 9.29332, count: 55080"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.09530406057099, max mem: 36.890625, count: 55080"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.566822357538684, max cpu: 9.338522, count: 55080"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.16538876690723, max mem: 71.921875, count: 55080"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.721650424050319, max cpu: 9.467456, count: 110160"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 49.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 49.04163436280184, max mem: 60.12890625, count: 110160"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.387773913033615, max cpu: 15.335463, count: 55080"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.502410485316815, max mem: 72.82421875, count: 55080"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1731,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1735.9349673202614, max block_count: 3097.0, count: 55080"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.200544662309369, max segment_count: 23.0, count: 55080"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.251468789522499, max cpu: 18.731707, count: 55080"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.584470528662855, max mem: 72.8671875, count: 55080"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5873303144449435, max cpu: 4.804805, count: 55080"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 51.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.62319424586964, max mem: 62.54296875, count: 55080"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.752523572456203, max cpu: 4.655674, count: 55080"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.12562948211692, max mem: 67.265625, count: 55080"
           }
         ]
       }

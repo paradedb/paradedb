@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772072161469,
+  "lastUpdate": 1772072167254,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8912,6 +8912,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 80.56696559708327, max segment_count: 129.0, count: 57873"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c42d534131d9c15e915c0be9ac78c65caeedde5",
+          "message": "ci: Fix benchmarks to not cache entire dataset in memory (#4233)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nOur benchmarks were inadvertently ignoring disk I/O costs since we were\nusing huge machines with NVMe that were caching the entire dataset in\nmemory. To fix this:\n\n- Swapped to `r8g` instances which use GP3\n- Clear the OS page cache + Postgres buffer cache between each unique\nquery\n\nThis means that the first query time is the true \"cold run\" time. \n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-25T17:39:53-08:00",
+          "tree_id": "3d73d87fb6ea5201dfd797f58087396ff3758922",
+          "url": "https://github.com/paradedb/paradedb/commit/0c42d534131d9c15e915c0be9ac78c65caeedde5"
+        },
+        "date": 1772072163036,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.77363224438201, max cpu: 42.814667, count: 57786"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 236.1341793427474, max mem: 237.76171875, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.535489979533832, max cpu: 33.3996, count: 57786"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.2597005275932, max mem: 176.0546875, count: 57786"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34230,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33621.22924237705, max block_count: 36201.0, count: 57786"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.52296403973281, max segment_count: 133.0, count: 57786"
           }
         ]
       }

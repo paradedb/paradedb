@@ -8,6 +8,7 @@ use crate::index::fast_fields_helper::{
 };
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
+
 use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
 use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
@@ -19,6 +20,9 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
+use tantivy::termdict::TermOrdinal;
+use tantivy::{DocId, SegmentOrdinal};
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DeferredField {
     pub field_name: String,
@@ -287,9 +291,9 @@ fn materialize_deferred_column(
 
     // 1. Group requests by segment ordinal to process one segment at a time.
     // We maintain separate groups for State 0 (needs doc_id lookup) and State 1 (already has ordinals).
-    let mut state_0_by_seg: crate::api::HashMap<u32, Vec<(usize, tantivy::DocId)>> =
+    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
         crate::api::HashMap::default();
-    let mut state_1_by_seg: crate::api::HashMap<u32, Vec<(usize, Option<u64>)>> =
+    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
         crate::api::HashMap::default();
     let mut pre_materialized_rows = Vec::new();
 
@@ -336,42 +340,43 @@ fn materialize_deferred_column(
     }
 
     // Helper closure to handle Step 3 and Step 4 cleanly for both State 0 and State 1
-    let mut process_ordinals = |seg_ord: u32, rows: Vec<(usize, Option<u64>)>| -> Result<()> {
-        let ords: Vec<Option<u64>> = rows.iter().map(|(_, ord)| *ord).collect();
-        let ords_array = UInt64Array::from(ords);
+    let mut process_ordinals =
+        |seg_ord: SegmentOrdinal, rows: Vec<(usize, Option<TermOrdinal>)>| -> Result<()> {
+            let ords: Vec<Option<TermOrdinal>> = rows.iter().map(|(_, ord)| *ord).collect();
+            let ords_array = UInt64Array::from(ords);
 
-        // 3. Perform a bulk dictionary lookup for the entire segment.
-        let array = if is_bytes {
-            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                ords_to_bytes_array(bytes_col.clone(), &ords_array)
+            // 3. Perform a bulk dictionary lookup for the entire segment.
+            let array = if is_bytes {
+                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
+                    ords_to_bytes_array(bytes_col.clone(), &ords_array)
+                } else {
+                    return Err(DataFusionError::Execution(format!(
+                        "Expected Bytes column for index {}",
+                        ff_index
+                    )));
+                }
+            } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
+                ords_to_string_array(str_col.clone(), &ords_array)
             } else {
                 return Err(DataFusionError::Execution(format!(
-                    "Expected Bytes column for index {}",
+                    "Expected Text column for index {}",
                     ff_index
                 )));
+            }?;
+
+            segment_arrays.push(array);
+            let array_idx = segment_arrays.len() - 1;
+
+            // 4. Map the sorted, segment-local results back to their original row indices
+            // in the global `RecordBatch` for interleaving.
+            for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+                indices[original_row_idx] = (array_idx, idx_within_segment);
             }
-        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            ords_to_string_array(str_col.clone(), &ords_array)
-        } else {
-            return Err(DataFusionError::Execution(format!(
-                "Expected Text column for index {}",
-                ff_index
-            )));
-        }?;
-
-        segment_arrays.push(array);
-        let array_idx = segment_arrays.len() - 1;
-
-        // 4. Map the sorted, segment-local results back to their original row indices
-        // in the global `RecordBatch` for interleaving.
-        for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
-            indices[original_row_idx] = (array_idx, idx_within_segment);
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
     // Sort seg_ords to ensure deterministic behavior across executions.
-    let mut seg_ords_0: Vec<u32> = state_0_by_seg.keys().copied().collect();
+    let mut seg_ords_0: Vec<SegmentOrdinal> = state_0_by_seg.keys().copied().collect();
     seg_ords_0.sort_unstable();
 
     for seg_ord in seg_ords_0 {
@@ -379,8 +384,8 @@ fn materialize_deferred_column(
             DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
         })?;
 
-        let ids: Vec<tantivy::DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-        let mut term_ords: Vec<Option<u64>> = vec![None; ids.len()];
+        let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
 
         if is_bytes {
             if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
@@ -399,7 +404,7 @@ fn materialize_deferred_column(
         process_ordinals(seg_ord, rows_with_ords)?;
     }
 
-    let mut seg_ords_1: Vec<u32> = state_1_by_seg.keys().copied().collect();
+    let mut seg_ords_1: Vec<SegmentOrdinal> = state_1_by_seg.keys().copied().collect();
     seg_ords_1.sort_unstable();
 
     for seg_ord in seg_ords_1 {

@@ -1,3 +1,4 @@
+docs/documentation/**/*.mdx
 **/*.csv
 **/*.csv.gz
 **/*.json

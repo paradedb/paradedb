@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772065271520,
+  "lastUpdate": 1772065277603,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12916,6 +12916,108 @@ window.BENCHMARK_DATA = {
             "value": 162.6953125,
             "unit": "median mem",
             "extra": "avg mem: 181.4051553152067, max mem: 223.0859375, count: 55995"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9814b4b0bd6e3ed11bec9227717448867ebc25ce",
+          "message": "feat: Enable pushdown of semi joins to datafusion (#4226)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Adds supports for specific semi joins where there are two tables and\nthe left table is the larger source\n- Also needed to support pushing down projections to the table provider\n-- without it, semi joins could fail due to schema inconsistency between\na table provider's `scan` and `schema`\n\n## Why\n\n## How\n\n## Tests\n\nAdded semi join proptesting",
+          "timestamp": "2026-02-25T15:27:53-08:00",
+          "tree_id": "6fe358c5a99f0a5f1cf03b9bc678389509c72083",
+          "url": "https://github.com/paradedb/paradedb/commit/9814b4b0bd6e3ed11bec9227717448867ebc25ce"
+        },
+        "date": 1772065273028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.08036678408950099, max background_merging: 2.0, count: 56491"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.683765233649493, max cpu: 9.533267, count: 56491"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.136382689831123, max mem: 28.1640625, count: 56491"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.926320556294556, max cpu: 9.667674, count: 56491"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.2119481698412, max mem: 168.86328125, count: 56491"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51437,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51293.072276999876, max block_count: 51437.0, count: 56491"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.90320582039617, max segment_count: 56.0, count: 56491"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.556192778070961, max cpu: 9.514371, count: 56491"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 123.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 113.15624308518171, max mem: 138.0546875, count: 56491"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.720327078580624, max cpu: 9.514371, count: 56491"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.30875327485793, max mem: 168.3671875, count: 56491"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.790148707840743, max cpu: 33.3996, count: 56491"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.44700324222, max mem: 222.93359375, count: 56491"
           }
         ]
       }

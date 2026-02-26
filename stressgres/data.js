@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772137143944,
+  "lastUpdate": 1772138164785,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7618,6 +7618,42 @@ window.BENCHMARK_DATA = {
             "value": 5.328207932991073,
             "unit": "median tps",
             "extra": "avg tps: 4.7852895019746, max tps: 5.994645126780805, count: 57768"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5007b6201cc3c959f36dd197df2b10363d39c179",
+          "message": "chore: Execute dynamic filters earlier (#4200)\n\n## What\n\nMove pre-filter/dynamic-filter execution before visibility filtering,\nand preserve filter columns once they have been loaded.\n\nAdditionally, move to evaluating filters directly as DataFusion\nexpressions on Arrow columns.\n\n## Why\n\nVisibility filters very rarely eliminate rows in a properly tuned\nsystem, and they are more expensive than any other type of filter that\nwe can execute (they require at least a lock on the visibility map, but\npossibly also heap access).\n\nAnd when we have executed filters, we have already loaded the columns\nfor those filters: we can hold on to them and reuse them if they survive\nuntil it is time to emit the batch.\n\nThis gives us a cleaner base for #4219 to re-use pre-filtered columns.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-02-26T11:59:21-08:00",
+          "tree_id": "caaea554684527467ea2ccc9b16bea5c2c366339",
+          "url": "https://github.com/paradedb/paradedb/commit/5007b6201cc3c959f36dd197df2b10363d39c179"
+        },
+        "date": 1772138160376,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.784835806121458,
+            "unit": "median tps",
+            "extra": "avg tps: 6.633595705259267, max tps: 10.05292274135054, count: 57585"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.319618200826238,
+            "unit": "median tps",
+            "extra": "avg tps: 4.776651767337231, max tps: 5.978408476974372, count: 57585"
           }
         ]
       }

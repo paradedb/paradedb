@@ -10,8 +10,7 @@ tokenizer for search, and the [literal](/documentation/tokenizers/available-toke
 To tokenize a field in more than one way, append an `alias=<alias_name>` argument to the additional tokenizer configurations.
 The alias name can be any string you like. For instance, the following statement tokenizes `description` using both the simple and literal tokenizers.
 
-<CodeGroup>
-```sql SQL
+```sql
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,
@@ -19,33 +18,6 @@ USING bm25 (
   (description::pdb.simple('alias=description_simple'))
 ) WITH (key_field='id');
 ```
-
-```python Django
-from django.db import models
-from paradedb import BM25Index
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {
-                        'tokenizers': [
-                            {'tokenizer': 'literal'},
-                            {'tokenizer': 'simple', 'alias': 'description_simple'},
-                        ],
-                    },
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
-```
-
-</CodeGroup>
 
 Under the hood, two distinct fields are created in the index: a field called `description`, which uses the literal tokenizer,
 and an aliased field called `description_simple`, which uses the simple tokenizer.
@@ -103,28 +75,7 @@ LIMIT 5;
 ````
 
 ```python Django
-from django.db import models
-from paradedb import BM25Index, ParadeDB, Parse
-
-class MockItem(models.Model):
-    description = models.TextField()
-
-    class Meta:
-        indexes = [
-            BM25Index(
-                fields={
-                    'id': {},
-                    'description': {
-                        'tokenizers': [
-                            {'tokenizer': 'literal'},
-                            {'tokenizer': 'simple', 'alias': 'description_simple'},
-                        ],
-                    },
-                },
-                key_field='id',
-                name='search_idx',
-            ),
-        ]
+from paradedb import ParadeDB, Parse
 
 MockItem.objects.filter(
     description=ParadeDB(Parse('shoes'))

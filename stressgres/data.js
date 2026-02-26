@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772067219575,
+  "lastUpdate": 1772071178751,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2078,6 +2078,78 @@ window.BENCHMARK_DATA = {
             "value": 33.06277889330966,
             "unit": "median tps",
             "extra": "avg tps: 48.671531305854906, max tps: 226.0309696333043, count: 55255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c42d534131d9c15e915c0be9ac78c65caeedde5",
+          "message": "ci: Fix benchmarks to not cache entire dataset in memory (#4233)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nOur benchmarks were inadvertently ignoring disk I/O costs since we were\nusing huge machines with NVMe that were caching the entire dataset in\nmemory. To fix this:\n\n- Swapped to `r8g` instances which use GP3\n- Clear the OS page cache + Postgres buffer cache between each unique\nquery\n\nThis means that the first query time is the true \"cold run\" time. \n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Claude Sonnet 4.6 <noreply@anthropic.com>",
+          "timestamp": "2026-02-25T17:39:53-08:00",
+          "tree_id": "3d73d87fb6ea5201dfd797f58087396ff3758922",
+          "url": "https://github.com/paradedb/paradedb/commit/0c42d534131d9c15e915c0be9ac78c65caeedde5"
+        },
+        "date": 1772071174402,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 123.10036126994272,
+            "unit": "median tps",
+            "extra": "avg tps: 123.33811792788516, max tps: 139.23967428715784, count: 55080"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3073.9528271388835,
+            "unit": "median tps",
+            "extra": "avg tps: 3043.619692184409, max tps: 3080.2028631846574, count: 55080"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 439.52748175960477,
+            "unit": "median tps",
+            "extra": "avg tps: 444.20188105627443, max tps: 549.8563195714997, count: 55080"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3054.745074515051,
+            "unit": "median tps",
+            "extra": "avg tps: 3040.9777800699244, max tps: 3065.467215651396, count: 110160"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 490.9202120171279,
+            "unit": "median tps",
+            "extra": "avg tps: 493.08658483208427, max tps: 616.181966095872, count: 55080"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 534.3124707847483,
+            "unit": "median tps",
+            "extra": "avg tps: 535.1500452317562, max tps: 676.1872351369057, count: 55080"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1969.7136981154883,
+            "unit": "median tps",
+            "extra": "avg tps: 1954.6365963344588, max tps: 1974.8051397482272, count: 55080"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 73.59881734919055,
+            "unit": "median tps",
+            "extra": "avg tps: 80.4735676309311, max tps: 194.050753198296, count: 55080"
           }
         ]
       }

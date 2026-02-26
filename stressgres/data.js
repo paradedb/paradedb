@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772140164039,
+  "lastUpdate": 1772140169917,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19440,6 +19440,114 @@ window.BENCHMARK_DATA = {
             "value": 171.3046875,
             "unit": "median mem",
             "extra": "avg mem: 168.64784008591644, max mem: 172.75, count: 55650"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5007b6201cc3c959f36dd197df2b10363d39c179",
+          "message": "chore: Execute dynamic filters earlier (#4200)\n\n## What\n\nMove pre-filter/dynamic-filter execution before visibility filtering,\nand preserve filter columns once they have been loaded.\n\nAdditionally, move to evaluating filters directly as DataFusion\nexpressions on Arrow columns.\n\n## Why\n\nVisibility filters very rarely eliminate rows in a properly tuned\nsystem, and they are more expensive than any other type of filter that\nwe can execute (they require at least a lock on the visibility map, but\npossibly also heap access).\n\nAnd when we have executed filters, we have already loaded the columns\nfor those filters: we can hold on to them and reuse them if they survive\nuntil it is time to emit the batch.\n\nThis gives us a cleaner base for #4219 to re-use pre-filtered columns.\n\n## Tests\n\nExisting tests.",
+          "timestamp": "2026-02-26T11:59:21-08:00",
+          "tree_id": "caaea554684527467ea2ccc9b16bea5c2c366339",
+          "url": "https://github.com/paradedb/paradedb/commit/5007b6201cc3c959f36dd197df2b10363d39c179"
+        },
+        "date": 1772140165679,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.75612289402609, max cpu: 42.60355, count: 55717"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 170.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.30250227993702, max mem: 176.453125, count: 55717"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.632778117282663, max cpu: 27.961164, count: 55717"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.24802643829531, max mem: 120.58984375, count: 55717"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8174535245219126, max cpu: 9.338522, count: 55717"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 122.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 115.31620777208931, max mem: 159.625, count: 55717"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 13864,
+            "unit": "median block_count",
+            "extra": "avg block_count: 13888.045767001095, max block_count: 24577.0, count: 55717"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4904373356455, max cpu: 4.655674, count: 55717"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 94.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.63938828140424, max mem: 133.9453125, count: 55717"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.838020711811478, max segment_count: 37.0, count: 55717"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.852295172503158, max cpu: 33.005894, count: 111434"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.20131577323798, max mem: 164.51953125, count: 111434"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.08984414606493, max cpu: 27.87996, count: 55717"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.54216642530557, max mem: 172.59375, count: 55717"
           }
         ]
       }

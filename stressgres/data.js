@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772160526124,
+  "lastUpdate": 1772213755142,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2366,6 +2366,78 @@ window.BENCHMARK_DATA = {
             "value": 150.3421990472646,
             "unit": "median tps",
             "extra": "avg tps: 156.08171346887994, max tps: 335.65486221661604, count: 13099"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af56c3393caf13a5200928f7f8ce013aaf89a6b1",
+          "message": "feat: add `search_tokenizer` index option for separate search-time tokenization (#4201)\n\n## Ticket(s) Closed\n\n- Closes #4197\n\n## What\n\nAdds a `search_tokenizer` WITH option to BM25 indexes that lets you use\na different tokenizer at search time than at index time. This is an\nindex-level setting that applies to all text/JSON fields.\n\n```sql\nCREATE INDEX idx ON products USING bm25\n    (id, (title::pdb.ngram(1, 10, 'prefix_only=true')))\n    WITH (key_field = 'id', search_tokenizer = 'unicode_words');\n```\n\nAlso supports parameterized expressions:\n\n```sql\nWITH (key_field = 'id', search_tokenizer = 'simple(lowercase=false)')\n```\n\n## Why\n\nThe primary use case is autocomplete/typeahead search. With edge ngram\nindexing, `\"shoes\"` gets indexed as `s, sh, sho, shoe, shoes`. Without a\nseparate search tokenizer, typing `\"sho\"` would also be ngrammed into\n`s, sh, sho` — matching far too many documents. By using `unicode_words`\nat search time, `\"sho\"` stays as a single token and only matches titles\nthat actually start with `\"sho\"`.\n\nThis mirrors Elasticsearch's `search_analyzer` index setting. Making it\na WITH option (rather than a per-field typmod) means it can be changed\nat runtime via `ALTER INDEX ... SET (search_tokenizer = '...')` without\nreindexing.\n\n## How\n\n- Registered `search_tokenizer` as a validated string reloption in\n`options.rs`\n- Extracted `tokenizer_from_expression()` to parse parameterized\ntokenizer specs like `simple(lowercase=false)`\n- Added `resolve_search_tokenizer()` in `pdb_query.rs` to implement\nresolution priority: query cast → index-level WITH → index-time\ntokenizer\n- Registered index-level search tokenizer with Tantivy's\n`TokenizerManager` in `search.rs`\n- Removed `chinese_convert` from shared typmod rules (only jieba should\naccept it)\n\n## Tests\n\n- `search_tokenizer` — autocomplete with/without search_tokenizer,\nquery-level override, parameterized expressions\n- `search_tokenizer_index_level` — WITH option, query-level override,\nrejection as typmod param\n- `test_tokenizer_params` — per-tokenizer param validation (e.g.\n`chinese_convert` only on jieba)",
+          "timestamp": "2026-02-27T09:18:32-08:00",
+          "tree_id": "491868252023dfc78179d596ed9a543802cd6271",
+          "url": "https://github.com/paradedb/paradedb/commit/af56c3393caf13a5200928f7f8ce013aaf89a6b1"
+        },
+        "date": 1772213750880,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.89812871364958,
+            "unit": "median tps",
+            "extra": "avg tps: 134.01752530575217, max tps: 153.95394590082026, count: 35937"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2895.1201360853524,
+            "unit": "median tps",
+            "extra": "avg tps: 2890.385933422442, max tps: 2988.002316982368, count: 35937"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 477.00897824094505,
+            "unit": "median tps",
+            "extra": "avg tps: 475.04467269332133, max tps: 569.4650198835039, count: 35937"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2922.983865812979,
+            "unit": "median tps",
+            "extra": "avg tps: 2971.7286767649894, max tps: 3085.9270264751435, count: 71874"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 511.94342556506456,
+            "unit": "median tps",
+            "extra": "avg tps: 510.1653733077223, max tps: 629.5433553760594, count: 35937"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 559.5536487594015,
+            "unit": "median tps",
+            "extra": "avg tps: 557.2355534528269, max tps: 643.637751553406, count: 35937"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1952.3498196812839,
+            "unit": "median tps",
+            "extra": "avg tps: 1940.7753885076597, max tps: 1974.032610187463, count: 35937"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 108.59792393231416,
+            "unit": "median tps",
+            "extra": "avg tps: 121.90988593661982, max tps: 253.5182952111535, count: 35937"
           }
         ]
       }

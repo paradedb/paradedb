@@ -35,6 +35,14 @@
 //! back to the scanner. Only after all input is consumed does it emit filtered
 //! batches containing the exact top-K rows per segment. This ensures only the
 //! minimum necessary rows flow to `TantivyLookupExec` for dictionary decoding.
+//!
+//! **Limitation — compound sorts:** Only the primary sort column is used for
+//! ordinal pruning. When the TopK sort has tiebreaker columns (e.g.
+//! `ORDER BY val DESC, id ASC LIMIT 25`), rows with duplicate primary ordinals
+//! may be over-retained because the tiebreaker is not considered. This is safe
+//! (never drops correct rows) but slightly less aggressive.
+//! TODO: rewrite the full TopK sort expression in terms of term ordinals to
+//! handle tiebreakers.
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
@@ -57,6 +65,8 @@ use std::collections::BinaryHeap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use tantivy::termdict::TermOrdinal;
+use tantivy::SegmentOrdinal;
 
 /// Shared per-segment ordinal thresholds, written by `SegmentedTopKExec`
 /// and read by the scanner for early row pruning.
@@ -67,7 +77,7 @@ use std::task::{Context, Poll};
 /// visibility checks, and dictionary materialisation.
 pub struct SegmentedThresholds {
     /// segment_ord → threshold ordinal.
-    inner: Mutex<HashMap<u32, u64>>,
+    inner: Mutex<HashMap<SegmentOrdinal, TermOrdinal>>,
     descending: bool,
     ff_index: usize,
 }
@@ -81,11 +91,11 @@ impl SegmentedThresholds {
         }
     }
 
-    pub fn set_threshold(&self, seg_ord: u32, threshold: u64) {
+    pub fn set_threshold(&self, seg_ord: SegmentOrdinal, threshold: TermOrdinal) {
         self.inner.lock().unwrap().insert(seg_ord, threshold);
     }
 
-    pub fn get_threshold(&self, seg_ord: u32) -> Option<u64> {
+    pub fn get_threshold(&self, seg_ord: SegmentOrdinal) -> Option<TermOrdinal> {
         self.inner.lock().unwrap().get(&seg_ord).copied()
     }
 
@@ -100,7 +110,7 @@ impl SegmentedThresholds {
 
 pub struct SegmentedTopKExec {
     input: Arc<dyn ExecutionPlan>,
-    /// Column name containing packed DocAddresses (UInt64: segment_ord << 32 | doc_id).
+    /// Column name of the deferred 3-way UnionArray (doc_address / term_ordinal / materialized).
     sort_column_name: String,
     /// Column index in input schema.
     sort_col_idx: usize,
@@ -295,12 +305,15 @@ struct SegmentedTopKStream {
     descending: bool,
     schema: SchemaRef,
     /// Persistent per-segment heaps tracking the top-K entries across all batches.
-    segment_heaps: HashMap<u32, BinaryHeap<HeapEntry>>,
+    segment_heaps: HashMap<SegmentOrdinal, BinaryHeap<HeapEntry>>,
     /// Shared thresholds published back to the scanner for early pruning.
     thresholds: Arc<SegmentedThresholds>,
     /// Buffered batches during the collection phase.
     batches: Vec<RecordBatch>,
-    /// State 2 (already materialized) rows — always survive regardless of heaps.
+    /// State 2 (already materialized) and NULL-ordinal rows — always survive
+    /// regardless of heaps. These could theoretically be emitted incrementally
+    /// since they won't be compared, but we buffer them to avoid partial-batch
+    /// emission during the blocking collection phase.
     always_keep: Vec<(usize, usize)>,
     state: StreamState,
     rows_input: Count,
@@ -311,6 +324,31 @@ struct SegmentedTopKStream {
 }
 
 impl SegmentedTopKStream {
+    /// Insert a row into the bounded heap for a segment.
+    fn push_into_heap(
+        heap: &mut BinaryHeap<HeapEntry>,
+        ord: TermOrdinal,
+        batch_idx: usize,
+        row_idx: usize,
+        k: usize,
+        descending: bool,
+    ) {
+        let heap_val = if descending { !ord } else { ord };
+        let entry = HeapEntry {
+            heap_val,
+            batch_idx,
+            row_idx,
+        };
+        if heap.len() < k {
+            heap.push(entry);
+        } else if let Some(&worst) = heap.peek() {
+            if heap_val < worst.heap_val {
+                heap.pop();
+                heap.push(entry);
+            }
+        }
+    }
+
     /// Ingest a single batch: extract ordinals, update per-segment heaps,
     /// publish thresholds, and record always-keep rows. The batch itself is
     /// buffered for the emission phase.
@@ -367,9 +405,9 @@ impl SegmentedTopKStream {
             })?;
 
         // State 0 rows need FFHelper lookup: segment_ord -> Vec<(row_idx, doc_id)>
-        let mut state0_by_seg: HashMap<u32, Vec<(usize, u32)>> = HashMap::default();
+        let mut state0_by_seg: HashMap<SegmentOrdinal, Vec<(usize, u32)>> = HashMap::default();
         // State 1 rows already have ordinals: segment_ord -> Vec<(row_idx, term_ord)>
-        let mut with_ords: HashMap<u32, Vec<(usize, u64)>> = HashMap::default();
+        let mut with_ords: HashMap<SegmentOrdinal, Vec<(usize, TermOrdinal)>> = HashMap::default();
 
         for row_idx in 0..num_rows {
             match type_ids[row_idx] {
@@ -400,10 +438,11 @@ impl SegmentedTopKStream {
             }
         }
 
-        // Bulk-fetch term ordinals for State 0 rows via FFHelper.
+        // Bulk-fetch term ordinals for State 0 rows via FFHelper, then push
+        // directly into the per-segment heaps (no intermediate collection).
         for (seg_ord, rows) in state0_by_seg {
             let doc_ids: Vec<u32> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-            let mut term_ords: Vec<Option<u64>> = vec![None; doc_ids.len()];
+            let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; doc_ids.len()];
 
             let col = self.ffhelper.column(seg_ord, self.ff_index);
             match col {
@@ -414,54 +453,45 @@ impl SegmentedTopKStream {
                     bytes_col.ords().first_vals(&doc_ids, &mut term_ords);
                 }
                 _ => {
-                    // Not a dictionary column; keep all rows from this segment.
-                    for (row_idx, _) in rows {
-                        self.always_keep.push((batch_idx, row_idx));
-                    }
-                    continue;
+                    panic!(
+                        "SegmentedTopKExec: ff_index {} is not a Text or Bytes dictionary column \
+                         — the optimizer should never plan this node for non-dictionary columns",
+                        self.ff_index
+                    );
                 }
             }
 
-            let entries = with_ords.entry(seg_ord).or_default();
+            if !self.segment_heaps.contains_key(&seg_ord) {
+                self.segments_seen.add(1);
+            }
+            let heap = self.segment_heaps.entry(seg_ord).or_default();
             for (i, (row_idx, _)) in rows.into_iter().enumerate() {
                 let ord = term_ords[i].unwrap_or(NULL_TERM_ORDINAL);
-                entries.push((row_idx, ord));
-            }
-        }
-
-        // Track newly seen segments.
-        let new_segments = with_ords
-            .keys()
-            .filter(|seg| !self.segment_heaps.contains_key(seg))
-            .count();
-        self.segments_seen.add(new_segments);
-
-        // Update persistent per-segment heaps.
-        let descending = self.descending;
-        let k = self.k;
-        for (seg_ord, rows) in with_ords {
-            let heap = self.segment_heaps.entry(seg_ord).or_default();
-
-            for (row_idx, ord) in rows {
+                // TODO: Push NULL ordinals down as a NULL-aware expression
+                // rather than unconditionally keeping them.
                 if ord == NULL_TERM_ORDINAL {
                     self.always_keep.push((batch_idx, row_idx));
                     continue;
                 }
+                Self::push_into_heap(heap, ord, batch_idx, row_idx, self.k, self.descending);
+            }
+        }
 
-                let heap_val = if descending { !ord } else { ord };
-                let entry = HeapEntry {
-                    heap_val,
-                    batch_idx,
-                    row_idx,
-                };
-                if heap.len() < k {
-                    heap.push(entry);
-                } else if let Some(&worst) = heap.peek() {
-                    if heap_val < worst.heap_val {
-                        heap.pop();
-                        heap.push(entry);
-                    }
+        // State 1 rows already have ordinals — push directly into heaps.
+        for (seg_ord, rows) in with_ords {
+            if !self.segment_heaps.contains_key(&seg_ord) {
+                self.segments_seen.add(1);
+            }
+            let heap = self.segment_heaps.entry(seg_ord).or_default();
+
+            for (row_idx, ord) in rows {
+                // TODO: Push NULL ordinals down as a NULL-aware expression
+                // rather than unconditionally keeping them.
+                if ord == NULL_TERM_ORDINAL {
+                    self.always_keep.push((batch_idx, row_idx));
+                    continue;
                 }
+                Self::push_into_heap(heap, ord, batch_idx, row_idx, self.k, self.descending);
             }
         }
 
@@ -478,6 +508,10 @@ impl SegmentedTopKStream {
     }
 
     /// Build the final survivor set from the heaps and always-keep rows.
+    ///
+    /// TODO: Like upstream TopK, periodically compact buffered batches
+    /// during the collection phase to avoid holding O(N) rows in memory when
+    /// only K will survive. This matters for large inputs.
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
 

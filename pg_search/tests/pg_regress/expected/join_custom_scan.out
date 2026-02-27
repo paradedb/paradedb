@@ -3682,7 +3682,7 @@ LIMIT 10;
            :               SortPreservingMergeExec: [t1_id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
            :                   CooperativeExec
-           :                     PgSearchScan: segments=2, segmented_thresholds=true, query="all"
+           :                     PgSearchScan: segments=2, query="all"
            :               SortPreservingMergeExec: [id@1 ASC]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val]
            :                   CooperativeExec
@@ -3720,7 +3720,7 @@ LIMIT 10;
            :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=2]
            :                   CooperativeExec
-           :                     PgSearchScan: segments=2, segmented_thresholds=true, query="all"
+           :                     PgSearchScan: segments=2, query="all"
            :               SortPreservingMergeExec: [id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=1045.0 KB, output_batches=3]
            :                 ProjectionExec: expr=[ctid@0 as ctid_1, id@1 as id, val@2 as val], metrics=[output_rows=20.00 K, output_bytes=1044.9 KB, output_batches=4]
            :                   CooperativeExec
@@ -3822,7 +3822,7 @@ LIMIT 25;
                  :               SortPreservingMergeExec: [t1_id@1 ASC]
                  :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
                  :                   CooperativeExec
-                 :                     PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query="all"
+                 :                     PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (29 rows)
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
@@ -3860,7 +3860,7 @@ LIMIT 25;
                  :               SortPreservingMergeExec: [t1_id@1 ASC], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=3]
                  :                 ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id], metrics=[output_rows=20.00 K, output_bytes=312.5 KB, output_batches=4]
                  :                   CooperativeExec
-                 :                     PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
+                 :                     PgSearchScan: segments=2, dynamic_filters=1, query="all", metrics=[rows_pruned=0, rows_scanned=20.00 K]
 (27 rows)
 
 SELECT t1.id, t1.val
@@ -3939,7 +3939,7 @@ LIMIT 10;
            :                 SortPreservingMergeExec: [t1_id@1 ASC]
            :                   ProjectionExec: expr=[ctid@0 as ctid_2, t1_id@1 as t1_id]
            :                     CooperativeExec
-           :                       PgSearchScan: segments=2, dynamic_filters=1, segmented_thresholds=true, query="all"
+           :                       PgSearchScan: segments=2, dynamic_filters=1, query="all"
 (27 rows)
 
 SELECT t1.id, t1.val

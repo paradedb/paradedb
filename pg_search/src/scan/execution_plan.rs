@@ -178,6 +178,18 @@ impl PgSearchScanPlan {
 
     /// Set shared per-segment ordinal thresholds for scanner-level pruning.
     /// Called by the optimizer rule after injecting `SegmentedTopKExec`.
+    ///
+    /// This intentionally bypasses the dynamic filter infrastructure
+    /// (`DynamicFilterPhysicalExpr` / `handle_child_pushdown_result`) because
+    /// the deferred column uses a 3-way UnionArray encoding that doesn't have a
+    /// real Arrow type the standard expression framework can reason about.
+    /// Dynamic filters operate on the post-lookup schema (materialized strings),
+    /// but we need to compare raw term ordinals *before* dictionary decoding —
+    /// something that can't be expressed as a `PhysicalExpr` on the scan's
+    /// output schema.
+    ///
+    /// TODO: Unify with dynamic filtering once we have a proper extension type
+    /// for deferred columns that the expression framework can handle natively.
     pub fn set_segmented_thresholds(&self, thresholds: Arc<SegmentedThresholds>) {
         *self.segmented_thresholds.lock().unwrap() = Some(thresholds);
     }

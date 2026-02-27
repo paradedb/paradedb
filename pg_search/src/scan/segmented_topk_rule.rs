@@ -175,7 +175,7 @@ fn try_inject_below_lookup(
                 ));
 
                 // Wire thresholds to the PgSearchScanPlan in the subtree.
-                wire_thresholds_to_scan(lookup_child.as_ref(), &thresholds);
+                wire_thresholds_to_scan(lookup_child.as_ref(), &thresholds, sort_col_name);
 
                 // Rebuild TantivyLookupExec with the new child.
                 let new_lookup = Arc::clone(child).with_new_children(vec![segmented_topk])?;
@@ -203,12 +203,25 @@ fn try_inject_below_lookup(
 /// Walk the plan tree to find a `PgSearchScanPlan` and wire the shared
 /// thresholds into it. This handles both direct children and plans behind
 /// intermediate nodes like `SortPreservingMergeExec`.
-fn wire_thresholds_to_scan(plan: &dyn ExecutionPlan, thresholds: &Arc<SegmentedThresholds>) {
+///
+/// `sort_col_name` is used to verify we're wiring to the correct scan — only
+/// a scan whose deferred fields include the target column will be linked.
+fn wire_thresholds_to_scan(
+    plan: &dyn ExecutionPlan,
+    thresholds: &Arc<SegmentedThresholds>,
+    sort_col_name: &str,
+) {
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        scan.set_segmented_thresholds(Arc::clone(thresholds));
+        let has_target = scan
+            .deferred_fields()
+            .iter()
+            .any(|d| d.field_name == sort_col_name);
+        if has_target {
+            scan.set_segmented_thresholds(Arc::clone(thresholds));
+        }
         return;
     }
     for child in plan.children() {
-        wire_thresholds_to_scan(child.as_ref(), thresholds);
+        wire_thresholds_to_scan(child.as_ref(), thresholds, sort_col_name);
     }
 }

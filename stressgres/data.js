@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772223954459,
+  "lastUpdate": 1772223960624,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11612,6 +11612,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.76038988115921, max segment_count: 129.0, count: 57556"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "87611211+arrxy@users.noreply.github.com",
+            "name": "Aritro",
+            "username": "arrxy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4418419739b035bf9926ddfcca407710beda67b2",
+          "message": "fix: Add heap filter fallback for booltest (#4245)\n\n## Ticket(s) Closed\n\nCloses #2920\n## What\n\nAdds heap filter fallback support for BooleanTest predicates (IS TRUE,\nIS FALSE, IS NOT TRUE, IS NOT FALSE) in the custom scan qual extraction\nlogic.\n\nPreviously, when these predicates could not be pushed down to the BM25\nindex, booltest() returned None. This caused PostgreSQL to fall back to\na standard Index Scan, bypassing ParadeDB’s Custom Scan entirely.\n\nWith this change, unsupported BooleanTest predicates are converted into\nQual::HeapExpr, allowing them to be evaluated via heap filtering while\nkeeping execution inside ParadeDB’s Custom Scan.\n\n## Why\n\nEnsures queries containing BooleanTest predicates on non-indexed fields\nremain within ParadeDB’s custom scan execution pipeline instead of\nfalling back to PostgreSQL’s executor.\n\nThis preserves:\n\t•\tconsistent ParadeDB query execution\n\t•\tTantivy-based search integration\n\t•\tplanner stability and predictable execution paths\n\nand aligns BooleanTest handling with existing heap fallback behavior\nused in try_pushdown().\n\n\n## How\n\nUpdated:\n```\npg_search/src/postgres/customscan/qual_inspect.rs\n```\nChanges in booltest():\n```\n\t•\tAttempt pushdown using existing PushdownField::try_new\n\t•\tIf pushdown succeeds → return pushdown Qual\n\t•\tIf pushdown fails and filter pushdown is enabled → return Qual::HeapExpr\n\t•\tMark planner state appropriately:\n                •  state.uses_heap_expr = true;\n                • state.uses_tantivy_to_query = true;\n```\nThis enables heap-level filtering while preserving ParadeDB custom scan.\n\n## Tests\nData was created \n```\nCREATE TABLE bool_docs (\n  id SERIAL,\n  content TEXT,\n  flag BOOLEAN\n);\n\nCREATE INDEX bool_docs_idx\nON bool_docs\nUSING bm25 (id, content)\nWITH (key_field='id');\n\nINSERT INTO bool_docs (content, flag) VALUES\n('hello world', true),\n('hello parade', false),\n('other text', true);\n\n```\nManually verified using:\n```\nEXPLAIN ANALYZE\nSELECT *\nFROM t1\nWHERE content @@@ 'hello'\nAND flag IS FALSE;\n```\n\n##### Before:\n```\nIndex Scan using t1_idx\nFilter: (flag IS FALSE)\n```\n\n##### After:\n```\nCustom Scan (ParadeDB Scan)\nheap_filter\":\"(flag IS FALSE)\"\n```\n\nconfirming heap filter fallback works and ParadeDB Custom Scan is\nretained.\n\nRan existing test suite:\n```\ncargo pgrx test\n```\nNo regressions observed.\nAdditional regression tests for BooleanTest fallback can be added in a\nfollow-up PR.",
+          "timestamp": "2026-02-27T14:47:02-05:00",
+          "tree_id": "5443d681ee45e5e170995c685bbcf3a497eddbbb",
+          "url": "https://github.com/paradedb/paradedb/commit/4418419739b035bf9926ddfcca407710beda67b2"
+        },
+        "date": 1772223956062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.962885935979966, max cpu: 43.548386, count: 57593"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 232.81785458682046, max mem: 234.42578125, count: 57593"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.431287919687563, max cpu: 33.23442, count: 57593"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 175.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.34476459541523, max mem: 176.05859375, count: 57593"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34204,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33575.760682721855, max block_count: 36400.0, count: 57593"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.25650686715399, max segment_count: 127.0, count: 57593"
           }
         ]
       }

@@ -92,6 +92,9 @@ impl VisibilityChecker {
 pub struct HeapFetchState {
     pub scan: *mut pg_sys::IndexFetchTableData,
     slot: *mut pg_sys::BufferHeapTupleTableSlot,
+    // Hold a reference to the heap relation to keep it open for the lifetime of the scan.
+    // The scan stores an internal pointer to the relation, so it must not be closed early.
+    _heaprel: PgSearchRelation,
 }
 
 impl HeapFetchState {
@@ -103,6 +106,7 @@ impl HeapFetchState {
             Self {
                 scan,
                 slot: slot.cast(),
+                _heaprel: heaprel.clone(),
             }
         }
     }

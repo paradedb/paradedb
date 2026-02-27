@@ -1314,10 +1314,16 @@ unsafe fn booltest(
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
     // Note: PushdownField::try_new requires PlannerInfo
-    let root = context.planner_info()?;
-    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel);
+    // let root = context.planner_info()?;
+    let root = match context.planner_info() {
+        Some(root) => root,
+        None => return None,
+    };
+    // let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel);
 
-    if let Some(field) = field {
+    if let Some(field) =
+        PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel)
+    {
         // It's a simple field reference, handle as specific cases
         let qual = match (*booltest).booltesttype {
             pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),

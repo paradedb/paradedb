@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772220101274,
+  "lastUpdate": 1772220899402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12450,6 +12450,54 @@ window.BENCHMARK_DATA = {
             "value": 5.195335451121153,
             "unit": "median tps",
             "extra": "avg tps: 5.229842962067266, max tps: 6.611925827468963, count: 56133"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2746edf3e2b3e90e9c58dec6b0587f810a1daece",
+          "message": "fix: keep heap relation alive for the lifetime of HeapFetchState (#4248)\n\n## What\n- Potentially fixes a segfault when indexing a memory segment\n- Crash dump showed memory corruption in the `table_index_fetch_tuple`\ncall\n- It looks like `heap_fetch_state` is using a heap relation which was\nclosed by the time `table_index_fetch_tuple` is called\n\n## Why\n\n## How",
+          "timestamp": "2026-02-27T10:38:59-08:00",
+          "tree_id": "c15c278c678e97da4fc0b36c398dfdd8cc6f8b76",
+          "url": "https://github.com/paradedb/paradedb/commit/2746edf3e2b3e90e9c58dec6b0587f810a1daece"
+        },
+        "date": 1772220894798,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1109.1534024260288,
+            "unit": "median tps",
+            "extra": "avg tps: 1112.7184786804337, max tps: 1167.4549083719235, count: 56283"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1274.6460205573999,
+            "unit": "median tps",
+            "extra": "avg tps: 1266.7966709678055, max tps: 1279.018860595567, count: 56283"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1716.5829928736591,
+            "unit": "median tps",
+            "extra": "avg tps: 1712.9974910951673, max tps: 1910.3394683613712, count: 56283"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.273271729168554,
+            "unit": "median tps",
+            "extra": "avg tps: 5.322732505000815, max tps: 6.931236275783951, count: 56283"
           }
         ]
       }

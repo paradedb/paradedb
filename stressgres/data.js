@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772218866651,
+  "lastUpdate": 1772218874028,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7188,6 +7188,138 @@ window.BENCHMARK_DATA = {
             "value": 55.34765625,
             "unit": "median mem",
             "extra": "avg mem: 54.450967913452814, max mem: 67.12890625, count: 55100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2746edf3e2b3e90e9c58dec6b0587f810a1daece",
+          "message": "fix: keep heap relation alive for the lifetime of HeapFetchState (#4248)\n\n## What\n- Potentially fixes a segfault when indexing a memory segment\n- Crash dump showed memory corruption in the `table_index_fetch_tuple`\ncall\n- It looks like `heap_fetch_state` is using a heap relation which was\nclosed by the time `table_index_fetch_tuple` is called\n\n## Why\n\n## How",
+          "timestamp": "2026-02-27T10:38:59-08:00",
+          "tree_id": "c15c278c678e97da4fc0b36c398dfdd8cc6f8b76",
+          "url": "https://github.com/paradedb/paradedb/commit/2746edf3e2b3e90e9c58dec6b0587f810a1daece"
+        },
+        "date": 1772218868892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.454225841522478, max cpu: 28.68526, count: 54515"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 62.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.27892495184812, max mem: 73.34375, count: 54515"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607651217798287, max cpu: 9.275363, count: 54515"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.89483922142988, max mem: 37.734375, count: 54515"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.53359180654893, max cpu: 9.160305, count: 54515"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.26095469710172, max mem: 71.67578125, count: 54515"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6059604179062, max cpu: 9.29332, count: 109030"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.0199587412868, max mem: 70.61328125, count: 109030"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.556303169809246, max cpu: 19.393938, count: 54515"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - mem",
+            "value": 61.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.57744112858846, max mem: 72.64453125, count: 54515"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1724,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1722.0730808034486, max block_count: 3047.0, count: 54515"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.69731266623865, max segment_count: 22.0, count: 54515"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.533014728583102, max cpu: 19.315895, count: 54515"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 61.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.258769518710444, max mem: 72.3671875, count: 54515"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.553284918865119, max cpu: 4.8484845, count: 54515"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 52.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.98806915241218, max mem: 62.5546875, count: 54515"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.535841341277989, max cpu: 4.660194, count: 54515"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.768310470741994, max mem: 66.42578125, count: 54515"
           }
         ]
       }

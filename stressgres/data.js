@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772216735749,
+  "lastUpdate": 1772217045673,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2438,6 +2438,78 @@ window.BENCHMARK_DATA = {
             "value": 108.59792393231416,
             "unit": "median tps",
             "extra": "avg tps: 121.90988593661982, max tps: 253.5182952111535, count: 35937"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "121197985+pantShrey@users.noreply.github.com",
+            "name": "pantShrey",
+            "username": "pantShrey"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f2405d9493361475211f60050ad68b473e6f59f",
+          "message": "feat: implement late materialization for payload columns (#4219)\n\n# Ticket(s) Closed\n\n- Closes #4154\n\n## What\nImplements late materialization for payload columns, deferring the\ndictionary decoding of strings and bytes until after joins and limits\nhave executed.\n\n## Why\nEagerly materializing all columns before a highly selective join causes\nunnecessary CPU and memory overhead. By deferring payload decoding until\nthe result set is narrowed down by anchor nodes (like Joins and TopK\nlimits), we only pay the materialization cost for the surviving rows.\n\n## How\n\nPacked DocAddress Encoding: Instead of passing a separate routing\ncolumn, batch_scanner.rs packs the segment_ord (high 32 bits) and doc_id\n(low 32 bits) into a single UInt64 column, and that wraps that in an\nextension type Union to indicate whether the column has actually been\nmaterialized yet. This column retains the original field name to safely\npropagate through the execution graph without being dropped by the\nlogical optimizer.\n\nPhysical Optimizer Rule: LateMaterializationRule identifies anchor nodes\n(e.g., HashJoinExec, LocalLimitExec) and injects a TantivyLookupExec\ndirectly above them in the physical plan.\n\nCache-Friendly Decoding: TantivyLookupExec receives the surviving UInt64\naddresses, unpacks them, groups them by segment, sorts the doc_ids for\nsequential access, and performs the first_vals() decode.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>\nCo-authored-by: Mohammad Dashti <mdashti@gmail.com>",
+          "timestamp": "2026-02-27T10:08:40-08:00",
+          "tree_id": "fa3bd7b34a18a7e62cd62b2e82757ba484b44d03",
+          "url": "https://github.com/paradedb/paradedb/commit/4f2405d9493361475211f60050ad68b473e6f59f"
+        },
+        "date": 1772217041158,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 140.29890128730707,
+            "unit": "median tps",
+            "extra": "avg tps: 139.63970829740254, max tps: 144.46462017711187, count: 55100"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2973.5021941260297,
+            "unit": "median tps",
+            "extra": "avg tps: 2953.4910415457352, max tps: 3071.7345941069466, count: 55100"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 508.6646200100999,
+            "unit": "median tps",
+            "extra": "avg tps: 504.476021529914, max tps: 541.6071976948716, count: 55100"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2986.261219914376,
+            "unit": "median tps",
+            "extra": "avg tps: 2994.6752761270996, max tps: 3042.431116401948, count: 110200"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 559.8589670565489,
+            "unit": "median tps",
+            "extra": "avg tps: 556.6375318041721, max tps: 622.2078423076445, count: 55100"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 536.3120102678508,
+            "unit": "median tps",
+            "extra": "avg tps: 532.719256242831, max tps: 667.8101882624894, count: 55100"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1960.3721534358185,
+            "unit": "median tps",
+            "extra": "avg tps: 1952.6788107877114, max tps: 1967.5403008182705, count: 55100"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 66.2868428758763,
+            "unit": "median tps",
+            "extra": "avg tps: 61.90066169770667, max tps: 190.42151229908745, count: 55100"
           }
         ]
       }

@@ -9,7 +9,7 @@ use crate::index::fast_fields_helper::{
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 
-use arrow_array::{Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
+use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
 use arrow_array::{StructArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use arrow_select::interleave::interleave;
@@ -414,6 +414,18 @@ fn materialize_deferred_column(
         })?;
 
         process_ordinals(seg_ord, rows)?;
+    }
+
+    if segment_arrays.is_empty() {
+        // All rows were somehow unhandled — return a null array of the right type.
+        return Ok(new_null_array(
+            &if is_bytes {
+                DataType::BinaryView
+            } else {
+                DataType::Utf8View
+            },
+            num_rows,
+        ));
     }
 
     // 5. Use Arrow's interleave to perform zero-copy (for views) reassembly of the

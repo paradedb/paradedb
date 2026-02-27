@@ -590,7 +590,8 @@ fn build_source_df<'a>(
         let mut exprs = Vec::new();
         for df_field in df.schema().fields().iter() {
             let name = df_field.name();
-
+            // NOTE: Matching on WhichFastField::Ctid specifically will fail if
+            // the field list order doesn't match the DataFrame schema field order.
             let expr = match fields.iter().find(|w| w.name() == *name) {
                 Some(WhichFastField::Ctid) => {
                     make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))

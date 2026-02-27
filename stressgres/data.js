@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772221092969,
+  "lastUpdate": 1772221108372,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2654,6 +2654,78 @@ window.BENCHMARK_DATA = {
             "value": 99.71665684875484,
             "unit": "median tps",
             "extra": "avg tps: 139.73483728669243, max tps: 393.1232521985909, count: 55185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772221103840,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.65052248006802,
+            "unit": "median tps",
+            "extra": "avg tps: 128.9174213172962, max tps: 146.2677516028386, count: 55029"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2861.4206271905477,
+            "unit": "median tps",
+            "extra": "avg tps: 2848.586363108466, max tps: 2870.705792011414, count: 55029"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 410.3698181534908,
+            "unit": "median tps",
+            "extra": "avg tps: 411.39406974567675, max tps: 615.8544965743606, count: 55029"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2896.2558903778004,
+            "unit": "median tps",
+            "extra": "avg tps: 2938.345112892246, max tps: 3022.1913444065735, count: 110058"
+          },
+          {
+            "name": "Mixed Fast Field Scan - Primary - tps",
+            "value": 536.8278397331551,
+            "unit": "median tps",
+            "extra": "avg tps: 537.5069763766625, max tps: 662.730235099714, count: 55029"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 481.7814340774085,
+            "unit": "median tps",
+            "extra": "avg tps: 483.4502688800732, max tps: 688.7336526197828, count: 55029"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1962.0560815111635,
+            "unit": "median tps",
+            "extra": "avg tps: 1954.0120221672128, max tps: 1965.3820524537794, count: 55029"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 87.04366573000428,
+            "unit": "median tps",
+            "extra": "avg tps: 120.73211528880059, max tps: 229.1793077530398, count: 55029"
           }
         ]
       }

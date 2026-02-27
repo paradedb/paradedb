@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772221961790,
+  "lastUpdate": 1772222112410,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9058,6 +9058,42 @@ window.BENCHMARK_DATA = {
             "value": 5.347904264119342,
             "unit": "median tps",
             "extra": "avg tps: 4.791283656811029, max tps: 6.064956188808533, count: 57724"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772222107558,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.81768035323791,
+            "unit": "median tps",
+            "extra": "avg tps: 6.6865574904478535, max tps: 10.114287839590478, count: 57556"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.293189280520635,
+            "unit": "median tps",
+            "extra": "avg tps: 4.7592032945290255, max tps: 5.938995274507846, count: 57556"
           }
         ]
       }

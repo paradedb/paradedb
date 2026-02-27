@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772223148466,
+  "lastUpdate": 1772223154783,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17170,6 +17170,108 @@ window.BENCHMARK_DATA = {
             "value": 162.328125,
             "unit": "median mem",
             "extra": "avg mem: 180.69506637463311, max mem: 220.77734375, count: 56215"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ppratik@umich.edu",
+            "name": "Pratik Patil",
+            "username": "quantitativepratik"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccf5780581cd4eabdc96973862d1aaf736d0f208",
+          "message": "perf: batch spinlock acquisition in parallel checkout (#3871)\n\n# Ticket(s) Closed\n\n- Closes #3851 \n\n## What\nRefactors ParallelAggregationWorker::checkout_segments to utilize a\nbatched checkout strategy.\n\n## Why\nPreviously, the worker would acquire the state.mutex spinlock for every\nsingle segment iteration (O(N) lock acquisitions). In high-concurrency\nscenarios, this creates unnecessary lock contention.\n\n## How\nThe new implementation calculates the required segment range upfront and\nacquires the lock once per worker (O(1) lock acquisitions). It then\nupdates the shared remaining_segments state in a single critical section\nbefore releasing the lock.\n\n## Tests\n\n- Verified the build passes locally with cargo check and cargo pgrx\ncheck.\n- Verified that pgrx environment initializes correctly with Postgres 14.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2026-02-27T11:16:26-08:00",
+          "tree_id": "6c6ddecd092add968b0fd7f6be84b7fd2a18abf9",
+          "url": "https://github.com/paradedb/paradedb/commit/ccf5780581cd4eabdc96973862d1aaf736d0f208"
+        },
+        "date": 1772223150067,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07783423927477469, max background_merging: 2.0, count: 56479"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708491680850018, max cpu: 9.60961, count: 56479"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.56853439165442, max mem: 28.66796875, count: 56479"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.874689106491346, max cpu: 32.621357, count: 56479"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 180.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.42182209040087, max mem: 184.9140625, count: 56479"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51440,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51301.89259724854, max block_count: 51440.0, count: 56479"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.953717310858906, max segment_count: 56.0, count: 56479"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768857597450515, max cpu: 27.934044, count: 56479"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 154.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 144.8932610738062, max mem: 167.0078125, count: 56479"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8096753998519075, max cpu: 27.961164, count: 56479"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.1296286562262, max mem: 186.25390625, count: 56479"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.61047256901005, max cpu: 33.366436, count: 56479"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 162.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.21592545736027, max mem: 220.6875, count: 56479"
           }
         ]
       }

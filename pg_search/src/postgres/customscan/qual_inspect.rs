@@ -769,7 +769,7 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, indexrel, state),
+        pg_sys::NodeTag::T_BooleanTest => booltest(context, node, rti, indexrel, state),
 
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
@@ -1305,6 +1305,7 @@ unsafe fn contains_param(root: *mut pg_sys::Node) -> bool {
 unsafe fn booltest(
     context: &PlannerContext,
     node: *mut pg_sys::Node,
+    rti: pg_sys::Index,
     indexrel: &PgSearchRelation,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
@@ -1315,26 +1316,38 @@ unsafe fn booltest(
     // For complex expressions, the optimizer will evaluate the condition later
     // Note: PushdownField::try_new requires PlannerInfo
     let root = context.planner_info()?;
-    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel)?;
 
-    // It's a simple field reference, handle as specific cases
-    let qual = match (*booltest).booltesttype {
-        pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
-        pg_sys::BoolTestType::IS_NOT_FALSE => {
-            Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+    if let Some(field) = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel) {
+        // It's a simple field reference, handle as specific cases
+        let qual = match (*booltest).booltesttype {
+            pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
+            pg_sys::BoolTestType::IS_NOT_FALSE => {
+                Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
+            }
+            pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
+            pg_sys::BoolTestType::IS_NOT_TRUE => {
+                Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
+            }
+            _ => None,
+        };
+        if qual.is_some() {
+            state.uses_tantivy_to_query = true;
         }
-        pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
-        pg_sys::BoolTestType::IS_NOT_TRUE => {
-            Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
-        }
-        _ => None,
-    };
-
-    if qual.is_some() {
-        state.uses_tantivy_to_query = true;
+        return qual;
     }
 
-    qual
+    // Fallback: If the field isn't indexed but references our relation,
+    // evaluate the boolean test via heap access instead of abandoning the custom scan.
+    if gucs::enable_filter_pushdown() && contains_relation_reference(node, rti) {
+        state.uses_heap_expr = true;
+        state.uses_tantivy_to_query = true;
+        return Some(Qual::HeapExpr {
+            expr_node: node,
+            expr_desc: deparse_expr(Some(context), indexrel, node),
+            search_query_input: Box::new(SearchQueryInput::All),
+        });
+    }
+    None
 }
 
 /// Extract join-level search predicates that are relevant for snippet/score generation

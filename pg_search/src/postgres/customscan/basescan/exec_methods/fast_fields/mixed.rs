@@ -439,6 +439,8 @@ impl MixedFastFieldExecState {
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
             None,
+            Vec::new(),
+            None,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

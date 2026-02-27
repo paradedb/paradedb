@@ -176,7 +176,9 @@ pub fn create_session_context() -> SessionContext {
         builder =
             builder.with_physical_optimizer_rule(Arc::new(FilterPushdown::new_post_optimization()));
     }
-
+    builder = builder.with_physical_optimizer_rule(Arc::new(
+        crate::scan::late_materialization_rule::LateMaterializationRule,
+    ));
     let state = builder.build();
     SessionContext::new_with_state(state)
 }
@@ -242,7 +244,13 @@ fn build_clause_df<'a>(
         };
 
         // 1. Start with the first source
-        let mut df = build_source_df(ctx, &join_clause.sources[0], partitioning_idx == 0).await?;
+        let mut df = build_source_df(
+            ctx,
+            &join_clause.sources[0],
+            join_clause,
+            partitioning_idx == 0,
+        )
+        .await?;
         let alias0 = join_clause.sources[0].execution_alias(0);
         df = df.alias(&alias0)?;
 
@@ -253,7 +261,8 @@ fn build_clause_df<'a>(
         // 2. Iteratively join subsequent sources
         for i in 1..join_clause.sources.len() {
             let right_source = &join_clause.sources[i];
-            let right_df = build_source_df(ctx, right_source, partitioning_idx == i).await?;
+            let right_df =
+                build_source_df(ctx, right_source, join_clause, partitioning_idx == i).await?;
             let alias_right = right_source.execution_alias(i);
             let right_df = right_df.alias(&alias_right)?;
 
@@ -540,39 +549,57 @@ fn build_projection_expr(
 fn build_source_df<'a>(
     ctx: &'a SessionContext,
     source: &'a JoinSource,
+    join_clause: &'a JoinCSClause,
     is_parallel: bool,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
-        let scan_info = source.scan_info.clone();
-        let source_alias = source.scan_info.alias.clone();
-        let alias = source_alias.as_deref().unwrap_or("base");
-        let fields: Vec<WhichFastField> = source
-            .scan_info
-            .fields
-            .iter()
-            .map(|f| f.field.clone())
-            .collect();
-        let provider = Arc::new(PgSearchTableProvider::new(
-            scan_info,
-            fields.clone(),
-            None,
-            is_parallel,
-        ));
-        ctx.register_table(alias, provider)?;
+        let scan_info = &source.scan_info;
+        let alias = scan_info.alias.as_deref().unwrap_or("base");
+        let fields: Vec<WhichFastField> =
+            scan_info.fields.iter().map(|f| f.field.clone()).collect();
+        let mut required_early: crate::api::HashSet<String> = Default::default();
+        for jk in &join_clause.join_keys {
+            if source.contains_rti(jk.outer_rti) {
+                if let Some(col) = source.column_name(jk.outer_attno) {
+                    required_early.insert(col);
+                }
+            }
+            if source.contains_rti(jk.inner_rti) {
+                if let Some(col) = source.column_name(jk.inner_attno) {
+                    required_early.insert(col);
+                }
+            }
+        }
+        let mut provider =
+            PgSearchTableProvider::new(scan_info.clone(), fields.clone(), None, is_parallel);
+
+        if let Some(ref sort_order) = scan_info.sort_order {
+            required_early.insert(sort_order.field_name.as_ref().to_string());
+        }
+        provider.try_enable_late_materialization(&required_early);
+
+        let provider = Arc::new(provider);
+        ctx.register_table(
+            alias,
+            provider.clone() as Arc<dyn datafusion::catalog::TableProvider>,
+        )?;
 
         let mut df = ctx.table(alias).await?;
 
         // Select fields AND ensure CTID is aliased uniquely
         let mut exprs = Vec::new();
-        for (df_field, field_type) in df.schema().fields().iter().zip(fields.iter()) {
-            let expr = match field_type {
-                WhichFastField::Ctid => {
-                    let rti = source.scan_info.heap_rti;
-                    make_col(alias, df_field.name()).alias(format!("ctid_{}", rti))
+        for df_field in df.schema().fields().iter() {
+            let name = df_field.name();
+            // NOTE: Matching on WhichFastField::Ctid specifically will fail if
+            // the field list order doesn't match the DataFrame schema field order.
+            let expr = match fields.iter().find(|w| w.name() == *name) {
+                Some(WhichFastField::Ctid) => {
+                    make_col(alias, name).alias(format!("ctid_{}", scan_info.heap_rti))
                 }
-                WhichFastField::Score => make_col(alias, df_field.name()).alias(SCORE_COL_NAME),
-                _ => make_col(alias, df_field.name()),
+                Some(WhichFastField::Score) => make_col(alias, name).alias(SCORE_COL_NAME),
+                _ => make_col(alias, name),
             };
+
             exprs.push(expr);
         }
         df = df.select(exprs)?;

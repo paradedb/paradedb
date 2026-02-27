@@ -15,7 +15,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.21.9",
+        "version": "v0.21.10",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -77,7 +77,8 @@
                               "documentation/tokenizers/available-tokenizers/source-code"
                             ]
                           },
-                          "documentation/tokenizers/multiple-per-field"
+                          "documentation/tokenizers/multiple-per-field",
+                          "documentation/tokenizers/search-tokenizer"
                         ]
                       },
                       {
@@ -325,6 +326,7 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.21.10",
                   "changelog/0.21.9",
                   "changelog/0.21.8",
                   "changelog/0.21.7",

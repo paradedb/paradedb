@@ -16,12 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+
+use crate::api::HashMap;
 
 thread_local! {
     /// Global collector for planner warnings to deduplicate them across the query planning phase.
     /// Maps Category -> Generic warning message -> Set of contexts (e.g., table names/aliases)
-    static PLANNER_WARNINGS: RefCell<HashMap<String, HashMap<String, BTreeSet<String>>>> = RefCell::new(HashMap::new());
+    static PLANNER_WARNINGS: RefCell<HashMap<String, HashMap<String, BTreeSet<String>>>> =
+      RefCell::new(HashMap::default());
 }
 
 /// Trait to convert various types into a list of warning contexts (strings).

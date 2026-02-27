@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772222118770,
+  "lastUpdate": 1772222843819,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24274,6 +24274,54 @@ window.BENCHMARK_DATA = {
             "value": 538.3199650605076,
             "unit": "median tps",
             "extra": "avg tps: 507.40534510049093, max tps: 724.6338413877064, count: 107824"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2746edf3e2b3e90e9c58dec6b0587f810a1daece",
+          "message": "fix: keep heap relation alive for the lifetime of HeapFetchState (#4248)\n\n## What\n- Potentially fixes a segfault when indexing a memory segment\n- Crash dump showed memory corruption in the `table_index_fetch_tuple`\ncall\n- It looks like `heap_fetch_state` is using a heap relation which was\nclosed by the time `table_index_fetch_tuple` is called\n\n## Why\n\n## How",
+          "timestamp": "2026-02-27T10:38:59-08:00",
+          "tree_id": "c15c278c678e97da4fc0b36c398dfdd8cc6f8b76",
+          "url": "https://github.com/paradedb/paradedb/commit/2746edf3e2b3e90e9c58dec6b0587f810a1daece"
+        },
+        "date": 1772222839072,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 573.8827372613986,
+            "unit": "median tps",
+            "extra": "avg tps: 576.4816654778429, max tps: 691.5130280647716, count: 53926"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 634.8109636918017,
+            "unit": "median tps",
+            "extra": "avg tps: 638.8288636507096, max tps: 848.6758472228827, count: 53926"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.31446317819031,
+            "unit": "median tps",
+            "extra": "avg tps: 91.4617571718357, max tps: 101.34902880625792, count: 53926"
+          },
+          {
+            "name": "Top N - Subscriber - tps",
+            "value": 550.0739068066003,
+            "unit": "median tps",
+            "extra": "avg tps: 495.3765810753814, max tps: 718.9027188721102, count: 107852"
           }
         ]
       }

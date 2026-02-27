@@ -30,10 +30,11 @@
 //! top rows, reducing input to `TantivyLookupExec` from N to at most
 //! `K * num_segments`.
 //!
-//! The node uses `EmissionType::Incremental` — each input batch is filtered and
-//! emitted immediately using persistent per-segment heaps. This allows the
-//! downstream `SortExec` to start processing early and enables its dynamic
-//! filter feedback loop for progressive scan pruning.
+//! The node uses `EmissionType::Final` — it collects all input batches while
+//! progressively updating per-segment heaps and publishing ordinal thresholds
+//! back to the scanner. Only after all input is consumed does it emit filtered
+//! batches containing the exact top-K rows per segment. This ensures only the
+//! minimum necessary rows flow to `TantivyLookupExec` for dictionary decoding.
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
@@ -147,7 +148,7 @@ impl SegmentedTopKExec {
         let properties = PlanProperties::new(
             eq_props,
             input.properties().output_partitioning().clone(),
-            EmissionType::Incremental,
+            EmissionType::Final,
             Boundedness::Bounded,
         );
         Self {
@@ -233,6 +234,9 @@ impl ExecutionPlan for SegmentedTopKExec {
                 schema: self.properties.eq_properties.schema().clone(),
                 segment_heaps: HashMap::default(),
                 thresholds: Arc::clone(&self.thresholds),
+                batches: Vec::new(),
+                always_keep: Vec::new(),
+                state: StreamState::Collecting,
                 rows_input,
                 rows_output,
                 segments_seen,
@@ -246,6 +250,42 @@ impl ExecutionPlan for SegmentedTopKExec {
     }
 }
 
+/// Entry in the per-segment bounded heap.
+/// Stores the transformed ordinal along with the batch/row location so that
+/// the final survivor set can be built after all input is consumed.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct HeapEntry {
+    heap_val: u64,
+    batch_idx: usize,
+    row_idx: usize,
+}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.heap_val
+            .cmp(&other.heap_val)
+            .then(self.batch_idx.cmp(&other.batch_idx))
+            .then(self.row_idx.cmp(&other.row_idx))
+    }
+}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+enum StreamState {
+    /// Collecting input batches while updating heaps and publishing thresholds.
+    Collecting,
+    /// Emitting filtered batches from the final survivor set.
+    Emitting {
+        survivors: crate::api::HashSet<(usize, usize)>,
+        next_batch: usize,
+    },
+    Done,
+}
+
 struct SegmentedTopKStream {
     input: SendableRecordBatchStream,
     sort_col_idx: usize,
@@ -254,11 +294,15 @@ struct SegmentedTopKStream {
     k: usize,
     descending: bool,
     schema: SchemaRef,
-    /// Persistent per-segment heaps. Each heap stores at most K ordinals
-    /// (transformed via `heap_ord` for unified max-heap comparison).
-    segment_heaps: HashMap<u32, BinaryHeap<u64>>,
+    /// Persistent per-segment heaps tracking the top-K entries across all batches.
+    segment_heaps: HashMap<u32, BinaryHeap<HeapEntry>>,
     /// Shared thresholds published back to the scanner for early pruning.
     thresholds: Arc<SegmentedThresholds>,
+    /// Buffered batches during the collection phase.
+    batches: Vec<RecordBatch>,
+    /// State 2 (already materialized) rows — always survive regardless of heaps.
+    always_keep: Vec<(usize, usize)>,
+    state: StreamState,
     rows_input: Count,
     rows_output: Count,
     /// Counts segments that had rows participating in ordinal comparison (States 0+1).
@@ -267,11 +311,11 @@ struct SegmentedTopKStream {
 }
 
 impl SegmentedTopKStream {
-    /// Process a single batch: filter rows against persistent per-segment heaps and return
-    /// only the surviving rows.
-    fn process_batch(&mut self, batch: &RecordBatch) -> Result<RecordBatch> {
+    /// Ingest a single batch: extract ordinals, update per-segment heaps,
+    /// publish thresholds, and record always-keep rows. The batch itself is
+    /// buffered for the emission phase.
+    fn collect_batch(&mut self, batch: &RecordBatch, batch_idx: usize) -> Result<()> {
         let num_rows = batch.num_rows();
-        let mut keep = vec![false; num_rows];
 
         let union_col = batch
             .column(self.sort_col_idx)
@@ -350,7 +394,7 @@ impl SegmentedTopKStream {
                         .push((row_idx, term_ord));
                 }
                 2 => {
-                    keep[row_idx] = true;
+                    self.always_keep.push((batch_idx, row_idx));
                 }
                 _ => unreachable!("Invalid Union state"),
             }
@@ -372,7 +416,7 @@ impl SegmentedTopKStream {
                 _ => {
                     // Not a dictionary column; keep all rows from this segment.
                     for (row_idx, _) in rows {
-                        keep[row_idx] = true;
+                        self.always_keep.push((batch_idx, row_idx));
                     }
                     continue;
                 }
@@ -392,7 +436,7 @@ impl SegmentedTopKStream {
             .count();
         self.segments_seen.add(new_segments);
 
-        // Filter rows against persistent per-segment heaps.
+        // Update persistent per-segment heaps.
         let descending = self.descending;
         let k = self.k;
         for (seg_ord, rows) in with_ords {
@@ -400,19 +444,22 @@ impl SegmentedTopKStream {
 
             for (row_idx, ord) in rows {
                 if ord == NULL_TERM_ORDINAL {
-                    keep[row_idx] = true;
+                    self.always_keep.push((batch_idx, row_idx));
                     continue;
                 }
 
                 let heap_val = if descending { !ord } else { ord };
+                let entry = HeapEntry {
+                    heap_val,
+                    batch_idx,
+                    row_idx,
+                };
                 if heap.len() < k {
-                    heap.push(heap_val);
-                    keep[row_idx] = true;
+                    heap.push(entry);
                 } else if let Some(&worst) = heap.peek() {
-                    if heap_val < worst {
+                    if heap_val < worst.heap_val {
                         heap.pop();
-                        heap.push(heap_val);
-                        keep[row_idx] = true;
+                        heap.push(entry);
                     }
                 }
             }
@@ -421,15 +468,30 @@ impl SegmentedTopKStream {
         // Publish thresholds for segments with full heaps.
         for (seg_ord, heap) in &self.segment_heaps {
             if heap.len() >= self.k {
-                let worst = *heap.peek().unwrap();
+                let worst = heap.peek().unwrap().heap_val;
                 let threshold = if self.descending { !worst } else { worst };
                 self.thresholds.set_threshold(*seg_ord, threshold);
             }
         }
 
-        let mask: BooleanArray = keep.into_iter().map(Some).collect();
-        filter_record_batch(batch, &mask)
-            .map_err(|e| datafusion::common::DataFusionError::ArrowError(Box::new(e), None))
+        Ok(())
+    }
+
+    /// Build the final survivor set from the heaps and always-keep rows.
+    fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
+        let mut survivors = crate::api::HashSet::default();
+
+        for &(batch_idx, row_idx) in &self.always_keep {
+            survivors.insert((batch_idx, row_idx));
+        }
+
+        for heap in self.segment_heaps.values() {
+            for entry in heap.iter() {
+                survivors.insert((entry.batch_idx, entry.row_idx));
+            }
+        }
+
+        survivors
     }
 }
 
@@ -440,22 +502,55 @@ impl Stream for SegmentedTopKStream {
         let this = self.get_mut();
 
         loop {
-            match Pin::new(&mut this.input).poll_next(cx) {
-                Poll::Ready(Some(Ok(batch))) => {
-                    this.rows_input.add(batch.num_rows());
-                    let filtered = match this.process_batch(&batch) {
-                        Ok(f) => f,
-                        Err(e) => return Poll::Ready(Some(Err(e))),
-                    };
-                    if filtered.num_rows() > 0 {
-                        this.rows_output.add(filtered.num_rows());
-                        return Poll::Ready(Some(Ok(filtered)));
+            match &mut this.state {
+                StreamState::Collecting => {
+                    match Pin::new(&mut this.input).poll_next(cx) {
+                        Poll::Ready(Some(Ok(batch))) => {
+                            this.rows_input.add(batch.num_rows());
+                            let batch_idx = this.batches.len();
+                            if let Err(e) = this.collect_batch(&batch, batch_idx) {
+                                return Poll::Ready(Some(Err(e)));
+                            }
+                            this.batches.push(batch);
+                        }
+                        Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
+                        Poll::Ready(None) => {
+                            // Input exhausted — build survivor set and transition.
+                            let survivors = this.build_survivors();
+                            this.state = StreamState::Emitting {
+                                survivors,
+                                next_batch: 0,
+                            };
+                        }
+                        Poll::Pending => return Poll::Pending,
                     }
-                    // All rows pruned in this batch — try next.
                 }
-                Poll::Ready(Some(Err(e))) => return Poll::Ready(Some(Err(e))),
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Pending => return Poll::Pending,
+                StreamState::Emitting {
+                    survivors,
+                    next_batch,
+                } => {
+                    while *next_batch < this.batches.len() {
+                        let batch_idx = *next_batch;
+                        *next_batch += 1;
+                        let batch = &this.batches[batch_idx];
+                        let num_rows = batch.num_rows();
+
+                        let mask: BooleanArray = (0..num_rows)
+                            .map(|row_idx| Some(survivors.contains(&(batch_idx, row_idx))))
+                            .collect();
+
+                        let filtered = filter_record_batch(batch, &mask)
+                            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))?;
+
+                        if filtered.num_rows() > 0 {
+                            this.rows_output.add(filtered.num_rows());
+                            return Poll::Ready(Some(Ok(filtered)));
+                        }
+                    }
+                    this.state = StreamState::Done;
+                    return Poll::Ready(None);
+                }
+                StreamState::Done => return Poll::Ready(None),
             }
         }
     }
